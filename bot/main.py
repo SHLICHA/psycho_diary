@@ -1,0 +1,101 @@
+import asyncio
+import logging
+from aiogram import Bot, Dispatcher
+from aiogram.enums import ParseMode
+from decouple import config
+
+# Настройка логирования на русском
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Импорты handlers
+from bot.handlers import all_routers
+
+# Импорты middleware
+from bot.middlewares.user_middleware import UserMiddleware
+from bot.middlewares.language_middleware import LanguageMiddleware
+from bot.middlewares.rate_limit_middleware import RateLimitMiddleware
+from bot.middlewares.analytics_middleware import AnalyticsMiddleware
+
+async def main():
+    """Основная функция запуска бота"""
+    logger.info("Запуск психо-дневника...")
+    
+    # Проверяем, что токен есть
+    bot_token = config('TELEGRAM_BOT_TOKEN')
+    if not bot_token:
+        logger.error("TELEGRAM_BOT_TOKEN не найден")
+        return
+    
+    logger.info("Bot token найден")
+    
+    # Инициализация бота
+    bot = Bot(
+        token=bot_token,
+        parse_mode=ParseMode.HTML
+    )
+    
+    # Инициализация диспетчера с хранилищем состояний
+    from aiogram.fsm.storage.memory import MemoryStorage
+    storage = MemoryStorage()
+    dp = Dispatcher(storage=storage)
+    logger.info("Memory storage инициализирован")
+    
+    # === Регистрация middleware (в правильном порядке) ===
+    logger.info("Регистрация middleware...")
+    
+    # 1. UserMiddleware - регистрация пользователей
+    user_middleware = UserMiddleware()
+    dp.message.middleware(user_middleware)
+    dp.callback_query.middleware(user_middleware)
+    logger.info("UserMiddleware зарегистрирован")
+    
+    # 2. LanguageMiddleware - определение языка
+    language_middleware = LanguageMiddleware()
+    dp.message.middleware(language_middleware)
+    dp.callback_query.middleware(language_middleware)
+    logger.info("LanguageMiddleware зарегистрирован")
+    
+    # 3. RateLimitMiddleware - ограничение частоты запросов
+    rate_limit_middleware = RateLimitMiddleware()
+    dp.message.middleware(rate_limit_middleware)
+    logger.info("RateLimitMiddleware зарегистрирован")
+    
+    # 4. AnalyticsMiddleware - сбор аналитики (последним)
+    analytics_middleware = AnalyticsMiddleware()
+    dp.message.middleware(analytics_middleware)
+    dp.callback_query.middleware(analytics_middleware)
+    logger.info("AnalyticsMiddleware зарегистрирован")
+    
+    logger.info("Все middleware зарегистрированы")
+    
+    # === Регистрация handlers ===
+    logger.info("Регистрация handlers...")
+    
+    # Регистрируем все роутеры
+    for router in all_routers:
+        dp.include_router(router)
+        logger.info(f"Зарегистрирован router с {len(router.message.handlers)} message handlers")
+    
+    logger.info("Все handlers зарегистрированы")
+    logger.info("Bot инициализирован успешно")
+    
+    try:
+        logger.info("Запуск polling...")
+        # Запуск polling
+        await dp.start_polling(bot)
+    except Exception as e:
+        logger.error(f"Bot остановлен с ошибкой: {e}")
+    finally:
+        logger.info("Bot shutdown завершен")
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Bot остановлен пользователем")
+    except Exception as e:
+        print(f"Bot остановлен с ошибкой: {e}")

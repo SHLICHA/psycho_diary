@@ -1,0 +1,1019 @@
+"""
+Многоязычные сообщения для бота
+Расширенная система с поддержкой всех сценариев
+"""
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Основные сообщения
+MESSAGES = {
+    'ru': {
+        # === Приветствия и основные сообщения ===
+        'welcome': '''🧠 <b>Привет! Это твой психологический дневник.</b>
+
+Здесь ты можешь вести записи о своих днях, а я помогу тебе понять свои эмоции и мысли.
+
+Я буду твоим цифровым психологом, который запомнит твои особенности и станет лучше понимать тебя с каждым днем.
+
+Начнем?''',
+        
+        'welcome_back': '👋 С возвращением, {username}! Рад снова видеть тебя.',
+        
+        # === Создание записей ===
+        'ask_entry': '📝 <b>Расскажи, как прошёл твой день...</b>',
+        'ask_voice_entry': '🎙 <b>Отправь голосовое сообщение о своём дне...</b>',
+        'processing': '⏳ <i>Обрабатываю твою запись...</i>',
+        'entry_saved': '''✅ <b>Запись сохранена и проанализирована!</b>
+
+📊 <b>Оценка дня:</b> {score}/10 - {mood}
+💭 <b>Комментарий:</b> {comment}
+🎯 <b>Рекомендация:</b> {recommendation}''',
+        
+        # === Сообщения об ошибках ===
+        'error_processing': '❌ Произошла ошибка при обработке. Попробуйте позже.',
+        'rate_limit': '🕐 Пожалуйста, подожди немного перед следующей записью.',
+        'rate_limit_exceeded': '⚠️ Вы превысили лимит сообщений. Пожалуйста, подождите немного.',
+        'error_generic': '❌ Произошла ошибка. Попробуйте позже.',
+        'voice_too_long': '🎙 Голосовое сообщение слишком длинное. Пожалуйста, отправь сообщение короче 2 минут.',
+        'voice_too_short': '🎙 Голосовое сообщение слишком короткое. Пожалуйста, отправь более длинное сообщение.',
+        'text_too_long': '📝 Текст слишком длинный. Пожалуйста, сократи его до 5000 символов.',
+        'invalid_input': '🤔 Не понял твое сообщение. Пожалуйста, отправь текст или голосовое сообщение.',
+        
+        # === Меню и навигация ===
+        'main_menu': '''🧠 <b>Твой психологический дневник</b>
+
+Выбери действие:''',
+        
+        'settings_menu': '''⚙️ <b>Настройки</b>
+
+Здесь ты можешь настроить работу дневника под себя:''',
+        
+        'archive_menu': '📅 <b>Архив записей</b>',
+        'tasks_menu': '🎯 <b>Мои задания</b>',
+        'progress_menu': '📊 <b>Мой прогресс</b>',
+        
+        # === Кнопки меню ===
+        'btn_new_entry': '📝 Новая запись',
+        'btn_archive': '📅 Архив',
+        'btn_tasks': '🎯 Задания',
+        'btn_progress': '📊 Прогресс',
+        'btn_settings': '⚙️ Настройки',
+        'btn_help': '❓ Помощь',
+        'btn_back': '🔙 Назад',
+        'btn_cancel': '❌ Отмена',
+        
+        # === Кнопки для записей ===
+        'btn_text_entry': '✍️ Текстовая запись',
+        'btn_voice_entry': '🎙 Голосовая запись',
+        'btn_view_entry': '👁 Просмотреть',
+        'btn_delete_entry': '🗑 Удалить',
+        'btn_analyze_again': '🔄 Перевыполнить анализ',
+        'btn_edit_entry': '✏️ Редактировать',
+        'btn_view_history': '👁 Просмотреть историю',
+        
+        # === Настройки ===
+        'settings_language': '🌍 Язык: {language}',
+        'settings_notifications': '🔔 Уведомления: {status}',
+        'settings_auto_analysis': '📈 Автоанализ: {status}',
+        'settings_premium': '👑 Премиум: {status}',
+        
+        'language_changed': '✅ Язык успешно изменен на {language}',
+        'notifications_enabled': '✅ Уведомления включены',
+        'notifications_disabled': '✅ Уведомления отключены',
+
+        'settings_timezone': '🌍 Часовой пояс: {timezone}',
+        'timezone_changed': '✅ Часовой пояс успешно изменен на {timezone}',
+        'timezone_not_changed': '❌ Не удалось изменить часовой пояс. Попробуйте еще раз.',
+        
+        # === Сообщения для выбора часового пояса ===
+        'ask_timezone_selection': '🌍 <b>Выберите свой часовой пояс</b>\n\nТекущий пояс: {current_timezone}\n\nВы можете выбрать из списка популярных поясов или ввести свой.',
+        'btn_select_common_timezones': '📋 Выбрать из списка',
+        'btn_enter_custom_timezone': '✍️ Ввести вручную',
+        'btn_detect_timezone': '🧭 Определить автоматически', # Если будет реализовано позже
+        
+        # === Сообщения для списка часовых поясов ===
+        'select_timezone_title': '🌍 <b>Выберите свой часовой пояс</b>\n\nТекущий пояс: {current_timezone}',
+        'btn_timezone_utc': 'UTC',
+        'btn_timezone_moscow': 'Europe/Moscow (MSK)',
+        'btn_timezone_yekaterinburg': 'Asia/Yekaterinburg',
+        'btn_timezone_omsk': 'Asia/Omsk',
+        'btn_timezone_krasnoyarsk': 'Asia/Krasnoyarsk',
+        'btn_timezone_irkutsk': 'Asia/Irkutsk',
+        'btn_timezone_yakutsk': 'Asia/Yakutsk',
+        'btn_timezone_vladivostok': 'Asia/Vladivostok',
+        'btn_timezone_magadan': 'Asia/Magadan',
+        # Можно добавить и другие популярные мировые пояса
+        'btn_timezone_new_york': 'America/New_York (EST/EDT)',
+        'btn_timezone_london': 'Europe/London (GMT/BST)',
+        'btn_timezone_berlin': 'Europe/Berlin (CET/CEST)',
+        'btn_timezone_tokyo': 'Asia/Tokyo (JST)',
+        
+        # === Сообщения для ручного ввода ===
+        'ask_enter_custom_timezone': '✍️ <b>Введите свой часовой пояс</b>\n\nВведите идентификатор часового пояса (например, `Europe/Moscow`, `America/New_York`).\n\nТекущий пояс: {current_timezone}',
+        'error_invalid_timezone': '❌ Неверный формат часового пояса. Пожалуйста, используйте формат `Region/City` (например, `Europe/Moscow`).',
+        'error_unknown_timezone': '❌ Указанный часовой пояс не найден. Пожалуйста, проверьте введённое значение.',
+        'ask_entry_edit': '📝 <b>Отредактируйте свою запись:</b>\n\n<i>Текущий текст:</i>\n{old_text}',
+        'entry_updated': '✅ <b>Запись обновлена!</b>\n\n📊 <b>Оценка дня:</b> {score}/10 - {mood}\n💭 <b>Комментарий:</b> {comment}\n🎯 <b>Рекомендация:</b> {recommendation}',
+        
+        # === Статусы ===
+        'status_enabled': 'ВКЛ',
+        'status_disabled': 'ВЫКЛ',
+        'status_active': 'Активен',
+        'status_inactive': 'Неактивен',
+        
+        # === Архив ===
+        'archive_empty': '📭 У тебя пока нет записей в дневнике.',
+        'archive_select_year': '📅 Выбери год:',
+        'archive_select_month': '📅 Выбери месяц {year}:',
+        'archive_select_day': '📅 Выбери день {month}.{year}:',
+        'archive_entry': '''📅 <b>Запись от {date}</b>
+
+📝 <b>Текст:</b>
+{text}
+
+📊 <b>Оценка:</b> {score}/10 - {mood}
+💭 <b>Анализ:</b> {analysis}''',
+        
+        # === Задания ===
+        'task_assigned': '''🎯 <b>Новое задание!</b>
+
+<b>{title}</b>
+
+{description}''',
+        
+        'task_completed_success': '''🎉 <b>Прекрасно!</b>
+
+Твой ответ сохранен. Я учту это в дальнейшем анализе.
+
+{feedback}''',
+        
+        'task_no_active': '📭 У тебя нет активных заданий.',
+        'task_skipped': '⏭ Задание пропущено.',
+        'task_deleted': '🗑 Задание удалено.',
+        
+        # === Кнопки заданий ===
+        'btn_complete_task': '✅ Выполнить',
+        'btn_skip_task': '⏭ Пропустить',
+        'btn_delete_task': '🗑 Удалить',
+        'btn_view_task': '👁 Посмотреть',
+        
+        # === Прогресс ===
+        'progress_title': '''📊 <b>Твой прогресс</b>
+
+📈 <b>Уровень осознанности:</b> {awareness_level}/10
+📝 <b>Всего записей:</b> {entries_count}
+🎯 <b>Выполнено заданий:</b> {tasks_completed}
+📅 <b>Дней подряд:</b> {streak_days}''',
+        
+        'progress_detailed': '''📊 <b>Подробная статистика</b>
+
+📉 <b>Динамика настроения:</b>
+{mood_chart}
+
+🔥 <b>Частые темы:</b>
+{frequent_themes}
+
+💡 <b>Новые инсайты:</b>
+{new_insights}''',
+        
+        # === Помощь ===
+        'help_text': '''❓ <b>Помощь по дневнику</b>
+
+📝 <b>Как вести записи:</b>
+• Отправь текстовое или голосовое сообщение
+• Опиши свой день честно и подробно
+• Бот проанализирует твою запись
+
+🎯 <b>Задания:</b>
+• Выполняй персональные задания
+• Отмечай выполнение в боте
+• Получай персональную обратную связь
+
+📊 <b>Прогресс:</b>
+• Отслеживай свой рост
+• Анализируй динамику
+• Развивай осознанность
+
+⚙️ <b>Настройки:</b>
+• Выбери удобный язык
+• Настрой уведомления
+• Управляй приватностью
+
+Нужна дополнительная помощь? Обратись к своему психологу!''',
+        
+        # === Оценки настроения ===
+        'mood_1': 'ужасно 😰',
+        'mood_2': 'очень плохо 😟',
+        'mood_3': 'плохо 😞',
+        'mood_4': 'немного плохо 😕',
+        'mood_5': 'нормально 😐',
+        'mood_6': 'немного хорошо 🙂',
+        'mood_7': 'хорошо 😊',
+        'mood_8': 'очень хорошо 😄',
+        'mood_9': 'отлично 😁',
+        'mood_10': 'прекрасно 🤩',
+        
+        # === Подтверждения ===
+        'confirm_delete_entry': '❓ Ты уверен, что хочешь удалить эту запись?',
+        'entry_deleted': '🗑 Запись удалена.',
+        'confirm_skip_task': '❓ Ты уверен, что хочешь пропустить это задание?',
+        'confirm_delete_task': '❓ Ты уверен, что хочешь удалить это задание?',
+        
+        # === Уведомления ===
+        'reminder_entry': '📝 Не забудь сделать запись в дневник сегодня!',
+        'reminder_task': '🎯 У тебя есть невыполненное задание!',
+        'morning_greeting': '🌅 Доброе утро! Готов вести дневник сегодня?',
+        'evening_greeting': '🌇 Добрый вечер! Как прошёл твой день?',
+        
+        # === Специальные сообщения ===
+        'insight_discovered': '💡 <b>Новый инсайт!</b>\n\nЯ заметил, что у тебя часто встречается тема "{insight}". Это может быть важно для понимания твоих паттернов.',
+        'pattern_detected': '🔄 <b>Обнаружен паттерн!</b>\n\nЯ вижу повторяющуюся тему в твоих записях: "{pattern}". Давай подумаем, что с этим можно сделать.',
+        'improvement_detected': '📈 <b>Прогресс!</b>\n\nЯ заметил улучшение в твоём настроении! Продолжай в том же духе.',
+        
+        # === Премиум функции ===
+        'premium_required': '👑 Эта функция доступна только премиум пользователям.',
+        'premium_benefits': '''👑 <b>Премиум подписка</b>
+
+✨ <b>Что входит:</b>
+• Еженедельные отчеты
+• Графики эмоций
+• Персональные рекомендации
+• Расширенная статистика
+• Приоритетная поддержка
+
+💳 Подписка стоит 299₽/месяц''',
+    },
+    
+    'en': {
+        # ===Greetings and main messages ===
+        'welcome': '''🧠 <b>Hi! This is your psychological diary.</b>
+
+Here you can keep records of your days, and I will help you understand your emotions and thoughts.
+
+I will be your digital psychologist who will remember your features and understand you better each day.
+
+Let's start?''',
+        
+        'welcome_back': '👋 Welcome back, {username}! Good to see you again.',
+        
+        # === Creating entries ===
+        'ask_entry': '📝 <b>Tell me how your day went...</b>',
+        'ask_voice_entry': '🎙 <b>Send a voice message about your day...</b>',
+        'processing': '⏳ <i>Processing your entry...</i>',
+        'entry_saved': '''✅ <b>Entry saved and analyzed!</b>
+
+📊 <b>Day score:</b> {score}/10 - {mood}
+💭 <b>Comment:</b> {comment}
+🎯 <b>Recommendation:</b> {recommendation}''',
+        
+        # === Error messages ===
+        'error_processing': '❌ An error occurred during processing. Please try again later.',
+        'rate_limit': '🕐 Please wait a moment before your next entry.',
+        'rate_limit_exceeded': '⚠️ You have exceeded the message limit. Please wait a moment.',
+        'error_generic': '❌ An error occurred. Please try again later.',
+        'voice_too_long': '🎙 Voice message is too long. Please send a message shorter than 2 minutes.',
+        'voice_too_short': '🎙 Voice message is too short. Please send a longer message.',
+        'text_too_long': '📝 Text is too long. Please shorten it to 5000 characters.',
+        'invalid_input': '🤔 I didn\'t understand your message. Please send text or voice message.',
+        
+        # === Menu and navigation ===
+        'main_menu': '''🧠 <b>Your psychological diary</b>
+
+Choose an action:''',
+        
+        'settings_menu': '''⚙️ <b>Settings</b>
+
+Here you can customize the diary for yourself:''',
+        
+        'archive_menu': '📅 <b>Entry archive</b>',
+        'tasks_menu': '🎯 <b>My tasks</b>',
+        'progress_menu': '📊 <b>My progress</b>',
+        
+        # === Menu buttons ===
+        'btn_new_entry': '📝 New entry',
+        'btn_archive': '📅 Archive',
+        'btn_tasks': '🎯 Tasks',
+        'btn_progress': '📊 Progress',
+        'btn_settings': '⚙️ Settings',
+        'btn_help': '❓ Help',
+        'btn_back': '🔙 Back',
+        'btn_cancel': '❌ Cancel',
+        
+        # === Entry buttons ===
+        'btn_text_entry': '✍️ Text entry',
+        'btn_voice_entry': '🎙 Voice entry',
+        'btn_view_entry': '👁 View',
+        'btn_delete_entry': '🗑 Delete',
+        'btn_analyze_again': '🔄 Re-analyze',
+        'btn_edit_entry': '✏️ Edit',
+        'btn_view_history': '👁 View history',
+        
+        # === Settings ===
+        'settings_language': '🌍 Language: {language}',
+        'settings_notifications': '🔔 Notifications: {status}',
+        'settings_auto_analysis': '📈 Auto-analysis: {status}',
+        'settings_premium': '👑 Premium: {status}',
+        
+        'language_changed': '✅ Language successfully changed to {language}',
+        'notifications_enabled': '✅ Notifications enabled',
+        'notifications_disabled': '✅ Notifications disabled',
+
+        'settings_timezone': '🌍 Timezone: {timezone}',
+        'timezone_changed': '✅ Timezone successfully changed to {timezone}',
+        'timezone_not_changed': '❌ Failed to change timezone. Please try again.',
+        
+        # === Messages for timezone selection ===
+        'ask_timezone_selection': '🌍 <b>Select your timezone</b>\n\nCurrent timezone: {current_timezone}\n\nYou can choose from a list of popular timezones or enter your own.',
+        'btn_select_common_timezones': '📋 Select from list',
+        'btn_enter_custom_timezone': '✍️ Enter manually',
+        'btn_detect_timezone': '🧭 Detect automatically', # If implemented later
+        
+        # === Messages for timezone list ===
+        'select_timezone_title': '🌍 <b>Select your timezone</b>\n\nCurrent timezone: {current_timezone}',
+        'btn_timezone_utc': 'UTC',
+        'btn_timezone_moscow': 'Europe/Moscow (MSK)',
+        'btn_timezone_yekaterinburg': 'Asia/Yekaterinburg',
+        'btn_timezone_omsk': 'Asia/Omsk',
+        'btn_timezone_krasnoyarsk': 'Asia/Krasnoyarsk',
+        'btn_timezone_irkutsk': 'Asia/Irkutsk',
+        'btn_timezone_yakutsk': 'Asia/Yakutsk',
+        'btn_timezone_vladivostok': 'Asia/Vladivostok',
+        'btn_timezone_magadan': 'Asia/Magadan',
+        # Add other popular world timezones
+        'btn_timezone_new_york': 'America/New_York (EST/EDT)',
+        'btn_timezone_london': 'Europe/London (GMT/BST)',
+        'btn_timezone_berlin': 'Europe/Berlin (CET/CEST)',
+        'btn_timezone_tokyo': 'Asia/Tokyo (JST)',
+        
+        # === Messages for manual entry ===
+        'ask_enter_custom_timezone': '✍️ <b>Enter your timezone</b>\n\nEnter the timezone identifier (e.g., `Europe/Moscow`, `America/New_York`).\n\nCurrent timezone: {current_timezone}',
+        'error_invalid_timezone': '❌ Invalid timezone format. Please use the `Region/City` format (e.g., `Europe/Moscow`).',
+        'error_unknown_timezone': '❌ The specified timezone was not found. Please check the entered value.',  
+        'ask_entry_edit': '📝 <b>Edit your entry:</b>\n\n<i>Current text:</i>\n{old_text}', 
+        'entry_updated': '✅ <b>Entry updated!</b>\n\n📊 <b>Day score:</b> {score}/10 - {mood}\n💭 <b>Comment:</b> {comment}\n🎯 <b>Recommendation:</b> {recommendation}',     
+        # === Statuses ===
+        'status_enabled': 'ON',
+        'status_disabled': 'OFF',
+        'status_active': 'Active',
+        'status_inactive': 'Inactive',
+        
+        # === Archive ===
+        'archive_empty': '📭 You don\'t have any diary entries yet.',
+        'archive_select_year': '📅 Select year:',
+        'archive_select_month': '📅 Select month {year}:',
+        'archive_select_day': '📅 Select day {month}.{year}:',
+        'archive_entry': '''📅 <b>Entry from {date}</b>
+
+📝 <b>Text:</b>
+{text}
+
+📊 <b>Score:</b> {score}/10 - {mood}
+💭 <b>Analysis:</b> {analysis}''',
+        
+        # === Tasks ===
+        'task_assigned': '''🎯 <b>New task!</b>
+
+<b>{title}</b>
+
+{description}''',
+        
+        'task_completed_success': '''🎉 <b>Perfect!</b>
+
+Your response is saved. I will consider this in future analysis.
+
+{feedback}''',
+        
+        'task_no_active': '📭 You have no active tasks.',
+        'task_skipped': '⏭ Task skipped.',
+        'task_deleted': '🗑 Task deleted.',
+        
+        # === Task buttons ===
+        'btn_complete_task': '✅ Complete',
+        'btn_skip_task': '⏭ Skip',
+        'btn_delete_task': '🗑 Delete',
+        'btn_view_task': '👁 View',
+        
+        # === Progress ===
+        'progress_title': '''📊 <b>Your progress</b>
+
+📈 <b>Awareness level:</b> {awareness_level}/10
+📝 <b>Total entries:</b> {entries_count}
+🎯 <b>Tasks completed:</b> {tasks_completed}
+📅 <b>Day streak:</b> {streak_days}''',
+        
+        'progress_detailed': '''📊 <b>Detailed statistics</b>
+
+📉 <b>Mood dynamics:</b>
+{mood_chart}
+
+🔥 <b>Frequent themes:</b>
+{frequent_themes}
+
+💡 <b>New insights:</b>
+{new_insights}''',
+        
+        # === Help ===
+        'help_text': '''❓ <b>Diary help</b>
+
+📝 <b>How to keep entries:</b>
+• Send text or voice message
+• Describe your day honestly and in detail
+• Bot will analyze your entry
+
+🎯 <b>Tasks:</b>
+• Complete personal tasks
+• Mark completion in bot
+• Get personal feedback
+
+📊 <b>Progress:</b>
+• Track your growth
+• Analyze dynamics
+• Develop awareness
+
+⚙️ <b>Settings:</b>
+• Choose convenient language
+• Set up notifications
+• Manage privacy
+
+Need more help? Contact your psychologist!''',
+        
+        # === Mood scores ===
+        'mood_1': 'terrible 😰',
+        'mood_2': 'very bad 😟',
+        'mood_3': 'bad 😞',
+        'mood_4': 'a bit bad 😕',
+        'mood_5': 'normal 😐',
+        'mood_6': 'a bit good 🙂',
+        'mood_7': 'good 😊',
+        'mood_8': 'very good 😄',
+        'mood_9': 'excellent 😁',
+        'mood_10': 'wonderful 🤩',
+        
+        # === Confirmations ===
+        'confirm_delete_entry': '❓ Are you sure you want to delete this entry?',
+        'entry_deleted': '🗑 Entry deleted.',
+        'confirm_skip_task': '❓ Are you sure you want to skip this task?',
+        'confirm_delete_task': '❓ Are you sure you want to delete this task?',
+        
+        # === Notifications ===
+        'reminder_entry': '📝 Don\'t forget to make an entry in your diary today!',
+        'reminder_task': '🎯 You have an incomplete task!',
+        'morning_greeting': '🌅 Good morning! Ready to keep a diary today?',
+        'evening_greeting': '🌇 Good evening! How was your day?',
+        
+        # === Special messages ===
+        'insight_discovered': '💡 <b>New insight!</b>\n\nI noticed that you often mention "{insight}". This might be important for understanding your patterns.',
+        'pattern_detected': '🔄 <b>Pattern detected!</b>\n\nI see a recurring theme in your entries: "{pattern}". Let\'s think about what can be done about it.',
+        'improvement_detected': '📈 <b>Improvement!</b>\n\nI noticed an improvement in your mood! Keep it up.',
+        
+        # === Premium features ===
+        'premium_required': '👑 This feature is available only to premium users.',
+        'premium_benefits': '''👑 <b>Premium subscription</b>
+
+✨ <b>What's included:</b>
+• Weekly reports
+• Mood charts
+• Personal recommendations
+• Extended statistics
+• Priority support
+
+💳 Subscription costs $4.99/month''',
+    }
+}
+
+HELP_MESSAGES = {
+    'ru': {
+        'help_main_text': '''❓ <b>Помощь по дневнику</b>
+
+Добро пожаловать в раздел помощи! Здесь вы найдете ответы на часто задаваемые вопросы и полезные советы.
+
+📚 <b>Разделы помощи:</b>
+• FAQ - часто задаваемые вопросы
+• Как начать - с чего начать работу
+• Написание записей - советы по ведению дневника
+• Задания - как работать с терапевтическими заданиями
+• Приватность - как мы защищаем ваши данные
+• Контакты - как с нами связаться
+
+Выберите интересующий вас раздел:''',
+
+        'help_faq_text': '''❓ <b>Часто задаваемые вопросы</b>
+
+<b>В: Как часто нужно писать в дневник?</b>
+О: Рекомендуется писать ежедневно, но даже 2-3 раза в неделю уже приносят пользу.
+
+<b>В: Что писать в дневнике?</b>
+О: Описывайте свои события дня, эмоции, мысли, чувства. Чем честнее вы будете, тем больше пользы.
+
+<b>В: Как долго хранятся мои данные?</b>
+О: Ваши данные хранятся бессрочно, но вы можете удалить их в любое время.
+
+<b>В: Можно ли удалить запись?</b>
+О: Да, каждую запись можно удалить через архив.
+
+<b>В: Как работает анализ?</b>
+О: Анализ проводится с помощью искусственного интеллекта, который выявляет паттерны и инсайты.''',
+
+        'help_how_to_start_text': '''🚀 <b>Как начать работу с дневником</b>
+
+1. <b>Создайте первую запись</b>
+   • Нажмите "Новая запись" в главном меню
+   • Опишите свой день честно и подробно
+   • Бот проанализирует вашу запись
+
+2. <b>Изучите анализ</b>
+   • Обратите внимание на оценку дня
+   • Прочитайте комментарии и рекомендации
+   • Замечайте повторяющиеся темы
+
+3. <b>Выполняйте задания</b>
+   • Следуйте рекомендациям бота
+   • Выполняйте терапевтические задания
+   • Отслеживайте свой прогресс
+
+4. <b>Просматривайте архив</b>
+   • Изучайте свои предыдущие записи
+   • Замечайте динамику изменений
+   • Развивайте осознанность''',
+
+        'help_writing_entries_text': '''✍️ <b>Как писать в дневник</b>
+
+<b>Советы по написанию эффективных записей:</b>
+
+📝 <b>Будьте честны</b>
+• Пишите искренне и открыто
+• Не бойтесь выражать негативные эмоции
+• Чем больше деталей, тем лучше анализ
+
+⏰ <b>Пишите регулярно</b>
+• Лучшее время - вечер или утро
+• Даже 5 минут в день приносят пользу
+• Создайте привычку
+
+💭 <b>Описывайте мысли и чувства</b>
+• Что вы чувствовали сегодня?
+• Какие мысли вас беспокоят?
+• Что принесло радость?
+
+🔍 <b>Анализируйте события</b>
+• Что было важным сегодня?
+• Какие ситуации повторяются?
+• Что вы хотите изменить?''',
+
+        'help_tasks_text': '''🎯 <b>Работа с заданиями</b>
+
+<b>Как работать с терапевтическими заданиями:</b>
+
+1. <b>Получение задания</b>
+   • Задания назначаются автоматически
+   • Они основаны на ваших записях
+   • Следуйте инструкциям задания
+
+2. <b>Выполнение задания</b>
+   • Выполняйте задание честно
+   • Описывайте свои ощущения
+   • Не пропускайте задания без причины
+
+3. <b>Анализ результатов</b>
+   • Бот анализирует ваше выполнение
+   • Получаете персональную обратную связь
+   • Задания помогают развивать осознанность
+
+4. <b>Прогресс</b>
+   • Следите за своим прогрессом
+   • Замечайте улучшения
+   • Развивайте новые навыки''',
+
+        'help_privacy_text': '''🔒 <b>Конфиденциальность и безопасность</b>
+
+<b>Как мы защищаем ваши данные:</b>
+
+🛡 <b>Шифрование</b>
+• Все данные шифруются
+• Передача данных защищена HTTPS
+• Доступ к данным ограничен
+
+👤 <b>Конфиденциальность</b>
+• Ваши данные не передаются третьим лицам
+• Мы не используем данные для рекламы
+• Вы можете удалить данные в любое время
+
+🗑 <b>Удаление данных</b>
+• Вы можете запросить удаление аккаунта
+• Все данные будут удалены безвозвратно
+• Процесс занимает до 30 дней
+
+📋 <b>GDPR совместимость</b>
+• Соблюдаем европейские стандарты
+• Вы имеете право на доступ к своим данным
+• Вы можете запросить исправление данных''',
+
+        'help_contact_text': '''📞 <b>Контакты и поддержка</b>
+
+<b>Если вам нужна помощь:</b>
+
+📧 <b>Email поддержки:</b>
+support@psychodiary.ru
+
+💬 <b>Telegram поддержки:</b>
+@PsychodiarySupport
+
+🌐 <b>Официальный сайт:</b>
+https://psychodiary.ru  
+
+📱 <b>Мобильное приложение:</b>
+Скоро в App Store и Google Play
+
+👨‍⚕️ <b>Консультации с психологом:</b>
+Доступны в премиум подписке
+
+⏰ <b>Время ответа:</b>
+Обычно в течение 24 часов
+
+⚠️ <b>Экстренная помощь:</b>
+Если вам нужна срочная помощь, 
+обратитесь к врачу или в службу спасения''',
+
+        # Кнопки помощи
+        'help_faq': '❓ FAQ',
+        'help_how_to_start': '🚀 Как начать',
+        'help_writing_entries': '✍️ Написание записей',
+        'help_tasks': '🎯 Задания',
+        'help_privacy': '🔒 Приватность',
+        'help_contact': '📞 Контакты',
+        'btn_back_to_help': '🔙 Назад к помощи',
+    },
+    
+    'en': {
+        'help_main_text': '''❓ <b>Help with the diary</b>
+
+Welcome to the help section! Here you will find answers to frequently asked questions and useful tips.
+
+📚 <b>Help sections:</b>
+• FAQ - frequently asked questions
+• How to start - getting started
+• Writing entries - tips for keeping a diary
+• Tasks - how to work with therapeutic tasks
+• Privacy - how we protect your data
+• Contacts - how to contact us
+
+Select the section you are interested in:''',
+
+        'help_faq_text': '''❓ <b>Frequently Asked Questions</b>
+
+<b>Q: How often should I write in the diary?</b>
+A: It is recommended to write daily, but even 2-3 times a week is already beneficial.
+
+<b>Q: What should I write in the diary?</b>
+A: Describe your daily events, emotions, thoughts, feelings. The more honest you are, the more benefit you'll get.
+
+<b>Q: How long are my data stored?</b>
+A: Your data is stored indefinitely, but you can delete it at any time.
+
+<b>Q: Can I delete a record?</b>
+A: Yes, each record can be deleted through the archive.
+
+<b>Q: How does analysis work?</b>
+A: Analysis is performed using artificial intelligence that identifies patterns and insights.''',
+
+        'help_how_to_start_text': '''🚀 <b>How to get started with the diary</b>
+
+1. <b>Create your first entry</b>
+   • Click "New entry" in the main menu
+   • Describe your day honestly and in detail
+   • The bot will analyze your entry
+
+2. <b>Review the analysis</b>
+   • Pay attention to the day rating
+   • Read comments and recommendations
+   • Notice recurring themes
+
+3. <b>Complete tasks</b>
+   • Follow the bot's recommendations
+   • Complete therapeutic tasks
+   • Track your progress
+
+4. <b>Browse the archive</b>
+   • Review your previous entries
+   • Notice the dynamics of changes
+   • Develop mindfulness''',
+
+        'help_writing_entries_text': '''✍️ <b>How to write in the diary</b>
+
+<b>Tips for writing effective entries:</b>
+
+📝 <b>Be honest</b>
+• Write sincerely and openly
+• Don't be afraid to express negative emotions
+• The more details, the better the analysis
+
+⏰ <b>Write regularly</b>
+• Best time - evening or morning
+• Even 5 minutes a day brings benefits
+• Create a habit
+
+💭 <b>Describe thoughts and feelings</b>
+• What did you feel today?
+• What thoughts are bothering you?
+• What brought joy?
+
+🔍 <b>Analyze events</b>
+• What was important today?
+• Which situations repeat?
+• What do you want to change?''',
+
+        'help_tasks_text': '''🎯 <b>Working with tasks</b>
+
+<b>How to work with therapeutic tasks:</b>
+
+1. <b>Receiving tasks</b>
+   • Tasks are assigned automatically
+   • They are based on your entries
+   • Follow the task instructions
+
+2. <b>Completing tasks</b>
+   • Complete tasks honestly
+   • Describe your feelings
+   • Don't skip tasks without reason
+
+3. <b>Analyzing results</b>
+   • The bot analyzes your completion
+   • You receive personalized feedback
+   • Tasks help develop mindfulness
+
+4. <b>Progress</b>
+   • Track your progress
+   • Notice improvements
+   • Develop new skills''',
+
+        'help_privacy_text': '''🔒 <b>Privacy and Security</b>
+
+<b>How we protect your data:</b>
+
+🛡 <b>Encryption</b>
+• All data is encrypted
+• Data transmission is protected by HTTPS
+• Access to data is limited
+
+👤 <b>Privacy</b>
+• Your data is not shared with third parties
+• We don't use data for advertising
+• You can delete data at any time
+
+🗑 <b>Data deletion</b>
+• You can request account deletion
+• All data will be permanently deleted
+• Process takes up to 30 days
+
+📋 <b>GDPR compliance</b>
+• We comply with European standards
+• You have the right to access your data
+• You can request data correction''',
+
+        'help_contact_text': '''📞 <b>Contacts and Support</b>
+
+<b>If you need help:</b>
+
+📧 <b>Support email:</b>
+support@psychodiary.ru
+
+💬 <b>Telegram support:</b>
+@PsychodiarySupport
+
+🌐 <b>Official website:</b>
+https://psychodiary.ru  
+
+📱 <b>Mobile app:</b>
+Coming soon to App Store and Google Play
+
+👨‍⚕️ <b>Consultations with a psychologist:</b>
+Available in premium subscription
+
+⏰ <b>Response time:</b>
+Usually within 24 hours
+
+⚠️ <b>Emergency help:</b>
+If you need urgent help,
+contact a doctor or emergency services''',
+
+        # Help buttons
+        'help_faq': '❓ FAQ',
+        'help_how_to_start': '🚀 How to start',
+        'help_writing_entries': '✍️ Writing entries',
+        'help_tasks': '🎯 Tasks',
+        'help_privacy': '🔒 Privacy',
+        'help_contact': '📞 Contacts',
+        'btn_back_to_help': '🔙 Back to help',
+    }
+}
+
+MESSAGES['ru'].update({
+    # === Сообщения для заданий ===
+    'ask_task_completion': '''✅ <b>Отлично! Задание получено!</b>
+
+Теперь опиши, как ты выполнял это задание:
+- Что именно ты сделал?
+- Какие шаги предпринял?
+- Что было сложным или легким?''',
+    
+    'ask_feelings_description': '''💭 <b>Опиши свои ощущения при выполнении задания</b>
+
+Расскажи, что ты чувствовал во время выполнения:
+- Какие эмоции испытывал?
+- Что тебе понравилось?
+- Что было трудным?''',
+    
+    'task_completed_success': '''🎉 <b>Прекрасно! Задание выполнено!</b>
+
+Твой ответ сохранен и проанализирован.
+
+📊 <b>Оценка выполнения:</b> {score}/10 - {mood}
+💭 <b>Комментарий:</b> {comment}
+🎯 <b>Рекомендация:</b> {recommendation}''',
+    
+    'task_processing': '⏳ <i>Обрабатываю выполнение задания...</i>',
+    'task_completion_saved': '✅ <b>Выполнение задания сохранено!</b>',
+    'task_completion_analysis': '🧠 <b>Анализ выполнения задания</b>\n\n{analysis}',
+    'task_completion_recommendation': '🎯 <b>Рекомендация:</b> {recommendation}',
+    
+    # === Сообщения для ошибок заданий ===
+    'task_not_found': '❌ Задание не найдено или не принадлежит вам.',
+    'task_already_completed': '✅ Задание уже выполнено.',
+    'task_already_skipped': '⏭ Задание уже пропущено.',
+    'task_deleted': '🗑 Задание удалено.',
+    'task_skipped': '⏭ Задание пропущено.',
+    'task_delete_cancelled': '❌ Удаление задания отменено.',
+    'task_skip_cancelled': '❌ Пропуск задания отменено.',
+    
+    # === Сообщения подтверждения ===
+    'confirm_delete_task': '❓ Ты уверен, что хочешь удалить это задание?',
+    'confirm_skip_task': '❓ Ты уверен, что хочешь пропустить это задание?',
+    'confirm_complete_task': '❓ Ты уверен, что хочешь отметить это задание как выполненное?',
+    
+    # === Кнопки заданий ===
+    'btn_complete_task': '✅ Выполнить',
+    'btn_skip_task': '⏭ Пропустить',
+    'btn_delete_task': '🗑 Удалить',
+    'btn_view_task': '👁 Посмотреть',
+    'btn_task_history': '📜 История заданий',
+    'btn_active_tasks': '🎯 Активные задания',
+    
+    # === Статусы заданий ===
+    'task_status_pending': 'Ожидает',
+    'task_status_in_progress': 'В процессе',
+    'task_status_completed': 'Выполнена',
+    'task_status_skipped': 'Пропущена',
+    'task_status_expired': 'Просрочена',
+    
+    # === Типы заданий ===
+    'task_type_daily': 'Ежедневная',
+    'task_type_reflection': 'Рефлексивная',
+    'task_type_cognitive': 'Когнитивная',
+    'task_type_creative': 'Творческая',
+    'task_type_behavioral': 'Поведенческая',
+    'task_type_mindfulness': 'Осознанность',
+})
+
+# Добавим в MESSAGES['en']:
+
+MESSAGES['en'].update({
+    # === Task messages ===
+    'ask_task_completion': '''✅ <b>Great! Task received!</b>
+
+Now describe how you completed this task:
+- What exactly did you do?
+- What steps did you take?
+- What was difficult or easy?''',
+    
+    'ask_feelings_description': '''💭 <b>Describe your feelings during task completion</b>
+
+Tell me what you felt while completing:
+- What emotions did you experience?
+- What did you enjoy?
+- What was difficult?''',
+    
+    'task_completed_success': '''🎉 <b>Perfect! Task completed!</b>
+
+Your response is saved and analyzed.
+
+📊 <b>Completion score:</b> {score}/10 - {mood}
+💭 <b>Comment:</b> {comment}
+🎯 <b>Recommendation:</b> {recommendation}''',
+    
+    'task_processing': '⏳ <i>Processing task completion...</i>',
+    'task_completion_saved': '✅ <b>Task completion saved!</b>',
+    'task_completion_analysis': '🧠 <b>Task completion analysis</b>\n\n{analysis}',
+    'task_completion_recommendation': '🎯 <b>Recommendation:</b> {recommendation}',
+    
+    # === Task error messages ===
+    'task_not_found': '❌ Task not found or does not belong to you.',
+    'task_already_completed': '✅ Task already completed.',
+    'task_already_skipped': '⏭ Task already skipped.',
+    'task_deleted': '🗑 Task deleted.',
+    'task_skipped': '⏭ Task skipped.',
+    'task_delete_cancelled': '❌ Task deletion cancelled.',
+    'task_skip_cancelled': '❌ Task skip cancelled.',
+    
+    # === Confirmation messages ===
+    'confirm_delete_task': '❓ Are you sure you want to delete this task?',
+    'confirm_skip_task': '❓ Are you sure you want to skip this task?',
+    'confirm_complete_task': '❓ Are you sure you want to mark this task as completed?',
+    
+    # === Task buttons ===
+    'btn_complete_task': '✅ Complete',
+    'btn_skip_task': '⏭ Skip',
+    'btn_delete_task': '🗑 Delete',
+    'btn_view_task': '👁 View',
+    'btn_task_history': '📜 Task history',
+    'btn_active_tasks': '🎯 Active tasks',
+    
+    # === Task statuses ===
+    'task_status_pending': 'Pending',
+    'task_status_in_progress': 'In progress',
+    'task_status_completed': 'Completed',
+    'task_status_skipped': 'Skipped',
+    'task_status_expired': 'Expired',
+    
+    # === Task types ===
+    'task_type_daily': 'Daily',
+    'task_type_reflection': 'Reflection',
+    'task_type_cognitive': 'Cognitive',
+    'task_type_creative': 'Creative',
+    'task_type_behavioral': 'Behavioral',
+    'task_type_mindfulness': 'Mindfulness',
+})
+
+# Добавляем сообщения помощи в основной словарь
+MESSAGES['ru'].update(HELP_MESSAGES['ru'])
+MESSAGES['en'].update(HELP_MESSAGES['en'])
+
+
+
+# Функция для получения сообщения по ключу и языку
+def get_message(key: str, language: str = 'ru', **kwargs) -> str:
+    """
+    Получение сообщения по ключу и языку с подстановкой параметров
+    """
+    logger.info("=== GET_MESSAGE ===")
+    logger.info(f"Ключ: {key}")
+    logger.info(f"Язык: {language}")
+    logger.info(f"Параметры: {kwargs}")
+    
+    # Проверяем, существует ли язык
+    if language not in MESSAGES:
+        logger.warning(f"Неподдерживаемый язык: {language}, используем ru")
+        language = 'ru'
+    
+    messages = MESSAGES.get(language, MESSAGES['ru'])
+    logger.info(f"Доступно сообщений для языка {language}: {len(messages)}")
+    
+    # Проверяем, существует ли ключ
+    if key not in messages:
+        logger.error(f"Ключ '{key}' не найден для языка {language}")
+        logger.error(f"Доступные ключи: {list(messages.keys())[:10]}...")  # Показываем первые 10
+        return f"[ОШИБКА: Сообщение '{key}' не найдено]"
+    
+    message = messages.get(key, f'[Отсутствует сообщение: {key}]')
+    logger.info(f"Найдено сообщение длиной: {len(message)} символов")
+    
+    try:
+        if kwargs:
+            result = message.format(**kwargs)
+            logger.info("Сообщение отформатировано с параметрами")
+            return result
+        else:
+            logger.info("Сообщение без параметров")
+            return message
+    except KeyError as e:
+        logger.error(f"Ошибка форматирования сообщения '{key}': отсутствует параметр {e}")
+        return message
+    except Exception as e:
+        logger.error(f"Ошибка форматирования сообщения '{key}': {e}")
+        return message
+
+# Функция для получения текста кнопки
+def get_button_text(key: str, language: str = 'ru') -> str:
+    """
+    Получение текста кнопки по ключу и языку
+    """
+    return get_message(key, language)
+
+# Функция для получения оценки настроения
+def get_mood_text(score: int, language: str = 'ru') -> str:
+    """
+    Получение текстового описания оценки настроения
+    """
+    key = f'mood_{score}'
+    return get_message(key, language)
+
+# Функция для получения статуса
+def get_status_text(status: bool, language: str = 'ru') -> str:
+    """
+    Получение текста статуса (вкл/выкл)
+    """
+    if status:
+        return get_message('status_enabled', language=language)
+    else:
+        return get_message('status_disabled', language=language)
