@@ -9,7 +9,7 @@ from django.utils.translation import gettext_lazy as _
 
 from core.constants import (
     KEYPOINT_TYPES, INSIGHT_CATEGORIES, TASK_STATUS, 
-    TASK_TYPES, ACTIVITY_TYPES, MOOD_SCORES, LANGUAGES
+    TASK_TYPES, ACTIVITY_TYPES, MOOD_SCORES, LANGUAGES, TASK_PRIORITIES
 )
 
 logger = logging.getLogger(__name__)
@@ -66,8 +66,6 @@ class DiaryEntry(models.Model):
     def localized_created_at(self) -> str:
         """Локализованное время создания записи"""
         try:
-            # === ИСПОЛЬЗУЕМ sync_to_async ДЛЯ АСИНХРОННОГО КОНТЕКСТА ===
-            # Создаем синхронную функцию для локализации
             def _localize_time(dt, user_tz_str):
                 if dt.tzinfo is None:
                     dt = pytz.utc.localize(dt)
@@ -75,15 +73,6 @@ class DiaryEntry(models.Model):
                 localized_time = dt.astimezone(user_tz)
                 return localized_time.strftime('%d.%m.%Y %H:%M')
 
-            # Вызываем её напрямую, так как мы внутри синхронного property
-            # и предполагаем, что self.user.timezone доступен синхронно.
-            # Если это не так, нужно использовать async_to_sync.
-            # Для property проще оставить синхронный вариант, но обернуть вызовы,
-            # которые его используют, в sync_to_async в сериализаторах/обработчиках.
-            # Альтернатива: сделать его async property (getter) и await везде.
-            # Но проще исправить модель, откуда вызывается это свойство неправильно.
-            
-            # Попробуем синхронный вызов напрямую, как раньше, но с проверкой
             user_timezone_str = self.user.timezone if self.user else 'UTC'
             if not user_timezone_str:
                  user_timezone_str = 'UTC'
@@ -406,21 +395,58 @@ class CombinedDiaryEntry(models.Model):
         related_name='combined_entries'
     )
     date = models.DateField(verbose_name=_("Дата"))
-    text = models.TextField(verbose_name=_("Объединенный текст"))
-    entry_count = models.PositiveIntegerField(verbose_name=_("Количество записей"))
+    text = models.TextField(verbose_name=_("Объединенный текст всех записей дня"))
+    entry_count = models.PositiveIntegerField(verbose_name=_("Количество записей в этот день"))
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата создания"))
-    is_analyzed = models.BooleanField(default=False, verbose_name=_("Проанализирована"))
-    analysis_result = models.JSONField(blank=True, default=dict, verbose_name=_("Результат анализа"))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Дата последнего обновления"))
+    is_analyzed = models.BooleanField(
+        default=False, 
+        verbose_name=_("Проанализирован ИИ"),
+        help_text=_("Указывает, был ли день проанализирован ИИ с учетом всех записей.")
+    )
+    analysis_result = models.JSONField(
+        blank=True, 
+        default=dict, 
+        verbose_name=_("Результат анализа (детали)"),
+        help_text=_("Детальный результат финального анализа дня (например, JSON с итоговой оценкой, комментарием и т.д.).")
+    )
+    ai_state_data = models.TextField(
+        blank=True, 
+        default="", 
+        verbose_name=_("Состояние дня по версии ИИ"),
+        help_text=_("Текстовый контекст или структурированные данные от ИИ, описывающие состояние дня.")
+    )
 
     class Meta:
         verbose_name = _("Объединенная запись дня")
         verbose_name_plural = _("Объединенные записи дней")
         db_table = "diary_combined_entry"
-        unique_together = ['user', 'date']
-        ordering = ['-date']
+        unique_together = ['user', 'date'] # Уникальность по пользователю и дате
+        ordering = ['-date'] # Сортировка по убыванию даты
 
     def __str__(self):
         return f"Объединенная запись {self.user.username} от {self.date}"
+    
+    def localized_date_at(self) -> datetime:
+        """
+        Возвращает datetime для начала этого дня в часовом поясе пользователя.
+        Полезно для согласованности с DiaryEntry.localized_created_at.
+        """
+        try:
+            user_timezone_str = self.user.timezone if self.user else 'UTC'
+            if not user_timezone_str:
+                 user_timezone_str = 'UTC'
+                 
+            user_tz = pytz.timezone(user_timezone_str)
+            # Создаем datetime для начала дня (00:00:00) в UTC, затем локализуем и переводим
+            naive_datetime = datetime.combine(self.date, datetime.min.time())
+            localized_datetime = user_tz.localize(naive_datetime)
+            
+            return localized_datetime
+        except Exception as e:
+            logger.error(f"Ошибка при локализации даты CombinedDiaryEntry: {e}")
+            naive_datetime = datetime.combine(self.date, datetime.min.time())
+            return pytz.utc.localize(naive_datetime)
 
 class DailyAnalysis(models.Model):
     """Глубокий анализ дня"""

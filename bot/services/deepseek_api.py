@@ -1563,6 +1563,339 @@ Use the following response format:
         logger.info("Возвращен результат анализа по умолчанию")
         return default_result
 
+    @api_retry(max_attempts=3, delay=1.0)
+    @handle_api_error
+    async def analyze_text_with_previous_state(
+        self,
+        previous_state_context: str,
+        new_text: str,
+        user_profile: dict,
+        language: str = 'ru'
+    ) -> Dict[str, Any]:
+        """
+        Инкрементальный анализ нового текста с учетом предыдущего состояния дня через DeepSeek API.
+
+        Args:
+            previous_state_context: Текстовое состояние дня от предыдущего анализа.
+            new_text: Новая запись пользователя.
+            user_profile: Данные профиля пользователя.
+            language: Язык анализа.
+
+        Returns:
+            Dict[str, Any]: Результат анализа с финальным analysis_text и метаданными API.
+        """
+        logger.info(f"Инкрементальный анализ текста с предыдущим состоянием через DeepSeek API, язык: {language}")
+        logger.info(f"Предыдущее состояние длиной: {len(previous_state_context)} символов")
+        logger.info(f"Новая запись длиной: {len(new_text)} символов")
+        logger.info(f"Профиль пользователя: {user_profile.get('username', 'unknown')}")
+
+        try:
+            # === 1. ВАЛИДАЦИЯ ВХОДНЫХ ДАННЫХ ===
+            if not new_text or len(new_text.strip()) < 1:
+                logger.error("Новая запись для анализа пустая")
+                api_response_data = {
+                    'status': 'text_empty',
+                    'error_text': 'Новая запись для анализа пустая',
+                    'raw_response': '',
+                    'model_used': 'deepseek-chat',
+                    'usage': {},
+                    'processing_time': 0,
+                    'tokens_used': 0
+                }
+                return {
+                    'success': False,
+                    'error': 'text_empty',
+                    'message': 'Новая запись для анализа пустая',
+                    'result': {},
+                    'raw_response': '',
+                    'api_response': api_response_data
+                }
+
+            if len(new_text) > 10000: # Ограничение на длину новой записи
+                logger.error("Новая запись для анализа слишком длинная")
+                api_response_data = {
+                    'status': 'text_too_long',
+                    'error_text': 'Новая запись для анализа слишком длинная',
+                    'raw_response': '',
+                    'model_used': 'deepseek-chat',
+                    'usage': {},
+                    'processing_time': 0,
+                    'tokens_used': 0
+                }
+                return {
+                    'success': False,
+                    'error': 'text_too_long',
+                    'message': 'Новая запись для анализа слишком длинная',
+                    'result': {},
+                    'raw_response': '',
+                    'api_response': api_response_data
+                }
+
+            if not DEEPSEEK_API_KEY:
+                logger.error("DeepSeek API key not configured")
+                api_response_data = {
+                    'status': 'api_key_missing',
+                    'error_text': 'API ключ DeepSeek не настроен',
+                    'raw_response': '',
+                    'model_used': 'deepseek-chat',
+                    'usage': {},
+                    'processing_time': 0,
+                    'tokens_used': 0
+                }
+                return {
+                    'success': False,
+                    'error': 'api_key_missing',
+                    'message': 'API ключ DeepSeek не настроен',
+                    'result': {},
+                    'raw_response': '',
+                    'api_response': api_response_data
+                }
+            # ======================================
+
+            # === 2. ФОРМИРОВАНИЕ ПРОМТА ===
+            prompt = await self._generate_incremental_analysis_prompt(
+                previous_state_context, new_text, user_profile, language
+            )
+            logger.info(f"Сформирован промт для инкрементального анализа длиной: {len(prompt)} символов")
+            # =============================
+
+            # === 3. ВЫЗОВ API ===
+            url = "https://api.deepseek.com/v1/chat/completions"
+            # Увеличиваем max_tokens для более сложного анализа
+            payload = {
+                "model": "deepseek-chat",
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.3, # Низкая температура для точного анализа
+                "max_tokens": min(5000, (len(previous_state_context) + len(new_text)) * 2) # Удваиваем токены
+            }
+            headers = {
+                "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                "Content-Type": "application/json"
+            }
+
+            # Создаем сессию aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=60) # Увеличенный таймаут
+                ) as response:
+                    raw_response_text = await response.text()
+                    logger.info(f"Получен ответ от DeepSeek API для инкрементального анализа, статус: {response.status}")
+
+                    if response.status == 200:
+                        result = await response.json()
+                        response_text = result['choices'][0]['message']['content']
+                        logger.info(f"Инкрементальный анализ успешно выполнен, длина ответа: {len(response_text)} символов")
+
+                        # === 4. ПАРСИНГ РЕЗУЛЬТАТА ===
+                        # Используем существующий метод парсинга, так как формат ответа аналогичен
+                        parsed_result = await self._parse_analysis_response(
+                            response_text, language, 'incremental'
+                        )
+                        logger.info("Результат инкрементального анализа успешно распарсен")
+                        # ============================
+
+                        # === 5. ФОРМИРОВАНИЕ ФИНАЛЬНОГО РЕЗУЛЬТАТА ===
+                        # Формируем финальный текст анализа на основе comment и recommendation
+                        comment_part = parsed_result.get('comment', '')
+                        recommendation_part = parsed_result.get('recommendation', '')
+                        analysis_part = parsed_result.get('analysis', 'Текст проанализирован.')
+
+                        # Формируем финальный текст анализа
+                        final_analysis_text = f"{analysis_part}".strip()
+                        if not final_analysis_text:
+                            final_analysis_text = "Текст проанализирован."
+
+                        # Создаем финальный результат для возврата
+                        # Копируем распарсенный результат и заменяем/добавляем analysis
+                        final_result = parsed_result.copy()
+                        final_result['analysis'] = final_analysis_text
+
+                        # Подготавливаем данные для api_response
+                        api_response_data = {
+                            'status': response.status,
+                            'raw_response': raw_response_text,
+                            'json_response': result,
+                            'model_used': result.get('model', 'deepseek-chat'),
+                            'usage': result.get('usage', {}),
+                            'processing_time': result.get('usage', {}).get('total_tokens', 0) * 0.01, # Примерное время
+                            'tokens_used': result.get('usage', {}).get('total_tokens', 0)
+                        }
+                        final_result['api_response'] = api_response_data
+                        # =============================================
+
+                        logger.info("Инкрементальный анализ успешно завершен")
+                        return {
+                            'success': True,
+                            'error': None,
+                            'message': 'Текст успешно проанализирован с учетом предыдущего состояния',
+                            'result': final_result, # Возвращаем распарсенный и обработанный результат
+                            'raw_response': raw_response_text,
+                            'api_response': api_response_data
+                        }
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"DeepSeek API error при инкрементальном анализе: {response.status} - {error_text}")
+                        
+                        api_response_data = {
+                            'status': response.status,
+                            'error_text': error_text,
+                            'raw_response': error_text,
+                            'model_used': 'deepseek-chat',
+                            'usage': {},
+                            'processing_time': 0,
+                            'tokens_used': 0
+                        }
+                        return {
+                            'success': False,
+                            'error': f'deepseek_api_error_{response.status}',
+                            'message': f'Ошибка DeepSeek API при инкрементальном анализе: {response.status}',
+                            'result': {},
+                            'raw_response': error_text,
+                            'api_response': api_response_data
+                        }
+
+        except asyncio.TimeoutError:
+            logger.warning("DeepSeek API timeout при инкрементальном анализе")
+            api_response_data = {
+                'status': 'timeout',
+                'error_text': 'Превышено время ожидания ответа от DeepSeek API',
+                'raw_response': '',
+                'model_used': 'deepseek-chat',
+                'usage': {},
+                'processing_time': 0,
+                'tokens_used': 0
+            }
+            return {
+                'success': False,
+                'error': 'timeout',
+                'message': 'Превышено время ожидания ответа от DeepSeek API при инкрементальном анализе',
+                'result': {},
+                'raw_response': '',
+                'api_response': api_response_data
+            }
+        except Exception as e:
+            logger.error(f"DeepSeek API request failed при инкрементальном анализе: {e}")
+            api_response_data = {
+                'status': 'general_error',
+                'error_text': str(e),
+                'raw_response': str(e),
+                'model_used': 'deepseek-chat',
+                'usage': {},
+                'processing_time': 0,
+                'tokens_used': 0
+            }
+            return {
+                'success': False,
+                'error': 'general_error',
+                'message': 'Произошла ошибка при инкрементальном анализе текста',
+                'result': {},
+                'raw_response': str(e),
+                'api_response': api_response_data
+            }
+
+    # === НОВЫЙ МЕТОД: Генерация промта для инкрементального анализа ===
+    async def _generate_incremental_analysis_prompt(
+        self,
+        previous_state_context: str,
+        new_text: str,
+        user_profile: dict,
+        language: str
+    ) -> str:
+        """
+        Генерация промта для инкрементального анализа нового текста с учетом предыдущего состояния.
+
+        Args:
+            previous_state_context: Предыдущее состояние дня.
+            new_text: Новая запись.
+            user_profile: Профиль пользователя.
+            language: Язык.
+
+        Returns:
+            str: Сформированный промт.
+        """
+        logger.info("Генерация промта для инкрементального анализа")
+
+        # Словарь промтов на разных языках
+        prompts = {
+            'ru': f'''Ты профессиональный психолог. Ниже приведен контекст эмоционального состояния пользователя за текущий день:
+{previous_state_context}
+
+Пользователь только что добавил новую запись:
+"{new_text}"
+
+Пожалуйста, обнови контекст эмоционального состояния пользователя, интегрируя новую информацию. Также предоставь анализ новой записи в стандартном формате JSON:
+- "mood_score": оценка настроения от 1 до 10
+- "comment": краткий комментарий (1 предложение)
+- "recommendation": персональная рекомендация (1-2 предложения)
+- "analysis": подробный анализ новой записи (2-3 предложения)
+- "needs_clarification": boolean (нужны ли уточнения по новой записи)
+- "clarification_questions": массив строк (вопросы, если нужны уточнения)
+- "suggested_task": объект (опционально, описание задания)
+   - "title": название задания
+   - "description": описание задания
+   - "type": тип задания (из списка: daily, reflection, cognitive, creative, behavioral, mindfulness)
+   - "priority": приоритет (строка: low, medium, high, critical)
+
+Пример ответа:
+{{
+  "mood_score": 7,
+  "comment": "Вы испытали всплеск энтузиазма после утренней прогулки.",
+  "recommendation": "Попробуйте чаще включать физическую активность в свой день.",
+  "analysis": "Новая запись показывает положительный сдвиг в эмоциях. Упоминание 'прогулка' и 'свежий воздух' коррелирует с повышением настроения.",
+  "needs_clarification": false,
+  "clarification_questions": [],
+  "suggested_task": {{
+    "title": "Ежедневная прогулка",
+    "description": "Планируйте хотя бы 20-минутную прогулку каждый день этой недели.",
+    "type": "behavioral",
+    "priority": "medium"
+  }}
+}}
+''',
+            'en': f'''You are a professional psychologist. Below is the context of the user's emotional state for the current day:
+{previous_state_context}
+
+The user has just added a new entry:
+"{new_text}"
+
+Please update the user's emotional state context by integrating the new information. Also, provide an analysis of the new entry in standard JSON format:
+- "mood_score": mood score from 1 to 10
+- "comment": brief comment (1 sentence)
+- "recommendation": personal recommendation (1-2 sentences)
+- "analysis": detailed analysis of the new entry (2-3 sentences)
+- "needs_clarification": boolean (whether clarifications are needed for the new entry)
+- "clarification_questions": array of strings (questions if clarifications are needed)
+- "suggested_task": object (optional, task description)
+   - "title": task title
+   - "description": task description
+   - "type": task type (from the list: daily, reflection, cognitive, creative, behavioral, mindfulness)
+   - "priority": priority (string: low, medium, high, critical)
+
+Example response:
+{{
+  "mood_score": 7,
+  "comment": "You experienced a surge of enthusiasm after your morning walk.",
+  "recommendation": "Try to include physical activity in your day more often.",
+  "analysis": "The new entry shows a positive shift in emotions. The mention of 'walk' and 'fresh air' correlates with an improved mood.",
+  "needs_clarification": false,
+  "clarification_questions": [],
+  "suggested_task": {{
+    "title": "Daily Walk",
+    "description": "Plan at least a 20-minute walk every day this week.",
+    "type": "behavioral",
+    "priority": "medium"
+  }}
+}}
+'''
+        }
+
+        # Выбираем промт в зависимости от языка
+        prompt = prompts.get(language, prompts['ru'])
+        logger.info(f"Промт для инкрементального анализа сгенерирован длиной: {len(prompt)} символов")
+        return prompt
 
 # Глобальный экземпляр сервиса DeepSeek API
 deepseek_api_service = DeepSeekAPIService()
@@ -1661,3 +1994,25 @@ async def analyze_text_with_clarifications(
         Dict[str, Any]: Результат финального анализа
     """
     return await deepseek_api_service.analyze_text_with_clarifications(text, user_profile, language, initial_analysis, questions)
+
+async def analyze_text_with_previous_state(
+    previous_state_context: str,
+    new_text: str,
+    user_profile: dict,
+    language: str = 'ru'
+) -> Dict[str, Any]:
+    """
+    Удобная функция для инкрементального анализа нового текста с учетом предыдущего состояния.
+
+    Args:
+        previous_state_context: Текстовое состояние дня от предыдущего анализа.
+        new_text: Новая запись пользователя.
+        user_profile: Данные профиля пользователя.
+        language: Язык анализа.
+
+    Returns:
+        Dict[str, Any]: Результат анализа.
+    """
+    return await deepseek_api_service.analyze_text_with_previous_state(
+        previous_state_context, new_text, user_profile, language
+    )

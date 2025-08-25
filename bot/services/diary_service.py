@@ -7,7 +7,15 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, date
 from django.db import transaction
 from django.db.models import Q
-from diary.models import DiaryEntry, KeyPoint, PsychoAnalysis, VoiceToText
+from diary.models import DiaryEntry, KeyPoint, PsychoAnalysis, VoiceToText, CombinedDiaryEntry
+from diary.services.diary_state_service import (
+    daily_state_service,
+    get_daily_state,
+    get_or_create_daily_state,
+    update_daily_state,
+    update_daily_state_text_and_count,
+    create_daily_state_from_entry
+)
 from users.models import User
 from asgiref.sync import sync_to_async
 
@@ -535,107 +543,289 @@ class DiaryService:
         except Exception as e:
             logger.error(f"Ошибка при асинхронном получении дней с записями: {e}")
             return set()
-        
+
     @sync_to_async
-    def update_entry_analysis_sync(
-        self, 
+    def create_initial_analysis_sync(
+        self,
         entry: DiaryEntry,
-        mood_score: int, 
-        comment: str, 
+        mood_score: int,
+        comment: str,
         recommendation: str,
         analysis_text: str = "Анализ записан",
         api_response: Optional[Dict[str, Any]] = None
     ) -> PsychoAnalysis:
         """
-        Синхронное обновление анализа записи (обёртка для async)
+        Синхронное создание нового объекта PsychoAnalysis для записи.
+
+        Args:
+            entry: Запись дневника (DiaryEntry).
+            mood_score: Оценка настроения (1-10).
+            comment: Комментарий от ИИ.
+            recommendation: Рекомендация от ИИ.
+            analysis_text: Подробный текст анализа.
+            api_response: Сырой ответ API для сохранения (опционально).
+
+        Returns:
+            PsychoAnalysis: Созданный объект анализа.
         """
-        logger.info(f"Обновление анализа записи {entry.id} пользователя {entry.user.telegram_id}")
-        
+        logger.info(f"Создание начального анализа для записи {entry.id} пользователя {entry.user.telegram_id}")
         try:
             with transaction.atomic():
+                # Удаляем существующий анализ, если он вдруг есть (например, после редактирования)
+                # Это гарантирует, что у записи всегда будет только один актуальный анализ.
                 try:
-                    # --- СИНХРОННЫЙ ORM вызов ---
-                    analysis = PsychoAnalysis.objects.select_for_update().get(entry=entry)
-                    # ----------------------------
-                    logger.info(f"Существующий анализ найден, ID: {analysis.id}")
-                    
-                    analysis.mood_score = mood_score
-                    analysis.comment = comment
-                    analysis.recommendation = recommendation
-                    analysis.analysis_text = analysis_text
-                    # --- НЕТ language и processing_error ---
-                    if api_response is not None:
-                        analysis.api_response = api_response
-                        
-                    # --- СИНХРОННЫЙ ORM вызов ---
-                    analysis.save(update_fields=[
-                        'mood_score', 'comment', 'recommendation', 
-                        'analysis_text', 'api_response'
-                    ])
-                    # ----------------------------
-                    logger.info(f"Существующий анализ обновлен, ID: {analysis.id}")
-                    
+                    old_analysis = PsychoAnalysis.objects.get(entry=entry)
+                    logger.info(f"Удаление старого анализа ID {old_analysis.id} перед созданием нового")
+                    old_analysis.delete()
                 except PsychoAnalysis.DoesNotExist:
-                    logger.info("Анализ не найден, создаем новый")
-                    
-                    # --- СИНХРОННЫЙ ORM вызов ---
-                    analysis = PsychoAnalysis.objects.create(
-                        entry=entry,
-                        mood_score=mood_score,
-                        comment=comment,
-                        recommendation=recommendation,
-                        analysis_text=analysis_text,
-                        # --- НЕТ language и processing_error ---
-                        api_response=api_response or {}
-                    )
-                    # ----------------------------
-                    logger.info(f"Новый анализ создан, ID: {analysis.id}")
-                
+                    pass # Ничего не делаем, если старого анализа нет
+
+                # Создаем новый анализ
+                analysis_data = {
+                    'entry': entry,
+                    'mood_score': mood_score,
+                    'comment': comment,
+                    'recommendation': recommendation,
+                    'analysis_text': analysis_text,
+                    'processing_time': 0.0, # Можно уточнить, если есть метрики времени
+                    'insights_extracted': 0, # Будет обновлено позже сервисом анализа
+                    'language': entry.language, # Берем язык из записи
+                    'api_response': api_response or {}
+                }
+                new_analysis = PsychoAnalysis.objects.create(**analysis_data)
+                logger.info(f"Новый анализ создан, ID: {new_analysis.id}")
+
+                # Обновляем статус обработки записи
                 entry.is_processed = True
                 entry.processing_error = ""
-                # --- СИНХРОННЫЙ ORM вызов ---
                 entry.save(update_fields=['is_processed', 'processing_error'])
-                # ----------------------------
-                logger.info(f"Статус записи обновлен на 'обработана'")
-            
-            logger.info(f"Анализ записи {entry.id} успешно обновлен")
-            return analysis
-            
-        except Exception as e:
-            logger.error(f"Ошибка при обновлении анализа записи {entry.id}: {e}")
-            # Создание анализа с ошибкой обработки (тоже синхронно)
-            # ... (реализуй по аналогии) ...
-            raise
+                logger.info(f"Статус записи {entry.id} обновлен на 'обработана'")
 
-    # --- ИСПРАВЛЕННЫЙ update_entry_analysis ---
-    # Обрати внимание: async def
-    async def update_entry_analysis(
-        self, 
+            return new_analysis
+        except Exception as e:
+            logger.error(f"Ошибка при создании начального анализа для записи {entry.id}: {e}")
+            # В случае ошибки создания, помечаем запись как необработанную с ошибкой
+            entry.is_processed = False
+            entry.processing_error = str(e)[:255] # Ограничиваем длину
+            entry.save(update_fields=['is_processed', 'processing_error'])
+            raise # Пробрасываем ошибку
+
+    async def create_initial_analysis(
+        self,
         entry: DiaryEntry,
-        mood_score: int, 
-        comment: str, 
+        mood_score: int,
+        comment: str,
         recommendation: str,
         analysis_text: str = "Анализ записан",
         api_response: Optional[Dict[str, Any]] = None
     ) -> PsychoAnalysis:
         """
-        Асинхронное обновление анализа записи
+        Асинхронное создание нового объекта PsychoAnalysis для записи.
+
+        Args:
+            entry: Запись дневника (DiaryEntry).
+            mood_score: Оценка настроения (1-10).
+            comment: Комментарий от ИИ.
+            recommendation: Рекомендация от ИИ.
+            analysis_text: Подробный текст анализа.
+            api_response: Сырой ответ API для сохранения (опционально).
+
+        Returns:
+            PsychoAnalysis: Созданный объект анализа.
         """
-        logger.info(f"Асинхронное обновление анализа записи {entry.id} пользователя {entry.user.telegram_id}")
-        
+        logger.info(f"Асинхронное создание начального анализа для записи {entry.id}")
         try:
-            # --- ПРАВИЛЬНО: sync_to_async вокруг СИНХРОННОГО метода ---
-            analysis = await sync_to_async(self.update_entry_analysis_sync)(
+            # Используем синхронную обёртку через sync_to_async
+            analysis = await self.create_initial_analysis_sync(
                 entry, mood_score, comment, recommendation, analysis_text, api_response
             )
-            # ---------------------------------------------------------
-            logger.info(f"Асинхронный анализ записи {entry.id} обновлен, ID: {analysis.id}")
+            logger.info(f"Асинхронный анализ записи {entry.id} создан, ID: {analysis.id}")
             return analysis
-            
         except Exception as e:
-            logger.error(f"Ошибка при асинхронном обновлении анализа записи {entry.id}: {e}")
+            logger.error(f"Ошибка при асинхронном создании начального анализа для записи {entry.id}: {e}")
             raise
+    # =========================================================
 
+    # === Обновление существующего анализа ===
+    @sync_to_async
+    def update_existing_analysis_sync(
+        self,
+        analysis_obj: PsychoAnalysis,
+        mood_score: int,
+        comment: str,
+        recommendation: str,
+        analysis_text: str = "Анализ обновлен",
+        api_response: Optional[Dict[str, Any]] = None
+    ) -> PsychoAnalysis:
+        """
+        Синхронное обновление существующего объекта PsychoAnalysis.
+
+        Args:
+            analysis_obj: Существующий объект PsychoAnalysis.
+            mood_score: Новая оценка настроения (1-10).
+            comment: Новый комментарий от ИИ.
+            recommendation: Новая рекомендация от ИИ.
+            analysis_text: Новый подробный текст анализа.
+            api_response: Новый сырой ответ API для сохранения (опционально).
+
+        Returns:
+            PsychoAnalysis: Обновленный объект анализа.
+        """
+        logger.info(f"Обновление существующего анализа ID {analysis_obj.id} для записи {analysis_obj.entry.id}")
+        try:
+            with transaction.atomic():
+                analysis_obj.mood_score = mood_score
+                analysis_obj.comment = comment
+                analysis_obj.recommendation = recommendation
+                analysis_obj.analysis_text = analysis_text
+                # processing_time и insights_extracted обновляются отдельно сервисом анализа при необходимости
+                if api_response is not None:
+                    analysis_obj.api_response = api_response
+
+                # Сохраняем только измененные поля
+                update_fields = ['mood_score', 'comment', 'recommendation', 'analysis_text']
+                if api_response is not None:
+                    update_fields.append('api_response')
+                analysis_obj.save(update_fields=update_fields)
+                logger.info(f"Анализ ID {analysis_obj.id} успешно обновлен")
+
+                # Обновляем статус обработки записи
+                entry = analysis_obj.entry
+                entry.is_processed = True
+                entry.processing_error = ""
+                entry.save(update_fields=['is_processed', 'processing_error'])
+                logger.info(f"Статус записи {entry.id} обновлен на 'обработана'")
+
+            return analysis_obj
+        except Exception as e:
+            logger.error(f"Ошибка при обновлении анализа ID {analysis_obj.id}: {e}")
+            # В случае ошибки обновления, можно пометить запись
+            entry = analysis_obj.entry
+            entry.is_processed = False
+            entry.processing_error = f"Ошибка обновления анализа: {str(e)[:200]}"
+            entry.save(update_fields=['is_processed', 'processing_error'])
+            raise # Пробрасываем ошибку
+
+    async def update_existing_analysis(
+        self,
+        analysis_obj: PsychoAnalysis,
+        mood_score: int,
+        comment: str,
+        recommendation: str,
+        analysis_text: str = "Анализ обновлен",
+        api_response: Optional[Dict[str, Any]] = None
+    ) -> PsychoAnalysis:
+        """
+        Асинхронное обновление существующего объекта PsychoAnalysis.
+
+        Args:
+            analysis_obj: Существующий объект PsychoAnalysis.
+            mood_score: Новая оценка настроения (1-10).
+            comment: Новый комментарий от ИИ.
+            recommendation: Новая рекомендация от ИИ.
+            analysis_text: Новый подробный текст анализа.
+            api_response: Новый сырой ответ API для сохранения (опционально).
+
+        Returns:
+            PsychoAnalysis: Обновленный объект анализа.
+        """
+        logger.info(f"Асинхронное обновление анализа ID {analysis_obj.id}")
+        try:
+            # Используем синхронную обёртку через sync_to_async
+            analysis = await self.update_existing_analysis_sync(
+                analysis_obj, mood_score, comment, recommendation, analysis_text, api_response
+            )
+            logger.info(f"Асинхронный анализ ID {analysis_obj.id} обновлен")
+            return analysis
+        except Exception as e:
+            logger.error(f"Ошибка при асинхронном обновлении анализа ID {analysis_obj.id}: {e}")
+            raise        
+
+    # === Делегирование в DailyStateService ===
+
+    async def get_daily_state(self, user: User, target_date: date) -> Optional[CombinedDiaryEntry]:
+        """
+        Асинхронно получает CombinedDiaryEntry для пользователя и даты.
+        Делегирует вызов DailyStateService.
+
+        Args:
+            user: Пользователь.
+            target_date: Целевая дата.
+
+        Returns:
+            CombinedDiaryEntry: Объект состояния дня или None, если не найден.
+        """
+        logger.info(f"DiaryService: Получение CombinedDiaryEntry для пользователя {user.telegram_id} за {target_date}")
+        # Делегируем в глобальную функцию daily_state_service
+        return await get_daily_state(user, target_date)
+
+    async def get_or_create_daily_state(self, user: User, target_date: date, initial_text: str) -> CombinedDiaryEntry:
+        """
+        Асинхронно получает или создает CombinedDiaryEntry для пользователя и даты.
+        Делегирует вызов DailyStateService.
+
+        Args:
+            user: Пользователь.
+            target_date: Целевая дата.
+            initial_text: Начальный объединенный текст для создания записи.
+
+        Returns:
+            CombinedDiaryEntry: Существующий или новый объект состояния дня.
+        """
+        logger.info(f"DiaryService: Получение или создание CombinedDiaryEntry для пользователя {user.telegram_id} за {target_date}")
+        # Делегируем в глобальную функцию daily_state_service
+        return await get_or_create_daily_state(user, target_date, initial_text)
+
+    async def update_daily_state(self, combined_entry: CombinedDiaryEntry, new_ai_state_data: str) -> bool:
+        """
+        Асинхронно обновляет существующий CombinedDiaryEntry с новым состоянием от ИИ.
+        Делегирует вызов DailyStateService.
+
+        Args:
+            combined_entry: Объект CombinedDiaryEntry для обновления.
+            new_ai_state_data: Новое текстовое состояние дня от ИИ.
+
+        Returns:
+            bool: True, если обновление прошло успешно, иначе False.
+        """
+        logger.info(f"DiaryService: Обновление CombinedDiaryEntry ID {combined_entry.id} с новым состоянием ИИ")
+        # Делегируем в глобальную функцию daily_state_service
+        return await update_daily_state(combined_entry, new_ai_state_data)
+
+    async def update_daily_state_text_and_count(
+        self, combined_entry: CombinedDiaryEntry, new_text: str, new_entry_count: int
+    ) -> bool:
+        """
+        Асинхронно обновляет текст и счетчик записей в CombinedDiaryEntry.
+        Делегирует вызов DailyStateService.
+
+        Args:
+            combined_entry: Объект CombinedDiaryEntry для обновления.
+            new_text: Новый объединенный текст.
+            new_entry_count: Новое количество записей.
+
+        Returns:
+            bool: True, если обновление прошло успешно, иначе False.
+        """
+        logger.info(f"DiaryService: Обновление текста и счетчика в CombinedDiaryEntry ID {combined_entry.id}")
+        # Делегируем в глобальную функцию daily_state_service
+        return await update_daily_state_text_and_count(combined_entry, new_text, new_entry_count)
+
+    async def create_daily_state_from_entry(self, diary_entry: DiaryEntry) -> Optional[CombinedDiaryEntry]:
+        """
+        Создает новый CombinedDiaryEntry на основе одной DiaryEntry.
+        Делегирует вызов DailyStateService.
+
+        Args:
+            diary_entry: Объект DiaryEntry.
+
+        Returns:
+            CombinedDiaryEntry: Созданный объект состояния дня или None при ошибке.
+        """
+        logger.info(f"DiaryService: Создание CombinedDiaryEntry из DiaryEntry ID {diary_entry.id}")
+        # Делегируем в глобальную функцию daily_state_service
+        return await create_daily_state_from_entry(diary_entry)
+    
 # Глобальный экземпляр сервиса дневника
 diary_service = DiaryService()
 
@@ -672,18 +862,32 @@ async def get_days_with_entries(user: User, year: int, month: int) -> set:
     """Удобная функция для получения дней с записями"""
     return await diary_service.get_days_with_entries(user, year, month)
 
-async def update_entry_analysis(
+async def create_initial_analysis(
     entry: DiaryEntry,
-    mood_score: int, 
-    comment: str, 
+    mood_score: int,
+    comment: str,
     recommendation: str,
     analysis_text: str = "Анализ записан",
     api_response: Optional[Dict[str, Any]] = None
 ) -> PsychoAnalysis:
     """
-    Удобная функция для асинхронного обновления анализа записи
+    Удобная функция для асинхронного создания начального анализа записи.
     """
-    # --- ПРАВИЛЬНО: await асинхронного метода diary_service ---
-    return await diary_service.update_entry_analysis(
+    return await diary_service.create_initial_analysis(
         entry, mood_score, comment, recommendation, analysis_text, api_response
+    )
+
+async def update_existing_analysis(
+    analysis_obj: PsychoAnalysis,
+    mood_score: int,
+    comment: str,
+    recommendation: str,
+    analysis_text: str = "Анализ обновлен",
+    api_response: Optional[Dict[str, Any]] = None
+) -> PsychoAnalysis:
+    """
+    Удобная функция для асинхронного обновления существующего анализа.
+    """
+    return await diary_service.update_existing_analysis(
+        analysis_obj, mood_score, comment, recommendation, analysis_text, api_response
     )
