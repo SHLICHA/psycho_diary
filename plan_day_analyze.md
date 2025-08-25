@@ -31,20 +31,20 @@
 Этап 4: Реализация основной логики в diary.py handlers
 
 Изменение логики обработки новой записи (process_text_entry, process_voice_entry):
-    1. Прием записи: Сохранить запись стандартно (diary_service.create_text_entry/create_voice_entry).
-    2.Получение состояния дня: Асинхронно получить CombinedDiaryEntry для текущей даты пользователя (daily_state_service.get_daily_state).
+    ✅1. Прием записи: Сохранить запись стандартно (diary_service.create_text_entry/create_voice_entry).
+    ✅2.Получение состояния дня: Асинхронно получить CombinedDiaryEntry для текущей даты пользователя (daily_state_service.get_daily_state).
     Выбор метода анализа:
-    1. Если CombinedDiaryEntry НЕ существует (первая запись дня):
-    1.1 Вызвать стандартный анализ с профилем: deepseek_api_service.analyze_text_with_profile(new_text, user_profile, language).
-    2 Если CombinedDiaryEntry существует (N>1):
-    2.1 Извлечь ai_state_data из CombinedDiaryEntry.
-    2.2 Вызвать новый метод: deepseek_api_service.analyze_text_with_previous_state(ai_state_data, new_text, user_profile, language).
+    ✅1. Если CombinedDiaryEntry НЕ существует (первая запись дня):
+    ✅1.1 Вызвать стандартный анализ с профилем: deepseek_api_service.analyze_text_with_profile(new_text, user_profile, language).
+    ✅2 Если CombinedDiaryEntry существует (N>1):
+    ✅2.1 Извлечь ai_state_data из CombinedDiaryEntry.
+    ✅2.2 Вызвать новый метод: deepseek_api_service.analyze_text_with_previous_state(ai_state_data, new_text, user_profile, language).
 Обработка результата API:
-Извлечь mood_score, comment, recommendation, analysis, needs_clarification, clarification_questions, suggested_task.
-Если needs_clarification: true: Перевести FSM в состояние уточнения (DiaryStates.asking_clarifying_questions), сохранить entry_id и сами вопросы. Отправить вопросы пользователю. (Эта логика частично есть).
-Если НЕ требуется уточнение:
-Создать/Обновить PsychoAnalysis: Использовать diary_service.create_initial_analysis для создания анализа новой записи.
-Обновить CombinedDiaryEntry: Использовать daily_state_service.update_daily_state (или create_daily_state для N=1), сохранив новое ai_state_data из результата API.
+    1. Извлечь mood_score, comment, recommendation, analysis, needs_clarification, clarification_questions, suggested_task.
+    2.1. Если needs_clarification: true: Перевести FSM в состояние уточнения (DiaryStates.asking_clarifying_questions), сохранить entry_id и сами вопросы. Отправить вопросы пользователю. (Эта логика частично есть).
+    2.2 Если НЕ требуется уточнение:
+    Создать/Обновить PsychoAnalysis: Использовать diary_service.create_initial_analysis для создания анализа новой записи.
+    Обновить CombinedDiaryEntry: Использовать daily_state_service.update_daily_state (или create_daily_state для N=1), сохранив новое ai_state_data из результата API.
 (Асинхронно) Обработать задание: Если suggested_task присутствует и задание за день еще не назначалось, создать новый TherapyTask.
 (Асинхронно) Обновить инсайты: Использовать существующую логику (AnalysisService) для извлечения KeyPoint и UserInsight из результата API и сохранения их в БД.
 Ответ пользователю: Отправить пользователю comment, recommendation, analysis из результата API.

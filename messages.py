@@ -128,7 +128,9 @@ MESSAGES = {
         'archive_select_year': '📅 Выбери год:',
         'archive_select_month': '📅 Выбери месяц {year}:',
         'archive_select_day': '📅 Выбери день {month}.{year}:',
+        'clarification_needed': '❓ Для более точного анализа мне нужны уточнения:\n\n',
         'archive_entry': '''📅 <b>Запись от {date}</b>
+        
 
 📝 <b>Текст:</b>
 {text}
@@ -364,7 +366,9 @@ Here you can customize the diary for yourself:''',
         'archive_select_year': '📅 Select year:',
         'archive_select_month': '📅 Select month {year}:',
         'archive_select_day': '📅 Select day {month}.{year}:',
+        'clarification_needed': '❓ I need clarifications for a more accurate analysis:\n\n',
         'archive_entry': '''📅 <b>Entry from {date}</b>
+        
 
 📝 <b>Text:</b>
 {text}

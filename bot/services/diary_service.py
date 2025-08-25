@@ -8,8 +8,7 @@ from datetime import datetime, date
 from django.db import transaction
 from django.db.models import Q
 from diary.models import DiaryEntry, KeyPoint, PsychoAnalysis, VoiceToText, CombinedDiaryEntry
-from diary.services.diary_state_service import (
-    daily_state_service,
+from diary.services.daily_state_service import (
     get_daily_state,
     get_or_create_daily_state,
     update_daily_state,
@@ -589,7 +588,7 @@ class DiaryService:
                     'analysis_text': analysis_text,
                     'processing_time': 0.0, # Можно уточнить, если есть метрики времени
                     'insights_extracted': 0, # Будет обновлено позже сервисом анализа
-                    'language': entry.language, # Берем язык из записи
+                    #'language': entry.language, # Берем язык из записи
                     'api_response': api_response or {}
                 }
                 new_analysis = PsychoAnalysis.objects.create(**analysis_data)

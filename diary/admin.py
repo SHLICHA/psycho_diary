@@ -63,3 +63,50 @@ class UserActivityAdmin(admin.ModelAdmin):
     list_filter = ['activity_type', 'timestamp']
     readonly_fields = ['timestamp']
     date_hierarchy = 'timestamp'
+
+@admin.register(CombinedDiaryEntry)
+class CombinedDiaryEntryAdmin(admin.ModelAdmin):
+    """
+    Админка для CombinedDiaryEntry.
+    """
+    list_display = ('id', 'user', 'date', 'entry_count', 'is_analyzed', 'created_at')
+    list_filter = ('date', 'is_analyzed', 'created_at')
+    search_fields = ('user__username', 'user__telegram_id', 'date')
+    readonly_fields = ('created_at', 'updated_at')
+    # Отображаем текст и состояние в виде текстовых полей
+    # raw_id_fields = ('user',) # Если пользователей много, удобнее ссылка
+    
+    # Настройка отображения больших текстовых полей
+    formfield_overrides = {
+        # models.TextField: {'widget': AdminTextInputWidget(attrs={'size': '100'})},
+    }
+
+    fieldsets = (
+        (None, {
+            'fields': ('user', 'date')
+        }),
+        ('Содержание', {
+            'fields': ('text', 'entry_count'),
+        }),
+        ('Анализ ИИ', {
+            'fields': ('ai_state_data', 'is_analyzed', 'analysis_result'),
+        }),
+        ('Даты', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',), # Скрываем по умолчанию
+        }),
+    )
+
+    # Опционально: добавим действие для принудительной повторной установки флага is_analyzed
+    actions = ['mark_as_not_analyzed']
+
+    @admin.action(description="Пометить выбранные записи как не проанализированные ИИ")
+    def mark_as_not_analyzed(self, request, queryset):
+        """
+        Действие администратора: сбросить флаг is_analyzed.
+        """
+        updated_count = queryset.update(is_analyzed=False)
+        self.message_user(
+            request, 
+            f"{updated_count} записей помечены как не проанализированные ИИ."
+        )
