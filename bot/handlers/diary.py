@@ -236,6 +236,7 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
         await _send_error_message(status_message, message, language)
         await state_manager.clear_state(state)
 
+@router.message(DiaryStates.asking_clarifying_questions)
 async def process_clarification_answers(message: Message, state: FSMContext, user, language: str):
     """
     Обработка ответов на уточняющие вопросы.
