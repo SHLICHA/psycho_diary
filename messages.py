@@ -160,7 +160,10 @@ MESSAGES = {
         'btn_skip_task': '⏭ Пропустить',
         'btn_delete_task': '🗑 Удалить',
         'btn_view_task': '👁 Посмотреть',
-        
+        'btn_cancel_task': '❌ Отменить задание',
+        'task_cancelled_confirmation': '✅ Задание <b>{title}</b> было успешно отменено (удалено).',
+        'task_cancelled_simple_message': '📢 Задание "<b>{title}</b>" было отменено.',
+        'task_not_found_for_cancellation': '⚠️ Задание не найдено или уже было удалено.',
         # === Прогресс ===
         'progress_title': '''📊 <b>Твой прогресс</b>
 
@@ -398,6 +401,10 @@ Your response is saved. I will consider this in future analysis.
         'btn_skip_task': '⏭ Skip',
         'btn_delete_task': '🗑 Delete',
         'btn_view_task': '👁 View',
+        'btn_cancel_task': '❌ Cancel Task',
+        'task_cancelled_confirmation': '✅ The task "<b>{title}</b>" has been successfully canceled (deleted).',
+        'task_cancelled_simple_message': '📢 The task "<b>{title}</b>" has been canceled.',
+        'task_not_found_for_cancellation': '⚠️ Task not found or has already been deleted.',
         
         # === Progress ===
         'progress_title': '''📊 <b>Your progress</b>

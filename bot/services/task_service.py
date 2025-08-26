@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, date, timedelta
 from django.db import transaction
 from django.db.models import Q
-from diary.models import TherapyTask, TaskCompletion, TaskAnalysis
+from diary.models import DiaryEntry, TherapyTask, TaskCompletion, TaskAnalysis
 from users.models import User
 from asgiref.sync import sync_to_async
 
@@ -23,7 +23,8 @@ class TaskService:
         title: str, 
         description: str, 
         task_type: str = 'daily',
-        priority: int = 1
+        priority: int = 1,
+        related_entry: DiaryEntry = None
     ) -> TherapyTask:
         """
         Назначение терапевтического задания пользователю
@@ -42,6 +43,8 @@ class TaskService:
         logger.info(f"Название: {title}")
         logger.info(f"Тип: {task_type}")
         logger.info(f"Приоритет: {priority}")
+        if related_entry:
+            logger.info(f"Связанная запись: DiaryEntry ID {related_entry.id}")
         
         try:
             # ИСПРАВЛЕНО: используем sync_to_async для транзакций
@@ -54,7 +57,8 @@ class TaskService:
                         description=description,
                         type=task_type,
                         priority=priority,
-                        status='pending'  # Ожидает выполнения
+                        status='pending',  # Ожидает выполнения
+                        related_entry=related_entry
                     )
                     logger.info(f"Задание назначено, ID: {therapy_task.id}")
                     return therapy_task
@@ -440,10 +444,11 @@ async def assign_task(
     title: str, 
     description: str, 
     task_type: str = 'daily',
-    priority: int = 1
+    priority: int = 1,
+    related_entry: DiaryEntry = None
 ) -> TherapyTask:
     """Удобная функция для назначения задания"""
-    return await task_service.assign_task(user, title, description, task_type, priority)
+    return await task_service.assign_task(user, title, description, task_type, priority, related_entry)
 
 async def get_user_active_tasks(user: User) -> List[TherapyTask]:
     """Удобная функция для получения активных заданий"""

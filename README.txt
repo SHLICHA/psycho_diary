@@ -13,6 +13,7 @@ docker push shlicha/dairy_bot:v1 - отправить образ на DockerHub
 
 git add .
 git commit -m 'Название'
-git push origin master
+git push origin master - загрузить в GitHub
+git pull origin master - обновить из GitHub
 
 python -m pytest tests/test_messages.py -v

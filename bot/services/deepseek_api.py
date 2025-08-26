@@ -114,7 +114,7 @@ class DeepSeekAPIService:
             "model": "deepseek-chat",
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.3,  # Низкая температура для точного анализа
-            "max_tokens": 3000
+            "max_tokens": 5000
             #"max_tokens": min(5000, len(text) * 2)  # Удваиваем токены для длинных текстов
         }
         headers = {
@@ -344,7 +344,7 @@ class DeepSeekAPIService:
                 "model": "deepseek-chat",
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.5,
-                "max_tokens": 3000 # Удваиваем токены
+                "max_tokens": 5000 # Удваиваем токены
             }
             headers = {
                 "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
@@ -541,7 +541,7 @@ class DeepSeekAPIService:
                 "model": "deepseek-chat",
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.4, # Слегка выше, чем для инкрементального
-                "max_tokens": 4000
+                "max_tokens": 5000
             }
             headers = {
                 "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
@@ -631,7 +631,7 @@ class DeepSeekAPIService:
             original_text: Оригинальный текст записи.
             clarification_answers: Ответы пользователя.
             user_profile: Профиль пользователя.
-            language: Язык.
+            language: Язык ('ru' или 'en').
 
         Returns:
             str: Сформированный промт.
@@ -657,6 +657,14 @@ class DeepSeekAPIService:
    - "description": описание задания
    - "type": тип задания (из списка: daily, reflection, cognitive, creative, behavioral, mindfulness)
    - "priority": приоритет (строка: low, medium, high, critical)
+- "key_points": массив объектов (ключевые моменты)
+   - "text": текст ключевого момента
+   - "type": тип (emotion, event, thought, trigger, other)
+   - "confidence": уверенность (float от 0.0 до 1.0)
+- "user_insights": массив объектов (новые инсайты)
+   - "text": текст инсайта
+   - "category": категория из списка: emotion, behavior, thought, trigger, pattern, belief, other
+   - "weight": вес (int, от 1 до 10)
 
 Пример ответа:
 {{
@@ -669,7 +677,26 @@ class DeepSeekAPIService:
     "description": "Каждый вечер записывайте одно достижение или качество, за которое вы благодарны себе.",
     "type": "mindfulness",
     "priority": "medium"
-  }}
+  }},
+  "key_points": [
+    {{
+      "text": "самоодобрение",
+      "type": "thought",
+      "confidence": 0.95
+    }},
+    {{
+      "text": "мотивация",
+      "type": "emotion",
+      "confidence": 0.9
+    }}
+  ],
+  "user_insights": [
+    {{
+      "text": "Самосострадание - эффективный механизм эмоциональной регуляции",
+      "category": "personal",
+      "weight": 2
+    }}
+  ]
 }}
 ''',
             'en': f'''You are a professional psychologist. Below is a user's entry, clarification questions that were asked, and the user's answers to those questions.
@@ -690,6 +717,14 @@ Please provide a final psychological analysis of this entry, taking into account
    - "description": task description
    - "type": task type (from the list: daily, reflection, cognitive, creative, behavioral, mindfulness)
    - "priority": priority (string: low, medium, high, critical)
+- "key_points": array of objects (key points)
+   - "text": text of the key point
+   - "type": type (emotion, event, thought, trigger, other)
+   - "confidence": confidence (float from 0.0 to 1.0)
+- "user_insights": array of objects (new insights)
+   - "text": text of the insight
+   - "category": category from the list: emotion, behavior, thought, trigger, pattern, belief, other
+   - "weight": weight (int, from 1 to 10)
 
 Example response:
 {{
@@ -702,12 +737,31 @@ Example response:
     "description": "Every evening, write down one achievement or quality you are grateful for in yourself.",
     "type": "mindfulness",
     "priority": "medium"
-  }}
+  }},
+  "key_points": [
+    {{
+      "text": "self-approval",
+      "type": "thought",
+      "confidence": 0.95
+    }},
+    {{
+      "text": "motivation",
+      "type": "emotion",
+      "confidence": 0.9
+    }}
+  ],
+  "user_insights": [
+    {{
+      "text": "Self-compassion is an effective mechanism of emotional regulation",
+      "category": "personal",
+      "weight": 2
+    }}
+  ]
 }}
 '''
         }
 
-        prompt = prompts.get(language, prompts['ru'])
+        prompt = prompts.get(language, prompts['en']) # По умолчанию английский
         logger.info(f"Промт для финального анализа с уточнениями сгенерирован длиной: {len(prompt)} символов")
         return prompt
 
@@ -1029,7 +1083,7 @@ Example response:
         self, 
         prompt: str, 
         language: str = 'ru',
-        max_tokens: int = 500
+        max_tokens: int = 5000
     ) -> Dict[str, Any]:
         """
         Генерация ответа через DeepSeek API
@@ -1474,19 +1528,18 @@ Example response:
         analysis_type: str
     ) -> str:
         """
-        Генерация промта для анализа текста
+        Генерация промта для анализа текста.
         
         Args:
-            text: Текст для анализа
-            language: Язык анализа
-            analysis_type: Тип анализа
+            text: Текст для анализа.
+            language: Язык анализа ('ru' или 'en').
+            analysis_type: Тип анализа ('default', 'emotion').
             
         Returns:
-            str: Сформированный промт
+            str: Сформированный промт.
         """
         logger.info(f"Генерация промта для анализа текста, тип: {analysis_type}, язык: {language}")
         
-        # Промты для разных языков
         prompts = {
             'ru': {
                 'emotion': f'''Проанализируй мое эмоциональное состояние и ответь в формате JSON:
@@ -1499,9 +1552,41 @@ Example response:
 - "comment": краткий комментарий (1 предложение)
 - "recommendation": персональная рекомендация (1-2 предложения)
 - "analysis": подробный анализ (2-3 предложения)
+- "key_points": массив объектов (ключевые моменты)
+   - "text": текст ключевого момента
+   - "type": тип (emotion, event, thought, trigger, other)
+   - "confidence": уверенность (float от 0.0 до 1.0)
+- "user_insights": массив объектов (новые инсайты)
+   - "text": текст инсайта
+   - "category": категория (personal, relational, professional, health, spiritual, other)
+   - "weight": вес (int, от 1 до 10)
 
 Пример ответа:
-{{"mood_score": 7, "comment": "Хорошее настроение", "recommendation": "Продолжайте в том же духе", "analysis": "Текст содержит позитивные эмоции"}}''',
+{{
+  "mood_score": 7,
+  "comment": "Хорошее настроение",
+  "recommendation": "Продолжайте в том же духе",
+  "analysis": "Текст содержит позитивные эмоции",
+  "key_points": [
+    {{
+      "text": "счастье",
+      "type": "emotion",
+      "confidence": 0.9
+    }},
+    {{
+      "text": "успех",
+      "type": "event",
+      "confidence": 0.8
+    }}
+  ],
+  "user_insights": [
+    {{
+      "text": "Позитивные события повышают настроение",
+      "category": "personal",
+      "weight": 2
+    }}
+  ]
+}}''',
                 
                 'default': f'''Проанализируй текст и ответь в формате JSON:
 
@@ -1513,12 +1598,27 @@ Example response:
 - "comment": краткий комментарий
 - "recommendation": персональная рекомендация
 - "analysis": подробный анализ
+- "key_points": массив объектов (ключевые моменты)
+   - "text": текст ключевого момента
+   - "type": тип (emotion, event, thought, trigger, other)
+   - "confidence": уверенность (float от 0.0 до 1.0)
+- "user_insights": массив объектов (новые инсайты)
+   - "text": текст инсайта
+   - "category": категория (personal, relational, professional, health, spiritual, other)
+   - "weight": вес (int, от 1 до 10)
 
 Пример ответа:
-{{"mood_score": 5, "comment": "Нормальное настроение", "recommendation": "Продолжайте вести дневник", "analysis": "Текст нейтральный"}}'''
+{{
+  "mood_score": 5,
+  "comment": "Нормальное настроение",
+  "recommendation": "Продолжайте вести дневник",
+  "analysis": "Текст нейтральный",
+  "key_points": [],
+  "user_insights": []
+}}'''
             },
             'en': {
-                'emotion': f'''Analyze му the emotional state and respond in JSON format:
+                'emotion': f'''Analyze my emotional state and respond in JSON format:
 
 Text to analyze:
 {text}
@@ -1528,9 +1628,41 @@ Respond in JSON format with fields:
 - "comment": brief comment (1 sentence)
 - "recommendation": personal recommendation (1-2 sentences)
 - "analysis": detailed analysis (2-3 sentences)
+- "key_points": array of objects (key points)
+   - "text": text of the key point
+   - "type": type (emotion, event, thought, trigger, other)
+   - "confidence": confidence (float from 0.0 to 1.0)
+- "user_insights": array of objects (new insights)
+   - "text": text of the insight
+   - "category": category (personal, relational, professional, health, spiritual, other)
+   - "weight": weight (int, from 1 to 10)
 
 Example response:
-{{"mood_score": 7, "comment": "Good mood", "recommendation": "Keep it up", "analysis": "The text contains positive emotions"}}''',
+{{
+  "mood_score": 7,
+  "comment": "Good mood",
+  "recommendation": "Keep it up",
+  "analysis": "The text contains positive emotions",
+  "key_points": [
+    {{
+      "text": "happiness",
+      "type": "emotion",
+      "confidence": 0.9
+    }},
+    {{
+      "text": "success",
+      "type": "event",
+      "confidence": 0.8
+    }}
+  ],
+  "user_insights": [
+    {{
+      "text": "Positive events improve mood",
+      "category": "personal",
+      "weight": 2
+    }}
+  ]
+}}''',
                 
                 'default': f'''Analyze the text and respond in JSON format:
 
@@ -1542,13 +1674,28 @@ Respond in JSON format with fields:
 - "comment": brief comment
 - "recommendation": personal recommendation
 - "analysis": detailed analysis
+- "key_points": array of objects (key points)
+   - "text": text of the key point
+   - "type": type (emotion, event, thought, trigger, other)
+   - "confidence": confidence (float from 0.0 to 1.0)
+- "user_insights": array of objects (new insights)
+   - "text": text of the insight
+   - "category": category (personal, relational, professional, health, spiritual, other)
+   - "weight": weight (int, from 1 to 10)
 
 Example response:
-{{"mood_score": 5, "comment": "Normal mood", "recommendation": "Continue keeping a diary", "analysis": "The text is neutral"}}'''
+{{
+  "mood_score": 5,
+  "comment": "Normal mood",
+  "recommendation": "Continue keeping a diary",
+  "analysis": "The text is neutral",
+  "key_points": [],
+  "user_insights": []
+}}'''
             }
         }
         
-        language_prompts = prompts.get(language, prompts['ru'])
+        language_prompts = prompts.get(language, prompts['en']) # По умолчанию английский
         prompt = language_prompts.get(analysis_type, language_prompts['default'])
         
         logger.info(f"Промт для анализа сгенерирован длиной: {len(prompt)} символов")
@@ -2086,14 +2233,13 @@ Use the following response format:
             previous_state_context: Предыдущее состояние дня.
             new_text: Новая запись.
             user_profile: Профиль пользователя.
-            language: Язык.
+            language: Язык ('ru' или 'en').
 
         Returns:
             str: Сформированный промт.
         """
         logger.info("Генерация промта для инкрементального анализа")
 
-        # Словарь промтов на разных языках
         prompts = {
             'ru': f'''Ты профессиональный психолог. Ниже приведен контекст эмоционального состояния пользователя за текущий день:
 {previous_state_context}
@@ -2113,6 +2259,14 @@ Use the following response format:
    - "description": описание задания
    - "type": тип задания (из списка: daily, reflection, cognitive, creative, behavioral, mindfulness)
    - "priority": приоритет (строка: low, medium, high, critical)
+- "key_points": массив объектов (ключевые моменты)
+   - "text": текст ключевого момента
+   - "type": тип (emotion, event, thought, trigger, other)
+   - "confidence": уверенность (float от 0.0 до 1.0)
+- "user_insights": массив объектов (новые инсайты)
+   - "text": текст инсайта
+   - "category": категория (personal, relational, professional, health, spiritual, other)
+   - "weight": вес (int, от 1 до 10)
 
 Пример ответа:
 {{
@@ -2127,7 +2281,26 @@ Use the following response format:
     "description": "Планируйте хотя бы 20-минутную прогулку каждый день этой недели.",
     "type": "behavioral",
     "priority": "medium"
-  }}
+  }},
+  "key_points": [
+    {{
+      "text": "прогулка",
+      "type": "event",
+      "confidence": 0.9
+    }},
+    {{
+      "text": "энтузиазм",
+      "type": "emotion",
+      "confidence": 0.85
+    }}
+  ],
+  "user_insights": [
+    {{
+      "text": "Физическая активность положительно влияет на настроение",
+      "category": "health",
+      "weight": 1
+    }}
+  ]
 }}
 ''',
             'en': f'''You are a professional psychologist. Below is the context of the user's emotional state for the current day:
@@ -2148,6 +2321,14 @@ Please update the user's emotional state context by integrating the new informat
    - "description": task description
    - "type": task type (from the list: daily, reflection, cognitive, creative, behavioral, mindfulness)
    - "priority": priority (string: low, medium, high, critical)
+- "key_points": array of objects (key points)
+   - "text": text of the key point
+   - "type": type (emotion, event, thought, trigger, other)
+   - "confidence": confidence (float from 0.0 to 1.0)
+- "user_insights": array of objects (new insights)
+   - "text": text of the insight
+   - "category": category (personal, relational, professional, health, spiritual, other)
+   - "weight": weight (int, from 1 to 10)
 
 Example response:
 {{
@@ -2162,13 +2343,31 @@ Example response:
     "description": "Plan at least a 20-minute walk every day this week.",
     "type": "behavioral",
     "priority": "medium"
-  }}
+  }},
+  "key_points": [
+    {{
+      "text": "walk",
+      "type": "event",
+      "confidence": 0.9
+    }},
+    {{
+      "text": "enthusiasm",
+      "type": "emotion",
+      "confidence": 0.85
+    }}
+  ],
+  "user_insights": [
+    {{
+      "text": "Physical activity positively affects mood",
+      "category": "health",
+      "weight": 1
+    }}
+  ]
 }}
 '''
         }
 
-        # Выбираем промт в зависимости от языка
-        prompt = prompts.get(language, prompts['ru'])
+        prompt = prompts.get(language, prompts['en']) # По умолчанию английский
         logger.info(f"Промт для инкрементального анализа сгенерирован длиной: {len(prompt)} символов")
         return prompt
 
@@ -2197,7 +2396,7 @@ async def analyze_text(
 async def generate_response(
     prompt: str, 
     language: str = 'ru',
-    max_tokens: int = 500
+    max_tokens: int = 5000
 ) -> Dict[str, Any]:
     """
     Удобная функция для генерации ответа

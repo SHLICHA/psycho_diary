@@ -34,6 +34,12 @@ class DiaryEntry(models.Model):
         verbose_name=_("Группа записей дня"),
         help_text=_("UUID для группировки записей одного дня")
     )
+    clarification_questions_asked = models.JSONField(
+        default=list, 
+        blank=True, 
+        verbose_name=_("Заданные уточняющие вопросы"),
+        help_text=_("Список вопросов, заданных пользователю для уточнения по этой записи.")
+    )
     is_primary = models.BooleanField(
         default=False,
         verbose_name=_("Основная запись дня"),
@@ -250,7 +256,7 @@ class UserInsight(models.Model):
     weight = models.PositiveIntegerField(default=1, verbose_name=_("Вес"))
     last_mentioned = models.DateTimeField(verbose_name=_("Последнее упоминание"))
     category = models.CharField(
-        max_length=10, 
+        max_length=50, 
         choices=INSIGHT_CATEGORIES,
         verbose_name=_("Категория")
     )
@@ -297,6 +303,15 @@ class TherapyTask(models.Model):
     description = models.TextField(verbose_name=_("Описание"))
     assigned_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Назначено"))
     completed_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Выполнено"))
+    related_entry = models.ForeignKey(
+        DiaryEntry,
+        on_delete=models.SET_NULL, # Или CASCADE, если удаление записи должно удалять задание
+        null=True,
+        blank=True,
+        verbose_name="Связанная запись дневника",
+        help_text="Запись дневника, которая привела к назначению этого задания.",
+        related_name='assigned_tasks' # Позволяет получить задания из записи: entry.assigned_tasks.all()
+    )
     status = models.CharField(
         max_length=11, 
         choices=TASK_STATUS,  # из constants
