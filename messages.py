@@ -157,8 +157,8 @@ MESSAGES = {
         
         # === Кнопки заданий ===
         'btn_complete_task': '✅ Выполнить',
-        'btn_skip_task': '⏭ Пропустить',
-        'btn_delete_task': '🗑 Удалить',
+        'btn_skip_task': '⏭ Пропустить задание',
+        'btn_delete_task': '🗑 Удалить задание',
         'btn_view_task': '👁 Посмотреть',
         'btn_cancel_task': '❌ Отменить задание',
         'task_cancelled_confirmation': '✅ Задание <b>{title}</b> было успешно отменено (удалено).',
@@ -398,8 +398,8 @@ Your response is saved. I will consider this in future analysis.
         
         # === Task buttons ===
         'btn_complete_task': '✅ Complete',
-        'btn_skip_task': '⏭ Skip',
-        'btn_delete_task': '🗑 Delete',
+        'btn_skip_task': '⏭ Skip task',
+        'btn_delete_task': '🗑 Delete task',
         'btn_view_task': '👁 View',
         'btn_cancel_task': '❌ Cancel Task',
         'task_cancelled_confirmation': '✅ The task "<b>{title}</b>" has been successfully canceled (deleted).',
@@ -865,8 +865,6 @@ MESSAGES['ru'].update({
     
     # === Кнопки заданий ===
     'btn_complete_task': '✅ Выполнить',
-    'btn_skip_task': '⏭ Пропустить',
-    'btn_delete_task': '🗑 Удалить',
     'btn_view_task': '👁 Посмотреть',
     'btn_task_history': '📜 История заданий',
     'btn_active_tasks': '🎯 Активные задания',
@@ -934,8 +932,6 @@ Your response is saved and analyzed.
     
     # === Task buttons ===
     'btn_complete_task': '✅ Complete',
-    'btn_skip_task': '⏭ Skip',
-    'btn_delete_task': '🗑 Delete',
     'btn_view_task': '👁 View',
     'btn_task_history': '📜 Task history',
     'btn_active_tasks': '🎯 Active tasks',

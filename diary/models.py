@@ -181,11 +181,16 @@ class VoiceToText(models.Model):
         blank=True, 
         verbose_name=_("Ответ API постобработки (DeepSeek)") 
     )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата создания"))
 
     class Meta:
         verbose_name = _("Голос в текст")
         verbose_name_plural = _("Голос в текст")
         db_table = "diary_voice_to_text"
+        indexes = [
+            models.Index(fields=['created_at']),
+            models.Index(fields=['entry', 'created_at']),
+        ]
 
     def __str__(self):
         return f"Распознавание для {self.entry}"
@@ -206,11 +211,17 @@ class KeyPoint(models.Model):
         verbose_name=_("Тип")
     )
     confidence = models.FloatField(default=1.0, verbose_name=_("Уверенность"))
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата создания"))
 
     class Meta:
         verbose_name = _("Ключевой момент")
         verbose_name_plural = _("Ключевые моменты")
         db_table = "diary_key_point"
+        # === НОВЫЙ ИНДЕКС ===
+        indexes = [
+            models.Index(fields=['created_at']),
+            models.Index(fields=['entry', 'created_at']),
+        ]
 
     def __str__(self):
         return f"{self.get_type_display()}: {self.text[:50]}..."
@@ -234,11 +245,18 @@ class PsychoAnalysis(models.Model):
         blank=True, 
         verbose_name=_("Ответ API DeepSeek")
     )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата создания"))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Дата последнего обновления"))
 
     class Meta:
         verbose_name = _("Психоанализ")
         verbose_name_plural = _("Психоанализы")
         db_table = "diary_psycho_analysis"
+        indexes = [
+            models.Index(fields=['created_at']),
+            models.Index(fields=['entry', 'created_at']),
+            models.Index(fields=['-created_at']), # Для сортировки по убыванию
+        ]
 
     def __str__(self):
         return f"Анализ записи {self.entry.id} - {self.mood_score}/10"
@@ -367,11 +385,16 @@ class TaskAnalysis(models.Model):
     insights_updated = models.BooleanField(default=False, verbose_name=_("Инсайты обновлены"))
     quality_score = models.PositiveIntegerField(verbose_name=_("Оценка качества (1-10)"))
     feedback_given = models.BooleanField(default=False, verbose_name=_("Обратная связь дана"))
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата создания"))
 
     class Meta:
         verbose_name = _("Анализ задания")
         verbose_name_plural = _("Анализы заданий")
         db_table = "diary_task_analysis"
+        indexes = [
+            models.Index(fields=['created_at']),
+            models.Index(fields=['completion', 'created_at']),
+        ]
 
     def __str__(self):
         return f"Анализ выполнения {self.completion.task.title}"
@@ -402,7 +425,11 @@ class UserActivity(models.Model):
         return f"{self.user.username} - {self.get_activity_type_display()}"
     
 class CombinedDiaryEntry(models.Model):
-    """Объединенная запись дня для глубокого анализа"""
+    """
+    Объединенная запись дня для глубокого анализа ИИ.
+    Хранит объединенный текст всех записей пользователя за конкретный день
+    и промежуточное "состояние дня", определенное ИИ.
+    """
     user = models.ForeignKey(
         User, 
         on_delete=models.CASCADE, 
@@ -414,22 +441,46 @@ class CombinedDiaryEntry(models.Model):
     entry_count = models.PositiveIntegerField(verbose_name=_("Количество записей в этот день"))
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата создания"))
     updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Дата последнего обновления"))
+    # === ФЛАГ АНАЛИЗА ИИ ===
+    ai_state_data = models.TextField(
+        blank=True, 
+        default="", 
+        verbose_name=_("Состояние дня по версии ИИ"),
+        help_text=_("Текстовый контекст или структурированные данные от ИИ, описывающие состояние дня.")
+    )
+    # === ПОЛЕ ДЛЯ СОСТОЯНИЯ ИИ ===
+    ai_state_data = models.TextField(
+        blank=True, 
+        default="", 
+        verbose_name=_("Состояние дня по версии ИИ"),
+        help_text=_("Текстовый контекст или структурированные данные от ИИ, описывающие состояние дня.")
+    )
+    # === ФЛАГ АНАЛИЗА ИИ ===
     is_analyzed = models.BooleanField(
         default=False, 
         verbose_name=_("Проанализирован ИИ"),
         help_text=_("Указывает, был ли день проанализирован ИИ с учетом всех записей.")
     )
+    # === РЕЗУЛЬТАТ АНАЛИЗА ===
     analysis_result = models.JSONField(
         blank=True, 
         default=dict, 
         verbose_name=_("Результат анализа (детали)"),
         help_text=_("Детальный результат финального анализа дня (например, JSON с итоговой оценкой, комментарием и т.д.).")
     )
-    ai_state_data = models.TextField(
-        blank=True, 
-        default="", 
-        verbose_name=_("Состояние дня по версии ИИ"),
-        help_text=_("Текстовый контекст или структурированные данные от ИИ, описывающие состояние дня.")
+    # Храним список всех mood_score за день для расчета среднего
+    daily_mood_scores = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name=_("Список оценок настроения за день"),
+        help_text=_("Список всех mood_score из PsychoAnalysis для записей этого дня.")
+    )
+    
+    # Храним рассчитанное среднее значение настроения за день
+    average_mood_score = models.FloatField(
+        default=0.0,
+        verbose_name=_("Средняя оценка настроения за день"),
+        help_text=_("Среднее арифметическое всех mood_score записей за день.")
     )
 
     class Meta:
@@ -462,6 +513,34 @@ class CombinedDiaryEntry(models.Model):
             logger.error(f"Ошибка при локализации даты CombinedDiaryEntry: {e}")
             naive_datetime = datetime.combine(self.date, datetime.min.time())
             return pytz.utc.localize(naive_datetime)
+        
+    def update_mood_scores(self, new_score: int):
+        """
+        Обновляет список оценок и пересчитывает среднее.
+        
+        Args:
+            new_score: Новая оценка настроения (1-10).
+        """
+        logger.info(f"Обновление оценок настроения для CombinedDiaryEntry ID {self.id}")
+        if not isinstance(new_score, int) or not (1 <= new_score <= 10):
+            logger.warning(f"Некорректная оценка {new_score} для CombinedDiaryEntry ID {self.id}")
+            return
+
+        # Добавляем новую оценку
+        self.daily_mood_scores.append(new_score)
+        logger.debug(f"Добавлена оценка {new_score}. Список: {self.daily_mood_scores}")
+
+        # Пересчитываем среднее
+        if self.daily_mood_scores:
+            self.average_mood_score = sum(self.daily_mood_scores) / len(self.daily_mood_scores)
+            logger.info(f"Средняя оценка пересчитана: {self.average_mood_score:.2f}")
+        else:
+            self.average_mood_score = 0.0
+            logger.info("Список оценок пуст, средняя оценка установлена в 0.0")
+
+        # Сохраняем изменения
+        self.save(update_fields=['daily_mood_scores', 'average_mood_score'])
+        logger.info(f"CombinedDiaryEntry ID {self.id} обновлен с новой оценкой и средним значением.")
 
 class DailyAnalysis(models.Model):
     """Глубокий анализ дня"""

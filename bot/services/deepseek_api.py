@@ -652,7 +652,7 @@ class DeepSeekAPIService:
 - "comment": краткий комментарий (1 предложение)
 - "recommendation": персональная рекомендация (1-2 предложения)
 - "analysis": подробный финальный анализ (3-4 предложения)
-- "suggested_task": объект (опционально, описание задания)
+- "suggested_task": объект (не обязательный пункт, только если необходимо, описание задания)
    - "title": название задания
    - "description": описание задания
    - "type": тип задания (из списка: daily, reflection, cognitive, creative, behavioral, mindfulness)
@@ -712,7 +712,7 @@ Please provide a final psychological analysis of this entry, taking into account
 - "comment": brief comment (1 sentence)
 - "recommendation": personal recommendation (1-2 sentences)
 - "analysis": detailed final analysis (3-4 sentences)
-- "suggested_task": object (optional, task description)
+- "suggested_task": object (optional, only if necessary, task description)
    - "title": task title
    - "description": task description
    - "type": task type (from the list: daily, reflection, cognitive, creative, behavioral, mindfulness)
@@ -2230,50 +2230,60 @@ Use the following response format:
         Генерация промта для инкрементального анализа нового текста с учетом предыдущего состояния.
 
         Args:
-            previous_state_context: Предыдущее состояние дня.
+            previous_state_context: Предыдущее состояние дня (накопленный контекст).
             new_text: Новая запись.
             user_profile: Профиль пользователя.
-            language: Язык ('ru' или 'en').
+            language: Язык.
 
         Returns:
             str: Сформированный промт.
         """
         logger.info("Генерация промта для инкрементального анализа")
 
+        # Словарь промтов на разных языках
         prompts = {
-            'ru': f'''Ты профессиональный психолог. Ниже приведен контекст эмоционального состояния пользователя за текущий день:
-{previous_state_context}
+            'ru': f'''Ты профессиональный психолог. Ниже приведен НАКОПЛЕННЫЙ КОНТЕКСТ эмоционального состояния пользователя за текущий день. Этот контекст включает обобщенную информацию из ВСЕХ предыдущих записей пользователя за этот день:
+"{previous_state_context}"
 
-Пользователь только что добавил новую запись:
+Пользователь только что добавил НОВУЮ запись:
 "{new_text}"
 
-Пожалуйста, обнови контекст эмоционального состояния пользователя, интегрируя новую информацию. Также предоставь анализ новой записи в стандартном формате JSON:
-- "mood_score": оценка настроения от 1 до 10
-- "comment": краткий комментарий (1 предложение)
-- "recommendation": персональная рекомендация (1-2 предложения)
-- "analysis": подробный анализ новой записи (2-3 предложения)
-- "needs_clarification": boolean (нужны ли уточнения по новой записи)
-- "clarification_questions": массив строк (вопросы, если нужны уточнения)
-- "suggested_task": объект (опционально, описание задания)
-   - "title": название задания
-   - "description": описание задания
-   - "type": тип задания (из списка: daily, reflection, cognitive, creative, behavioral, mindfulness)
-   - "priority": приоритет (строка: low, medium, high, critical)
-- "key_points": массив объектов (ключевые моменты)
-   - "text": текст ключевого момента
-   - "type": тип (emotion, event, thought, trigger, other)
-   - "confidence": уверенность (float от 0.0 до 1.0)
-- "user_insights": массив объектов (новые инсайты)
-   - "text": текст инсайта
-   - "category": категория (personal, relational, professional, health, spiritual, other)
-   - "weight": вес (int, от 1 до 10)
+ТВОЯ ЗАДАЧА:
+1.  ВНИМАТЕЛЬНО ИНТЕГРИРУЙ информацию из новой записи в существующий накопленный контекст. 
+2.  УЧИТЫВАЙ, что новая запись - это лишь часть общего эмоционального фона дня. 
+3.  НЕ позволяй одной записи (особенно последней) полностью ИЗМЕНИТЬ восприятие всего дня, если предыдущие записи указывали на другое.
+4.  ОЦЕНИ, как новая запись влияет на ДИНАМИКУ эмоций в течение дня (например, улучшение, ухудшение, колебания).
+5.  Предоставь анализ новой записи в стандартном формате JSON:
+    - "mood_score": оценка настроения от 1 до 10 ТОЛЬКО ДЛЯ ЭТОЙ НОВОЙ ЗАПИСИ (не для всего дня!). Это помогает отследить динамику.
+    - "comment": краткий комментарий (1 предложение) по новой записи.
+    - "recommendation": персональная рекомендация (1-2 предложения) по новой записи.
+    - "analysis": подробный анализ новой записи (2-3 предложения), рассматривающий её в свете предыдущего контекста.
+    - "needs_clarification": boolean (нужны ли уточнения по новой записи).
+    - "clarification_questions": массив строк (вопросы, если нужны уточнения).
+    - "suggested_task": объект (опционально, описание задания).
+       - "title": название задания.
+       - "description": описание задания.
+       - "type": тип задания (из списка: daily, reflection, cognitive, creative, behavioral, mindfulness).
+       - "priority": приоритет (строка: low, medium, high, critical).
+    - "key_points": массив объектов (ключевые моменты из новой записи).
+       - "text": текст ключевого момента.
+       - "type": тип (emotion, event, thought, trigger, other).
+       - "confidence": уверенность (float от 0.0 до 1.0).
+    - "user_insights": массив объектов (новые инсайты, выявленные из этой записи).
+       - "text": текст инсайта.
+       - "category": категория (personal, relational, professional, health, spiritual, other).
+       - "weight": вес (int, от 1 до 10, где 10 - очень значимый инсайт).
+
+ВАЖНО:
+- ФИНАЛЬНАЯ оценка настроения за ДЕНЬ будет рассчитываться ОТДЕЛЬНО как СРЕДНЕЕ АРИФМЕТИЧЕСКОЕ всех индивидуальных оценок записей за день.
+- Твоя задача - предоставить ТОЧНЫЙ и СБАЛАНСИРОВАННЫЙ анализ новой записи в контексте дня.
 
 Пример ответа:
 {{
   "mood_score": 7,
   "comment": "Вы испытали всплеск энтузиазма после утренней прогулки.",
   "recommendation": "Попробуйте чаще включать физическую активность в свой день.",
-  "analysis": "Новая запись показывает положительный сдвиг в эмоциях. Упоминание 'прогулка' и 'свежий воздух' коррелирует с повышением настроения.",
+  "analysis": "Новая запись показывает положительный сдвиг в эмоциях по сравнению с предыдущим контекстом. Упоминание 'прогулка' и 'свежий воздух' коррелирует с повышением настроения. Однако, предыдущие записи указывали на усталость, что важно учитывать в общем контексте.",
   "needs_clarification": false,
   "clarification_questions": [],
   "suggested_task": {{
@@ -2298,44 +2308,53 @@ Use the following response format:
     {{
       "text": "Физическая активность положительно влияет на настроение",
       "category": "health",
-      "weight": 1
+      "weight": 2
     }}
   ]
 }}
 ''',
-            'en': f'''You are a professional psychologist. Below is the context of the user's emotional state for the current day:
-{previous_state_context}
+            'en': f'''You are a professional psychologist. Below is the ACCUMULATED CONTEXT of the user's emotional state for the current day. This context includes summarized information from ALL the user's previous entries for this day:
+"{previous_state_context}"
 
-The user has just added a new entry:
+The user has just added a NEW entry:
 "{new_text}"
 
-Please update the user's emotional state context by integrating the new information. Also, provide an analysis of the new entry in standard JSON format:
-- "mood_score": mood score from 1 to 10
-- "comment": brief comment (1 sentence)
-- "recommendation": personal recommendation (1-2 sentences)
-- "analysis": detailed analysis of the new entry (2-3 sentences)
-- "needs_clarification": boolean (whether clarifications are needed for the new entry)
-- "clarification_questions": array of strings (questions if clarifications are needed)
-- "suggested_task": object (optional, task description)
-   - "title": task title
-   - "description": task description
-   - "type": task type (from the list: daily, reflection, cognitive, creative, behavioral, mindfulness)
-   - "priority": priority (string: low, medium, high, critical)
-- "key_points": array of objects (key points)
-   - "text": text of the key point
-   - "type": type (emotion, event, thought, trigger, other)
-   - "confidence": confidence (float from 0.0 to 1.0)
-- "user_insights": array of objects (new insights)
-   - "text": text of the insight
-   - "category": category (personal, relational, professional, health, spiritual, other)
-   - "weight": weight (int, from 1 to 10)
+YOUR TASK:
+1.  CAREFULLY INTEGRATE the information from the new entry into the existing accumulated context.
+2.  CONSIDER that the new entry is just part of the overall emotional background of the day.
+3.  DO NOT let one entry (especially the last one) completely CHANGE the perception of the entire day if previous entries indicated otherwise.
+4.  ASSESS how the new entry affects the EMOTIONAL DYNAMICS throughout the day (e.g., improvement, deterioration, fluctuations).
+5.  Provide an analysis of the new entry in standard JSON format:
+    - "mood_score": mood score from 1 to 10 FOR THIS NEW ENTRY ONLY (not for the whole day!). This helps track dynamics.
+    - "comment": brief comment (1 sentence) for the new entry.
+    - "recommendation": personal recommendation (1-2 sentences) for the new entry.
+    - "analysis": detailed analysis of the new entry (2-3 sentences), considering it in the light of the previous context.
+    - "needs_clarification": boolean (whether clarifications are needed for the new entry).
+    - "clarification_questions": array of strings (questions if clarifications are needed).
+    - "suggested_task": object (optional, task description).
+       - "title": task title.
+       - "description": task description.
+       - "type": task type (from the list: daily, reflection, cognitive, creative, behavioral, mindfulness).
+       - "priority": priority (string: low, medium, high, critical).
+    - "key_points": array of objects (key points from the new entry).
+       - "text": text of the key point.
+       - "type": type (emotion, event, thought, trigger, other).
+       - "confidence": confidence (float from 0.0 to 1.0).
+    - "user_insights": array of objects (new insights discovered from this entry).
+       - "text": text of the insight.
+       - "category": category (personal, relational, professional, health, spiritual, other).
+       - "weight": weight (int, from 1 to 10, where 10 is a very significant insight).
+
+IMPORTANT:
+- The FINAL mood score for the DAY will be calculated SEPARATELY as the ARITHMETIC MEAN of all individual entry scores for the day.
+- Your task is to provide an ACCURATE and BALANCED analysis of the new entry in the context of the day.
 
 Example response:
 {{
   "mood_score": 7,
   "comment": "You experienced a surge of enthusiasm after your morning walk.",
   "recommendation": "Try to include physical activity in your day more often.",
-  "analysis": "The new entry shows a positive shift in emotions. The mention of 'walk' and 'fresh air' correlates with an improved mood.",
+  "analysis": "The new entry shows a positive shift in emotions compared to the previous context. The mention of 'walk' and 'fresh air' correlates with an improved mood. However, previous entries indicated fatigue, which is important to consider in the overall context.",
   "needs_clarification": false,
   "clarification_questions": [],
   "suggested_task": {{
@@ -2360,14 +2379,15 @@ Example response:
     {{
       "text": "Physical activity positively affects mood",
       "category": "health",
-      "weight": 1
+      "weight": 2
     }}
   ]
 }}
 '''
         }
 
-        prompt = prompts.get(language, prompts['en']) # По умолчанию английский
+        # Выбираем промт в зависимости от языка
+        prompt = prompts.get(language, prompts['ru'])
         logger.info(f"Промт для инкрементального анализа сгенерирован длиной: {len(prompt)} символов")
         return prompt
 

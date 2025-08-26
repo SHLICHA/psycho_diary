@@ -12,7 +12,7 @@ from aiogram.fsm.context import FSMContext
 from datetime import datetime, date
 from datetime import datetime
 
-from messages import get_message
+from messages import get_message, get_button_text
 from diary.models import CombinedDiaryEntry, DiaryEntry, PsychoAnalysis, TherapyTask
 from diary.services import analysis_service, daily_state_service
 from bot.states.diary_states import DiaryStates
@@ -21,9 +21,10 @@ from bot.keyboards import (
     get_cancel_keyboard,
     get_month_calendar_with_navigation,
     get_calendar_back_keyboard,
-    get_cancel_keyboard
+    get_cancel_keyboard,
     )
 from bot.keyboards.main_menu import get_back_keyboard, get_main_menu_keyboard
+from bot.keyboards.tasks_keyboard import get_task_pagination_keyboard
 from bot.utils.state_manager import state_manager
 from bot.utils.time_utils import convert_utc_to_user_timezone
 from bot.utils.message_utils import safe_edit_message_text, edit_or_send_message
@@ -210,27 +211,20 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
                 deepseek_api_response=deepseek_api_response_postproc
             )
         logger.info(f"Запись ({message.content_type}) сохранена в БД, ID: {diary_entry.id}")
-        # =================================
-
         # === 6. ПОЛУЧЕНИЕ/СОЗДАНИЕ/ОБНОВЛЕНИЕ СОСТОЯНИЯ ДНЯ ===
         combined_entry, is_first_entry_of_day = await _get_or_update_combined_entry(
             user, diary_entry
         )
         logger.info(f"CombinedDiaryEntry обработан, ID: {combined_entry.id if combined_entry else 'None'}, isFirst: {is_first_entry_of_day}")
-        # ===================================================================
-
         # === 7. ВЫБОР И ВЫПОЛНЕНИЕ МЕТОДА АНАЛИЗА ===
         user_profile_data = await _get_user_profile_data(user, language)
         analysis_result = await _perform_analysis(
             is_first_entry_of_day, combined_entry, entry_text, user_profile_data, language
         )
-        # ================================
-
         # === 8. ОБРАБОТКА РЕЗУЛЬТАТА АНАЛИЗА ===
         await _handle_analysis_result(
             diary_entry, analysis_result, status_message, language, state, user
         )
-        # =======================================
 
     except Exception as e:
         logger.error(f"Ошибка при обработке записи ({message.content_type}): {e}", exc_info=True)
@@ -323,168 +317,6 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
                 pass # Игнорируем ошибки при отправке сообщения об ошибке
         # Очищаем состояние в случае ошибки
         await state_manager.clear_state(state)
-
-async def _handle_final_analysis_result(entry: DiaryEntry, final_analysis_result: dict, status_msg, language: str, state: FSMContext, user):
-    """
-    Обрабатывает финальный результат анализа (после уточнений) и выполняет все последующие действия.
-    Похожа на _handle_analysis_result, но не обрабатывает повторные уточнения.
-    """
-    try:
-        logger.info("Начало обработки ФИНАЛЬНОГО результата анализа (после уточнений).")
-        
-        # --- ИЗВЛЕЧЕНИЕ ДАННЫХ АНАЛИЗА ---
-        if not final_analysis_result or not final_analysis_result.get('success', False):
-            logger.error(f"Ошибка финального анализа API: {final_analysis_result.get('error', 'Unknown error')}")
-            mood_score = 5
-            comment = 'Анализ записан (ошибка API)'
-            recommendation = 'Попробуйте позже'
-            analysis_text = "Финальный анализ не доступен из-за ошибки API"
-            api_response_data = final_analysis_result.get('api_response', {}) if final_analysis_result else {}
-            suggested_task_data = None
-            needs_clarification = result_data.get('needs_clarification', False)
-            clarification_questions = result_data.get('clarification_questions', [])
-        else:
-            result_data = final_analysis_result.get('result', {})
-            mood_score = result_data.get('mood_score', 5)
-            comment = result_data.get('comment', 'Анализ записан')
-            recommendation = result_data.get('recommendation', 'Продолжайте в том же духе')
-            analysis_text = result_data.get('analysis', 'Текст проанализирован.')
-            api_response_data = final_analysis_result.get('api_response', {})
-            suggested_task_data = result_data.get('suggested_task')
-            
-            # Валидация извлеченных значений
-            if mood_score is None or not (1 <= mood_score <= 10):
-                mood_score = 5
-            if not comment or not isinstance(comment, str):
-                comment = 'Анализ записан'
-            if not recommendation or not isinstance(recommendation, str):
-                recommendation = 'Продолжайте в том же духе'
-            if not analysis_text or not isinstance(analysis_text, str):
-                analysis_text = 'Текст проанализирован.'
-                
-        logger.info(f"Данные финального анализа извлечены. Оценка: {mood_score}/10")
-        # ------------------------------------
-
-        # --- Создание/Обновление PsychoAnalysis ---
-        logger.info("Создание/обновление PsychoAnalysis для записи после уточнений.")
-        psycho_analysis = await diary_service.create_initial_analysis(
-            entry=entry,
-            mood_score=mood_score,
-            comment=comment,
-            recommendation=recommendation,
-            analysis_text=analysis_text,
-            api_response=api_response_data
-        )
-        logger.info(f"PsychoAnalysis (после уточнений) создан/обновлен, ID: {psycho_analysis.id}")
-        # --------------------------------------------
-
-        # --- Обновление CombinedDiaryEntry.ai_state_data ---
-        logger.info("Обновление состояния дня (CombinedDiaryEntry) после финального анализа.")
-        combined_entry = await daily_state_service.get_daily_state(user, entry.entry_date)
-        update_success = False
-        if combined_entry:
-            new_ai_state_data = analysis_text # Или другой подходящий фрагмент
-            update_success = await daily_state_service.update_daily_state(
-                combined_entry, new_ai_state_data
-            )
-            logger.info(f"CombinedDiaryEntry.ai_state_data обновлен: {'Успешно' if update_success else 'Ошибка'}")
-        else:
-            logger.warning("CombinedDiaryEntry не найден для обновления состояния после финального анализа.")
-        # ---------------------------------------------------
-
-        # --- (Асинхронно) Обработка задания от ИИ ---
-        if suggested_task_data and isinstance(suggested_task_data, dict):
-            logger.info("Обнаружено предложенное задание от ИИ (после уточнений). Обработка...")
-            await _create_task_from_suggested_data(user, suggested_task_data, entry.entry_date, related_diary_entry=entry)
-        else:
-            logger.info("Задание от ИИ не предложено или данные некорректны (после уточнений).")
-        # -------------------------------------------
-
-        # --- (Асинхронно) Обновление инсайтов ---
-        logger.info("Обновление инсайтов и ключевых моментов (после уточнений)...")
-        try:
-            # Передаем result_data из финального анализа
-            await analysis_service.extract_and_save_insights_and_keypoints(entry, result_data)
-            logger.info("Инсайты и ключевые моменты пользователя обновлены (после уточнений).")
-        except Exception as insight_error:
-            logger.error(f"Ошибка при обновлении инсайтов и ключевых моментов (после уточнений): {insight_error}")
-        # -----------------------------------------
-        entry_saved_msg = get_message(
-            'entry_saved', # Можно использовать тот же шаблон или создать новый, например, 'entry_saved_after_clarification'
-            language,
-            score=mood_score,
-            mood=get_message(f'mood_{mood_score}', language),
-            comment=comment,
-            recommendation=recommendation
-            # analysis=analysis_text - можно добавить
-        )
-        # --- (Асинхронно) Обработка задания от ИИ ---
-        task_info_text = "" # Текст информации о задании
-        task_keyboard = None # Клавиатура с кнопкой отмены
-        
-        if suggested_task_data and isinstance(suggested_task_data, dict):
-            logger.info("Обнаружено предложенное задание от ИИ (после уточнений). Обработка...")
-            
-            # --- Создание задания ---
-            therapy_task = await _create_task_from_suggested_data(
-                user, suggested_task_data, entry.entry_date, related_diary_entry=entry
-            )
-            
-            if therapy_task:
-                logger.info(f"Задание от ИИ (после уточнений) создано, ID: {therapy_task.id}")
-                
-                # --- Формирование текста о задании ---
-                task_desc_preview = therapy_task.description[:150] + "..." if len(therapy_task.description) > 150 else therapy_task.description
-                task_info_text = f"\n\n📌 <b>Новое задание от ИИ:</b>\n<b>{therapy_task.title}</b>\n{task_desc_preview}"
-                # -------------------------------------
-                
-                # --- Создание клавиатуры с кнопкой отмены ---
-                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-                cancel_button = InlineKeyboardButton(
-                    text=get_message('btn_cancel_task', language),
-                    callback_data=f"cancel_task:{therapy_task.id}"
-                )
-                task_keyboard = InlineKeyboardMarkup(inline_keyboard=[[cancel_button]])
-                # --------------------------------------------
-                
-            else:
-                logger.warning("Не удалось создать задание от ИИ (после уточнений).")
-        else:
-            logger.info("Задание от ИИ не предложено или данные некорректны (после уточнений).")
-        # --- Отправка финального результата пользователю ---
-        logger.info("Отправка финального результата анализа пользователю.")
-        try:
-            final_message_text = entry_saved_msg + task_info_text
-            final_reply_markup = task_keyboard if task_keyboard else get_back_keyboard(language)
-            
-            await status_msg.edit_text(
-                final_message_text,
-                reply_markup=final_reply_markup
-            )
-            logger.info("Финальный результат анализа (после уточнений, с информацией о задании) отправлен пользователю.")
-        except Exception as msg_error:
-            logger.error(f"Ошибка при отправке финального сообщения: {msg_error}")
-            try:
-                await status_msg.edit_text(get_message('error_processing', language))
-            except:
-                pass
-        # ---------------------------------------------------
-
-        # --- Очистка состояния FSM ---
-        logger.info("Очистка состояния FSM после финальной обработки.")
-        await state_manager.clear_state(state)
-        # -----------------------------
-
-        logger.info("Обработка ФИНАЛЬНОГО результата анализа успешно завершена.")
-
-    except Exception as e:
-        logger.error(f"Критическая ошибка в _handle_final_analysis_result: {e}", exc_info=True)
-        try:
-            await status_msg.edit_text(get_message('error_processing', language))
-        except:
-            pass
-        await state_manager.clear_state(state)
-        raise 
 
 @router.message(DiaryStates.waiting_for_text_entry)
 async def handle_invalid_entry_type(message: Message, language: str):
@@ -1683,70 +1515,112 @@ async def cancel_delete_entry(callback: CallbackQuery, language: str):
 async def cancel_assigned_task(callback: CallbackQuery, user, language: str):
     """
     Обработчик нажатия кнопки "Отменить задание".
-    Удаляет назначенное задание и показывает уведомление.
+    Удаляет назначенное задание, показывает уведомление и обновляет исходное сообщение.
     """
-    logger.info(f"Пользователь {callback.from_user.id} ({user.username}) запросил отмену задания через callback.")
+    logger.info(f"Пользователь {callback.from_user.id} запросил отмену задания через callback.")
     try:
-        # --- 1. ИЗВЛЕЧЕНИЕ ID ЗАДАНИЯ ---
+        # --- Извлечение ID задания и ID сообщения ---
         parts = callback.data.split(":")
         if len(parts) < 2:
              raise ValueError("Некорректный формат callback_data")
         task_id_str = parts[1]
         task_id = int(task_id_str)
+        
+        # Извлекаем message_id, если он есть
+        original_message_id = None
+        if len(parts) > 2:
+            try:
+                original_message_id = int(parts[2])
+                logger.info(f"ID исходного сообщения из callback_data: {original_message_id}")
+            except ValueError:
+                logger.warning(f"Некорректный формат message_id в callback_data: {parts[2]}")
+        # -----------------------------------------------------
+
         logger.info(f"Попытка отмены (удаления) задания ID: {task_id}")
-        # ---------------------------------
 
-        # --- 2. ПОЛУЧЕНИЕ И УДАЛЕНИЕ ЗАДАНИЯ (строго асинхронно) ---
-        # Получаем задание, принадлежащее пользователю
-        task_to_cancel = await TherapyTask.objects.aget(id=task_id, user=user)
-        task_title = task_to_cancel.title
-        logger.info(f"Задание '{task_title}' (ID: {task_id}) найдено для пользователя {user.telegram_id}.")
-
-        # Удаляем задание асинхронно
-        await task_to_cancel.adelete()
-        logger.info(f"Задание '{task_title}' (ID: {task_id}) успешно удалено из БД.")
-        # ------------------------------------------
-
-        # --- 3. ОТПРАВКА SHOW_ALERT ПОЛЬЗОВАТЕЛЮ ---
-        confirmation_message = get_message(
-            'task_cancelled_confirmation',
-            language,
-            title=task_title
-        )
-        await safe_answer_callback(callback, confirmation_message, show_alert=True)
-        logger.info(f"Пользователю {user.telegram_id} отправлено show_alert о подтверждении отмены задания '{task_title}'.")
-        # ------------------------------------------
-
-        # --- 4. (ОПЦИОНАЛЬНО) ОБНОВЛЕНИЕ СООБЩЕНИЯ ---
-        # Вместо сложной логики с DiaryEntry/PsychoAnalysis,
-        # просто отредактируем сообщение с кнопкой на "Задание отменено".
+        # --- Получение и удаление задания ---
         try:
-            # Формируем простое сообщение
-            simple_cancel_msg = get_message('task_cancelled_simple_message', language, title=task_title)
-            # Используем aiogram напрямую для редактирования
-            await callback.message.edit_text(
-                text=simple_cancel_msg,
-                reply_markup=get_back_keyboard(language) # Клавиатура "Назад"
+            # Получаем задание, принадлежащее пользователю
+            task_to_cancel = await TherapyTask.objects.aget(id=task_id, user=user)
+            task_title = task_to_cancel.title
+            logger.info(f"Задание '{task_title}' (ID: {task_id}) найдено.")
+            
+            # Удаляем задание асинхронно
+            await task_to_cancel.adelete()
+            logger.info(f"Задание '{task_title}' (ID: {task_id}) успешно удалено.")
+            
+            # --- Отправка show_alert пользователю ---
+            confirmation_message = get_message(
+                'task_cancelled_confirmation',
+                language,
+                title=task_title
             )
-            logger.info(f"Сообщение с заданием для пользователя {user.telegram_id} обновлено (простое редактирование).")
-        except Exception as edit_error:
-            logger.warning(f"Не удалось обновить сообщение с заданием для пользователя {user.telegram_id}: {edit_error}. Продолжаем.")
-        # --------------------------------------------
+            await safe_answer_callback(callback, confirmation_message, show_alert=True)
+            logger.info("Пользователю отправлено show_alert о подтверждении отмены задания.")
+            # ---------------------------------------
+            
+            # --- ОБНОВЛЕНИЕ ИСХОДНОГО СООБЩЕНИЯ ---
+            # Цель: Убрать информацию о задании и кнопки.
+            try:
+                # --- Получаем связанную DiaryEntry ---
+                diary_entry = task_to_cancel.related_entry # Получаем связанную запись
+                if not diary_entry:
+                    raise ValueError("Задание не связано с записью дневника")
+                logger.debug(f"Связанная DiaryEntry: {diary_entry.id}")
+                # ------------------------------------
 
-        logger.info(f"Обработчик отмены задания для пользователя {user.telegram_id} завершен успешно.")
+                # --- Получаем связанный PsychoAnalysis ---
+                try:
+                    psycho_analysis = await diary_entry.analysis.aget() # aget для OneToOne
+                    logger.debug("PsychoAnalysis успешно загружен.")
+                except PsychoAnalysis.DoesNotExist:
+                    logger.error("PsychoAnalysis не найден для связанной DiaryEntry.")
+                    raise ValueError("Анализ записи не найден.")
+                # ---------------------------------------
 
-    except TherapyTask.DoesNotExist:
-        logger.warning(f"Задание ID {task_id} не найдено или не принадлежит пользователю {user.telegram_id}.")
-        await safe_answer_callback(
-            callback, 
-            get_message('task_not_found_for_cancellation', language),
-            show_alert=True
-        )
-    except ValueError as ve: # Для ошибок извлечения task_id
-        logger.error(f"Некорректные данные в callback_data '{callback.data}' для пользователя {user.telegram_id}: {ve}")
+                # --- Формируем новое сообщение без информации о задании ---
+                entry_saved_msg = get_message(
+                    'entry_saved',
+                    language,
+                    score=psycho_analysis.mood_score,
+                    mood=get_message(f'mood_{psycho_analysis.mood_score}', language),
+                    comment=psycho_analysis.comment,
+                    recommendation=psycho_analysis.recommendation
+                    # analysis=psycho_analysis.analysis_text - можно добавить, если нужно
+                )
+                # ----------------------------------------------------------
+
+                # --- Отправляем обновлённое сообщение ---
+                # Используем существующую утилиту для безопасного редактирования
+                # Всегда используем клавиатуру "Назад"
+                await safe_edit_message_text(
+                    message=callback.message, # Сообщение с кнопкой "Отменить задание"
+                    text=entry_saved_msg,
+                    reply_markup=get_back_keyboard(language) # Клавиатура "Назад"
+                )
+                logger.info("Исходное сообщение обновлено: информация о задании и кнопки удалены.")
+                # ---------------------------------------
+
+            except Exception as edit_error:
+                logger.warning(f"Не удалось обновить исходное сообщение после отмены задания: {edit_error}")
+                # Если не удалось отредактировать, ничего критичного. show_alert был отправлен.
+            
+            # ------------------------------------
+
+        except TherapyTask.DoesNotExist:
+            logger.warning(f"Задание ID {task_id} не найдено или не принадлежит пользователю {user.telegram_id}.")
+            await safe_answer_callback(
+                callback, 
+                get_message('task_not_found_for_cancellation', language),
+                show_alert=True
+            )
+        # -----------------------------------
+
+    except ValueError as ve:
+        logger.error(f"Некорректные данные в callback_data: {callback.data} - {ve}")
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
     except Exception as e:
-        logger.error(f"Ошибка при отмене задания (ID: {task_id}) для пользователя {user.telegram_id}: {e}", exc_info=True)
+        logger.error(f"Ошибка при отмене задания через callback: {e}", exc_info=True)
         await safe_answer_callback(callback, get_message('error_processing', language), show_alert=True)
 
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
@@ -1901,342 +1775,6 @@ async def _perform_analysis(is_first, combined_entry, text, profile, lang):
                 user_profile=profile,
                 language=lang
             )
-        
-async def _handle_analysis_result(entry: DiaryEntry, analysis_result: dict, status_msg, language: str, state: FSMContext, user):
-    """
-    Обрабатывает результат анализа и выполняет все последующие действия.
-    
-    Args:
-        entry: Объект DiaryEntry.
-        analysis_result: Результат от API анализа.
-        status_msg: Сообщение Telegram для редактирования с результатом.
-        language: Язык пользователя.
-        state: Контекст состояния FSM.
-        user: Объект пользователя Django.
-    """
-    try:
-        logger.info("Начало обработки результата анализа.")
-        
-        # --- 1. ИЗВЛЕЧЕНИЕ ДАННЫХ АНАЛИЗА ---
-        if not analysis_result or not analysis_result.get('success', False):
-            logger.error(f"Ошибка анализа API: {analysis_result.get('error', 'Unknown error')}")
-            # Используем значения по умолчанию
-            mood_score = 5
-            comment = 'Анализ записан'
-            recommendation = 'Продолжайте вести дневник'
-            analysis_text = "Текст проанализирован."
-            api_response_data = analysis_result.get('api_response', {})
-            suggested_task_data = None
-            needs_clarification = False
-            clarification_questions = []
-            result_data = {} # Пустой словарь по умолчанию
-            if not analysis_result.get('success', False):
-                # Обработка ошибки API
-                error_type = analysis_result.get('error', 'unknown_error')
-                error_message = analysis_result.get('message', 'Неизвестная ошибка API')
-                logger.error(f"Ошибка анализа API: {error_type} - {error_message}")
-                
-                # Устанавливаем значения по умолчанию с пометкой об ошибке
-                if error_type == 'timeout':
-                    comment = 'Анализ записан (превышено время ожидания)'
-                else:
-                    comment = f'Анализ записан (ошибка API: {error_type})'
-                recommendation = 'Попробуйте позже'
-                analysis_text = f"Анализ не доступен из-за ошибки API: {error_message}"
-                # result_data остается пустым
-        else:
-            # --- Успешный результат API ---
-            logger.info("Анализ API завершен успешно.")
-            
-            # 1. Извлекаем сырые данные ответа API (даже если result будет некорректным)
-            api_response_data = analysis_result.get('api_response', {})
-            
-            # 2. Извлекаем и проверяем структуру result_data
-            result_data_raw = analysis_result.get('result', {})
-            if not isinstance(result_data_raw, dict):
-                logger.error("Поле 'result' в ответе API не является словарем.")
-                result_data = {} # Используем пустой словарь
-            else:
-                result_data = result_data_raw # Используем распарсенные данные
-                
-            # 3. Извлекаем данные из result_data с валидацией
-            # mood_score
-            mood_score_raw = result_data.get('mood_score')
-            if mood_score_raw is not None and isinstance(mood_score_raw, int) and 1 <= mood_score_raw <= 10:
-                mood_score = mood_score_raw
-            else:
-                logger.warning(f"Некорректное значение mood_score: {mood_score_raw}. Используется значение по умолчанию: {mood_score}")
-                # mood_score уже установлено в 5 по умолчанию
-            
-            # comment
-            comment_raw = result_data.get('comment')
-            if comment_raw and isinstance(comment_raw, str):
-                comment = comment_raw
-            else:
-                logger.warning(f"Некорректное значение comment: {comment_raw}. Используется значение по умолчанию.")
-                # comment уже установлено в 'Анализ записан' по умолчанию
-                
-            # recommendation
-            recommendation_raw = result_data.get('recommendation')
-            if recommendation_raw and isinstance(recommendation_raw, str):
-                recommendation = recommendation_raw
-            else:
-                logger.warning(f"Некорректное значение recommendation: {recommendation_raw}. Используется значение по умолчанию.")
-                # recommendation уже установлено в 'Продолжайте вести дневник' по умолчанию
-                
-            # analysis_text
-            analysis_text_raw = result_data.get('analysis')
-            if analysis_text_raw and isinstance(analysis_text_raw, str):
-                analysis_text = analysis_text_raw
-            else:
-                logger.warning(f"Некорректное значение analysis: {analysis_text_raw}. Используется значение по умолчанию.")
-                # analysis_text уже установлено в 'Текст проанализирован.' по умолчанию
-            
-            # needs_clarification
-            needs_clarification_raw = result_data.get('needs_clarification')
-            if isinstance(needs_clarification_raw, bool):
-                needs_clarification = needs_clarification_raw
-            else:
-                logger.debug(f"Некорректное значение needs_clarification: {needs_clarification_raw}. Используется False.")
-                # needs_clarification уже установлено в False по умолчанию
-                
-            # clarification_questions
-            clarification_questions_raw = result_data.get('clarification_questions')
-            if isinstance(clarification_questions_raw, list):
-                # Проверяем, что все элементы списка - строки
-                if all(isinstance(q, str) for q in clarification_questions_raw):
-                    clarification_questions = clarification_questions_raw
-                else:
-                    logger.warning("Элементы clarification_questions не являются строками. Используется пустой список.")
-                    # clarification_questions уже установлено в [] по умолчанию
-            else:
-                logger.warning(f"Некорректное значение clarification_questions: {clarification_questions_raw}. Используется пустой список.")
-                # clarification_questions уже установлено в [] по умолчанию
-                
-            # suggested_task_data
-            suggested_task_data_raw = result_data.get('suggested_task')
-            if suggested_task_data_raw is None or isinstance(suggested_task_data_raw, dict):
-                suggested_task_data = suggested_task_data_raw # Может быть None или словарь
-            else:
-                logger.warning(f"Некорректное значение suggested_task: {suggested_task_data_raw}. Игнорируется.")
-                # suggested_task_data уже установлено в None по умолчанию
-
-        # --- Логирование извлеченных данных ---
-        logger.info(f"Данные анализа извлечены. Оценка: {mood_score}/10, Требуются уточнения: {needs_clarification}")
-            
-            # Валидация извлеченных значений
-        if mood_score is None or not (1 <= mood_score <= 10):
-            mood_score = 5
-        if not comment:
-            comment = 'Анализ записан'
-        if not recommendation:
-            recommendation = 'Продолжайте вести дневник'
-        if not analysis_text:
-            analysis_text = 'Текст проанализирован.'
-        if not isinstance(clarification_questions, list):
-             clarification_questions = []
-                
-        logger.info(f"Данные анализа извлечены. Оценка: {mood_score}/10, Требуются уточнения: {needs_clarification}")
-        # ------------------------------------
-
-        # --- 2.1. ОБРАБОТКА УТОЧНЕНИЙ ---
-        if needs_clarification and clarification_questions:
-            logger.info("Требуются уточнения. Переводим в состояние уточнения.")
-            
-            # --- НОВОЕ: Сохраняем вопросы в записи DiaryEntry ---
-            # Это делается до перехода в состояние уточнения,
-            # чтобы они были сохранены даже если пользователь не ответит сразу.
-            try:
-                entry.clarification_questions_asked = clarification_questions
-                await sync_to_async(entry.save)(update_fields=['clarification_questions_asked'])
-                logger.info(f"Вопросы уточнений сохранены в DiaryEntry ID {entry.id}")
-            except Exception as save_error:
-                logger.error(f"Ошибка при сохранении clarification_questions_asked в DiaryEntry ID {entry.id}: {save_error}")
-            # ----------------------------------------------------
-
-            # --- Сохраняем данные для уточнений в состоянии FSM (как и было) ---
-            await state_manager.update_state_data(
-                state,
-                clarifying_entry_id=entry.id,
-                clarification_questions=clarification_questions
-                # initial_analysis=result_data # Можно сохранить весь результат, если потребуется для контекста в analyze_text_with_clarifications
-            )
-            # ----------------------------------------------------------------------
-
-            # --- Переводим FSM в состояние ожидания ответов (как и было) ---
-            await state_manager.set_state(state, DiaryStates.asking_clarifying_questions)
-            # -------------------------------------------------------------
-
-            # --- Формируем и отправляем вопросы пользователю (как и было) ---
-            questions_text = "\n".join([f"{i+1}. {q}" for i, q in enumerate(clarification_questions)])
-            clarification_msg = f"{get_message('clarification_needed', language)}\n\n{questions_text}"
-            
-            await status_msg.edit_text(
-                clarification_msg,
-                reply_markup=get_cancel_keyboard(language)
-            )
-            logger.info(f"Отправлено {len(clarification_questions)} вопросов для уточнения.")
-            return # Завершаем обработку, ждем ответов пользователя
-        # ---------------------------------
-
-        # --- 2.2. ОБРАБОТКА РЕЗУЛЬТАТА БЕЗ УТОЧНЕНИЙ ---
-        logger.info("Обработка результата без уточнений.")
-
-        # --- Создание/Обновление PsychoAnalysis ---
-        logger.info("Создание/обновление PsychoAnalysis для записи.")
-        psycho_analysis = await diary_service.create_initial_analysis(
-            entry=entry,
-            mood_score=mood_score,
-            comment=comment,
-            recommendation=recommendation,
-            analysis_text=analysis_text,
-            api_response=api_response_data # Передаем сырой ответ API
-        )
-        logger.info(f"PsychoAnalysis создан/обновлен, ID: {psycho_analysis.id}")
-        # --------------------------------------------
-
-        # --- Обновление CombinedDiaryEntry.ai_state_data ---
-        logger.info("Обновление состояния дня (CombinedDiaryEntry).")
-        # Получаем актуальный CombinedDiaryEntry для этой даты
-        combined_entry = await daily_state_service.get_daily_state(user, entry.entry_date)
-        update_success = False
-        if combined_entry:
-            # TODO: Уточнить формат new_ai_state_data.
-            # Это может быть весь result_data, analysis_text или специально сформированная строка.
-            # Для начала используем analysis_text, как в предыдущем примере.
-            new_ai_state_data = analysis_text
-            update_success = await daily_state_service.update_daily_state(
-                combined_entry, new_ai_state_data
-            )
-            logger.info(f"CombinedDiaryEntry.ai_state_data обновлен: {'Успешно' if update_success else 'Ошибка'}")
-        else:
-            logger.warning("CombinedDiaryEntry не найден для обновления состояния.")
-        # ---------------------------------------------------
-
-        # --- (Асинхронно) Обработка задания от ИИ ---
-        if suggested_task_data and isinstance(suggested_task_data, dict):
-            logger.info("Обнаружено предложенное задание от ИИ. Обработка...")
-            # --- НОВОЕ: Передаем DiaryEntry в функцию создания задания ---
-            await _create_task_from_suggested_data(user, suggested_task_data, entry.entry_date, related_diary_entry=entry)
-            # -------------------------------------------------------------
-        else:
-            logger.info("Задание от ИИ не предложено или данные некорректны.")
-        # -------------------------------------------
-
-        # --- (Асинхронно) Обновление инсайтов ---
-        logger.info("Обновление инсайтов и ключевых моментов...")
-        try:
-            # Передаем result_data из анализа
-            await analysis_service.extract_and_save_insights_and_keypoints(entry, result_data)
-            logger.info("Инсайты и ключевые моменты пользователя обновлены.")
-        except Exception as insight_error:
-            logger.error(f"Ошибка при обновлении инсайтов и ключевых моментов: {insight_error}")
-        # -----------------------------------------
-
-        # --- Отправка финального результата пользователю ---
-        logger.info("Отправка финального результата пользователю.")
-        try:
-            # Формируем сообщение с результатом, используя шаблон из messages.py
-            entry_saved_msg = get_message(
-                'entry_saved',
-                language,
-                score=mood_score,
-                mood=get_message(f'mood_{mood_score}', language),
-                comment=comment,
-                recommendation=recommendation
-                # analysis=analysis_text - можно добавить, если шаблон его поддерживает
-            )
-
-            task_info_text = "" # Текст информации о задании
-            task_keyboard = None # Клавиатура с кнопкой отмены
-            
-            if suggested_task_data and isinstance(suggested_task_data, dict):
-                logger.info("Обнаружено предложенное задание от ИИ. Обработка...")
-                
-                # --- Создание задания ---
-                therapy_task = await _create_task_from_suggested_data(
-                    user, suggested_task_data, entry.entry_date, related_diary_entry=entry
-                )
-                
-                if therapy_task:
-                    logger.info(f"Задание от ИИ создано, ID: {therapy_task.id}")
-                    
-                    # --- Формирование текста о задании ---
-                    # Ограничиваем длину описания для сообщения
-                    task_desc_preview = therapy_task.description[:150] + "..." if len(therapy_task.description) > 150 else therapy_task.description
-                    task_info_text = f"\n\n📌 <b>Новое задание от ИИ:</b>\n<b>{therapy_task.title}</b>\n{task_desc_preview}"
-                    # -------------------------------------
-                    
-                    # --- Создание клавиатуры с кнопкой отмены ---
-                    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-                    # Передаем ID исходного сообщения (status_msg) в callback_data
-                    # Предполагается, что status_msg.message_id доступен
-                    # Если нет, можно передать status_msg.id или другой уникальный идентификатор сообщения
-                    try:
-                        original_message_id = status_msg.message_id
-                    except AttributeError:
-                        # Если message_id недоступен, используем просто ID задачи
-                        # Это менее надежно для редактирования, но лучше, чем ничего
-                        logger.warning("message_id недоступен у status_msg, используем только task_id для callback_data")
-                        original_message_id = None
-                    
-                    if original_message_id:
-                        callback_data = f"cancel_task:{therapy_task.id}:{original_message_id}"
-                    else:
-                        callback_data = f"cancel_task:{therapy_task.id}" # fallback
-                    
-                    cancel_button = InlineKeyboardButton(
-                        text=get_message('btn_cancel_task', language),
-                        callback_data=callback_data
-                    )
-                    task_keyboard = InlineKeyboardMarkup(inline_keyboard=[[cancel_button]])
-                    # --------------------------------------------
-                    
-                else:
-                    logger.warning("Не удалось создать задание от ИИ.")
-                    # Можно добавить короткое сообщение об ошибке создания задания
-                    # task_info_text = "\n\n⚠️ <i>Ошибка при создании задания от ИИ.</i>"
-            else:
-                logger.info("Задание от ИИ не предложено или данные некорректны.")            
-            
-            # Редактируем сообщение о процессе, показывая результат
-            final_message_text = entry_saved_msg + task_info_text
-            
-            # Выбираем клавиатуру: кнопка отмены задания или стандартная "Назад"
-            final_reply_markup = task_keyboard if task_keyboard else get_back_keyboard(language)
-            
-            await status_msg.edit_text(
-                final_message_text,
-                reply_markup=final_reply_markup # Используем сформированную клавиатуру
-            )
-            logger.info("Финальный результат анализа (с информацией о задании) отправлен пользователю.")
-        except Exception as msg_error:
-            logger.error(f"Ошибка при отправке финального сообщения: {msg_error}")
-            # Пытаемся отправить сообщение об ошибке
-            try:
-                await status_msg.edit_text(get_message('error_processing', language))
-            except:
-                pass # Игнорируем ошибки отправки сообщения об ошибке
-        # ---------------------------------------------------
-
-        # --- Очистка состояния FSM ---
-        logger.info("Очистка состояния FSM.")
-        await state_manager.clear_state(state)
-        # -----------------------------
-
-        logger.info("Обработка результата анализа успешно завершена.")
-
-    except Exception as e:
-        logger.error(f"Критическая ошибка в _handle_analysis_result: {e}", exc_info=True)
-        # Пытаемся сообщить об ошибке пользователю
-        try:
-            await status_msg.edit_text(get_message('error_processing', language))
-        except:
-            pass
-        # Очищаем состояние в случае критической ошибки
-        await state_manager.clear_state(state)
-        # Пробрасываем исключение, чтобы оно могло быть обработано выше, если нужно
-        raise 
 
 async def _send_error_message(status_msg, original_msg, language: str):
     """Отправляет сообщение об ошибке, стараясь использовать любой доступный способ."""
@@ -2252,6 +1790,546 @@ async def _send_error_message(status_msg, original_msg, language: str):
             await original_msg.answer(get_message('error_processing', language))
         except:
             pass
+
+async def _handle_analysis_result(entry: DiaryEntry, analysis_result: dict, status_msg, language: str, state: FSMContext, user):
+    """
+    Обрабатывает результат анализа и выполняет все последующие действия.
+    """
+    try:
+        logger.info("Начало обработки результата анализа.")
+        
+        # --- 1. ИЗВЛЕЧЕНИЕ ДАННЫХ АНАЛИЗА ---
+        mood_score = 5
+        comment = 'Анализ записан'
+        recommendation = 'Продолжайте вести дневник'
+        analysis_text = "Текст проанализирован."
+        api_response_data = {}
+        suggested_task_data = None
+        needs_clarification = False
+        clarification_questions = []
+        result_data = {}
+
+        if not analysis_result or not analysis_result.get('success', False):
+            logger.error(f"Ошибка анализа API: {analysis_result.get('error', 'Unknown error')}")
+            # Обработка ошибки API
+            error_type = analysis_result.get('error', 'unknown_error')
+            error_message = analysis_result.get('message', 'Неизвестная ошибка API')
+            logger.error(f"Ошибка анализа API: {error_type} - {error_message}")
+            
+            # Устанавливаем значения по умолчанию с пометкой об ошибке
+            if error_type == 'timeout':
+                comment = 'Анализ записан (превышено время ожидания)'
+            else:
+                comment = f'Анализ записан (ошибка API: {error_type})'
+            recommendation = 'Попробуйте позже'
+            analysis_text = f"Анализ не доступен из-за ошибки API: {error_message}"
+            # result_data, suggested_task_data, needs_clarification, clarification_questions остаются по умолчанию
+        else:
+            # Успешный результат API
+            logger.info("Анализ API завершен успешно.")
+            api_response_data = analysis_result.get('api_response', {})
+            result_data_raw = analysis_result.get('result', {})
+            if not isinstance(result_data_raw, dict):
+                logger.error("Поле 'result' в ответе API не является словарем.")
+                result_data = {}
+            else:
+                result_data = result_data_raw
+                
+            # Извлекаем данные из result_data с валидацией
+            mood_score_raw = result_data.get('mood_score')
+            if mood_score_raw is not None and isinstance(mood_score_raw, int) and 1 <= mood_score_raw <= 10:
+                mood_score = mood_score_raw
+            else:
+                logger.warning(f"Некорректное значение mood_score: {mood_score_raw}. Используется значение по умолчанию: {mood_score}")
+                
+            comment_raw = result_data.get('comment')
+            if comment_raw and isinstance(comment_raw, str):
+                comment = comment_raw
+            else:
+                logger.warning(f"Некорректное значение comment: {comment_raw}. Используется значение по умолчанию.")
+                
+            recommendation_raw = result_data.get('recommendation')
+            if recommendation_raw and isinstance(recommendation_raw, str):
+                recommendation = recommendation_raw
+            else:
+                logger.warning(f"Некорректное значение recommendation: {recommendation_raw}. Используется значение по умолчанию.")
+                
+            analysis_text_raw = result_data.get('analysis')
+            if analysis_text_raw and isinstance(analysis_text_raw, str):
+                analysis_text = analysis_text_raw
+            else:
+                logger.warning(f"Некорректное значение analysis: {analysis_text_raw}. Используется значение по умолчанию.")
+            
+            needs_clarification = result_data.get('needs_clarification', False)
+            if not isinstance(needs_clarification, bool):
+                logger.debug(f"Некорректное значение needs_clarification: {needs_clarification}. Используется False.")
+                needs_clarification = False
+                
+            clarification_questions_raw = result_data.get('clarification_questions')
+            if isinstance(clarification_questions_raw, list):
+                if all(isinstance(q, str) for q in clarification_questions_raw):
+                    clarification_questions = clarification_questions_raw
+                else:
+                    logger.warning("Элементы clarification_questions не являются строками. Используется пустой список.")
+                    clarification_questions = []
+            else:
+                logger.warning(f"Некорректное значение clarification_questions: {clarification_questions_raw}. Используется пустой список.")
+                clarification_questions = []
+                
+            suggested_task_data = result_data.get('suggested_task')
+            if suggested_task_data is not None and not isinstance(suggested_task_data, dict):
+                logger.warning(f"Некорректное значение suggested_task: {suggested_task_data}. Игнорируется.")
+                suggested_task_data = None
+
+        logger.info(f"Данные анализа извлечены. Оценка: {mood_score}/10, Требуются уточнения: {needs_clarification}")
+        # =================================
+
+        # --- 2. ОБРАБОТКА УТОЧНЕНИЙ ---
+        if needs_clarification and clarification_questions:
+            logger.info("Требуются уточнения. Переводим в состояние уточнения.")
+            
+            try:
+                entry.clarification_questions_asked = clarification_questions
+                await sync_to_async(entry.save)(update_fields=['clarification_questions_asked'])
+                logger.info(f"Вопросы уточнений сохранены в DiaryEntry ID {entry.id}")
+            except Exception as save_error:
+                logger.error(f"Ошибка при сохранении clarification_questions_asked в DiaryEntry ID {entry.id}: {save_error}")
+            
+            await state_manager.update_state_data(
+                state,
+                clarifying_entry_id=entry.id,
+                clarification_questions=clarification_questions
+            )
+            await state_manager.set_state(state, DiaryStates.asking_clarifying_questions)
+            
+            questions_text = "\n".join([f"{i+1}. {q}" for i, q in enumerate(clarification_questions)])
+            clarification_msg = f"{get_message('clarification_needed', language)}\n\n{questions_text}"
+            
+            await status_msg.edit_text(
+                clarification_msg,
+                reply_markup=get_cancel_keyboard(language)
+            )
+            logger.info(f"Отправлено {len(clarification_questions)} вопросов для уточнения.")
+            return
+        # ============================
+
+        # --- 3. ОБРАБОТКА РЕЗУЛЬТАТА БЕЗ УТОЧНЕНИЙ ---
+        logger.info("Обработка результата без уточнений.")
+
+        # --- Создание/Обновление PsychoAnalysis ---
+        logger.info("Создание/обновление PsychoAnalysis для записи.")
+        psycho_analysis = await diary_service.create_initial_analysis(
+            entry=entry,
+            mood_score=mood_score,
+            comment=comment,
+            recommendation=recommendation,
+            analysis_text=analysis_text,
+            api_response=api_response_data
+        )
+        logger.info(f"PsychoAnalysis создан/обновлен, ID: {psycho_analysis.id}")
+        # --------------------------------------------
+
+        # --- Обновление CombinedDiaryEntry.ai_state_data ---
+        logger.info("Обновление состояния дня (CombinedDiaryEntry).")
+        combined_entry = await daily_state_service.get_daily_state(user, entry.entry_date)
+        update_success = False
+        if combined_entry:
+            new_ai_state_data = analysis_text
+            update_success = await daily_state_service.update_daily_state(
+                combined_entry, new_ai_state_data, latest_mood_score=mood_score
+            )
+            logger.info(f"CombinedDiaryEntry.ai_state_data обновлен: {'Успешно' if update_success else 'Ошибка'}")
+        else:
+            logger.warning("CombinedDiaryEntry не найден для обновления состояния.")
+        # ---------------------------------------------------
+
+        # --- (Асинхронно) Обновление инсайтов ---
+        logger.info("Обновление инсайтов и ключевых моментов...")
+        try:
+            from diary.services.analysis_service import analysis_service
+            await analysis_service.extract_and_save_insights_and_keypoints(entry, result_data)
+            logger.info("Инсайты и ключевые моменты пользователя обновлены.")
+        except Exception as insight_error:
+            logger.error(f"Ошибка при обновлении инсайтов: {insight_error}")
+        # -----------------------------------------
+
+        # --- (Асинхронно) Обработка задания от ИИ ---
+        task_info_text = ""
+        final_reply_markup = None # <-- Инициализируем как None
+        
+        if suggested_task_data and isinstance(suggested_task_data, dict):
+            logger.info("Обнаружено предложенное задание от ИИ. Обработка...")
+            
+            therapy_task = await _create_task_from_suggested_data(
+                user, suggested_task_data, entry.entry_date, related_diary_entry=entry
+            )
+            
+            if therapy_task:
+                logger.info(f"Задание от ИИ создано, ID: {therapy_task.id}")
+                
+                # --- Формирование текста о задании ---
+                task_desc_preview = therapy_task.description[:150] + "..." if len(therapy_task.description) > 150 else therapy_task.description
+                task_info_text = f"\n\n📌 <b>Новое задание от ИИ:</b>\n<b>{therapy_task.title}</b>\n{task_desc_preview}"
+                # -------------------------------------
+                
+                # --- НОВОЕ: Создание клавиатуры действий с заданием ---
+                # Получаем активные задания пользователя для пагинации
+                task_index = 0
+                if therapy_task:
+                    final_reply_markup = get_task_pagination_keyboard(
+                        task_id=therapy_task.id,
+                        current_index=task_index,
+                        total_tasks=1,
+                        language=language
+                    )
+                    logger.info(f"Клавиатура действий с заданием создана для задания ID {therapy_task.id}.")
+                else:
+                    # На всякий случай, если задания не нашлись
+                    logger.warning("Не удалось получить активные задания для клавиатуры пагинации.")
+                    final_reply_markup = get_back_keyboard(language)                
+                '''active_tasks = await diary_service.get_user_active_tasks(user)
+                if active_tasks:
+                    # Находим индекс созданного задания
+                    task_index = next((i for i, t in enumerate(active_tasks) if t.id == therapy_task.id), 0)
+                    # Создаем клавиатуру с пагинацией и действиями
+                    final_reply_markup = get_task_pagination_keyboard(
+                        task_id=therapy_task.id,
+                        current_index=task_index,
+                        total_tasks=len(active_tasks),
+                        language=language
+                    )
+                    logger.info(f"Клавиатура действий с заданием создана для задания ID {therapy_task.id}.")
+                else:
+                    # На всякий случай, если задания не нашлись
+                    logger.warning("Не удалось получить активные задания для клавиатуры пагинации.")
+                    final_reply_markup = get_back_keyboard(language)'''
+            else:
+                logger.warning("Не удалось создать задание от ИИ.")
+                # Можно добавить короткое сообщение об ошибке создания задания
+                # task_info_text = "\n\n⚠️ <i>Ошибка при создании задания от ИИ.</i>"
+                final_reply_markup = get_back_keyboard(language)
+        else:
+            logger.info("Задание от ИИ не предложено или данные некорректны.")
+            # --- НОВОЕ: Клавиатура "Назад" если задания нет ---
+            final_reply_markup = get_back_keyboard(language)
+            # --------------------------------------------------
+        # -------------------------------------------
+
+        # --- Отправка финального результата пользователю ---
+        entry_saved_msg = get_message(
+            'entry_saved',
+            language,
+            score=mood_score,
+            mood=get_message(f'mood_{mood_score}', language),
+            comment=comment,
+            recommendation=recommendation
+        )
+
+        final_message_text = entry_saved_msg + task_info_text
+        
+        # Используем сформированную клавиатуру (с действиями или "Назад")
+        await status_msg.edit_text(
+            final_message_text,
+            reply_markup=final_reply_markup
+        )
+        logger.info("Финальный результат анализа (с информацией о задании и кнопками) отправлен пользователю.")
+        # ---------------------------------------------------
+
+        # --- Очистка состояния FSM ---
+        logger.info("Очистка состояния FSM.")
+        await state_manager.clear_state(state)
+        # -----------------------------
+
+        logger.info("Обработка результата анализа успешно завершена.")
+
+    except Exception as e:
+        logger.error(f"Критическая ошибка в _handle_analysis_result: {e}", exc_info=True)
+        try:
+            await status_msg.edit_text(get_message('error_processing', language))
+        except:
+            pass
+        await state_manager.clear_state(state)
+        raise 
+
+# === ОБНОВЛЁННЫЙ _handle_final_analysis_result ===
+async def _handle_final_analysis_result(entry: DiaryEntry, final_analysis_result: dict, status_msg, language: str, state: FSMContext, user):
+    """
+    Обрабатывает финальный результат анализа (после уточнений) и выполняет все последующие действия.
+    """
+    try:
+        logger.info("Начало обработки ФИНАЛЬНОГО результата анализа (после уточнений).")
+        
+        # --- ИЗВЛЕЧЕНИЕ ДАННЫХ ФИНАЛЬНОГО АНАЛИЗА ---
+        mood_score = 5
+        comment = 'Анализ записан'
+        recommendation = 'Продолжайте в том же духе'
+        analysis_text = "Текст проанализирован."
+        api_response_data = {}
+        suggested_task_data = None
+        result_data = {}
+
+        if not final_analysis_result or not final_analysis_result.get('success', False):
+            logger.error(f"Ошибка финального анализа API: {final_analysis_result.get('error', 'Unknown error')}")
+            mood_score = 5
+            comment = 'Анализ записан (ошибка API)'
+            recommendation = 'Попробуйте позже'
+            analysis_text = "Финальный анализ не доступен из-за ошибки API"
+            api_response_data = final_analysis_result.get('api_response', {}) if final_analysis_result else {}
+            suggested_task_data = None
+            result_data = {}
+        else:
+            result_data_raw = final_analysis_result.get('result', {})
+            if not isinstance(result_data_raw, dict):
+                logger.error("Поле 'result' в ответе финального API не является словарем.")
+                result_data = {}
+            else:
+                result_data = result_data_raw
+                
+            mood_score = result_data.get('mood_score', 5)
+            comment = result_data.get('comment', 'Анализ записан')
+            recommendation = result_data.get('recommendation', 'Продолжайте в том же духе')
+            analysis_text = result_data.get('analysis', 'Текст проанализирован.')
+            api_response_data = final_analysis_result.get('api_response', {})
+            suggested_task_data = result_data.get('suggested_task')
+            
+            if mood_score is None or not (1 <= mood_score <= 10):
+                mood_score = 5
+            if not comment or not isinstance(comment, str):
+                comment = 'Анализ записан'
+            if not recommendation or not isinstance(recommendation, str):
+                recommendation = 'Продолжайте в том же духе'
+            if not analysis_text or not isinstance(analysis_text, str):
+                analysis_text = 'Текст проанализирован.'
+            if not isinstance(suggested_task_data, dict) and suggested_task_data is not None:
+                logger.warning(f"Некорректное значение suggested_task: {suggested_task_data}. Игнорируется.")
+                suggested_task_data = None
+                
+        logger.info(f"Данные финального анализа извлечены. Оценка: {mood_score}/10")
+        # ------------------------------------
+
+        # --- Создание/Обновление PsychoAnalysis ---
+        logger.info("Создание/обновление PsychoAnalysis для записи после уточнений.")
+        psycho_analysis = await diary_service.create_initial_analysis(
+            entry=entry,
+            mood_score=mood_score,
+            comment=comment,
+            recommendation=recommendation,
+            analysis_text=analysis_text,
+            api_response=api_response_data
+        )
+        logger.info(f"PsychoAnalysis (после уточнений) создан/обновлен, ID: {psycho_analysis.id}")
+        # --------------------------------------------
+
+        # --- Обновление CombinedDiaryEntry.ai_state_data ---
+        logger.info("Обновление состояния дня (CombinedDiaryEntry) после финального анализа.")
+        combined_entry = await daily_state_service.get_daily_state(user, entry.entry_date)
+        update_success = False
+        if combined_entry:
+            new_ai_state_data = analysis_text
+            update_success = await daily_state_service.update_daily_state(
+                combined_entry, new_ai_state_data, latest_mood_score=mood_score
+            )
+            logger.info(f"CombinedDiaryEntry.ai_state_data обновлен: {'Успешно' if update_success else 'Ошибка'}")
+        else:
+            logger.warning("CombinedDiaryEntry не найден для обновления состояния после финального анализа.")
+        # ---------------------------------------------------
+
+        # --- (Асинхронно) Обновление инсайтов ---
+        logger.info("Обновление инсайтов и ключевых моментов (после уточнений)...")
+        try:
+            from diary.services.analysis_service import analysis_service
+            await analysis_service.extract_and_save_insights_and_keypoints(entry, result_data)
+            logger.info("Инсайты и ключевые моменты пользователя обновлены (после уточнений).")
+        except Exception as insight_error:
+            logger.error(f"Ошибка при обновлении инсайтов (после уточнений): {insight_error}")
+        # -----------------------------------------
+
+        # --- (Асинхронно) Обработка задания от ИИ ---
+        task_info_text = ""
+        final_reply_markup = None # <-- Инициализируем как None
+        
+        if suggested_task_data and isinstance(suggested_task_data, dict):
+            logger.info("Обнаружено предложенное задание от ИИ (после уточнений). Обработка...")
+            
+            therapy_task = await _create_task_from_suggested_data(
+                user, suggested_task_data, entry.entry_date, related_diary_entry=entry
+            )
+            
+            if therapy_task:
+                logger.info(f"Задание от ИИ (после уточнений) создано, ID: {therapy_task.id}")
+                
+                # --- Формирование текста о задании ---
+                task_desc_preview = therapy_task.description[:150] + "..." if len(therapy_task.description) > 150 else therapy_task.description
+                task_info_text = f"\n\n📌 <b>Новое задание от ИИ:</b>\n<b>{therapy_task.title}</b>\n{task_desc_preview}"
+                # -------------------------------------
+                
+                # --- НОВОЕ: Создание клавиатуры действий с заданием ---
+                # Получаем активные задания пользователя для пагинации
+                task_index = 0
+                if therapy_task:
+                    final_reply_markup = get_task_pagination_keyboard(
+                        task_id=therapy_task.id,
+                        current_index=task_index,
+                        total_tasks=1,
+                        language=language
+                    )
+                    logger.info(f"Клавиатура действий с заданием создана для задания ID {therapy_task.id}.")
+                else:
+                    # На всякий случай, если задания не нашлись
+                    logger.warning("Не удалось получить активные задания для клавиатуры пагинации.")
+                    final_reply_markup = get_back_keyboard(language)  
+                '''active_tasks = await diary_service.get_user_active_tasks(user)
+                if active_tasks:
+                    # Находим индекс созданного задания
+                    task_index = next((i for i, t in enumerate(active_tasks) if t.id == therapy_task.id), 0)
+                    # Создаем клавиатуру с пагинацией и действиями
+                    final_reply_markup = get_task_pagination_keyboard(
+                        task_id=therapy_task.id,
+                        current_index=task_index,
+                        total_tasks=len(active_tasks),
+                        language=language
+                    )
+                    logger.info(f"Клавиатура действий с заданием (после уточнений) создана для задания ID {therapy_task.id}.")
+                else:
+                    # На всякий случай, если задания не нашлись
+                    logger.warning("Не удалось получить активные задания для клавиатуры пагинации (после уточнений).")
+                    final_reply_markup = get_back_keyboard(language)'''
+            else:
+                logger.warning("Не удалось создать задание от ИИ (после уточнений).")
+                # Можно добавить короткое сообщение об ошибке создания задания
+                # task_info_text = "\n\n⚠️ <i>Ошибка при создании задания от ИИ.</i>"
+                final_reply_markup = get_back_keyboard(language)
+        else:
+            logger.info("Задание от ИИ не предложено или данные некорректны (после уточнений).")
+            # --- НОВОЕ: Клавиатура "Назад" если задания нет ---
+            final_reply_markup = get_back_keyboard(language)
+            # --------------------------------------------------
+        # -------------------------------------------
+
+        # --- Отправка финального результата пользователю ---
+        entry_saved_msg = get_message(
+            'entry_saved',
+            language,
+            score=mood_score,
+            mood=get_message(f'mood_{mood_score}', language),
+            comment=comment,
+            recommendation=recommendation
+        )
+
+        final_message_text = entry_saved_msg + task_info_text
+        
+        # Используем сформированную клавиатуру (с действиями или "Назад")
+        await status_msg.edit_text(
+            final_message_text,
+            reply_markup=final_reply_markup
+        )
+        logger.info("Финальный результат анализа (после уточнений, с информацией о задании и кнопками) отправлен пользователю.")
+        # ---------------------------------------------------
+
+        # --- Очистка состояния FSM ---
+        logger.info("Очистка состояния FSM после финальной обработки.")
+        await state_manager.clear_state(state)
+        # -----------------------------
+
+        logger.info("Обработка ФИНАЛЬНОГО результата анализа успешно завершена.")
+
+    except Exception as e:
+        logger.error(f"Критическая ошибка в _handle_final_analysis_result: {e}", exc_info=True)
+        try:
+            await status_msg.edit_text(get_message('error_processing', language))
+        except:
+            pass
+        await state_manager.clear_state(state)
+        raise 
+
+# === ОБНОВЛЁННЫЙ ОБРАБОТЧИК: Отмена задания ===
+@router.callback_query(F.data.startswith("cancel_task:"))
+async def cancel_assigned_task(callback: CallbackQuery, user, language: str):
+    """
+    Обработчик нажатия кнопки "Отменить задание".
+    Удаляет назначенное задание и обновляет исходное сообщение.
+    """
+    logger.info(f"Пользователь {callback.from_user.id} запросил отмену задания через callback.")
+    try:
+        # --- Извлечение ID задания ---
+        parts = callback.data.split(":")
+        if len(parts) < 2:
+             raise ValueError("Некорректный формат callback_data")
+        task_id_str = parts[1]
+        task_id = int(task_id_str)
+        logger.info(f"Попытка отмены (удаления) задания ID: {task_id}")
+        # -----------------------------------------------------
+
+        # --- Получение и удаление задания ---
+        try:
+            task_to_cancel = await TherapyTask.objects.aget(id=task_id, user=user)
+            task_title = task_to_cancel.title
+            logger.info(f"Задание '{task_title}' (ID: {task_id}) найдено.")
+            
+            await task_to_cancel.adelete()
+            logger.info(f"Задание '{task_title}' (ID: {task_id}) успешно удалено.")
+            
+            # --- Отправка show_alert пользователю ---
+            confirmation_message = get_message(
+                'task_cancelled_confirmation',
+                language,
+                title=task_title
+            )
+            await safe_answer_callback(callback, confirmation_message, show_alert=True)
+            logger.info("Пользователю отправлено show_alert о подтверждении отмены задания.")
+            # ---------------------------------------
+            
+            # --- ОБНОВЛЕНИЕ ИСХОДНОГО СООБЩЕНИЯ ---
+            # Цель: Убрать информацию о задании и кнопки действий с заданием.
+            try:
+                # Формируем сообщение без информации о задании
+                # Нам нужно получить DiaryEntry, связанную с этим заданием
+                diary_entry = task_to_cancel.related_entry
+                if not diary_entry:
+                    raise ValueError("Задание не связано с записью дневника")
+                
+                # Получаем анализ записи
+                psycho_analysis = await diary_entry.analysis.aget()
+                
+                # Формируем сообщение без задания, используя данные анализа
+                entry_saved_msg = get_message(
+                    'entry_saved',
+                    language,
+                    score=psycho_analysis.mood_score,
+                    mood=get_message(f'mood_{psycho_analysis.mood_score}', language),
+                    comment=psycho_analysis.comment,
+                    recommendation=psycho_analysis.recommendation
+                )
+                
+                # Отправляем обновленное сообщение с клавиатурой "Назад"
+                await safe_edit_message_text(
+                    message=callback.message,
+                    text=entry_saved_msg,
+                    reply_markup=get_back_keyboard(language)
+                )
+                logger.info("Исходное сообщение обновлено: информация о задании и кнопки действий с заданием удалены.")
+                
+            except Exception as edit_error:
+                logger.warning(f"Не удалось обновить исходное сообщение после отмены задания: {edit_error}")
+                # Если не удалось отредактировать, ничего критичного. show_alert был отправлен.
+            
+            # ------------------------------------
+
+        except TherapyTask.DoesNotExist:
+            logger.warning(f"Задание ID {task_id} не найдено или не принадлежит пользователю {user.telegram_id}.")
+            await safe_answer_callback(
+                callback, 
+                get_message('task_not_found_for_cancellation', language),
+                show_alert=True
+            )
+        # -----------------------------------
+
+    except ValueError as ve:
+        logger.error(f"Некорректные данные в callback_data: {callback.data} - {ve}")
+        await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
+    except Exception as e:
+        logger.error(f"Ошибка при отмене задания через callback: {e}", exc_info=True)
+        await safe_answer_callback(callback, get_message('error_processing', language), show_alert=True)
 
 async def _create_task_from_suggested_data(user, task_data: dict, entry_date: date, related_diary_entry: DiaryEntry = None):
     """

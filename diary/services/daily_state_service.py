@@ -91,75 +91,108 @@ class DailyStateService:
             raise # Пусть ошибка пробрасывается, если не удалось создать/загрузить
 
     async def update_daily_state(
-        self, combined_entry: CombinedDiaryEntry, new_ai_state_data: str
+        self, 
+        combined_entry: CombinedDiaryEntry, 
+        new_ai_state_data: str,
+        latest_mood_score: Optional[int] = None # НОВЫЙ АРГУМЕНТ
     ) -> bool:
         """
         Асинхронно обновляет существующий CombinedDiaryEntry с новым состоянием от ИИ.
+        Также обновляет текст, счетчик записей и список/среднее значение настроения.
 
         Args:
             combined_entry: Объект CombinedDiaryEntry для обновления.
             new_ai_state_data: Новое текстовое состояние дня от ИИ.
+            latest_mood_score: (Новое) mood_score из последней записи.
 
         Returns:
             bool: True, если обновление прошло успешно, иначе False.
         """
         logger.info(f"Обновление CombinedDiaryEntry ID {combined_entry.id} с новым состоянием ИИ")
         try:
-            # Используем sync_to_async для ORM-запроса
+            from bot.services.diary_service import diary_service
+            combined_text = await diary_service.get_combined_entry_text(combined_entry.user, combined_entry.date)
+            entries_today = await diary_service.get_user_entries_for_date(combined_entry.user, combined_entry.date)
+            entry_count = len(entries_today)
+
             @sync_to_async
             def _update_sync():
                 with transaction.atomic():
-                    # Пересчитываем объединенный текст и количество записей
-                    # при каждом обновлении, чтобы держать его актуальным.
-                    # Это может быть избыточно, если текст обновляется отдельно,
-                    # но гарантирует согласованность.
-                    # TODO: Оценить, нужно ли это здесь или делать отдельно.
-                    # diary_service.get_combined_entry_text можно использовать.
-                    # Пока оставим обновление только ai_state_data и флага.
+                    # Обновляем текст и счетчик
+                    combined_entry.text = combined_text
+                    combined_entry.entry_count = entry_count
                     combined_entry.ai_state_data = new_ai_state_data
                     combined_entry.is_analyzed = True
-                    combined_entry.save(update_fields=['ai_state_data', 'is_analyzed', 'updated_at'])
+                    
+                    # --- НОВОЕ: Обновляем список и среднее оценок, если передана новая оценка ---
+                    if latest_mood_score is not None:
+                        logger.debug(f"Обновление оценок: новая оценка {latest_mood_score}")
+                        # Вызываем метод модели, который обновит список и среднее
+                        combined_entry.update_mood_scores(latest_mood_score)
+                        # update_mood_scores уже вызвал save() внутри себя, поэтому повторный save() не нужен
+                        # Но если он не вызывает save(), тогда нужно:
+                        # combined_entry.save(update_fields=['text', 'entry_count', 'daily_mood_scores', 'average_mood_score', 'ai_state_data', 'is_analyzed', 'updated_at'])
+                    else:
+                         # Если новая оценка не передана, сохраняем остальное
+                         combined_entry.save(update_fields=['text', 'entry_count', 'ai_state_data', 'is_analyzed', 'updated_at'])
+                    # ----------------------------------------------------------------------------
+                        
                 return True
 
             await _update_sync()
-            logger.info(f"CombinedDiaryEntry ID {combined_entry.id} успешно обновлен")
+            logger.info(f"CombinedDiaryEntry ID {combined_entry.id} успешно обновлен (включая текст, счетчик и оценки)")
             return True
         except Exception as e:
             logger.error(f"Ошибка при обновлении CombinedDiaryEntry ID {combined_entry.id}: {e}")
             return False
 
     async def update_daily_state_text_and_count(
-        self, combined_entry: CombinedDiaryEntry, new_text: str, new_entry_count: int
+        self, 
+        combined_entry: CombinedDiaryEntry, 
+        new_text: str, 
+        new_entry_count: int,
+        latest_mood_score: Optional[int] = None # Новая оценка от последней записи
     ) -> bool:
         """
         Асинхронно обновляет текст и счетчик записей в CombinedDiaryEntry.
-        Используется, например, при редактировании записи или добавлении новой.
+        Также обновляет список и среднее значение настроения, если передана новая оценка.
 
         Args:
             combined_entry: Объект CombinedDiaryEntry для обновления.
             new_text: Новый объединенный текст.
             new_entry_count: Новое количество записей.
+            latest_mood_score: (Новое) mood_score из последней записи.
 
         Returns:
             bool: True, если обновление прошло успешно, иначе False.
         """
-        logger.info(f"Обновление текста и счетчика в CombinedDiaryEntry ID {combined_entry.id}")
+        logger.info(f"Обновление текста, счетчика и оценок в CombinedDiaryEntry ID {combined_entry.id}")
         try:
             @sync_to_async
             def _update_text_sync():
                 with transaction.atomic():
                     combined_entry.text = new_text
                     combined_entry.entry_count = new_entry_count
-                    # Сбрасываем флаг анализа, если текст изменился кардинально
-                    # combined_entry.is_analyzed = False # Опционально
-                    combined_entry.save(update_fields=['text', 'entry_count', 'updated_at'])
+                    
+                    # Если передана новая оценка, обновляем список и среднее
+                    if latest_mood_score is not None:
+                        logger.debug(f"Обновление оценок: новая оценка {latest_mood_score}")
+                        # Вызываем метод модели для обновления
+                        combined_entry.update_mood_scores(latest_mood_score)
+                        # combined_entry.daily_mood_scores.append(latest_mood_score)
+                        # if combined_entry.daily_mood_scores:
+                        #     combined_entry.average_mood_score = sum(combined_entry.daily_mood_scores) / len(combined_entry.daily_mood_scores)
+                        # logger.debug(f"Обновлен список оценок: {combined_entry.daily_mood_scores}, среднее: {combined_entry.average_mood_score}")
+                    
+                    # combined_entry.save(update_fields=['text', 'entry_count', 'daily_mood_scores', 'average_mood_score'])
+                    combined_entry.save(update_fields=['text', 'entry_count']) # update_mood_scores уже вызвал save
                 return True
 
             await _update_text_sync()
-            logger.info(f"Текст и счетчик в CombinedDiaryEntry ID {combined_entry.id} успешно обновлены")
+            logger.info(f"Текст, счетчик и оценки в CombinedDiaryEntry ID {combined_entry.id} успешно обновлены")
             return True
         except Exception as e:
-            logger.error(f"Ошибка при обновлении текста/счетчика в CombinedDiaryEntry ID {combined_entry.id}: {e}")
+            logger.error(f"Ошибка при обновлении текста/счетчика/оценок в CombinedDiaryEntry ID {combined_entry.id}: {e}")
             return False
 
     async def create_daily_state_from_entry(
@@ -213,9 +246,9 @@ async def get_or_create_daily_state(user: User, target_date: date, initial_text:
     """Удобная функция для получения или создания состояния дня."""
     return await daily_state_service.get_or_create_daily_state(user, target_date, initial_text)
 
-async def update_daily_state(combined_entry: CombinedDiaryEntry, new_ai_state_data: str) -> bool:
+async def update_daily_state(combined_entry: CombinedDiaryEntry, new_ai_state_data: str, latest_mood_score: Optional[int] = None) -> bool:
     """Удобная функция для обновления состояния дня."""
-    return await daily_state_service.update_daily_state(combined_entry, new_ai_state_data)
+    return await daily_state_service.update_daily_state(combined_entry, new_ai_state_data, latest_mood_score)
 
 async def update_daily_state_text_and_count(
     combined_entry: CombinedDiaryEntry, new_text: str, new_entry_count: int
