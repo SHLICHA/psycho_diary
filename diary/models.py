@@ -40,6 +40,12 @@ class DiaryEntry(models.Model):
         verbose_name=_("Заданные уточняющие вопросы"),
         help_text=_("Список вопросов, заданных пользователю для уточнения по этой записи.")
     )
+    clarification_answers = models.JSONField(
+        default=dict, 
+        blank=True, 
+        verbose_name=_("Ответы на уточнения"),
+        help_text=_("Словарь ответов пользователя на уточняющие вопросы. Ключ - вопрос, значение - ответ.")
+    )
     is_primary = models.BooleanField(
         default=False,
         verbose_name=_("Основная запись дня"),
@@ -126,6 +132,42 @@ class DiaryEntry(models.Model):
                 return self.created_at.date()
             else:
                 return pytz.utc.localize(self.created_at).date()
+            
+    async def aentry_date(self) -> date:
+        """Асинхронная версия получения даты записи."""
+        # Импортируем необходимые модули внутри метода, чтобы избежать циклических импортов
+        import pytz
+        from asgiref.sync import sync_to_async
+        from django.utils import timezone
+
+        try:
+            # Оборачиваем синхронное свойство в sync_to_async
+            @sync_to_async
+            def _get_entry_date_sync():
+                # Здесь повторяем логику вашего существующего свойства entry_date
+                # Пример (замените на вашу логику):
+                user_timezone_str = self.user.timezone if self.user else 'UTC'
+                if not user_timezone_str:
+                    user_timezone_str = 'UTC'
+
+                created_at_for_conversion = self.created_at
+                if created_at_for_conversion.tzinfo is None:
+                    created_at_for_conversion = timezone.utc.localize(created_at_for_conversion)
+
+                user_tz = pytz.timezone(user_timezone_str)
+                localized_time = created_at_for_conversion.astimezone(user_tz)
+                return localized_time.date()
+                # --- Конец логики свойства ---
+
+            return await _get_entry_date_sync()
+
+        except Exception as e:
+            logger.error(f"Ошибка при асинхронном получении даты записи: {e}")
+            # Возвращаем дату в UTC если не удалось
+            if self.created_at.tzinfo:
+                return self.created_at.date()
+            else:
+                return timezone.utc.localize(self.created_at).date()
     
     @property
     def combined_text(self) -> str:
@@ -399,6 +441,69 @@ class TaskAnalysis(models.Model):
     def __str__(self):
         return f"Анализ выполнения {self.completion.task.title}"
 
+class TaskCompletionAnalysis(models.Model):
+    """
+    Анализ выполнения терапевтического задания.
+    Хранит результат анализа влияния выполнения задания на эмоциональное состояние и инсайты.
+    """
+    completion = models.OneToOneField(
+        'TaskCompletion',
+        on_delete=models.CASCADE,
+        related_name='completion_analysis',
+        verbose_name=_("Выполнение задания")
+    )
+    effect_description = models.TextField(
+        verbose_name=_("Описание эффекта"),
+        help_text=_("Текстовое описание влияния выполнения задания (например, 'Повышение настроения на X баллов').")
+    )
+    mood_impact_score = models.IntegerField(
+        null=True, blank=True,
+        verbose_name=_("Влияние на настроение"),
+        help_text=_("Изменение оценки настроения дня после выполнения задания (может быть положительным или отрицательным).")
+    )
+    related_insights = models.ManyToManyField(
+        'UserInsight', 
+        blank=True, 
+        verbose_name=_("Связанные инсайты"),
+        help_text=_("Инсайты пользователя, которые были выявлены или усилена в результате выполнения этого задания.")
+    )
+    # Ключевые моменты дня до выполнения задания (сохраненные для сравнения)
+    key_points_before = models.JSONField(
+        default=dict, 
+        blank=True, 
+        verbose_name=_("Ключевые моменты дня до выполнения"),
+        help_text=_("Ключевые моменты (эмоции, события и т.д.) из CombinedDiaryEntry на момент до выполнения задания.")
+    )
+    # Ключевые моменты дня после выполнения задания (сохраненные для сравнения)
+    key_points_after = models.JSONField(
+        default=dict, 
+        blank=True, 
+        verbose_name=_("Ключевые моменты дня после выполнения"),
+        help_text=_("Ключевые моменты (эмоции, события и т.д.) из CombinedDiaryEntry на момент после выполнения задания (если анализ проводился позже).")
+    )
+    comment = models.TextField(
+        blank=True,
+        verbose_name=_("Комментарий ИИ"),
+        help_text=_("Краткий комментарий от ИИ по результатам анализа выполнения.")
+    )
+    recommendation = models.TextField(
+        blank=True,
+        verbose_name=_("Рекомендация ИИ"),
+        help_text=_("Персональная рекомендация от ИИ, вытекающая из анализа выполнения.")
+    )
+    
+    analysis_performed_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата выполнения анализа"))
+    # Храним ответ API для дебага/детализации
+    api_response = models.JSONField(default=dict, blank=True, verbose_name=_("Ответ API DeepSeek"))
+
+    class Meta:
+        verbose_name = _("Анализ выполнения задания")
+        verbose_name_plural = _("Анализы выполнения заданий")
+        db_table = "diary_task_completion_analysis"
+
+    def __str__(self):
+        return f"Анализ выполнения {self.completion.task.title} ({self.completion.task.user.username})"
+
 class UserActivity(models.Model):
     """Активность пользователя"""
     
@@ -442,13 +547,6 @@ class CombinedDiaryEntry(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата создания"))
     updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Дата последнего обновления"))
     # === ФЛАГ АНАЛИЗА ИИ ===
-    ai_state_data = models.TextField(
-        blank=True, 
-        default="", 
-        verbose_name=_("Состояние дня по версии ИИ"),
-        help_text=_("Текстовый контекст или структурированные данные от ИИ, описывающие состояние дня.")
-    )
-    # === ПОЛЕ ДЛЯ СОСТОЯНИЯ ИИ ===
     ai_state_data = models.TextField(
         blank=True, 
         default="", 

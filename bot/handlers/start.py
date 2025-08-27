@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 @router.message(Command("start"))
 async def cmd_start(message: Message, user, language: str):
     """Обработчик команды /start"""
-    logger.info(f"Запрос на создание новой записи от пользователя {message.from_user.id}")
+    logger.info(f"Запрос команды /start {message.from_user.id}")
     
     try:
         # Определяем, новый это пользователь или возвращающийся

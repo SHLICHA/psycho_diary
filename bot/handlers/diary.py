@@ -243,7 +243,7 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
         # === 1. ПОЛУЧЕНИЕ ДАННЫХ ИЗ СОСТОЯНИЯ FSM ===
         state_data = await state_manager.get_state_data(state)
         entry_id = state_data.get('clarifying_entry_id')
-        clarification_questions = state_data.get('clarification_questions', [])
+        clarification_questions = state_data.get('clarification_questions', []) # Список вопросов
         
         if not entry_id:
             logger.error("Не найден ID записи для уточнений в состоянии FSM")
@@ -270,30 +270,51 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
         logger.info(f"Получены ответы на уточнения длиной: {len(clarification_text)} символов")
         # =============================================
 
-        # === 2. ПОКАЗ СООБЩЕНИЯ ОБ ОБРАБОТКЕ ===
-        processing_msg = get_message('processing', language) # Можно добавить 'processing_clarifications'
+        # === 2. СОХРАНЕНИЕ ОТВЕТОВ В DiaryEntry ===
+        try:
+            # Создаем словарь {вопрос: ответ}
+            # Предполагаем, что ответы в clarification_text разделены двумя \n и соответствуют порядку clarification_questions
+            answers_list = [ans.strip() for ans in clarification_text.split("\n\n") if ans.strip()]
+            
+            clarification_answers_dict = {}
+            for i, question in enumerate(clarification_questions):
+                if i < len(answers_list):
+                    clarification_answers_dict[question] = answers_list[i]
+                else:
+                    clarification_answers_dict[question] = "[Ответ не получен или пуст]"
+            
+            # Сохраняем словарь ответов в поле DiaryEntry
+            diary_entry.clarification_answers = clarification_answers_dict
+            await sync_to_async(diary_entry.save)(update_fields=['clarification_answers'])
+            logger.info(f"Ответы на уточнения сохранены в DiaryEntry ID {diary_entry.id}")
+        except Exception as save_answers_error:
+            logger.error(f"Ошибка при сохранении clarification_answers в DiaryEntry ID {diary_entry.id}: {save_answers_error}")
+            # Не прерываем выполнение, продолжаем анализ
+        # ===========================================
+
+        # === 3. ПОКАЗ СООБЩЕНИЯ ОБ ОБРАБОТКЕ ===
+        processing_msg = get_message('processing', language) # Используем общий processing, можно выделить отдельный
         status_message = await message.answer(processing_msg)
         logger.info("Отправлено сообщение об обработке уточнений")
         # =======================================
 
-        # === 3. ВЫЗОВ API ДЛЯ ФИНАЛЬНОГО АНАЛИЗА С УТОЧНЕНИЯМИ ===
+        # === 4. ВЫЗОВ API ДЛЯ ФИНАЛЬНОГО АНАЛИЗА С УТОЧНЕНИЯМИ ===
         # Получаем профиль пользователя
         user_profile_data = await _get_user_profile_data(user, language)
         
         # Вызываем метод API для анализа с уточнениями
-        # Передаем текст записи, ответы пользователя и профиль
+        # Передаем текст записи, ответы пользователя (в виде текста) и профиль
         final_analysis_result = await deepseek_api_service.analyze_text_with_clarifications(
             original_text=diary_entry.text,
-            clarification_answers=clarification_text,
+            clarification_answers=clarification_text, # Передаем текст ответов, как и ожидалось API
             user_profile=user_profile_data,
             language=language
         )
         logger.info("Финальный анализ с уточнениями завершен через API")
         # =========================================================
 
-        # === 4. ОБРАБОТКА ФИНАЛЬНОГО РЕЗУЛЬТАТА АНАЛИЗА ===
-        # Мы можем повторно использовать логику из _handle_analysis_result
-        # но без части, отвечающей за уточнения (чтобы не зациклить)
+        # === 5. ОБРАБОТКА ФИНАЛЬНОГО РЕЗУЛЬТАТА АНАЛИЗА ===
+        # Используем существующую функцию для обработки финального результата
         await _handle_final_analysis_result(
             entry=diary_entry,
             final_analysis_result=final_analysis_result,

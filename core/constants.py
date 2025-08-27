@@ -32,7 +32,7 @@ KEYPOINT_TYPES = [
     ('event', 'Событие'),
     ('thought', 'Мысль'),
     ('trigger', 'Триггер'),
-    ('helth', 'Здоровье'),
+    ('health', 'Здоровье'),
     ('other', 'Другое')
 ]
 
@@ -108,7 +108,7 @@ INSIGHT_CATEGORIES = [
     ('trigger', 'Триггер'),
     ('pattern', 'Паттерн'),
     ('belief', 'Убеждение'),
-    ('helth', 'Здоровье'),
+    ('health', 'Здоровье'),
     ('other', 'Другое')
 ]
 

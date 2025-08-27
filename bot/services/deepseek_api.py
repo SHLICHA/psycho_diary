@@ -65,7 +65,7 @@ class DeepSeekAPIService:
             }
 
         # Проверяем максимальную длину текста
-        if len(text) > 5000:
+        if len(text) > 10000:
             logger.error("Текст для анализа слишком длинный")
             api_response_data = {
                 'status': 'text_too_long',
@@ -292,7 +292,7 @@ class DeepSeekAPIService:
                     'api_response': api_response_data
                 }
 
-            if len(text) > 5000: # Ограничение на длину текста
+            if len(text) > 1000: # Ограничение на длину текста
                 logger.error("Текст для анализа слишком длинный")
                 api_response_data = {
                     'status': 'text_too_long',

@@ -150,7 +150,15 @@ MESSAGES = {
 Твой ответ сохранен. Я учту это в дальнейшем анализе.
 
 {feedback}''',
-        
+    'task_effect_analysis_result': '''🔍 <b>Анализ влияния задания</b>
+
+{effect_description}
+
+📊 <b>Предполагаемое влияние на настроение дня:</b> {mood_impact} балл(ов)
+💭 <b>Комментарий:</b> {comment}
+🎯 <b>Рекомендация:</b> {recommendation}''',
+
+        'task_effect_analysis_started': '🔍 <i>Анализ влияния задания на ваш день запущен. Результат будет отправлен отдельно.</i>',
         'task_no_active': '📭 У тебя нет активных заданий.',
         'task_skipped': '⏭ Задание пропущено.',
         'task_deleted': '🗑 Задание удалено.',
@@ -391,7 +399,15 @@ Here you can customize the diary for yourself:''',
 Your response is saved. I will consider this in future analysis.
 
 {feedback}''',
-        
+    'task_effect_analysis_result': '''🔍 <b>Task Impact Analysis</b>
+
+{effect_description}
+
+📊 <b>Estimated impact on daily mood:</b> {mood_impact} point(s)
+💭 <b>Comment:</b> {comment}
+🎯 <b>Recommendation:</b> {recommendation}''',
+
+        'task_effect_analysis_started': '🔍 <i>The analysis of the task\'s impact on your day has started. The result will be sent separately.</i>',
         'task_no_active': '📭 You have no active tasks.',
         'task_skipped': '⏭ Task skipped.',
         'task_deleted': '🗑 Task deleted.',
@@ -844,7 +860,7 @@ MESSAGES['ru'].update({
 💭 <b>Комментарий:</b> {comment}
 🎯 <b>Рекомендация:</b> {recommendation}''',
     
-    'task_processing': '⏳ <i>Обрабатываю выполнение задания...</i>',
+    'task_processing': '⏳ <i>Анализирую вашу запись и влияние выполненного задания...</i>',
     'task_completion_saved': '✅ <b>Выполнение задания сохранено!</b>',
     'task_completion_analysis': '🧠 <b>Анализ выполнения задания</b>\n\n{analysis}',
     'task_completion_recommendation': '🎯 <b>Рекомендация:</b> {recommendation}',
@@ -911,7 +927,7 @@ Your response is saved and analyzed.
 💭 <b>Comment:</b> {comment}
 🎯 <b>Recommendation:</b> {recommendation}''',
     
-    'task_processing': '⏳ <i>Processing task completion...</i>',
+    'task_processing': '⏳ <i>Analyzing your entry and the impact of the completed task...</i>',
     'task_completion_saved': '✅ <b>Task completion saved!</b>',
     'task_completion_analysis': '🧠 <b>Task completion analysis</b>\n\n{analysis}',
     'task_completion_recommendation': '🎯 <b>Recommendation:</b> {recommendation}',

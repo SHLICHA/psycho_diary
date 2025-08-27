@@ -290,57 +290,66 @@ async def process_feelings_description(message: Message, state: FSMContext, user
             logger.warning(f"Текст ощущений слишком длинный: {len(feelings_text)} символов")
             return
         
-        # Показываем сообщение об обработке
-        processing_msg = get_message('processing', language)
+        # === ПОКАЗЫВАЕМ СООБЩЕНИЕ ОБ ОБРАБОТКЕ ===
+        from messages import get_message # Убедитесь, что импортировано
+        processing_msg = get_message('task_processing', language)
         status_message = await message.answer(processing_msg)
         logger.info("Отправлено сообщение об обработке ощущений")
-        
+        # ==========================================
+
         # Получаем данные состояния
+        from bot.utils.state_manager import state_manager # Убедитесь, что импортировано
         state_data = await state_manager.get_state_data(state)
         task_id = state_data.get('completing_task_id')
         completion_text = state_data.get('completion_text', '')
         
         if not task_id:
             logger.error("Не найден ID задания в состоянии")
-            await message.answer(get_message('error_generic', language))
+            await status_message.edit_text(get_message('error_generic', language))
             return
         
-        # Выполняем задание через сервис
+        # Выполняем задание через сервис, ПЕРЕДАВАЯ status_message
         try:
-            task_completion = await task_service.complete_task(
+            # ИМПОРТ СЕРВИСА
+            from bot.services.task_service import task_service # Убедитесь, что импортировано
+            
+            completion_result = await task_service.complete_task(
                 task_id=task_id,
                 user=user,
                 completion_text=completion_text,
-                feelings_text=feelings_text
+                feelings_text=feelings_text,
+                # === ПЕРЕДАЕМ status_message ===
+                status_message=status_message 
+                # =============================
             )
             
             await state_manager.clear_state(state)
             
-            # Показываем результат выполнения
-            completion_result_msg = get_message(
-                'task_completed_success', 
-                language,
-                score=8,
-                mood=get_message('mood_8', language),
-                comment="Отличная работа! Задание выполнено честно и подробно.",
-                recommendation="Продолжайте в том же духе",
-                analysis="Анализ выполнения..."
-            )
-            
-            await status_message.edit_text(
-                completion_result_msg,
-                reply_markup=get_back_keyboard(language)
-            )
-            logger.info(f"Задание {task_id} успешно выполнено")
-            
+            if completion_result:
+                # УСПЕШНО: Задание выполнено, анализ эффекта запущен асинхронно.
+                # Результат будет отредактирован в status_message методом _run_analysis_and_notify_user.
+                logger.info(f"Задание {task_id} успешно выполнено. Ожидаем результат анализа эффекта.")
+            else:
+                # ОШИБКА: Ошибка выполнения задания
+                logger.error(f"Сервис вернул None при выполнении задания {task_id}")
+                await status_message.edit_text(get_message('error_processing', language))
+                
         except Exception as service_error:
             logger.error(f"Ошибка при выполнении задания через сервис: {service_error}")
             await status_message.edit_text(get_message('error_processing', language))
             return
         
     except Exception as e:
-        logger.error(f"Ошибка при обработке описания ощущений: {e}")
-        await message.answer(get_message('error_processing', language))
+        logger.error(f"Ошибка при обработке описания ощущений: {e}", exc_info=True)
+        # Пытаемся отправить сообщение об ошибке
+        try:
+            await message.answer(get_message('error_processing', language))
+        except:
+            try:
+                if 'status_message' in locals():
+                    await status_message.edit_text(get_message('error_processing', language))
+            except:
+                pass
 
 @router.callback_query(F.data.startswith("skip_task:"))
 async def skip_task(callback: CallbackQuery, user, language: str):

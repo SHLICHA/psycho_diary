@@ -8,49 +8,6 @@ from messages import get_button_text
 
 logger = logging.getLogger(__name__)
 
-'''def get_tasks_main_keyboard(language: str) -> InlineKeyboardMarkup:
-    """Главная клавиатура заданий"""
-    
-    buttons = [
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_view_task', language),
-                callback_data="view_active_task"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_complete_task', language),
-                callback_data="complete_task"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_skip_task', language),
-                callback_data="skip_task"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_delete_task', language),
-                callback_data="delete_task"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_task_history', language),
-                callback_data="view_task_history"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_back', language),
-                callback_data="main_menu"
-            )
-        ]
-    ]
-    
-    return InlineKeyboardMarkup(inline_keyboard=buttons)'''
 
 def get_task_pagination_keyboard(task_id: int, current_index: int, total_tasks: int, language: str) -> InlineKeyboardMarkup:
     """Клавиатура действий с заданием с пагинацией"""

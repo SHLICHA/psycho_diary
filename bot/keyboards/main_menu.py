@@ -5,12 +5,6 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from messages import get_button_text
 
-"""
-Клавиатуры главного меню
-"""
-
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from messages import get_button_text
 
 def get_main_menu_keyboard(language: str) -> InlineKeyboardMarkup:
     """Клавиатура главного меню"""

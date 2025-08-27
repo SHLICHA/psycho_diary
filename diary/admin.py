@@ -9,11 +9,7 @@ from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from django.urls import reverse
 from django.utils.safestring import mark_safe
-from diary.models import (
-    DiaryEntry, VoiceToText, KeyPoint, PsychoAnalysis, 
-    UserInsight, TherapyProgress, TherapyTask, TaskCompletion, 
-    TaskAnalysis, UserActivity, CombinedDiaryEntry, DailyAnalysis
-)
+from diary.models import *
 
 logger = logging.getLogger(__name__)
 
@@ -926,4 +922,58 @@ class DailyAnalysisAdmin(admin.ModelAdmin):
         return '-'
     recommendations_display.short_description = _('Рекомендации')
 
-# ... (остальной код diary.py) ...
+@admin.register(TaskCompletionAnalysis)
+class TaskCompletionAnalysisAdmin(admin.ModelAdmin):
+    """Админка для анализа выполнения заданий."""
+    list_display = (
+        'id',
+        'completion',
+        'get_task_title',
+        'get_user',
+        'mood_impact_score',
+        'analysis_performed_at',
+    )
+    list_filter = (
+        'mood_impact_score',
+        'analysis_performed_at',
+    )
+    search_fields = (
+        'completion__task__title',
+        'completion__task__user__username',
+        'effect_description',
+    )
+    readonly_fields = (
+        'analysis_performed_at',
+        'api_response',
+    )
+    # Поля для отображения в форме редактирования
+    fields = (
+        'completion',
+        'effect_description',
+        'recommendation',
+        'comment',
+        'mood_impact_score',
+        'related_insights',
+        'key_points_before',
+        'key_points_after',
+        'analysis_performed_at',
+        'api_response', # Для дебага
+    )
+    # raw_id_fields = ('related_insights',) # Если инсайтов много, удобнее так
+
+    def get_task_title(self, obj):
+        """Отображение названия задания."""
+        return obj.completion.task.title if obj.completion and obj.completion.task else "-"
+    get_task_title.short_description = 'Задание'
+    get_task_title.admin_order_field = 'completion__task__title'
+
+    def get_user(self, obj):
+        """Отображение имени пользователя."""
+        return obj.completion.task.user.username if obj.completion and obj.completion.task and obj.completion.task.user else "-"
+    get_user.short_description = 'Пользователь'
+    get_user.admin_order_field = 'completion__task__user__username'
+
+    # Опционально: добавить фильтры по пользователю или заданию через методы
+    # def get_queryset(self, request):
+    #     qs = super().get_queryset(request)
+    #     return qs.select_related('completion__task__user', 'completion__task')
