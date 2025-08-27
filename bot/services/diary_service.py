@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, date
 from django.db import transaction
 from django.db.models import Q
-from diary.models import DiaryEntry, KeyPoint, PsychoAnalysis, VoiceToText, CombinedDiaryEntry
+from diary.models import DiaryEntry, KeyPoint, PsychoAnalysis, VoiceToText, CombinedDiaryEntry, TaskCompletion, TherapyTask
 from diary.services.daily_state_service import (
     get_daily_state,
     get_or_create_daily_state,
@@ -260,6 +260,277 @@ class DiaryService:
             logger.error(f"Ошибка при асинхронном создании голосовой записи: {e}")
             raise
     
+    @sync_to_async
+    def update_entry_text_sync(self, entry_id: int, user: User, new_text: str) -> bool:
+        """
+        Синхронное обновление текста записи и соответствующего CombinedDiaryEntry.
+        Аргументы см. в асинхронной обёртке.
+        """
+        logger.info(f"[Сервис] Обновление текста записи {entry_id} для пользователя {user.telegram_id}")
+        try:
+            with transaction.atomic():
+                # 1. Получаем запись
+                entry = DiaryEntry.objects.select_related('user').get(id=entry_id, user=user)
+                old_text = entry.text
+                entry.text = new_text
+                entry.word_count = len(new_text.split())
+                # Удаляем старый анализ, он больше не актуален
+                if hasattr(entry, 'analysis'):
+                    entry.analysis.delete()
+                    logger.debug("[Сервис] Старый PsychoAnalysis удален.")
+                
+                entry.is_processed = False # Сбрасываем флаг обработки, так как текст изменился
+                entry.processing_error = ""
+                entry.save(update_fields=['text', 'word_count', 'is_processed', 'processing_error'])
+                logger.info(f"[Сервис] Текст записи {entry_id} обновлен.")
+
+                # 2. Работа с CombinedDiaryEntry
+                target_date = entry.entry_date
+                logger.info(f"[Сервис] Обновление CombinedDiaryEntry для даты {target_date}")
+
+                try:
+                    combined_entry = CombinedDiaryEntry.objects.get(user=user, date=target_date)
+                    logger.debug("[Сервис] Найден существующий CombinedDiaryEntry.")
+
+                    # --- ИСПРАВЛЕНИЕ: Обновляем text и entry_count НЕМЕДЛЕННО ---
+                    # Получаем все записи за день
+                    all_entries_for_day = DiaryEntry.objects.filter(user=user, created_at__date=target_date).order_by('created_at')
+                    
+                    # Формируем новый объединенный текст
+                    # Используем тот же формат, что и в get_combined_entry_text_sync
+                    texts = [e.text for e in all_entries_for_day]
+                    new_combined_text = "\n\n---\n\n".join(texts) # Используем \n\n---\n\n как в модели DiaryEntry.combined_text
+                    new_entry_count = all_entries_for_day.count()
+                    
+                    logger.debug(f"[Сервис] Новый объединенный текст длиной {len(new_combined_text)} символов. Новое количество записей: {new_entry_count}.")
+
+                    # Обновляем поля CombinedDiaryEntry
+                    combined_entry.text = new_combined_text
+                    combined_entry.entry_count = new_entry_count
+                    # combined_entry.daily_mood_scores - не обновляется, так как мы не пересчитываем анализы всех записей
+                    # combined_entry.average_mood_score - тоже не обновляется
+                    # Сбрасываем флаг анализа
+                    combined_entry.reset_analysis_flag() # is_analyzed = False
+                    # combined_entry.ai_state_data - не обновляется, так как анализ еще не проводился
+                    
+                    combined_entry.save(update_fields=['text', 'entry_count', 'is_analyzed'])
+                    logger.info(f"[Сервис] CombinedDiaryEntry ID {combined_entry.id} обновлен (text, entry_count, is_analyzed).")
+                    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+                    
+                except CombinedDiaryEntry.DoesNotExist:
+                    logger.info(f"[Сервис] CombinedDiaryEntry для {target_date} не найден. Создание нового...")
+                    # Если по какой-то причине CombinedDiaryEntry отсутствует, создаем его заново
+                    # Это нестандартная ситуация, но обработаем её.
+                    # Получаем все записи за день (должна быть хотя бы текущая)
+                    all_entries_for_day = DiaryEntry.objects.filter(user=user, created_at__date=target_date).order_by('created_at')
+                    if not all_entries_for_day.exists():
+                        logger.error(f"[Сервис] Критическая ошибка: Запись {entry_id} существует, но записей за день {target_date} нет!")
+                        # Это внутренняя ошибка, но продолжим
+                    
+                    texts = [e.text for e in all_entries_for_day]
+                    new_combined_text = "\n\n---\n\n".join(texts)
+                    new_entry_count = all_entries_for_day.count()
+                    
+                    combined_entry = CombinedDiaryEntry.objects.create(
+                        user=user,
+                        date=target_date,
+                        text=new_combined_text,
+                        entry_count=new_entry_count,
+                        ai_state_data='', # Изначально пустое
+                        is_analyzed=False,
+                    )
+                    logger.info(f"[Сервис] Новый CombinedDiaryEntry ID {combined_entry.id} создан при обновлении записи.")
+
+                # 3. Не удаляем TherapyTask (как указано в спецификации)
+                # 4. Старый анализ удален выше
+
+            logger.info(f"[Сервис] Текст записи {entry_id} и CombinedDiaryEntry успешно обновлены.")
+            return True
+        except DiaryEntry.DoesNotExist:
+            logger.warning(f"[Сервис] Запись {entry_id} не найдена или не принадлежит пользователю {user.telegram_id}")
+            return False
+        except Exception as e:
+            logger.error(f"[Сервис] Ошибка при обновлении текста записи {entry_id}: {e}", exc_info=True)
+            # Обновляем запись об ошибке в самой DiaryEntry
+            try:
+                DiaryEntry.objects.filter(id=entry_id, user=user).update(is_processed=True, processing_error=str(e)[:255])
+            except:
+                pass # Игнорируем ошибки при обновлении поля ошибки
+            return False
+
+    async def update_entry_text(self, entry_id: int, user: User, new_text: str) -> bool:
+        """
+        Асинхронное обновление текста записи.
+
+        Args:
+            entry_id: ID записи.
+            user: Пользователь.
+            new_text: Новый текст записи.
+
+        Returns:
+            bool: True, если успешно, иначе False.
+        """
+        logger.info(f"Асинхронное обновление текста записи {entry_id} для пользователя {user.telegram_id}")
+        try:
+            success = await self.update_entry_text_sync(entry_id, user, new_text)
+            logger.info(f"Асинхронное обновление текста записи {entry_id}: {'успешно' if success else 'неудачно'}")
+            return success
+        except Exception as e:
+            logger.error(f"Ошибка в асинхронном обновлении текста записи {entry_id}: {e}")
+            return False
+    # ==========================================
+
+    # === НОВЫЙ МЕТОД: Удаление записи с обновлением CombinedDiaryEntry ===
+    @sync_to_async
+    def delete_entry_and_update_combined_sync(self, entry_id: int, user: User) -> bool:
+        """
+        Синхронное удаление записи и обновление/удаление связанного CombinedDiaryEntry.
+        Аргументы см. в асинхронной обёртке.
+        """
+        from diary.models import DiaryEntry, CombinedDiaryEntry, TherapyTask # Импортируем внутри
+        try:
+            with transaction.atomic():
+                # 1. Получаем запись
+                entry = DiaryEntry.objects.select_related('user').get(id=entry_id, user=user)
+                entry_date = entry.entry_date
+                logger.info(f"Удаление записи {entry_id} за {entry_date}")
+
+                # 2. Удаляем связанные объекты
+                # PsychoAnalysis
+                if hasattr(entry, 'analysis'):
+                    entry.analysis.delete()
+                    logger.debug("Связанный PsychoAnalysis удален.")
+                
+                # KeyPoint
+                entry.key_points.all().delete()
+                logger.debug("Связанные KeyPoint удалены.")
+                
+                # VoiceToText
+                if hasattr(entry, 'voicetotext'):
+                    entry.voicetotext.delete()
+                    logger.debug("Связанный VoiceToText удален.")
+                
+                # TaskCompletion и связанные
+                # Предполагается, что TaskCompletion ссылается на DiaryEntry
+                # from diary.models import TaskCompletion
+                # TaskCompletion.objects.filter(entry=entry).delete() # Если есть такая связь
+                # Или если TaskCompletion ссылается на запись по тексту:
+                # TaskCompletion.objects.filter(completion_text=entry.text).delete()
+                
+                # 3. Удаляем связанные TherapyTask (как указано в спецификации)
+                # Удаляем TherapyTask, где related_entry указывает на удаляемую запись
+                TherapyTask.objects.filter(related_entry=entry).delete()
+                logger.info("Связанные TherapyTask (related_entry) удалены.")
+
+                # 4. Удаляем саму запись
+                entry.delete()
+                logger.info(f"Запись {entry_id} успешно удалена")
+
+                # 5. Работа с CombinedDiaryEntry
+                try:
+                    combined_entry = CombinedDiaryEntry.objects.get(user=user, date=entry_date)
+                    # Получаем оставшиеся записи за этот день
+                    remaining_entries = DiaryEntry.objects.filter(user=user, created_at__date=entry_date).order_by('created_at')
+                    
+                    if remaining_entries.exists():
+                        logger.info("Остались другие записи за этот день. Обновляем CombinedDiaryEntry.")
+                        # --- ИСПРАВЛЕНИЕ: Обновляем text и entry_count ---
+                        # Формируем новый объединенный текст
+                        texts = [e.text for e in remaining_entries]
+                        new_combined_text = "\n\n---\n\n".join(texts) # Используем тот же формат, что и в модели DiaryEntry.combined_text
+                        new_entry_count = remaining_entries.count()
+                        
+                        # Обновляем поля CombinedDiaryEntry
+                        combined_entry.text = new_combined_text
+                        combined_entry.entry_count = new_entry_count
+                        # combined_entry.daily_mood_scores - не обновляется, так как мы не пересчитываем анализы всех записей
+                        # combined_entry.average_mood_score - тоже не обновляется
+                        # Сбрасываем флаг анализа
+                        combined_entry.reset_analysis_flag() # is_analyzed = False
+                        # combined_entry.ai_state_data - не обновляется, так как анализ еще не проводился
+                        
+                        combined_entry.save(update_fields=['text', 'entry_count', 'is_analyzed'])
+                        logger.info(f"CombinedDiaryEntry ID {combined_entry.id} обновлен (text, entry_count, is_analyzed).")
+                        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+                    else:
+                        logger.info("Это была последняя запись за день. Удаляем CombinedDiaryEntry.")
+                        combined_entry.delete()
+                except CombinedDiaryEntry.DoesNotExist:
+                    logger.info(f"CombinedDiaryEntry для {entry_date} не найден при удалении записи {entry_id}. Возможно, он уже был удален.")
+                return True
+                
+        except DiaryEntry.DoesNotExist:
+            logger.warning(f"Запись {entry_id} не найдена или не принадлежит пользователю {user.telegram_id}")
+            return False
+        except Exception as e:
+            logger.error(f"Ошибка при удалении записи {entry_id} и обновлении CombinedDiaryEntry: {e}")
+            return False
+
+    async def delete_entry_and_update_combined(self, entry_id: int, user: User) -> bool:
+        """
+        Асинхронное удаление записи и обновление/удаление связанного CombinedDiaryEntry.
+
+        Args:
+            entry_id: ID записи.
+            user: Пользователь.
+
+        Returns:
+            bool: True, если успешно, иначе False.
+        """
+        logger.info(f"Асинхронное удаление записи {entry_id} и обновление CombinedDiaryEntry для пользователя {user.telegram_id}")
+        try:
+            success = await self.delete_entry_and_update_combined_sync(entry_id, user)
+            logger.info(f"Асинхронное удаление записи {entry_id} и обновление CombinedDiaryEntry: {'успешно' if success else 'неудачно'}")
+            return success
+        except Exception as e:
+            logger.error(f"Ошибка в асинхронном удалении записи {entry_id} и обновлении CombinedDiaryEntry: {e}")
+            return False
+
+    @sync_to_async
+    def get_entries_for_day_sync(self, user: User, target_date: date) -> List[DiaryEntry]:
+        """
+        Синхронное получение списка записей пользователя за конкретный день.
+
+        Args:
+            user: Пользователь.
+            target_date: Целевая дата.
+
+        Returns:
+            List[DiaryEntry]: Список записей.
+        """
+        try:
+            entries = list(
+                DiaryEntry.objects.filter(
+                    user=user,
+                    created_at__date=target_date
+                ).order_by('created_at')
+            )
+            logger.info(f"Найдено {len(entries)} записей за {target_date} для пользователя {user.telegram_id}")
+            return entries
+        except Exception as e:
+            logger.error(f"Ошибка при получении записей за {target_date}: {e}")
+            return []
+
+    async def get_entries_for_day(self, user: User, target_date: date) -> List[DiaryEntry]:
+        """
+        Асинхронное получение списка записей пользователя за конкретный день.
+
+        Args:
+            user: Пользователь.
+            target_date: Целевая дата.
+
+        Returns:
+            List[DiaryEntry]: Список записей.
+        """
+        logger.info(f"Асинхронное получение записей за {target_date} для пользователя {user.telegram_id}")
+        try:
+            entries = await self.get_entries_for_day_sync(user, target_date)
+            logger.info(f"Асинхронно получено {len(entries)} записей за {target_date}")
+            return entries
+        except Exception as e:
+            logger.error(f"Ошибка в асинхронном получении записей за {target_date}: {e}")
+            return []
+
     @sync_to_async
     def get_user_entries_for_date_sync(
         self, 
@@ -825,6 +1096,76 @@ class DiaryService:
         # Делегируем в глобальную функцию daily_state_service
         return await create_daily_state_from_entry(diary_entry)
     
+    async def delete_all_entries_for_day(self, user: User, target_date: date) -> bool:
+        """
+        Асинхронно удаляет все записи DiaryEntry за указанный день для пользователя,
+        а также все связанные объекты и TherapyTask, созданные для этих записей.
+        Также удаляет CombinedDiaryEntry за этот день.
+        """
+        logger.info(f"[Сервис] Удаление всех записей за {target_date} для пользователя {user.telegram_id}")
+        try:
+            @sync_to_async
+            def _delete_sync():
+                with transaction.atomic():
+                    # 1. Найти все записи за день
+                    entries = DiaryEntry.objects.filter(user=user, created_at__date=target_date)
+                    entry_ids = list(entries.values_list('id', flat=True))
+                    logger.info(f"[Сервис] Найдено {len(entry_ids)} записей для удаления.")
+
+                    if not entry_ids:
+                        # Удалять больше нечего
+                        # Убедимся, что CombinedDiaryEntry тоже удален, на всякий случай
+                        CombinedDiaryEntry.objects.filter(user=user, date=target_date).delete()
+                        return True
+
+                    # 2. Удалить связанные объекты для всех записей
+                    # PsychoAnalysis
+                    PsychoAnalysis.objects.filter(entry_id__in=entry_ids).delete()
+                    logger.info("[Сервис] Удалены PsychoAnalysis.")
+
+                    # KeyPoint
+                    KeyPoint.objects.filter(entry_id__in=entry_ids).delete()
+                    logger.info("[Сервис] Удалены KeyPoint.")
+
+                    # VoiceToText
+                    VoiceToText.objects.filter(entry_id__in=entry_ids).delete()
+                    logger.info("[Сервис] Удалены VoiceToText.")
+
+                    # TaskCompletion и TaskAnalysis, TaskCompletionAnalysis
+                    # Сначала найдем TaskCompletion, связанные с DiaryEntry
+                    task_completions = TaskCompletion.objects.filter(completion_text__in=[entry.text for entry in entries]) # Не лучший способ, но если Completion.text == Entry.text
+                    # Лучше: если TaskCompletion ссылается на DiaryEntry каким-то образом (например, через поле), то:
+                    # task_completions = TaskCompletion.objects.filter(related_entry_id__in=entry_ids) # Если такое поле есть
+                    # Пока предположим, что Completion напрямую не связаны с Entry через FK. Пропустим их удаление через Entry.
+                    # Или они удаляются каскадно при удалении Task?
+                    # TaskCompletionAnalysis
+                    # task_completion_analyses = TaskCompletionAnalysis.objects.filter(completion__task__related_entry_id__in=entry_ids)
+                    # task_completion_analyses.delete()
+                    # logger.info("[Сервис] Удалены TaskCompletionAnalysis.")
+                    
+                    # 3. Удалить TherapyTask, связанные с DiaryEntry (related_entry)
+                    # Это ключевой момент из спецификации.
+                    TherapyTask.objects.filter(related_entry_id__in=entry_ids).delete()
+                    logger.info("[Сервис] Удалены TherapyTask, связанные с записями дня.")
+
+                    # 4. Удалить сами DiaryEntry
+                    entries.delete()
+                    logger.info("[Сервис] Удалены DiaryEntry.")
+
+                    # 5. Удалить CombinedDiaryEntry за этот день
+                    CombinedDiaryEntry.objects.filter(user=user, date=target_date).delete()
+                    logger.info("[Сервис] Удален CombinedDiaryEntry за день.")
+
+                return True
+
+            result = await _delete_sync()
+            logger.info(f"[Сервис] Удаление записей за {target_date} завершено успешно: {result}")
+            return result
+
+        except Exception as e:
+            logger.error(f"[Сервис] Ошибка при удалении записей за {target_date}: {e}")
+            return False
+    
 # Глобальный экземпляр сервиса дневника
 diary_service = DiaryService()
 
@@ -890,3 +1231,7 @@ async def update_existing_analysis(
     return await diary_service.update_existing_analysis(
         analysis_obj, mood_score, comment, recommendation, analysis_text, api_response
     )
+
+async def delete_all_entries_for_day(user: User, target_date: date) -> bool:
+    """Удобная асинхронная функция для удаления всех записей за день."""
+    return await diary_service.delete_all_entries_for_day(user, target_date)

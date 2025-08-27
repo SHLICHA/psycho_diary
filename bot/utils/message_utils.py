@@ -6,6 +6,7 @@ import logging
 from typing import Optional, Union
 from aiogram import Bot
 from aiogram.types import Message, CallbackQuery
+from aiogram.exceptions import TelegramBadRequest
 from messages import get_message
 
 logger = logging.getLogger(__name__)
@@ -87,7 +88,7 @@ async def edit_or_send_message(
             logger.error(f"Ошибка при резервной отправке сообщения: {fallback_error}")
             raise
 
-async def safe_edit_message_text(
+'''async def safe_edit_message_text(
     message: Message,
     text: str,
     reply_markup=None
@@ -136,6 +137,85 @@ async def safe_edit_message_text(
                 
     except Exception as e:
         logger.error(f"Ошибка при безопасном редактировании сообщения: {e}")
+        return False'''
+
+async def safe_edit_message_text(
+    message: Message,
+    text: str,
+    reply_markup=None
+) -> bool:
+    """
+    Безопасное редактирование текста и клавиатуры сообщения с обработкой ошибок.
+    
+    Args:
+        message: Сообщение для редактирования
+        text: Новый текст сообщения
+        reply_markup: Новая клавиатура сообщения
+        
+    Returns:
+        bool: Успешность редактирования (True, даже если ничего не изменилось)
+    """
+    logger.info(f"Безопасное редактирование текста сообщения {message.message_id}")
+    logger.info(f"Длина нового текста: {len(text)} символов")
+    
+    # Флаги для отслеживания, что нужно обновить
+    text_changed = (message.text != text)
+    # Для reply_markup сложнее сделать точное сравнение, 
+    # поэтому мы всегда пытаемся обновить, если текст не изменился.
+    # Но будем ловить ошибку "not modified".
+    
+    try:
+        if text_changed:
+            logger.info("Текст отличается, редактируем сообщение полностью")
+            await message.edit_text(
+                text=text,
+                reply_markup=reply_markup
+            )
+            logger.info("Сообщение успешно отредактировано с новым текстом и клавиатурой")
+            return True
+        else:
+            logger.info("Текст не изменился, пробуем обновить только клавиатуру")
+            try:
+                # Пытаемся обновить клавиатуру
+                await message.edit_reply_markup(reply_markup=reply_markup)
+                logger.info("Клавиатура успешно обновлена")
+                return True
+            except TelegramBadRequest as keyboard_error:
+                # Ловим специфическую ошибку, если клавиатура тоже не изменилась
+                error_message = str(keyboard_error).lower()
+                if "message is not modified" in error_message:
+                    logger.info("Клавиатура не изменилась, сообщение в актуальном состоянии")
+                    # Это не ошибка, просто нет изменений
+                    return True
+                else:
+                    # Другая ошибка при обновлении клавиатуры
+                    logger.warning(f"Не удалось обновить клавиатуру: {keyboard_error}")
+                    # Попробуем полностью отредактировать сообщение, 
+                    # на случай, если есть какие-то скрытые изменения
+                    await message.edit_text(text=text, reply_markup=reply_markup)
+                    logger.info("Сообщение полностью отредактировано как запасной вариант")
+                    return True
+            except Exception as keyboard_error_general:
+                # Общая ошибка при обновлении клавиатуры
+                logger.warning(f"Общая ошибка при обновлении клавиатуры: {keyboard_error_general}")
+                # Попробуем полностью отредактировать сообщение
+                await message.edit_text(text=text, reply_markup=reply_markup)
+                logger.info("Сообщение полностью отредактировано из-за ошибки клавиатуры")
+                return True
+                
+    except TelegramBadRequest as e_bad_request:
+        # Ловим ошибку на верхнем уровне, если edit_text не прошел
+        error_message = str(e_bad_request).lower()
+        if "message is not modified" in error_message:
+            logger.info(f"Сообщение {message.message_id} в конечном итоге не было изменено: {e_bad_request}")
+            # Это нормальная ситуация, если состояние UI не изменилось.
+            return True
+        else:
+            logger.error(f"TelegramBadRequest при редактировании сообщения {message.message_id}: {e_bad_request}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Ошибка при безопасном редактировании сообщения {message.message_id}: {e}")
         return False
 
 async def safe_edit_message_reply_markup(

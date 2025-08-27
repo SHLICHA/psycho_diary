@@ -126,18 +126,26 @@ class AnalysisService:
                                 # Обновляем существующий
                                 existing_insight.weight = min(existing_insight.weight + insight_weight, 100)
                                 existing_insight.last_mentioned = entry.created_at
+                                # --- ИЗМЕНЕНИЕ 1: Обновляем source_entry при обновлении ---
+                                # Можно обновлять, можно оставить старое значение.
+                                # Логичнее оставить первоначальную запись, из которой инсайт был впервые извлечен.
+                                # existing_insight.source_entry = entry # <-- Раскомментировать, если нужно обновлять
+                                # ---------------------
                                 insights_to_update.append(existing_insight)
                                 logger.debug(f"Найден существующий инсайт '{insight_text}' для обновления.")
                             except UserInsight.DoesNotExist:
                                 # Создаем новый
+                                # --- ИЗМЕНЕНИЕ 2: Заполняем source_entry при создании ---
                                 insights_to_create.append(UserInsight(
                                     user=user,
                                     text=insight_text,
                                     category=insight_category,
                                     weight=insight_weight,
                                     last_mentioned=entry.created_at,
-                                    first_mentioned=entry.created_at
+                                    first_mentioned=entry.created_at,
+                                    source_entry=entry # <-- ДОБАВЛЕНО
                                 ))
+                                # ---------------------
                                 logger.debug(f"Подготовлен новый инсайт '{insight_text}' к созданию.")
 
                         except (ValueError, KeyError) as ve: # Более конкретные ошибки
@@ -153,7 +161,7 @@ class AnalysisService:
                     if insights_to_update:
                         # bulk_update требует указания полей для обновления
                         updated_count = UserInsight.objects.bulk_update(
-                            insights_to_update, ['weight', 'last_mentioned']
+                            insights_to_update, ['weight', 'last_mentioned'] # <-- Добавить 'source_entry' сюда, если обновляете
                         )
                         logger.info(f"Обновлено {updated_count} существующих инсайтов для пользователя {user.telegram_id}.")
 
@@ -174,6 +182,9 @@ class AnalysisService:
         except Exception as e:
             logger.error(f"Критическая ошибка в extract_and_save_insights_and_keypoints: {e}", exc_info=True)
             return False # Возвращаем False в случае критической ошибки
+
+# Глобальный экземпляр сервиса
+analysis_service = AnalysisService()
 
 # Глобальный экземпляр сервиса
 analysis_service = AnalysisService()

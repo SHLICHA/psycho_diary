@@ -4,13 +4,15 @@
 
 import logging
 
+from typing import List
 from asgiref.sync import async_to_sync
 from datetime import datetime, date
 from calendar import monthrange
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from bot.services.diary_service import diary_service
-from messages import get_button_text
+from diary.models import DiaryEntry
+from messages import get_button_text, get_message
 
 logger = logging.getLogger(__name__)
 
@@ -441,7 +443,7 @@ def get_entry_history_keyboard(language: str, entries: list, year: int, month: i
             ),
             InlineKeyboardButton(
                 text=get_button_text('btn_delete_entry', language),
-                callback_data=f"delete_specific_entry:{entry.id}"
+                callback_data=f"delete_entire_day:{target_date.isoformat()}"
             )
         ])
     
@@ -522,3 +524,160 @@ def get_back_to_calendar_keyboard(language: str, year: int, month: int) -> Inlin
     ]
     
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_day_entries_edit_keyboard(entries: List[DiaryEntry], target_date: date, language: str, is_day_analyzed: bool) -> InlineKeyboardMarkup:
+    """
+    Клавиатура для редактирования записей за день.
+
+    Args:
+        entries: Список записей DiaryEntry.
+        target_date: Дата, для которой отображаются записи.
+        language: Язык интерфейса.
+        is_day_analyzed: Флаг, проанализирован ли день (для отображения кнопки "Подтвердить").
+
+    Returns:
+        InlineKeyboardMarkup: Клавиатура.
+    """
+    buttons = []
+    year = target_date.year
+    month = target_date.month
+    day = target_date.day
+    # Заголовок с датой
+    date_str = target_date.strftime("%d.%m.%Y")
+    header_text = get_message('edit_entries_header', language).format(date=date_str)
+    buttons.append([
+        InlineKeyboardButton(text=header_text, callback_data="edit_empty_header")
+    ])
+
+    # Кнопки для каждой записи
+    for i, entry in enumerate(entries, 1):
+        # Ограничиваем длину текста для отображения
+        entry_preview = entry.text[:50] + "..." if len(entry.text) > 50 else entry.text
+        entry_button_text = f"{i}. {entry_preview}"
+
+        buttons.append([
+            InlineKeyboardButton(
+                text=entry_button_text,
+                callback_data=f"edit_specific_entry:{entry.id}"
+            )
+        ])
+        # Кнопки действий под каждой записью
+        buttons.append([
+            InlineKeyboardButton(
+                text=get_button_text('btn_edit_entry', language),
+                callback_data=f"edit_specific_entry:{entry.id}"
+            ),
+            InlineKeyboardButton(
+                text=get_button_text('btn_delete_entry', language),
+                callback_data=f"request_delete_specific_entry:{entry.id}"
+            )
+        ])
+
+    # Кнопки внизу: Подтвердить (если нужно) и Назад
+    bottom_row = []
+    
+    # Кнопка "Подтвердить" отображается, если день не проанализирован
+    if not is_day_analyzed:
+        bottom_row.append(
+            InlineKeyboardButton(
+                text=get_button_text('btn_confirm_changes', language),
+                callback_data=f"confirm_day_analysis:{target_date.isoformat()}"
+            )
+        )
+    
+    # Кнопка "Назад к дню"
+    back_text_key = 'btn_back_to_day_without_analysis' if not is_day_analyzed else 'btn_back_to_day'
+    bottom_row.append(
+        InlineKeyboardButton(
+            text=get_button_text(back_text_key, language),
+            callback_data=f"calendar_select_day:{year}:{month}:{day}"
+        )
+    )
+    
+    buttons.append(bottom_row)
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_confirm_delete_entry_keyboard(entry_id: int, target_date, language: str) -> InlineKeyboardMarkup: # Указываем тип target_date как Any или Union[date, str]
+    """
+    Клавиатура подтверждения удаления конкретной записи.
+    Args:
+        entry_id: ID записи.
+        target_date: Объект date или строка в формате ISO даты записи.
+        language: Язык интерфейса.
+    """
+    logger.debug(f"get_confirm_delete_entry_keyboard вызвана с entry_id={entry_id}, target_date={target_date} (тип: {type(target_date)})")
+
+    # --- ИСПРАВЛЕНИЕ: Обработка как строки, так и объекта date ---
+    if isinstance(target_date, str):
+        # Если это уже строка, используем её напрямую
+        iso_date_str = target_date
+        logger.debug(f"target_date уже является строкой: {iso_date_str}")
+    else:
+        # Предполагаем, что это объект date/datetime и вызываем isoformat()
+        try:
+            iso_date_str = target_date.isoformat()
+            logger.debug(f"target_date преобразована в строку: {iso_date_str}")
+        except AttributeError:
+            logger.error(f"Невозможно преобразовать target_date в строку. Тип: {type(target_date)}, Значение: {target_date}")
+            # На случай ошибки, используем заглушку или вызываем исключение
+            # Лучше вызвать исключение, чтобы ошибка не прошла незамеченной
+            raise ValueError(f"target_date должен быть объектом date или строкой, но получен {type(target_date)}: {target_date}")
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
+    buttons = [
+        [
+            InlineKeyboardButton(
+                text="✅ " + get_message('confirm_delete_entry_yes', language),
+                callback_data=f"confirm_delete_specific_entry:{entry_id}:{iso_date_str}"
+            ),
+            InlineKeyboardButton(
+                text="❌ " + get_message('confirm_delete_entry_no', language),
+                callback_data=f"cancel_delete_specific_entry:{entry_id}:{iso_date_str}"
+            )
+        ]
+    ]
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    logger.debug("Клавиатура подтверждения удаления записи сформирована.")
+    return keyboard
+
+def get_back_to_edit_day_keyboard(target_date: date, language: str) -> InlineKeyboardMarkup:
+    """
+    Клавиатура с кнопкой "Назад к редактированию дня".
+
+    Args:
+        target_date: Дата.
+        language: Язык интерфейса.
+
+    Returns:
+        InlineKeyboardMarkup: Клавиатура.
+    """
+    year = target_date.year
+    month = target_date.month
+    day = target_date.day
+    
+    buttons = [
+        [
+            InlineKeyboardButton(
+                text=get_button_text('btn_back_to_edit_day', language),
+                # ИСПРАВЛЕНО: Используем формат view_entry_history
+                callback_data=f"view_entry_history:{year}:{month}:{day}"
+            )
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+# Утилиты для форматирования текста записи для редактирования
+def format_entry_text_for_editing(entry_text: str) -> str:
+    """
+    Форматирует текст записи для удобного редактирования (например, в блоке кода).
+
+    Args:
+        entry_text: Исходный текст записи.
+
+    Returns:
+        str: Отформатированный текст.
+    """
+    # Используем тройные обратные кавычки для создания блока кода, который легко копировать
+    # и не интерпретируется как Markdown/HTML.
+    return entry_text

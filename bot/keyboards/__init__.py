@@ -18,7 +18,11 @@ from .calendar_keyboard import (
     get_month_selection_keyboard,
     get_entry_view_keyboard,
     get_basic_calendar_keyboard,
-    get_calendar_back_keyboard
+    get_calendar_back_keyboard,
+    get_confirm_delete_entry_keyboard,
+    get_day_entries_edit_keyboard,
+    get_back_to_edit_day_keyboard,
+    format_entry_text_for_editing
 )
 
 # Универсальные клавиатуры
@@ -60,7 +64,11 @@ __all__ = [
     'get_month_selection_keyboard',
     'get_entry_view_keyboard',
     'get_basic_calendar_keyboard',
-    'get_calendar_back_keyboard'
+    'get_calendar_back_keyboard',
+    'get_confirm_delete_entry_keyboard',
+    'get_day_entries_edit_keyboard',
+    'get_back_to_edit_day_keyboard',
+    'format_entry_text_for_editing'
     
     # Универсальные клавиатуры
     'get_back_keyboard',

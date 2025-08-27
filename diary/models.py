@@ -321,6 +321,15 @@ class UserInsight(models.Model):
         verbose_name=_("Категория")
     )
     first_mentioned = models.DateTimeField(auto_now_add=True, verbose_name=_("Первое упоминание"))
+    source_entry = models.ForeignKey(
+        'DiaryEntry', # Используем строковое имя для избежания циклических импортов
+        on_delete=models.CASCADE, # Каскадное удаление: если DiaryEntry удаляется, UserInsight тоже удаляется
+        related_name='generated_insights', # related_name для доступа из DiaryEntry: entry.generated_insights.all()
+        verbose_name=_("Исходная запись дневника"),
+        help_text=_("Запись дневника, из которой был извлечен этот инсайт."),
+        null=True, # Разрешаем временно NULL, если инсайты создаются не только из записей
+        blank=True # Разрешаем пустое поле в формах
+    )
 
     class Meta:
         verbose_name = _("Инсайт пользователя")
@@ -639,6 +648,12 @@ class CombinedDiaryEntry(models.Model):
         # Сохраняем изменения
         self.save(update_fields=['daily_mood_scores', 'average_mood_score'])
         logger.info(f"CombinedDiaryEntry ID {self.id} обновлен с новой оценкой и средним значением.")
+
+    def reset_analysis_flag(self):
+        """
+        Сбрасывает флаг анализа, указывая, что данные изменились и нужен пересчет.
+        """
+        self.is_analyzed = False
 
 class DailyAnalysis(models.Model):
     """Глубокий анализ дня"""
