@@ -199,8 +199,6 @@ async def retry_api_call(
             else:
                 logger.error(f"Все {max_attempts} попыток неудачны")
                 raise last_exception
-    
-    # Если все попытки неудачны, выбрасываем последнее исключение
     if last_exception:
         logger.error(f"Retry механизм исчерпан для API функции {api_func.__name__}")
         raise last_exception
