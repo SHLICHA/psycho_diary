@@ -72,6 +72,18 @@ MESSAGES = {
         'btn_analyze_again': '🔄 Перевыполнить анализ',
         'btn_edit_entry': '✏️ Редактировать',
         'btn_view_history': '👁 Просмотреть историю',
+        # === Кнопки для просмотра инсайтов и ключевых моментов ===
+        'btn_view_insights': '💡 Инсайты',
+        'btn_view_key_points': '📌 Ключ. моменты',
+        # === Заголовки для просмотра инсайтов и ключевых моментов ===
+        'header_insights': '💡 Инсайты за {date}',
+        'header_key_points': '📌 Ключевые моменты за {date}',
+        # === Сообщения, если данных нет ===
+        'no_insights_for_day': '📭 Нет инсайтов за {date}.',
+        'no_key_points_for_day': '📭 Нет ключевых моментов за {date}.',
+        # === Сообщения об ошибках ===
+        'error_loading_insights': '❌ Ошибка при загрузке инсайтов.',
+        'error_loading_key_points': '❌ Ошибка при загрузке ключевых моментов.',
         
         # === Настройки ===
         'settings_language': '🌍 Язык: {language}',
@@ -333,6 +345,18 @@ Here you can customize the diary for yourself:''',
         'btn_analyze_again': '🔄 Re-analyze',
         'btn_edit_entry': '✏️ Edit',
         'btn_view_history': '👁 View history',
+        # === Buttons for viewing insights and key points ===
+        'btn_view_insights': '💡 Insights',
+        'btn_view_key_points': '📌 Key Points',
+        # === Headers for viewing insights and key points ===
+        'header_insights': '💡 Insights for {date}',
+        'header_key_points': '📌 Key Points for {date}',
+        # === Messages if no data ===
+        'no_insights_for_day': '📭 No insights for {date}.',
+        'no_key_points_for_day': '📭 No key points for {date}.',
+        # === Error messages ===
+        'error_loading_insights': '❌ Error loading insights.',
+        'error_loading_key_points': '❌ Error loading key points.',
         
         # === Settings ===
         'settings_language': '🌍 Language: {language}',
@@ -1017,7 +1041,6 @@ def get_message(key: str, language: str = 'ru', **kwargs) -> str:
     # Проверяем, существует ли ключ
     if key not in messages:
         logger.error(f"Ключ '{key}' не найден для языка {language}")
-        logger.error(f"Доступные ключи: {list(messages.keys())[:10]}...")  # Показываем первые 10
         return f"[ОШИБКА: Сообщение '{key}' не найдено]"
     
     message = messages.get(key, f'[Отсутствует сообщение: {key}]')

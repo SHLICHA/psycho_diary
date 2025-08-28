@@ -1,12 +1,15 @@
 """
 Сервис для работы с записями дневника
 """
-
+import pytz
 import logging
+
+from asgiref.sync import sync_to_async
 from typing import List, Dict, Any, Optional
 from datetime import datetime, date
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 from diary.models import DiaryEntry, KeyPoint, PsychoAnalysis, VoiceToText, CombinedDiaryEntry, TaskCompletion, TherapyTask
 from diary.services.daily_state_service import (
     get_daily_state,
@@ -486,7 +489,7 @@ class DiaryService:
             logger.error(f"Ошибка в асинхронном удалении записи {entry_id} и обновлении CombinedDiaryEntry: {e}")
             return False
 
-    @sync_to_async
+    '''@sync_to_async
     def get_entries_for_day_sync(self, user: User, target_date: date) -> List[DiaryEntry]:
         """
         Синхронное получение списка записей пользователя за конкретный день.
@@ -509,6 +512,47 @@ class DiaryService:
             return entries
         except Exception as e:
             logger.error(f"Ошибка при получении записей за {target_date}: {e}")
+            return []'''
+    @sync_to_async
+    def get_entries_for_day_sync(self, user: User, target_date: date) -> List[DiaryEntry]:
+        """
+        Синхронное получение списка записей пользователя за конкретный день 
+        с учетом часового пояса пользователя.
+        """
+        try:
+            # --- ИСПРАВЛЕНИЕ: Учет часового пояса ---
+            # 1. Получаем часовой пояс пользователя
+            user_timezone_str = user.timezone if user.timezone else 'UTC'
+            user_tz = pytz.timezone(user_timezone_str)
+            logger.debug(f"Часовой пояс пользователя для фильтрации: {user_tz}")
+
+            # 2. Создаем datetime-диапазон для целевого дня в часовом поясе пользователя
+            # Начало дня
+            start_of_day_user_tz = datetime.combine(target_date, datetime.min.time())
+            start_of_day_user_tz = user_tz.localize(start_of_day_user_tz)
+            # Конец дня
+            end_of_day_user_tz = datetime.combine(target_date, datetime.max.time())
+            end_of_day_user_tz = user_tz.localize(end_of_day_user_tz)
+            
+            logger.debug(f"Ищем записи с {start_of_day_user_tz} по {end_of_day_user_tz} ({user_tz})")
+
+            # 3. Конвертируем в UTC для фильтрации в базе данных
+            start_of_day_utc = start_of_day_user_tz.astimezone(pytz.utc)
+            end_of_day_utc = end_of_day_user_tz.astimezone(pytz.utc)
+            
+            logger.debug(f"Диапазон в UTC для запроса: с {start_of_day_utc} по {end_of_day_utc}")
+
+            # 4. Фильтруем записи по диапазону времени в UTC
+            entries = list(DiaryEntry.objects.filter(
+                user=user,
+                created_at__gte=start_of_day_utc,
+                created_at__lte=end_of_day_utc
+            ).order_by('created_at'))
+            # ---------------------
+            logger.info(f"Найдено {len(entries)} записей за {target_date} (учет пояса {user_tz})")
+            return entries
+        except Exception as e:
+            logger.error(f"Ошибка при получении записей за {target_date} с учетом часового пояса: {e}", exc_info=True)
             return []
 
     async def get_entries_for_day(self, user: User, target_date: date) -> List[DiaryEntry]:

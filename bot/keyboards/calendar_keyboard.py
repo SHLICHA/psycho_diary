@@ -369,6 +369,17 @@ def get_entry_view_keyboard(language: str, year: int, month: int, day: int) -> I
             callback_data=f"delete_entry:{year}:{month}:{day}"
         )
     ])
+    # --- Кнопки для Инсайтов и Ключевых моментов ---
+    buttons.append([
+        InlineKeyboardButton(
+            text=get_message('btn_view_insights', language), # <-- Используем get_message
+            callback_data=f"view_day_insights:{year}:{month}:{day}"
+        ),
+        InlineKeyboardButton(
+            text=get_message('btn_view_key_points', language), # <-- Используем get_message
+            callback_data=f"view_day_keypoints:{year}:{month}:{day}"
+        )
+    ])
     
     # Кнопка повторного анализа
     buttons.append([
@@ -443,7 +454,8 @@ def get_entry_history_keyboard(language: str, entries: list, year: int, month: i
             ),
             InlineKeyboardButton(
                 text=get_button_text('btn_delete_entry', language),
-                callback_data=f"delete_entire_day:{target_date.isoformat()}"
+                callback_data=f"delete_entire_day:{year}-{month}-{day}"
+                #callback_data=f"delete_entire_day:{target_date.isoformat()}"
             )
         ])
     
@@ -660,7 +672,6 @@ def get_back_to_edit_day_keyboard(target_date: date, language: str) -> InlineKey
         [
             InlineKeyboardButton(
                 text=get_button_text('btn_back_to_edit_day', language),
-                # ИСПРАВЛЕНО: Используем формат view_entry_history
                 callback_data=f"view_entry_history:{year}:{month}:{day}"
             )
         ]

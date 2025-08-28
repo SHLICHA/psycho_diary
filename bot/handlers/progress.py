@@ -3,8 +3,9 @@ Handlers для прогресса
 """
 
 from aiogram import F, Router
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import CallbackQuery
 
+from bot.keyboards import get_back_keyboard
 from messages import get_message
 
 router = Router()
@@ -20,8 +21,6 @@ async def show_progress(callback: CallbackQuery, user, language: str):
         tasks_completed=0,
         streak_days=0
     )
-    
-    from bot.keyboards.main_menu import get_back_keyboard
     await callback.message.edit_text(
         progress_msg,
         reply_markup=get_back_keyboard(language)

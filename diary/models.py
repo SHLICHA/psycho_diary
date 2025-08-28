@@ -392,7 +392,7 @@ class TherapyTask(models.Model):
         verbose_name=_("Тип")
     )
 
-    priority = models.PositiveIntegerField(default=1, verbose_name=_("Приоритет"))
+    priority = models.PositiveIntegerField(default=1, verbose_name=_("Сложность"))
 
     class Meta:
         verbose_name = _("Терапевтическое задание")

@@ -104,12 +104,6 @@ def get_premium_keyboard(language: str) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
-                text="🎁 Попробовать бесплатно",
-                callback_data="premium_trial"
-            )
-        ],
-        [
-            InlineKeyboardButton(
                 text=get_button_text('btn_back', language),
                 callback_data="settings"
             )

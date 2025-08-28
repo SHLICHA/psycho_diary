@@ -378,7 +378,7 @@ class UserInsightAdmin(admin.ModelAdmin):
     
     fieldsets = (
         (None, {
-            'fields': ('user_link', 'text', 'category', 'weight')
+            'fields': ('user_link', 'text', 'category', 'weight', 'source_entry')
         }),
         (_('Даты'), {
             'fields': ('first_mentioned', 'last_mentioned'),

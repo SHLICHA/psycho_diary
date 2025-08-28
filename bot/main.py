@@ -79,7 +79,11 @@ async def main():
     # Регистрируем все роутеры
     for router in all_routers:
         dp.include_router(router)
-        logger.info(f"Зарегистрирован router с {len(router.message.handlers)} message handlers")
+        logger.info(
+            f"Зарегистрирован {getattr(router, 'name', 'unnamed')} "
+            f"с {len(router.message.handlers)} message handlers и "
+            f"{len(router.callback_query.handlers)} callback handlers"
+        )
     
     logger.info("Все handlers зарегистрированы")
     logger.info("Bot инициализирован успешно")

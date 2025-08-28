@@ -22,6 +22,7 @@ from .calendar_keyboard import (
     get_confirm_delete_entry_keyboard,
     get_day_entries_edit_keyboard,
     get_back_to_edit_day_keyboard,
+    get_confirm_delete_keyboard,
     format_entry_text_for_editing
 )
 
@@ -49,8 +50,10 @@ from .help_keyboard import (
 
 # Клавиатуры заданий
 from .tasks_keyboard import (
-    #get_tasks_main_keyboard,
-    get_task_completion_keyboard
+    get_task_detail_keyboard,
+    get_task_completion_keyboard,
+    get_task_pagination_keyboard,
+    get_confirm_delete_task_keyboard
 )
 
 __all__ = [
@@ -89,7 +92,9 @@ __all__ = [
     'get_help_section_keyboard',
     
     # Клавиатуры заданий
-    'get_tasks_main_keyboard',
+    'get_confirm_delete_task_keyboard',
+    'get_task_detail_keyboard',
     'get_task_actions_keyboard',
-    'get_task_completion_keyboard'
+    'get_task_completion_keyboard',
+    'get_task_pagination_keyboard'
 ]
