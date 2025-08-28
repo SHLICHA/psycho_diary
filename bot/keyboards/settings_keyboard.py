@@ -7,24 +7,18 @@ from messages import get_button_text, get_status_text, get_message
 
 def get_settings_keyboard(user, language: str) -> InlineKeyboardMarkup:
     """Основная клавиатура настроек"""
-    
-    # Определяем тексты для кнопок
     language_text = get_button_text('settings_language', language).format(
         language="Русский" if user.language == 'ru' else "English"
     )
-    
     notifications_text = get_button_text('settings_notifications', language).format(
         status=get_status_text(user.notifications_enabled, language)
     )
-    
     auto_analysis_text = get_button_text('settings_auto_analysis', language).format(
         status=get_status_text(user.auto_analysis_enabled, language)
     )
-    
     premium_text = get_button_text('settings_premium', language).format(
         status=get_status_text(user.is_premium, language)
     )
-    
     buttons = [
         [
             InlineKeyboardButton(
@@ -63,12 +57,10 @@ def get_settings_keyboard(user, language: str) -> InlineKeyboardMarkup:
             )
         ]
     ]
-    
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_language_selection_keyboard(language: str) -> InlineKeyboardMarkup:
     """Клавиатура выбора языка"""
-    
     buttons = [
         [
             InlineKeyboardButton(
@@ -89,12 +81,10 @@ def get_language_selection_keyboard(language: str) -> InlineKeyboardMarkup:
             )
         ]
     ]
-    
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_premium_keyboard(language: str) -> InlineKeyboardMarkup:
     """Клавиатура премиум функций"""
-    
     buttons = [
         [
             InlineKeyboardButton(
@@ -109,12 +99,10 @@ def get_premium_keyboard(language: str) -> InlineKeyboardMarkup:
             )
         ]
     ]
-    
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_timezone_selection_method_keyboard(language: str, current_timezone: str) -> InlineKeyboardMarkup:
     """Клавиатура выбора способа установки часового пояса"""
-    
     buttons = [
         [
             InlineKeyboardButton(
@@ -128,13 +116,6 @@ def get_timezone_selection_method_keyboard(language: str, current_timezone: str)
                 callback_data="timezone_enter_manually"
             )
         ],
-        # Кнопка "Определить автоматически" может быть добавлена позже
-        # [
-        #     InlineKeyboardButton(
-        #         text=get_button_text('btn_detect_timezone', language),
-        #         callback_data="timezone_detect_auto"
-        #     )
-        # ],
         [
             InlineKeyboardButton(
                 text=get_button_text('btn_back', language),
@@ -142,13 +123,11 @@ def get_timezone_selection_method_keyboard(language: str, current_timezone: str)
             )
         ]
     ]
-    
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+# TODO Расширить список популярный поясов. Реализовать ввод своего города и определение пояса автоматически
 def get_common_timezones_keyboard(language: str, current_timezone: str) -> InlineKeyboardMarkup:
     """Клавиатура с популярными часовыми поясами"""
-    
-    # Определяем кнопки для часовых поясов
     timezone_buttons = [
         [
             InlineKeyboardButton(
@@ -156,7 +135,6 @@ def get_common_timezones_keyboard(language: str, current_timezone: str) -> Inlin
                 callback_data="set_timezone:UTC"
             )
         ],
-        # Российские часовые пояса
         [
             InlineKeyboardButton(
                 text=get_button_text('btn_timezone_moscow', language),
@@ -205,7 +183,6 @@ def get_common_timezones_keyboard(language: str, current_timezone: str) -> Inlin
                 callback_data="set_timezone:Asia/Magadan"
             )
         ],
-        # Другие популярные пояса (можно расширить)
         [
             InlineKeyboardButton(
                 text=get_button_text('btn_timezone_new_york', language),
@@ -237,5 +214,4 @@ def get_common_timezones_keyboard(language: str, current_timezone: str) -> Inlin
             )
         ]
     ]
-    
     return InlineKeyboardMarkup(inline_keyboard=timezone_buttons)

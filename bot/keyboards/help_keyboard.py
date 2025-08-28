@@ -7,7 +7,6 @@ from messages import get_button_text
 
 def get_help_keyboard(language: str) -> InlineKeyboardMarkup:
     """Основная клавиатура помощи"""
-    
     buttons = [
         [
             InlineKeyboardButton(
@@ -52,12 +51,10 @@ def get_help_keyboard(language: str) -> InlineKeyboardMarkup:
             )
         ]
     ]
-    
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_help_section_keyboard(language: str) -> InlineKeyboardMarkup:
     """Клавиатура для разделов помощи"""
-    
     buttons = [
         [
             InlineKeyboardButton(
@@ -72,5 +69,4 @@ def get_help_section_keyboard(language: str) -> InlineKeyboardMarkup:
             )
         ]
     ]
-    
     return InlineKeyboardMarkup(inline_keyboard=buttons)

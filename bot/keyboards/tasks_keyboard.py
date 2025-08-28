@@ -8,13 +8,10 @@ from messages import get_button_text
 
 logger = logging.getLogger(__name__)
 
-
+# TODO добавить постоянную кнопки с историей заданий (выполненные, пропущенные(можно взять в работу)). Там так же пагинация
 def get_task_pagination_keyboard(task_id: int, current_index: int, total_tasks: int, language: str) -> InlineKeyboardMarkup:
     """Клавиатура действий с заданием с пагинацией"""
-    
     buttons = []
-    
-    # Кнопки пагинации (если больше одного задания)
     if total_tasks > 1:
         pagination_buttons = [
             InlineKeyboardButton(
@@ -31,8 +28,6 @@ def get_task_pagination_keyboard(task_id: int, current_index: int, total_tasks: 
             )
         ]
         buttons.append(pagination_buttons)
-    
-    # Кнопки действий с заданием
     action_buttons = [
         [
             InlineKeyboardButton(
@@ -59,14 +54,12 @@ def get_task_pagination_keyboard(task_id: int, current_index: int, total_tasks: 
             )
         ]
     ]
-    
     buttons.extend(action_buttons)
-    
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+# TODO Переделать (вернуть в работу, удалить, пагинация). Возможно объединить с предыдущей
 def get_task_detail_keyboard(task_id: int, language: str) -> InlineKeyboardMarkup:
     """Клавиатура просмотра деталей задания"""
-    
     buttons = [
         [
             InlineKeyboardButton(
@@ -89,16 +82,14 @@ def get_task_detail_keyboard(task_id: int, language: str) -> InlineKeyboardMarku
         [
             InlineKeyboardButton(
                 text=get_button_text('btn_back', language),
-                callback_data="back_to_tasks"  # Правильный callback для возврата к заданиям
+                callback_data="back_to_tasks"
             )
         ]
     ]
-    
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_task_completion_keyboard(language: str) -> InlineKeyboardMarkup:
     """Клавиатура выполнения задания"""
-    
     buttons = [
         [
             InlineKeyboardButton(
@@ -107,12 +98,11 @@ def get_task_completion_keyboard(language: str) -> InlineKeyboardMarkup:
             )
         ]
     ]
-    
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+# TODO Рассмотреть возможность единой клавиатуры подтверждения
 def get_confirm_delete_task_keyboard(task_id: int, language: str) -> InlineKeyboardMarkup:
     """Клавиатура подтверждения удаления задания"""
-    
     buttons = [
         [
             InlineKeyboardButton(
@@ -125,63 +115,17 @@ def get_confirm_delete_task_keyboard(task_id: int, language: str) -> InlineKeybo
             )
         ]
     ]
-    
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def get_task_analysis_keyboard(language: str) -> InlineKeyboardMarkup:
-    """Клавиатура анализа выполнения задания"""
-    
-    buttons = [
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_describe_feelings', language),
-                callback_data="describe_feelings"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_back', language),
-                callback_data="tasks"
-            )
-        ]
-    ]
-    
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-def get_task_history_keyboard(tasks: list, language: str) -> InlineKeyboardMarkup:
-    """Клавиатура истории заданий"""
-    
-    buttons = []
-    
-    # Кнопки для каждого задания
-    for task in tasks:
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"🎯 {task.title}",
-                callback_data=f"view_completed_task:{task.id}"
-            )
-        ])
-    
-    # Кнопка "Назад"
-    buttons.append([
-        InlineKeyboardButton(
-            text=get_button_text('btn_back', language),
-            callback_data="tasks"
-        )
-    ])
-    
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
+# TODO рассмотреть возможность единой клавиатуры возврата назад
 def get_task_back_keyboard(language: str) -> InlineKeyboardMarkup:
     """Клавиатура с кнопкой возврата к заданиям"""
-    
     buttons = [
         [
             InlineKeyboardButton(
                 text=get_button_text('btn_back', language),
-                callback_data="back_to_tasks"  # Правильный callback для возврата к заданиям
+                callback_data="back_to_tasks"
             )
         ]
     ]
-    
     return InlineKeyboardMarkup(inline_keyboard=buttons)

@@ -20,8 +20,8 @@ from .calendar_keyboard import (
     get_basic_calendar_keyboard,
     get_calendar_back_keyboard,
     get_confirm_delete_entry_keyboard,
-    get_day_entries_edit_keyboard,
     get_back_to_edit_day_keyboard,
+    get_day_entries_edit_keyboard,
     get_confirm_delete_keyboard,
     format_entry_text_for_editing
 )
@@ -29,8 +29,6 @@ from .calendar_keyboard import (
 # Универсальные клавиатуры
 from .common_keyboards import (
     get_cancel_keyboard,
-    get_confirm_cancel_keyboard,
-    get_main_menu_keyboard as get_common_main_menu_keyboard
 )
 
 # Клавиатуры настроек

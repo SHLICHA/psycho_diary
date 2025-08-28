@@ -21,7 +21,6 @@ from diary.services import analysis_service, daily_state_service
 from bot.states.diary_states import DiaryStates
 from bot.keyboards import (
     get_cancel_keyboard,
-    get_cancel_keyboard,
     get_day_entries_edit_keyboard, 
     get_confirm_delete_entry_keyboard, 
     get_confirm_delete_keyboard,

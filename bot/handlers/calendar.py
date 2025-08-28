@@ -2,55 +2,29 @@
 Handlers для работы с календарем
 """
 
-import asyncio
 import logging
-import pytz
 
 
 from asgiref.sync import sync_to_async
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, ContentType, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import CallbackQuery
 from aiogram.fsm.context import FSMContext
-from aiogram.exceptions import TelegramBadRequest
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 
-from messages import get_message, get_button_text
-from diary.models import CombinedDiaryEntry, DiaryEntry, PsychoAnalysis, TherapyTask, KeyPoint, UserInsight
-from diary.services import analysis_service, daily_state_service
-from bot.states.diary_states import DiaryStates
-from bot.services.task_service import task_service
+from messages import get_message
+from diary.models import PsychoAnalysis
 from bot.keyboards import (
-    get_cancel_keyboard,
     get_month_calendar_with_navigation,
     get_calendar_back_keyboard,
-    get_cancel_keyboard,
-    get_day_entries_edit_keyboard, 
-    get_confirm_delete_entry_keyboard, 
-    get_back_to_edit_day_keyboard,
-    format_entry_text_for_editing,
     get_entry_view_keyboard,
     get_smart_calendar_keyboard,
     get_year_selection_keyboard,
     get_month_selection_keyboard
     )
-from bot.keyboards.main_menu import get_back_keyboard, get_main_menu_keyboard
-from bot.keyboards.tasks_keyboard import get_task_pagination_keyboard
 from bot.utils.state_manager import state_manager
-from bot.utils.time_utils import convert_utc_to_user_timezone
-from bot.utils.message_utils import safe_edit_message_text, edit_or_send_message
+from bot.utils.message_utils import safe_edit_message_text
 from bot.utils.callback_utils import safe_answer_callback
-from core.constants import TEXT_MESSAGE_MAX_LENGTH, TASK_TYPES
 from bot.services.diary_service import diary_service
-from bot.services.yandex_speechkit import yandex_speechkit_service
-from bot.services.deepseek_api import deepseek_api_service
-from bot.services.diary_service import (
-    create_text_entry, 
-    create_voice_entry, 
-    get_user_entries_for_date,
-    get_combined_entry_text,
-    delete_entry
-)
-from core.constants import TEXT_MESSAGE_MAX_LENGTH, VOICE_MESSAGE_MAX_DURATION
 from users.models import User
 
 router = Router()

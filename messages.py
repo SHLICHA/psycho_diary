@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 # Основные сообщения
 MESSAGES = {
     'ru': {
-        # === Приветствия и основные сообщения ===
         'welcome': '''🧠 <b>Привет! Это твой психологический дневник.</b>
 
 Здесь ты можешь вести записи о своих днях, а я помогу тебе понять свои эмоции и мысли.
@@ -1029,30 +1028,20 @@ def get_message(key: str, language: str = 'ru', **kwargs) -> str:
     logger.info(f"Ключ: {key}")
     logger.info(f"Язык: {language}")
     logger.info(f"Параметры: {kwargs}")
-    
-    # Проверяем, существует ли язык
     if language not in MESSAGES:
         logger.warning(f"Неподдерживаемый язык: {language}, используем ru")
         language = 'ru'
-    
     messages = MESSAGES.get(language, MESSAGES['ru'])
-    logger.info(f"Доступно сообщений для языка {language}: {len(messages)}")
-    
-    # Проверяем, существует ли ключ
     if key not in messages:
         logger.error(f"Ключ '{key}' не найден для языка {language}")
         return f"[ОШИБКА: Сообщение '{key}' не найдено]"
     
-    message = messages.get(key, f'[Отсутствует сообщение: {key}]')
-    logger.info(f"Найдено сообщение длиной: {len(message)} символов")
-    
+    message = messages.get(key, f'[Отсутствует сообщение: {key}]')    
     try:
         if kwargs:
             result = message.format(**kwargs)
-            logger.info("Сообщение отформатировано с параметрами")
             return result
         else:
-            logger.info("Сообщение без параметров")
             return message
     except KeyError as e:
         logger.error(f"Ошибка форматирования сообщения '{key}': отсутствует параметр {e}")

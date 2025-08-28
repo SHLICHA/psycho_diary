@@ -16,13 +16,13 @@ from diary.services.daily_state_service import daily_state_service
 from diary.models import DiaryEntry, TherapyTask, TaskCompletion, TaskAnalysis, TaskCompletionAnalysis, KeyPoint
 from users.models import User
 from bot.services.deepseek_api import deepseek_api_service
+from bot.utils.message_utils import safe_edit_message_text
+from bot.keyboards import get_back_keyboard
 
-# Настраиваем логирование на русском
 logger = logging.getLogger(__name__)
 
 class TaskService:
     """Сервис для работы с терапевтическими заданиями"""
-    
     async def assign_task(
         self, 
         user: User, 
@@ -45,15 +45,7 @@ class TaskService:
         Returns:
             TherapyTask: Назначенное задание
         """
-        logger.info(f"Назначение задания пользователю {user.telegram_id}")
-        logger.info(f"Название: {title}")
-        logger.info(f"Тип: {task_type}")
-        logger.info(f"Приоритет: {priority}")
-        if related_entry:
-            logger.info(f"Связанная запись: DiaryEntry ID {related_entry.id}")
-        
         try:
-            # ИСПРАВЛЕНО: используем sync_to_async для транзакций
             @sync_to_async
             def create_task_sync():
                 with transaction.atomic():
@@ -63,15 +55,12 @@ class TaskService:
                         description=description,
                         type=task_type,
                         priority=priority,
-                        status='pending',  # Ожидает выполнения
+                        status='pending',
                         related_entry=related_entry
                     )
-                    logger.info(f"Задание назначено, ID: {therapy_task.id}")
                     return therapy_task
-            
             therapy_task = await create_task_sync()
             return therapy_task
-            
         except Exception as e:
             logger.error(f"Ошибка при назначении задания: {e}")
             raise
@@ -89,24 +78,18 @@ class TaskService:
         Returns:
             List[TherapyTask]: Список активных заданий
         """
-        logger.info(f"Получение активных заданий пользователя {user.telegram_id}")
-        
         try:
-            # ИСПРАВЛЕНО: используем sync_to_async для запросов
             @sync_to_async
             def get_active_tasks_sync():
                 active_tasks = list(
                     TherapyTask.objects.filter(
                         user=user,
-                        status__in=['pending', 'in_progress']  # Только активные задания
+                        status__in=['pending', 'in_progress']
                     ).order_by('assigned_at')
                 )
-                logger.info(f"Найдено {len(active_tasks)} активных заданий")
                 return active_tasks
-            
             active_tasks = await get_active_tasks_sync()
             return active_tasks
-            
         except Exception as e:
             logger.error(f"Ошибка при получении активных заданий: {e}")
             return []
@@ -126,10 +109,7 @@ class TaskService:
         Returns:
             List[TherapyTask]: Список выполненных заданий
         """
-        logger.info(f"Получение выполненных заданий пользователя {user.telegram_id}")
-        
         try:
-            # ИСПРАВЛЕНО: используем sync_to_async для запросов
             @sync_to_async
             def get_completed_tasks_sync():
                 completed_tasks = list(
@@ -138,12 +118,9 @@ class TaskService:
                         status='completed'  # Только выполненные
                     ).order_by('-completed_at')[:limit]
                 )
-                logger.info(f"Найдено {len(completed_tasks)} выполненных заданий")
                 return completed_tasks
-            
             completed_tasks = await get_completed_tasks_sync()
             return completed_tasks
-            
         except Exception as e:
             logger.error(f"Ошибка при получении выполненных заданий: {e}")
             return []
@@ -160,70 +137,45 @@ class TaskService:
         Выполнение задания.
         Возвращает словарь с результатами или None.
         """
-        logger.info(f"Выполнение задания {task_id} пользователем {user.telegram_id}")
-        logger.info(f"Текст выполнения длиной: {len(completion_text)} символов")
-        logger.info(f"Текст ощущений длиной: {len(feelings_text)} символов")
-
         try:
             @sync_to_async
             def complete_task_sync():
                 with transaction.atomic():
                     try:
-                        # Используем select_related для оптимизации
                         task = TherapyTask.objects.select_related('related_entry').get(
                             id=task_id,
                             user=user,
                             status__in=['pending', 'in_progress']
                         )
-                        logger.info(f"Задание найдено: {task.title}")
                     except TherapyTask.DoesNotExist:
                         logger.warning(f"Задание {task_id} не найдено или не принадлежит пользователю {user.telegram_id}")
                         raise ValueError("Задание не найдено или не принадлежит вам")
-
                     task_completion = TaskCompletion.objects.create(
                         task=task,
                         completion_text=completion_text,
                         feelings_text=feelings_text,
-                        time_spent=5  # Заглушка
+                        time_spent=5
                     )
-                    logger.info(f"Выполнение задания создано, ID: {task_completion.id}")
-
                     task.status = 'completed'
                     task.completed_at = datetime.now()
                     task.save(update_fields=['status', 'completed_at'])
-                    logger.info(f"Статус задания обновлен на 'completed'")
-
                     task_analysis = TaskAnalysis.objects.create(
                         completion=task_completion,
                         bot_response="Отличная работа! Выполнил задание честно и подробно.",
                         insights_updated=True,
-                        quality_score=8,  # Заглушка
+                        quality_score=8,
                         feedback_given=True
                     )
-                    logger.info(f"Анализ выполнения создан, ID: {task_analysis.id}")
-
                 return task_completion, task_analysis
 
             task_completion, task_analysis = await complete_task_sync()
-
-            # Обновляем инсайты пользователя (если метод существует)
-            # await self._update_user_insights(user, task_completion, task_analysis)
-            # logger.info("Инсайты пользователя обновлены")
-
-            # --- Асинхронный анализ эффекта выполнения ---
-            logger.info("Запуск асинхронного анализа эффекта выполнения задания...")
-            # Запускаем задачу в фоне
             asyncio.create_task(self._run_analysis_and_notify_user(task_completion, user, status_message))
-            # ----------------------------------------------------
-
             return {
                 'task_completion': task_completion,
                 'task_analysis': task_analysis,
                 'effect_analysis_started': True
             }
-
         except Exception as e:
-            logger.error(f"Ошибка при выполнении задания: {e}", exc_info=True)
             return None
 
     async def _run_analysis_and_notify_user(self, task_completion: TaskCompletion, user: User, status_message: Optional[Message] = None):
@@ -234,37 +186,23 @@ class TaskService:
         Иначе будет отправлено новое сообщение.
         """
         try:
-            logger.info(f"[Асинхронная задача] Начало анализа эффекта для выполнения ID {task_completion.id}")
+            from bot.main import bot as global_bot
             effect_analysis = await self.analyze_task_completion_effect(task_completion, user)
-
-            # --- Отправка/редактирование уведомления пользователю ---
             try:
-                # Определяем, куда отправлять результат
                 target_chat_id = user.telegram_id
                 target_message_id = None
                 use_edit = False
-
                 if status_message:
-                    # Если передан status_message, пытаемся его отредактировать
                     target_chat_id = status_message.chat.id
                     target_message_id = status_message.message_id
                     use_edit = True
-                    logger.debug(f"[Асинхронная задача] Будет отредактировано сообщение ID {target_message_id} в чате {target_chat_id}")
-                else:
-                    # Если status_message не передан, отправляем новое сообщение
-                    logger.debug(f"[Асинхронная задача] Будет отправлено новое сообщение в чат {target_chat_id}")
-
                 if effect_analysis:
                     from messages import get_message
                     language = user.language
-
-                    # Получаем данные для сообщения
                     effect_description = effect_analysis.effect_description
                     mood_impact_score = effect_analysis.mood_impact_score if effect_analysis.mood_impact_score is not None else "N/A"
                     comment_for_user = effect_analysis.comment if effect_analysis.comment else "Нет комментария"
                     recommendation_for_user = effect_analysis.recommendation if effect_analysis.recommendation else "Нет рекомендации"
-
-                    # Формируем итоговое сообщение
                     effect_msg = get_message(
                         'task_effect_analysis_result',
                         language,
@@ -273,79 +211,39 @@ class TaskService:
                         comment=comment_for_user,
                         recommendation=recommendation_for_user
                     )
-                    
-                    # === ДОБАВЛЯЕМ КНОПКУ "Назад" ===
-                    from bot.keyboards.main_menu import get_back_keyboard # Убедитесь, что импортировано
                     reply_markup = get_back_keyboard(language)
-                    # ================================
-
                     if use_edit:
-                        # Пытаемся отредактировать сообщение
                         try:
-                            # Импортируем утилиту для безопасного редактирования
-                            from bot.utils.message_utils import safe_edit_message_text
                             await safe_edit_message_text(
                                 message=status_message,
                                 text=effect_msg,
-                                reply_markup=reply_markup # Добавляем клавиатуру
+                                reply_markup=reply_markup
                             )
-                            logger.info(f"[Асинхронная задача] Сообщение об эффекте ОТРЕДАКТИРОВАНО для пользователя {user.telegram_id}")
                         except Exception as edit_error:
                             logger.warning(f"[Асинхронная задача] Не удалось отредактировать сообщение: {edit_error}. Отправляем новое.")
-                            # Если редактирование не удалось, отправляем новое сообщение
-                            from aiogram import Bot
-                            from bot.main import bot as global_bot # Импортируем глобальный бот
-                            if global_bot:
-                                await global_bot.send_message(chat_id=target_chat_id, text=effect_msg, reply_markup=reply_markup)
-                                logger.info(f"[Асинхронная задача] Сообщение об эффекте ОТПРАВЛЕНО новым сообщением пользователю {user.telegram_id} (после ошибки редактирования)")
-                            else:
-                                logger.error("[Асинхронная задача] Глобальный бот не найден для отправки сообщения.")
-                    else:
-                        # Отправляем новое сообщение
-                        from aiogram import Bot
-                        from bot.main import bot as global_bot # Импортируем глобальный бот
-                        if global_bot:
                             await global_bot.send_message(chat_id=target_chat_id, text=effect_msg, reply_markup=reply_markup)
-                            logger.info(f"[Асинхронная задача] Сообщение об эффекте ОТПРАВЛЕНО новым сообщением пользователю {user.telegram_id}")
-                        else:
-                            logger.error("[Асинхронная задача] Глобальный бот не найден для отправки сообщения.")
+                    else:
+                        await global_bot.send_message(chat_id=target_chat_id, text=effect_msg, reply_markup=reply_markup)
                 else:
-                    # Анализ не был создан
-                    logger.info("[Асинхронная задача] Анализ эффекта не был создан.")
                     error_msg = get_message('error_processing', user.language)
-                    from bot.keyboards.main_menu import get_back_keyboard
-                    error_reply_markup = get_back_keyboard(user.language)
-                    
+                    error_reply_markup = get_back_keyboard(user.language) 
                     if use_edit:
                         try:
-                            from bot.utils.message_utils import safe_edit_message_text
                             await safe_edit_message_text(
                                 message=status_message,
                                 text=error_msg,
                                 reply_markup=error_reply_markup
                             )
-                            logger.info(f"[Асинхронная задача] Сообщение об ОШИБКЕ анализа ОТРЕДАКТИРОВАНО для пользователя {user.telegram_id}")
                         except Exception as edit_error:
                             logger.warning(f"[Асинхронная задача] Не удалось отредактировать сообщение об ошибке: {edit_error}. Отправляем новое.")
-                            from aiogram import Bot
-                            from bot.main import bot as global_bot
                             if global_bot:
                                 await global_bot.send_message(chat_id=target_chat_id, text=error_msg, reply_markup=error_reply_markup)
                             else:
                                 logger.error("[Асинхронная задача] Глобальный бот не найден для отправки сообщения об ошибке.")
                     else:
-                        from aiogram import Bot
-                        from bot.main import bot as global_bot
-                        if global_bot:
-                            await global_bot.send_message(chat_id=target_chat_id, text=error_msg, reply_markup=error_reply_markup)
-                            logger.info(f"[Асинхронная задача] Сообщение об ОШИБКЕ анализа ОТПРАВЛЕНО новым сообщением пользователю {user.telegram_id}")
-                        else:
-                            logger.error("[Асинхронная задача] Глобальный бот не найден для отправки сообщения об ошибке.")
-
+                        await global_bot.send_message(chat_id=target_chat_id, text=error_msg, reply_markup=error_reply_markup)
             except Exception as notify_error:
                 logger.error(f"[Асинхронная задача] Ошибка отправки/редактирования сообщения об эффекте пользователю {user.telegram_id}: {notify_error}")
-            # --- Отправка/редактирование уведомления пользователю ---
-
         except Exception as task_error:
             logger.error(f"[Асинхронная задача] Критическая ошибка в _run_analysis_and_notify_user: {task_error}")
     
@@ -364,36 +262,25 @@ class TaskService:
         Returns:
             bool: Успешность пропуска
         """
-        logger.info(f"Пропуск задания {task_id} пользователем {user.telegram_id}")
-        
         try:
-            # ИСПРАВЛЕНО: используем sync_to_async для операции
             @sync_to_async
             def skip_task_sync():
-                # Получаем задание с проверкой владельца
                 try:
                     task = TherapyTask.objects.get(
                         id=task_id,
                         user=user,
-                        status__in=['pending', 'in_progress']  # Только активные задания
+                        status__in=['pending', 'in_progress']
                     )
-                    logger.info(f"Задание найдено: {task.title}")
                 except TherapyTask.DoesNotExist:
                     logger.warning(f"Задание {task_id} не найдено или не принадлежит пользователю {user.telegram_id}")
                     return False
-                
-                # Обновляем статус задания
                 with transaction.atomic():
                     task.status = 'skipped'
                     task.completed_at = datetime.now()
-                    task.save(update_fields=['status', 'completed_at'])
-                    logger.info(f"Статус задания обновлен на 'skipped'")
-                
+                    task.save(update_fields=['status', 'completed_at'])       
                 return True
-            
             success = await skip_task_sync()
             return success
-            
         except Exception as e:
             logger.error(f"Ошибка при пропуске задания: {e}")
             return False
@@ -413,26 +300,18 @@ class TaskService:
         Returns:
             bool: Успешность удаления
         """
-        logger.info(f"Удаление задания {task_id} пользователем {user.telegram_id}")
-        
         try:
-            # ИСПРАВЛЕНО: используем sync_to_async для операции
             @sync_to_async
             def delete_task_sync():
-                # Получаем задание с проверкой владельца
                 try:
                     task = TherapyTask.objects.get(
                         id=task_id,
                         user=user
                     )
-                    logger.info(f"Задание найдено: {task.title}")
                 except TherapyTask.DoesNotExist:
                     logger.warning(f"Задание {task_id} не найдено или не принадлежит пользователю {user.telegram_id}")
                     return False
-                
-                # Удаляем задание и связанные данные в транзакции
                 with transaction.atomic():
-                    # Удаляем связанные данные
                     if hasattr(task, 'completion'):
                         try:
                             completion = TaskCompletion.objects.get(task=task)
@@ -445,124 +324,14 @@ class TaskService:
                             completion.delete()
                         except TaskCompletion.DoesNotExist:
                             pass
-                    
-                    # Удаляем само задание
                     task.delete()
-                    logger.info(f"Задание {task_id} успешно удалено")
-                
                 return True
-            
             success = await delete_task_sync()
             return success
-            
         except Exception as e:
             logger.error(f"Ошибка при удалении задания: {e}")
             return False
     
-    async def _update_user_insights(
-        self, 
-        user: User, 
-        task_completion: TaskCompletion, 
-        task_analysis: TaskAnalysis
-    ):
-        """
-        Обновление инсайтов пользователя на основе выполнения задания
-        
-        Args:
-            user: Пользователь
-            task_completion: Выполнение задания
-            task_analysis: Анализ выполнения
-        """
-        logger.info(f"Обновление инсайтов пользователя {user.telegram_id}")
-        
-        try:
-            # ИСПРАВЛЕНО: используем sync_to_async для операции
-            @sync_to_async
-            def update_insights_sync():
-                # Извлекаем ключевые моменты из текста выполнения
-                completion_text = task_completion.completion_text.lower()
-                feelings_text = task_completion.feelings_text.lower()
-                
-                # Простой анализ ключевых слов (заглушка)
-                key_insights = []
-                
-                # Ключевые слова для инсайтов
-                insight_keywords = {
-                    'emotion': ['радость', 'грусть', 'гнев', 'страх', 'любовь', 'ненависть', 'удовольствие', 'боль'],
-                    'behavior': ['поведение', 'действие', 'реакция', 'ответ', 'решение'],
-                    'thought': ['мысль', 'идея', 'размышление', 'понимание', 'осознание'],
-                    'trigger': ['триггер', 'провокатор', 'причина', 'повод', 'вызывает']
-                }
-                
-                # Ищем ключевые слова в тексте
-                for category, keywords in insight_keywords.items():
-                    for keyword in keywords:
-                        if keyword in completion_text or keyword in feelings_text:
-                            key_insights.append({
-                                'text': keyword,
-                                'category': category,
-                                'weight': 1
-                            })
-                
-                logger.info(f"Найдено {len(key_insights)} ключевых инсайтов")
-                return key_insights
-            
-            key_insights = await update_insights_sync()
-            
-            # Обновляем инсайты пользователя
-            from diary.models import UserInsight
-            for insight in key_insights:
-                try:
-                    # Проверяем существование инсайта
-                    @sync_to_async
-                    def check_insight_exists_sync():
-                        return UserInsight.objects.filter(
-                            user=user,
-                            text=insight['text'],
-                            category=insight['category']
-                        ).exists()
-                    
-                    insight_exists = await check_insight_exists_sync()
-                    
-                    if insight_exists:
-                        # Увеличиваем вес существующего инсайта
-                        @sync_to_async
-                        def update_insight_weight_sync():
-                            user_insight = UserInsight.objects.get(
-                                user=user,
-                                text=insight['text'],
-                                category=insight['category']
-                            )
-                            user_insight.weight += insight['weight']
-                            user_insight.last_mentioned = datetime.now()
-                            user_insight.save(update_fields=['weight', 'last_mentioned'])
-                            return user_insight.weight
-                        
-                        new_weight = await update_insight_weight_sync()
-                        logger.info(f"Инсайт '{insight['text']}' обновлен, новый вес: {new_weight}")
-                    else:
-                        # Создаем новый инсайт
-                        @sync_to_async
-                        def create_insight_sync():
-                            return UserInsight.objects.create(
-                                user=user,
-                                text=insight['text'],
-                                category=insight['category'],
-                                weight=insight['weight'],
-                                last_mentioned=datetime.now()
-                            )
-                        
-                        user_insight = await create_insight_sync()
-                        logger.info(f"Новый инсайт '{insight['text']}' создан")
-                        
-                except Exception as insight_error:
-                    logger.error(f"Ошибка при обновлении инсайта '{insight['text']}': {insight_error}")
-            
-            logger.info("Инсайты пользователя успешно обновлены")
-            
-        except Exception as e:
-            logger.error(f"Ошибка при обновлении инсайтов пользователя: {e}")
-
     async def analyze_task_completion_effect(
         self,
         task_completion: TaskCompletion,
@@ -572,15 +341,11 @@ class TaskService:
         Асинхронно анализирует влияние выполнения задания на эмоциональное состояние дня.
         Вызывается после успешного выполнения задания.
         """
-        logger.info(f"Начало анализа эффекта выполнения задания ID {task_completion.task.id} "
-                    f"для пользователя {user.telegram_id}")
-
         try:
             related_entry = task_completion.task.related_entry
             if not related_entry:
                 logger.warning(f"Задание {task_completion.task.id} не связано с записью дневника. "
                                f"Анализ эффекта пропущен.")
-                # Создаем пустой анализ с пометкой
                 analysis = await sync_to_async(TaskCompletionAnalysis.objects.create)(
                     completion=task_completion,
                     effect_description="[Данные недоступны: Задание не связано с записью дневника.]",
@@ -590,17 +355,10 @@ class TaskService:
                     api_response={"error": "No related entry"}
                 )
                 return analysis
-
-            # --- ИСПРАВЛЕНО: Используем асинхронный метод для получения даты ---
-            entry_date = await related_entry.aentry_date() # <-- Используем асинхронный метод
-            logger.debug(f"Дата связанной записи: {entry_date}")
-            # -----------------------------------------------------------------
-
-            # 1. Получаем CombinedDiaryEntry для дня
+            entry_date = await related_entry.aentry_date()
             combined_entry = await daily_state_service.get_daily_state(user, entry_date)
             if not combined_entry:
                 logger.warning(f"CombinedDiaryEntry для {entry_date} не найден. Анализ эффекта ограничен.")
-                # Можно создать анализ с пометкой об отсутствии данных
                 analysis = await sync_to_async(TaskCompletionAnalysis.objects.create)(
                     completion=task_completion,
                     effect_description="[Данные недоступны: CombinedDiaryEntry не найден.]",
@@ -610,26 +368,16 @@ class TaskService:
                     api_response={"error": "CombinedDiaryEntry not found"}
                 )
                 return analysis
-
-            # 2. Получаем ключевые моменты ДО
             key_points_before_data = {}
             try:
                 @sync_to_async
                 def _get_key_points_before_sync():
-                    # Получаем ключевые моменты из записей этого дня, созданных до выполнения задания
-                    # Используем entry_date для фильтрации по дате
-                    # task_completion.created_at - это datetime, entry_date - это date.
-                    # Фильтруем по дате и времени.
-                    from django.utils import timezone
-                    # Создаем datetime начала и конца дня пользователя в UTC для фильтрации
-                    # Это более точный способ, чем фильтр по __date
                     user_tz_str = user.timezone if user.timezone else 'UTC'
                     import pytz
                     user_tz = pytz.timezone(user_tz_str)
                     start_of_day_local = datetime.combine(entry_date, datetime.min.time())
                     start_of_day_user_tz = user_tz.localize(start_of_day_local)
                     start_of_day_utc = start_of_day_user_tz.astimezone(pytz.utc)
-                    
                     end_of_day_local = datetime.combine(entry_date, datetime.max.time())
                     end_of_day_user_tz = user_tz.localize(end_of_day_local)
                     end_of_day_utc = end_of_day_user_tz.astimezone(pytz.utc)
@@ -637,9 +385,8 @@ class TaskService:
                     kps = KeyPoint.objects.filter(
                         entry__user=user,
                         entry__created_at__gte=start_of_day_utc,
-                        entry__created_at__lte=task_completion.created_at # Только до выполнения
+                        entry__created_at__lte=task_completion.created_at
                     ).select_related('entry')
-
                     points_dict = {}
                     for kp in kps:
                         if kp.type not in points_dict:
@@ -648,32 +395,23 @@ class TaskService:
                             'text': kp.text,
                             'confidence': kp.confidence
                         })
-                    logger.debug(f"Ключевые моменты 'до' (синхронно): {points_dict}")
                     return points_dict
-
                 key_points_before_data = await _get_key_points_before_sync()
-                logger.debug(f"Ключевые моменты 'до': {key_points_before_data}")
-
             except Exception as kp_error:
                 logger.error(f"Ошибка при получении ключевых моментов 'до': {kp_error}")
                 key_points_before_data = {}
-
-            # 3. Подготавливаем данные для промпта
             user_profile_data = {
                 'username': user.username or f"user_{user.telegram_id}",
                 'first_name': user.first_name or "",
                 'awareness_level': user.awareness_level,
                 'is_premium': user.is_premium,
             }
-
             day_text = combined_entry.text
             avg_mood_before = combined_entry.average_mood_score
             completion_text = task_completion.completion_text
             feelings_text = task_completion.feelings_text
             task_title = task_completion.task.title
             task_description = task_completion.task.description
-
-            # 4. Формируем промпт для DeepSeek
             prompt = await self._generate_task_effect_prompt(
                 user_profile_data, day_text, avg_mood_before,
                 task_title, task_description,
@@ -681,42 +419,25 @@ class TaskService:
                 key_points_before_data,
                 user.language
             )
-
-            # 5. Вызываем DeepSeek API
-            logger.info("Вызов DeepSeek API для анализа эффекта выполнения задания...")
-            # Используем analyze_text, который возвращает структурированный результат
             api_result = await deepseek_api_service.analyze_text(prompt, language=user.language, analysis_type='default')
-
-            logger.debug(f"Ответ API от DeepSeek: {api_result}")
-
             if not api_result.get('success'):
                 logger.error(f"Ошибка API при анализе эффекта задания: {api_result.get('error')}")
-                # Создаем анализ с пометкой об ошибке
                 analysis = await sync_to_async(TaskCompletionAnalysis.objects.create)(
                     completion=task_completion,
                     effect_description=f"[Ошибка анализа API: {api_result.get('error', 'Неизвестная ошибка API')}]",
                     mood_impact_score=None,
                     key_points_before=key_points_before_data,
                     key_points_after={},
-                    api_response=api_result # Сохраняем полный ответ API
+                    api_response=api_result
                 )
                 return analysis
-
-            # 6. Извлекаем и сохраняем ВСЕ данные из результата API
-            # api_result['result'] уже содержит распарсенный JSON от ИИ
             parsed_result = api_result.get('result', {})
-            logger.debug(f"Распарсенный результат API из 'result': {parsed_result}")
-
-            # Извлекаем все возможные данные
             effect_desc = parsed_result.get('analysis', 'Эффект задания проанализирован.')
-            mood_score_from_api = parsed_result.get('mood_score') # Оценка настроения из API
+            mood_score_from_api = parsed_result.get('mood_score')
             comment_from_api = parsed_result.get('comment', '')
             recommendation_from_api = parsed_result.get('recommendation', '')
             key_points_after_data = parsed_result.get('key_points', [])
             user_insights_data = parsed_result.get('user_insights', [])
-            
-            # Определяем mood_impact_score
-            # Вариант 1: ИИ возвращает его напрямую
             mood_impact_score = parsed_result.get('mood_impact_score')
             if mood_impact_score is not None:
                 try:
@@ -725,19 +446,14 @@ class TaskService:
                     logger.warning(f"Некорректный формат mood_impact_score: {mood_impact_score}")
                     mood_impact_score = None
             else:
-                # Вариант 2: Вычисляем как разницу (если есть mood_score из API)
                 if mood_score_from_api is not None and avg_mood_before is not None:
                     try:
                         mood_impact_score = int(mood_score_from_api) - int(avg_mood_before)
-                        logger.info(f"Вычислен mood_impact_score: {mood_impact_score} (API: {mood_score_from_api}, До: {avg_mood_before})")
                     except (ValueError, TypeError):
                         logger.warning(f"Невозможно вычислить mood_impact_score: API={mood_score_from_api}, До={avg_mood_before}")
                         mood_impact_score = None
                 else:
-                    logger.info("Недостаточно данных для вычисления mood_impact_score.")
                     mood_impact_score = None
-
-            # 7. Создаем и сохраняем TaskCompletionAnalysis со ВСЕМИ данными
             analysis_data = {
                 'completion': task_completion,
                 'effect_description': effect_desc,
@@ -745,38 +461,14 @@ class TaskService:
                 'comment': comment_from_api,
                 'recommendation': recommendation_from_api,
                 'key_points_before': key_points_before_data,
-                'key_points_after': key_points_after_data, # Сохраняем ключевые моменты ПОСЛЕ
-                'api_response': api_result # Сохраняем полный ответ API для дебага и дальнейшего анализа
+                'key_points_after': key_points_after_data,
+                'api_response': api_result
             }
             analysis = await sync_to_async(TaskCompletionAnalysis.objects.create)(**analysis_data)
-            logger.info(f"TaskCompletionAnalysis создан, ID: {analysis.id}")
-
-            # 8. (Опционально) Связываем выявленные инсайты с анализом
-            # Предполагаем, что user_insights_data содержит словари с полями 'text', 'category', 'weight'
-            # и мы хотим либо создать новые UserInsight, либо обновить существующие.
-            # Это сложная логика, аналогичная той, что в analysis_service.
-            # Для простоты, можно сохранить сами данные user_insights в JSONField анализа
-            # или реализовать более сложную логику создания/обновления UserInsight.
-            # Пока что просто логируем.
-            if user_insights_data:
-                logger.debug(f"Получены user_insights от API: {user_insights_data}")
-                # Здесь можно добавить логику для работы с UserInsight, если нужно.
-                # Например, вызвать analysis_service.extract_and_save_insights_and_keypoints
-                # с искусственным DiaryEntry и результатом.
-                # Но для TaskCompletionAnalysis это может быть избыточно.
-                # Просто сохраним их в JSONField анализа или в отдельное поле, если добавим.
-                # analysis.user_insights_data = user_insights_data # Если добавим такое поле
-                # await sync_to_async(analysis.save)(update_fields=['user_insights_data'])
-
-            logger.info(f"Анализ эффекта выполнения задания ID {task_completion.task.id} успешно создан и данные сохранены. "
-                        f"ID анализа: {analysis.id}")
-
             return analysis
-
         except Exception as e:
             logger.error(f"Критическая ошибка при анализе эффекта выполнения задания "
                          f"ID {task_completion.task.id}: {e}", exc_info=True)
-            # Создаем запись об ошибке
             try:
                 analysis = await sync_to_async(TaskCompletionAnalysis.objects.create)(
                     completion=task_completion,
@@ -791,6 +483,7 @@ class TaskService:
                 logger.error(f"Не удалось создать запись об ошибке анализа: {inner_e}")
             return None
 
+    # TODO Вынести промпт в prompts.py
     async def _generate_task_effect_prompt(
         self,
         user_profile: dict,
@@ -806,9 +499,6 @@ class TaskService:
         """
         Генерирует промпт для анализа влияния выполнения задания.
         """
-        logger.debug("Начало генерации промпта для анализа эффекта задания.")
-        
-        # Формируем промпт в зависимости от языка
         if language == 'ru':
             prompt = (
                 "Проанализируй влияние выполнения терапевтического задания на эмоциональное состояние пользователя за день.\n"
@@ -844,7 +534,7 @@ class TaskService:
                 "}\n"
                 "```\n"
             )
-        else:  # English prompt
+        else:
             prompt = (
                 "Analyze the impact of completing a therapeutic task on the user's emotional state for the day.\n"
                 "Respond in JSON format, strictly adhering to the structure enclosed in triple backticks (```json ... ```).\n\n"
@@ -879,14 +569,10 @@ class TaskService:
                 "}\n"
                 "```\n"
             )
-        
-        logger.debug(f"Сформирован промпт для анализа эффекта задания (длина: {len(prompt)} символов)")
-        return prompt
 
-# Глобальный экземпляр сервиса заданий
 task_service = TaskService()
 
-# Удобные функции для использования
+
 async def assign_task(
     user: User, 
     title: str, 

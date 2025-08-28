@@ -25,7 +25,7 @@ class DiaryEntryAdmin(admin.ModelAdmin):
     )
     list_filter = (
         'is_processed', 'language', 'created_at', 'updated_at',
-        ('user', admin.RelatedOnlyFieldListFilter), # Фильтр по пользователю
+        ('user', admin.RelatedOnlyFieldListFilter),
     )
     search_fields = (
         'user__username', 'user__telegram_id', 'text', 'id'

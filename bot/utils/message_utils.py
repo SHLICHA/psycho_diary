@@ -88,57 +88,6 @@ async def edit_or_send_message(
             logger.error(f"Ошибка при резервной отправке сообщения: {fallback_error}")
             raise
 
-'''async def safe_edit_message_text(
-    message: Message,
-    text: str,
-    reply_markup=None
-) -> bool:
-    """
-    Безопасное редактирование текста сообщения
-    
-    Args:
-        message: Сообщение для редактирования
-        text: Новый текст сообщения
-        reply_markup: Новая клавиатура сообщения
-        
-    Returns:
-        bool: Успешность редактирования
-    """
-    logger.info(f"Безопасное редактирование текста сообщения {message.message_id}")
-    logger.info(f"Длина нового текста: {len(text)} символов")
-    
-    try:
-        # Проверяем, отличается ли новый текст от текущего
-        if message.text != text:
-            logger.info("Текст отличается, редактируем сообщение")
-            await message.edit_text(
-                text=text,
-                reply_markup=reply_markup
-            )
-            logger.info("Сообщение успешно отредактировано")
-            return True
-        else:
-            logger.info("Текст не изменился, обновляем только клавиатуру")
-            try:
-                await message.edit_reply_markup(
-                    reply_markup=reply_markup
-                )
-                logger.info("Клавиатура успешно обновлена")
-                return True
-            except Exception as keyboard_error:
-                logger.warning(f"Не удалось обновить клавиатуру: {keyboard_error}")
-                # Если не удалось обновить клавиатуру, отправляем новое сообщение
-                await message.edit_text(
-                    text=text,
-                    reply_markup=reply_markup
-                )
-                logger.info("Сообщение отредактировано с новой клавиатурой")
-                return True
-                
-    except Exception as e:
-        logger.error(f"Ошибка при безопасном редактировании сообщения: {e}")
-        return False'''
-
 async def safe_edit_message_text(
     message: Message,
     text: str,
@@ -155,65 +104,42 @@ async def safe_edit_message_text(
     Returns:
         bool: Успешность редактирования (True, даже если ничего не изменилось)
     """
-    logger.info(f"Безопасное редактирование текста сообщения {message.message_id}")
-    logger.info(f"Длина нового текста: {len(text)} символов")
-    
-    # Флаги для отслеживания, что нужно обновить
     text_changed = (message.text != text)
-    # Для reply_markup сложнее сделать точное сравнение, 
-    # поэтому мы всегда пытаемся обновить, если текст не изменился.
-    # Но будем ловить ошибку "not modified".
     
     try:
         if text_changed:
-            logger.info("Текст отличается, редактируем сообщение полностью")
             await message.edit_text(
                 text=text,
                 reply_markup=reply_markup
             )
-            logger.info("Сообщение успешно отредактировано с новым текстом и клавиатурой")
             return True
         else:
-            logger.info("Текст не изменился, пробуем обновить только клавиатуру")
             try:
                 # Пытаемся обновить клавиатуру
                 await message.edit_reply_markup(reply_markup=reply_markup)
-                logger.info("Клавиатура успешно обновлена")
                 return True
             except TelegramBadRequest as keyboard_error:
-                # Ловим специфическую ошибку, если клавиатура тоже не изменилась
                 error_message = str(keyboard_error).lower()
                 if "message is not modified" in error_message:
-                    logger.info("Клавиатура не изменилась, сообщение в актуальном состоянии")
-                    # Это не ошибка, просто нет изменений
                     return True
                 else:
-                    # Другая ошибка при обновлении клавиатуры
                     logger.warning(f"Не удалось обновить клавиатуру: {keyboard_error}")
-                    # Попробуем полностью отредактировать сообщение, 
-                    # на случай, если есть какие-то скрытые изменения
                     await message.edit_text(text=text, reply_markup=reply_markup)
-                    logger.info("Сообщение полностью отредактировано как запасной вариант")
                     return True
             except Exception as keyboard_error_general:
-                # Общая ошибка при обновлении клавиатуры
                 logger.warning(f"Общая ошибка при обновлении клавиатуры: {keyboard_error_general}")
-                # Попробуем полностью отредактировать сообщение
                 await message.edit_text(text=text, reply_markup=reply_markup)
-                logger.info("Сообщение полностью отредактировано из-за ошибки клавиатуры")
+                logger.warning("Сообщение полностью отредактировано из-за ошибки клавиатуры")
                 return True
                 
     except TelegramBadRequest as e_bad_request:
-        # Ловим ошибку на верхнем уровне, если edit_text не прошел
         error_message = str(e_bad_request).lower()
         if "message is not modified" in error_message:
             logger.info(f"Сообщение {message.message_id} в конечном итоге не было изменено: {e_bad_request}")
-            # Это нормальная ситуация, если состояние UI не изменилось.
             return True
         else:
             logger.error(f"TelegramBadRequest при редактировании сообщения {message.message_id}: {e_bad_request}")
             return False
-            
     except Exception as e:
         logger.error(f"Ошибка при безопасном редактировании сообщения {message.message_id}: {e}")
         return False
@@ -232,15 +158,11 @@ async def safe_edit_message_reply_markup(
     Returns:
         bool: Успешность редактирования клавиатуры
     """
-    logger.info(f"Безопасное редактирование клавиатуры сообщения {message.message_id}")
-    
     try:
         await message.edit_reply_markup(
             reply_markup=reply_markup
         )
-        logger.info("Клавиатура успешно отредактирована")
         return True
-        
     except Exception as e:
         logger.error(f"Ошибка при редактировании клавиатуры: {e}")
         return False
@@ -261,17 +183,13 @@ async def send_processing_message(
     Returns:
         Message: Сообщение об обработке
     """
-    logger.info(f"Отправка сообщения об обработке в чат {chat_id}")
-    
     try:
         processing_msg = get_message('processing', language)
         processing_message = await bot.send_message(
             chat_id=chat_id,
             text=processing_msg
         )
-        logger.info(f"Сообщение об обработке отправлено, message_id: {processing_message.message_id}")
         return processing_message
-        
     except Exception as e:
         logger.error(f"Ошибка при отправке сообщения об обработке: {e}")
         raise
@@ -292,17 +210,12 @@ async def update_processing_message(
     Returns:
         bool: Успешность обновления
     """
-    logger.info(f"Обновление сообщения об обработке {message.message_id}")
-    logger.info(f"Длина нового текста: {len(new_text)} символов")
-    
     try:
         await message.edit_text(
             text=new_text,
             reply_markup=reply_markup
         )
-        logger.info("Сообщение об обработке успешно обновлено")
         return True
-        
     except Exception as e:
         logger.error(f"Ошибка при обновлении сообщения об обработке: {e}")
         return False
@@ -320,8 +233,6 @@ def truncate_text(text: str, max_length: int = 1000) -> str:
     Returns:
         str: Обрезанный текст
     """
-    logger.info(f"Обрезка текста длиной {len(text)} символов до {max_length} символов")
-    
     try:
         if len(text) > max_length:
             truncated_text = text[:max_length] + "..."
@@ -330,7 +241,6 @@ def truncate_text(text: str, max_length: int = 1000) -> str:
         else:
             logger.info("Текст не требует обрезки")
             return text
-            
     except Exception as e:
         logger.error(f"Ошибка при обрезке текста: {e}")
         return text[:max_length] + "..." if len(text) > max_length else text
@@ -345,14 +255,9 @@ def format_message_with_emojis(text: str) -> str:
     Returns:
         str: Отформатированный текст с эмодзи
     """
-    logger.info(f"Форматирование сообщения с эмодзи длиной {len(text)} символов")
-    
     try:
-        # Простое форматирование с эмодзи (заглушка)
         formatted_text = text.replace("хорошо", "😊 хорошо").replace("плохо", "😞 плохо")
-        logger.info(f"Сообщение отформатировано с эмодзи")
         return formatted_text
-        
     except Exception as e:
         logger.error(f"Ошибка при форматировании сообщения с эмодзи: {e}")
         return text
@@ -367,13 +272,10 @@ def escape_html(text: str) -> str:
     Returns:
         str: Экранированный текст
     """
-    logger.info(f"Экранирование HTML символов в тексте длиной {len(text)} символов")
-    
     try:
         escaped_text = text.replace("&", "&amp;").replace("<", "<").replace(">", ">")
         logger.info("HTML символы экранированы")
         return escaped_text
-        
     except Exception as e:
         logger.error(f"Ошибка при экранировании HTML символов: {e}")
         return text

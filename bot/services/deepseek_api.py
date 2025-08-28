@@ -8,25 +8,20 @@ import json
 import aiohttp
 import re
 
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any
+from prompts import get_prompt
 from core.settings import DEEPSEEK_API_KEY
 from bot.utils.api_utils import api_retry, handle_api_error
 
 logger = logging.getLogger(__name__)
 
 class DeepSeekAPIService:
-    """Сервис для работы с DeepSeek API"""
-    
     def __init__(self):
         """Инициализация сервиса DeepSeek API"""
-        logger.info("Инициализация сервиса DeepSeek API")
-        
-        # Проверяем наличие API ключа
         if not DEEPSEEK_API_KEY:
             logger.warning("DEEPSEEK_API_KEY не настроен")
-        else:
-            logger.info("DEEPSEEK_API_KEY найден")
-    
+
+    # TODO Объединить валидацию длинны текста
     @api_retry(max_attempts=3, delay=1.0)
     @handle_api_error
     async def analyze_text(self, text: str, language: str = 'ru', analysis_type: str = 'default') -> Dict[str, Any]:
@@ -40,10 +35,7 @@ class DeepSeekAPIService:
         Returns:
             Dict[str, Any]: Результат анализа с финальным analysis_text
         """
-        logger.info(f"Анализ текста через DeepSeek API, тип: {analysis_type}, язык: {language}")
         logger.info(f"Текст длиной: {len(text)} символов")
-
-        # Проверяем минимальную длину текста
         if not text or len(text.strip()) < 1:
             logger.error("Текст для анализа пустой")
             api_response_data = {
@@ -63,9 +55,7 @@ class DeepSeekAPIService:
                 'raw_response': '',
                 'api_response': api_response_data
             }
-
-        # Проверяем максимальную длину текста
-        if len(text) > 10000:
+        if len(text) > 15000:
             logger.error("Текст для анализа слишком длинный")
             api_response_data = {
                 'status': 'text_too_long',
@@ -84,8 +74,6 @@ class DeepSeekAPIService:
                 'raw_response': '',
                 'api_response': api_response_data
             }
-
-        # Проверяем наличие API ключа
         if not DEEPSEEK_API_KEY:
             logger.error("DeepSeek API key not configured")
             api_response_data = {
@@ -104,26 +92,20 @@ class DeepSeekAPIService:
                 'result': {},
                 'api_response': api_response_data
             }
-
-        # Формируем промт для анализа
         prompt = await self._generate_analysis_prompt(text, language, analysis_type)
         logger.info(f"Сформирован промт для анализа длиной: {len(prompt)} символов")
-
         url = "https://api.deepseek.com/v1/chat/completions"
         payload = {
             "model": "deepseek-chat",
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.3,  # Низкая температура для точного анализа
             "max_tokens": 5000
-            #"max_tokens": min(5000, len(text) * 2)  # Удваиваем токены для длинных текстов
         }
         headers = {
             "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
             "Content-Type": "application/json"
         }
-
         try:
-            # Создаем сессию aiohttp
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     url,
@@ -133,60 +115,40 @@ class DeepSeekAPIService:
                 ) as response:
                     raw_response_text = await response.text()
                     logger.info(f"Получен ответ от DeepSeek API, статус: {response.status}")
-
                     if response.status == 200:
                         result = await response.json()
                         response_text = result['choices'][0]['message']['content']
                         logger.info(f"Текст успешно проанализирован, длина ответа: {len(response_text)} символов")
-
-                        # === ИСПРАВЛЕНИЕ ===
-                        # 1. Парсим ответ API
                         parsed_api_result = await self._parse_analysis_response(response_text, language, analysis_type)
-                        logger.info("Ответ анализа спарсен успешно")
-
-                        # 2. Формируем ФИНАЛЬНЫЙ analysis_text
-                        # Берем comment и recommendation из распарсенного результата
                         comment_part = parsed_api_result.get('comment', 'Анализ записан')
                         recommendation_part = parsed_api_result.get('recommendation', 'Продолжайте в том же духе')
-                        
-                        # Комбинируем их в финальный текст анализа
-                        # Это гарантирует, что даже если отдельные поля обрезаны,
-                        # пользователь получит осмысленную информацию.
-                        final_analysis_text = f"{comment_part} {recommendation_part}".strip()
+                        final_analysis_text = f"{comment_part}\n{recommendation_part}".strip()
                         if not final_analysis_text:
                              final_analysis_text = "Текст проанализирован."
-
-                        # 3. Создаем финальный результат для возврата
-                        # Копируем распарсенный результат и заменяем/добавляем analysis_text
                         final_result = parsed_api_result.copy()
-                        final_result['analysis'] = final_analysis_text # Используем сформированный текст
-
-                        # 4. Подготавливаем данные для api_response
+                        final_result['analysis'] = final_analysis_text
                         api_response_data = {
                             'status': response.status,
                             'raw_response': raw_response_text,
                             'json_response': result,
                             'model_used': result.get('model', 'deepseek-chat'),
                             'usage': result.get('usage', {}),
-                            'processing_time': result.get('usage', {}).get('total_tokens', 0) * 0.01,  # Заглушка
+                            'processing_time': result.get('usage', {}).get('total_tokens', 0) * 0.01,
                             'tokens_used': result.get('usage', {}).get('total_tokens', 0)
                         }
-
                         return {
                             'success': True,
                             'error': None,
                             'message': 'Текст успешно проанализирован',
-                            'result': final_result, # Возвращаем результат с финальным analysis_text
+                            'result': final_result,
                             'processing_time': result.get('usage', {}).get('total_tokens', 0) * 0.01,
                             'tokens_used': result.get('usage', {}).get('total_tokens', 0),
                             'model_used': result.get('model', 'deepseek-chat'),
                             'raw_response': response_text,
                             'needs_clarification': parsed_api_result.get('needs_clarification', False),
                             'clarification_questions': parsed_api_result.get('clarification_questions', []),
-                            'api_response': api_response_data # Ответ API для сохранения в БД!
+                            'api_response': api_response_data
                         }
-                        # ===============
-
                     else:
                         error_text = await response.text()
                         logger.error(f"DeepSeek API error: {response.status} - {error_text}")
@@ -207,7 +169,6 @@ class DeepSeekAPIService:
                             'raw_response': error_text,
                             'api_response': api_response_data
                         }
-
         except asyncio.TimeoutError:
             logger.warning("DeepSeek API timeout")
             api_response_data = {
@@ -247,6 +208,7 @@ class DeepSeekAPIService:
                 'api_response': api_response_data
             }
 
+    # TODO Объединить валидацию длинны текста
     @api_retry(max_attempts=3, delay=1.0)
     @handle_api_error
     async def analyze_text_with_profile(
@@ -266,12 +228,8 @@ class DeepSeekAPIService:
         Returns:
             Dict[str, Any]: Результат анализа с финальным analysis_text и метаданными API.
         """
-        logger.info(f"Анализ текста с профилем пользователя через DeepSeek API, язык: {language}")
         logger.info(f"Текст длиной: {len(text)} символов")
-        logger.info(f"Профиль пользователя: {user_profile.get('username', 'unknown')}")
-
         try:
-            # === 1. ВАЛИДАЦИЯ ВХОДНЫХ ДАННЫХ ===
             if not text or len(text.strip()) < 1:
                 logger.error("Текст для анализа пустой")
                 api_response_data = {
@@ -291,8 +249,7 @@ class DeepSeekAPIService:
                     'raw_response': '',
                     'api_response': api_response_data
                 }
-
-            if len(text) > 1000: # Ограничение на длину текста
+            if len(text) > 1000:
                 logger.error("Текст для анализа слишком длинный")
                 api_response_data = {
                     'status': 'text_too_long',
@@ -311,7 +268,6 @@ class DeepSeekAPIService:
                     'raw_response': '',
                     'api_response': api_response_data
                 }
-
             if not DEEPSEEK_API_KEY:
                 logger.error("DeepSeek API key not configured")
                 api_response_data = {
@@ -331,27 +287,19 @@ class DeepSeekAPIService:
                     'raw_response': '',
                     'api_response': api_response_data
                 }
-            # ======================================
-
-            # === 2. ФОРМИРОВАНИЕ ПРОМТА ===
             prompt = await self._generate_analysis_prompt(text, language, 'profile')
             logger.info(f"Сформирован промт для анализа с профилем длиной: {len(prompt)} символов")
-            # =============================
-
-            # === 3. ВЫЗОВ API ===
             url = "https://api.deepseek.com/v1/chat/completions"
             payload = {
                 "model": "deepseek-chat",
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.5,
-                "max_tokens": 5000 # Удваиваем токены
+                "max_tokens": 5000
             }
             headers = {
                 "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
                 "Content-Type": "application/json"
             }
-
-            # Создаем сессию aiohttp
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     url,
@@ -361,76 +309,40 @@ class DeepSeekAPIService:
                 ) as response:
                     raw_response_text = await response.text()
                     logger.info(f"Получен ответ от DeepSeek API для анализа с профилем, статус: {response.status}")
-                    
-                    # ========= ДОБАВЛЕННОЕ ЛОГИРОВАНИЕ СЫРОГО ОТВЕТА =========
-                    logger.debug(f"Сырой ответ от DeepSeek API (метод: analyze_text_with_profile) (первые 500 символов): {repr(raw_response_text[:500]) if raw_response_text else '[ПУСТО]'}")
-                    if raw_response_text and len(raw_response_text) > 500:
-                        logger.debug(f"... (последние 300 символов из {len(raw_response_text)}): {repr(raw_response_text[-300:])}")
-                    logger.debug(f"Общая длина сырого ответа: {len(raw_response_text) if raw_response_text else 0} символов")
-                    # ========================================================
-
                     if response.status == 200:
-                        # ========= ДОПОЛНИТЕЛЬНОЕ ЛОГИРОВАНИЕ ПЕРЕД ПАРСИНГОМ =========
-                        logger.debug(f"Попытка парсинга JSON из ответа метода analyze_text_with_profile...")
-                        # ============================================================
-                        
-                        result = await response.json() # <-- Ошибка возникает здесь
+                        result = await response.json()
                         response_text = result['choices'][0]['message']['content']
                         logger.info(f"Текст успешно проанализирован с профилем, длина ответа LLM: {len(response_text)} символов")
-
-                        # === 4. ПАРСИНГ РЕЗУЛЬТАТА ===
                         parsed_result = await self._parse_analysis_response(response_text, language)
-                        logger.info("Результат анализа с профилем успешно распарсен")
-                        # ============================
-
-                        # === 5. ФОРМИРОВАНИЕ ФИНАЛЬНОГО РЕЗУЛЬТАТА ===
-                        # Формируем финальный текст анализа на основе comment и recommendation
                         comment_part = parsed_result.get('comment', '')
                         recommendation_part = parsed_result.get('recommendation', '')
                         analysis_part = parsed_result.get('analysis', 'Текст проанализирован.')
-
-                        # Формируем финальный текст анализа
                         final_analysis_text = f"{comment_part} {recommendation_part} {analysis_part}".strip()
                         if not final_analysis_text:
                             final_analysis_text = "Текст проанализирован."
-
-                        # Создаем финальный результат для возврата
-                        # Копируем распарсенный результат и заменяем/добавляем analysis
                         final_result = parsed_result.copy()
                         final_result['analysis'] = final_analysis_text
-
-                        # Подготавливаем данные для api_response
                         api_response_data = {
                             'status': response.status,
                             'raw_response': raw_response_text,
                             'json_response': result,
                             'model_used': result.get('model', 'deepseek-chat'),
                             'usage': result.get('usage', {}),
-                            'processing_time': result.get('usage', {}).get('total_tokens', 0) * 0.01, # Примерное время
+                            'processing_time': result.get('usage', {}).get('total_tokens', 0) * 0.01,
                             'tokens_used': result.get('usage', {}).get('total_tokens', 0)
                         }
                         final_result['api_response'] = api_response_data
-                        # =============================================
-
-                        logger.info("Анализ текста с профилем успешно завершен")
                         return {
                             'success': True,
                             'error': None,
                             'message': 'Текст успешно проанализирован с профилем',
-                            'result': final_result, # Возвращаем распарсенный и обработанный результат
+                            'result': final_result,
                             'raw_response': raw_response_text,
                             'api_response': api_response_data
                         }
                     else:
                         error_text = await response.text()
                         logger.error(f"DeepSeek API error при анализе с профилем: {response.status} - {error_text}")
-                        
-                        # ========= ЛОГИРОВАНИЕ ОШИБКИ ОТ API =========
-                        logger.debug(f"Сырой ответ об ошибке от DeepSeek API (метод: analyze_text_with_profile) (первые 500 символов): {repr(error_text[:500]) if error_text else '[ПУСТО]'}")
-                        if error_text and len(error_text) > 500:
-                            logger.debug(f"... (последние 300 символов из {len(error_text)}): {repr(error_text[-300:])}")
-                        # ===========================================
-                        
                         api_response_data = {
                             'status': response.status,
                             'error_text': error_text,
@@ -448,7 +360,6 @@ class DeepSeekAPIService:
                             'raw_response': error_text,
                             'api_response': api_response_data
                         }
-
         except asyncio.TimeoutError:
             logger.warning("DeepSeek API timeout при анализе с профилем")
             api_response_data = {
@@ -487,7 +398,8 @@ class DeepSeekAPIService:
                 'raw_response': str(e),
                 'api_response': api_response_data
             }
-        
+    
+    # TODO Объединить все три, если получится. Точно объединить валидацию
     @api_retry(max_attempts=3, delay=1.0)
     @handle_api_error
     async def analyze_text_with_clarifications(
@@ -509,45 +421,27 @@ class DeepSeekAPIService:
         Returns:
             Dict[str, Any]: Результат финального анализа.
         """
-        logger.info(f"Финальный анализ текста с уточнениями через DeepSeek API, язык: {language}")
-        logger.info(f"Оригинальный текст длиной: {len(original_text)} символов")
-        logger.info(f"Ответы на уточнения длиной: {len(clarification_answers)} символов")
-
         try:
-            # === 1. ВАЛИДАЦИЯ ВХОДНЫХ ДАННЫХ ===
-            # (Можно повторить проверки из других методов или сделать более специфичные)
             if not original_text or len(original_text.strip()) < 1:
                 logger.error("Оригинальный текст для финального анализа пустой")
-                # ... (возврат ошибки)
             if not clarification_answers or len(clarification_answers.strip()) < 1:
                  logger.error("Ответы на уточнения для финального анализа пустые")
-                 # ... (возврат ошибки)
             if not DEEPSEEK_API_KEY:
                 logger.error("DeepSeek API key not configured")
-                # ... (возврат ошибки)
-            # ======================================
-
-            # === 2. ФОРМИРОВАНИЕ СПЕЦИАЛЬНОГО ПРОМТА ДЛЯ ФИНАЛЬНОГО АНАЛИЗА ===
             prompt = await self._generate_clarification_analysis_prompt(
                 original_text, clarification_answers, user_profile, language
             )
-            logger.info(f"Сформирован промт для финального анализа с уточнениями длиной: {len(prompt)} символов")
-            # ===================================================================
-
-            # === 3. ВЫЗОВ API ===
             url = "https://api.deepseek.com/v1/chat/completions"
-            # Температура может быть немного выше, чем для инкрементального, для вариативности финального вывода
             payload = {
                 "model": "deepseek-chat",
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.4, # Слегка выше, чем для инкрементального
+                "temperature": 0.4,
                 "max_tokens": 5000
             }
             headers = {
                 "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
                 "Content-Type": "application/json"
             }
-
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     url,
@@ -556,35 +450,15 @@ class DeepSeekAPIService:
                     timeout=aiohttp.ClientTimeout(total=60)
                 ) as response:
                     raw_response_text = await response.text()
-                    logger.info(f"Получен ответ от DeepSeek API для финального анализа с уточнениями, статус: {response.status}")
-
-                    # === ЛОГИРОВАНИЕ СЫРОГО ОТВЕТА (уже реализовано в полной версии метода) ===
-                    # logger.debug(f"Сырой ответ от DeepSeek API (метод: analyze_text_with_clarifications) ...")
-                    # ========================================================================
-
                     if response.status == 200:
-                        # === ЛОГИРОВАНИЕ ПЕРЕД ПАРСИНГОМ (уже реализовано) ===
-                        # logger.debug(f"Попытка парсинга JSON из ответа метода analyze_text_with_clarifications...")
-                        # =====================================================
-                        
                         result = await response.json()
                         response_text = result['choices'][0]['message']['content']
-                        logger.info(f"Финальный анализ с уточнениями успешно выполнен, длина ответа LLM: {len(response_text)} символов")
-
-                        # === 4. ПАРСИНГ РЕЗУЛЬТАТА ===
-                        # Используем тот же метод парсинга
                         parsed_result = await self._parse_analysis_response(
-                            response_text, language, 'clarification' # Новый тип анализа
+                            response_text, language, 'clarification'
                         )
-                        logger.info("Результат финального анализа с уточнениями успешно распарсен")
-                        # ============================
-
-                        # === 5. ФОРМИРОВАНИЕ ФИНАЛЬНОГО РЕЗУЛЬТАТА ===
-                        # (Логика аналогична другим методам)
                         final_analysis_text = parsed_result.get('analysis', 'Текст проанализирован.')
                         final_result = parsed_result.copy()
                         final_result['analysis'] = final_analysis_text
-
                         api_response_data = {
                             'status': response.status,
                             'raw_response': raw_response_text,
@@ -595,9 +469,6 @@ class DeepSeekAPIService:
                             'tokens_used': result.get('usage', {}).get('total_tokens', 0)
                         }
                         final_result['api_response'] = api_response_data
-                        # =============================================
-
-                        logger.info("Финальный анализ с уточнениями успешно завершен")
                         return {
                             'success': True,
                             'error': None,
@@ -608,15 +479,13 @@ class DeepSeekAPIService:
                         }
                     else:
                         error_text = await response.text()
-                        logger.error(f"DeepSeek API error при финальном анализе с уточнениями: {response.status} - {error_text}")
-                        # ... (логирование ошибки, возврат результата с ошибкой)
-                        
+                        logger.error(f"DeepSeek API error при финальном анализе с уточнениями: {response.status} - {error_text}")  
         except asyncio.TimeoutError:
             logger.warning("DeepSeek API timeout при финальном анализе с уточнениями")
-            # ... (возврат результата с ошибкой timeout)
         except Exception as e:
             logger.error(f"DeepSeek API request failed при финальном анализе с уточнениями: {e}")
 
+    # TODO добавить вопросы
     async def _generate_clarification_analysis_prompt(
         self,
         original_text: str,
@@ -636,8 +505,11 @@ class DeepSeekAPIService:
         Returns:
             str: Сформированный промт.
         """
-        logger.info("Генерация промта для финального анализа с уточнениями")
-
+        keys = {
+            'original_text': original_text,
+            'clarification_answers': clarification_answers
+        }
+        print(get_prompt('final_with_clarifications', language, keys))
         prompts = {
             'ru': f'''Ты профессиональный психолог. Ниже приведена запись пользователя, на которую были заданы уточняющие вопросы, и ответы пользователя на них.
 

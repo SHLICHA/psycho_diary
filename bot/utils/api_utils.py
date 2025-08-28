@@ -45,7 +45,6 @@ def api_retry(max_attempts: int = 3, delay: float = 1.0):
                         logger.error(f"Все {max_attempts} попыток неудачны")
                         raise last_exception
             
-            # Если все попытки неудачны, выбрасываем последнее исключение
             if last_exception:
                 logger.error(f"Retry механизм исчерпан для функции {func.__name__}")
                 raise last_exception
@@ -133,7 +132,6 @@ class DeepSeekAPIError(APIError):
     def __init__(self, message: str, error_code: str = 'deepseek_error'):
         super().__init__(message, error_code)
 
-# Функции для работы с API
 async def safe_api_call(
     api_func: Callable[..., Awaitable[Any]], 
     *args, 
@@ -150,13 +148,10 @@ async def safe_api_call(
     Returns:
         Any: Результат вызова API функции
     """
-    logger.info(f"Безопасный вызов API функции {api_func.__name__}")
-    
     try:
         result = await api_func(*args, **kwargs)
         logger.info(f"API функция {api_func.__name__} выполнена успешно")
         return result
-        
     except Exception as e:
         logger.error(f"Ошибка при безопасном вызове API функции {api_func.__name__}: {e}")
         return None
