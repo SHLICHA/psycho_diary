@@ -634,7 +634,6 @@ Example response:
         }
 
         prompt = prompts.get(language, prompts['en']) # По умолчанию английский
-        logger.info(f"Промт для финального анализа с уточнениями сгенерирован длиной: {len(prompt)} символов")
         return prompt
 
     async def _generate_profile_based_analysis_prompt(
