@@ -1,5 +1,11 @@
+import pytz
+import logging
+
+from datetime import datetime
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+
+logger = logging.getLogger(__name__)
 
 class User(AbstractUser):
     """
@@ -38,3 +44,41 @@ class User(AbstractUser):
 
     def __str__(self):
         return f"{self.username} ({self.telegram_id})"
+    
+    def get_profile_data(self):
+        """
+        Получение данных профиля пользователя для API.
+        Возвращает синхронный словарь.
+        """
+        return {
+            'username': self.username or f"user_{self.telegram_id}",
+            'first_name': self.first_name or "",
+            'language': self.language,
+            'awareness_level': self.awareness_level,
+        }
+
+    def get_local_datetime(self):
+        """
+        Получение текущего времени в часовом поясе пользователя.
+        Возвращает синхронный datetime.
+        """
+        try:
+            user_tz_str = self.timezone if self.timezone else 'UTC'
+            user_tz = pytz.timezone(user_tz_str)
+            return datetime.now(user_tz)
+        except Exception as e:
+            logger.error(f"Ошибка при получении локального времени пользователя {self.telegram_id}: {e}")
+            return datetime.now(pytz.utc)
+
+    # Асинхронные версии (если потребуются напрямую в асинхронном контексте, 
+    # хотя обычно достаточно синхронных)
+    async def aget_profile_data(self):
+        """Асинхронная версия get_profile_data."""
+        # В данном случае просто вызываем синхронный метод
+        # Если логика станет сложнее и потребует await, здесь будет асинхронный код
+        return self.get_profile_data()
+
+    async def aget_local_datetime(self):
+        """Асинхронная версия get_local_datetime."""
+        # Аналогично, вызываем синхронный метод
+        return self.get_local_datetime()

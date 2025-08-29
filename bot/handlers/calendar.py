@@ -5,7 +5,6 @@ Handlers для работы с календарем
 import logging
 
 
-from asgiref.sync import sync_to_async
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
 from aiogram.fsm.context import FSMContext
@@ -13,6 +12,8 @@ from datetime import datetime, date
 
 from messages import get_message
 from diary.models import PsychoAnalysis
+
+from core.constants import MONTH_NAMES_RU, MONTH_NAMES_EN
 from bot.keyboards import (
     get_month_calendar_with_navigation,
     get_calendar_back_keyboard,
@@ -61,15 +62,7 @@ async def prev_month(callback: CallbackQuery, user, language: str):
             prev_year = year - 1  
         today = datetime.now()
         current_day = today.day if today.month == prev_month and today.year == prev_year else 1
-        month_names_ru = [
-            "", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
-            "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"
-        ]
-        month_names_en = [
-            "", "January", "February", "March", "April", "May", "June",
-            "July", "August", "September", "October", "November", "December"
-        ]
-        month_names = month_names_ru if language == 'ru' else month_names_en
+        month_names = MONTH_NAMES_RU if language == 'ru' else MONTH_NAMES_EN
         month_name = month_names[prev_month] if 1 <= prev_month <= 12 else ""
         
         calendar_msg = get_message('archive_select_month', language).format(
@@ -158,26 +151,63 @@ async def select_year(callback: CallbackQuery, user, language: str):
     except Exception as e:
         logger.error(f"Ошибка при выборе года: {e}")
         await callback.answer(get_message('error_generic', language))
-# Неактивный хендлер
+
 @router.callback_query(F.data.startswith("calendar_quick_month:"))
 async def quick_month_navigation(callback: CallbackQuery, user, language: str):
-    """Быстрая навигация по месяцам"""
+    """Быстрая навигация по месяцам - открывает селектор месяцев"""
     try:
         parts = callback.data.split(":")
+        if len(parts) < 3:
+             raise ValueError("Некорректный формат callback_data для calendar_quick_month")
         year = int(parts[1])
         month = int(parts[2])
-        logger.info(f"Быстрый переход к месяцу: {month}.{year}")      
+        month_msg = get_message('archive_select_month', language).format(year=year)
+        await safe_edit_message_text(
+            message=callback.message,
+            text=month_msg,
+            reply_markup=get_month_selection_keyboard(year, month, language)
+        )
+        await safe_answer_callback(callback, "")
+    except Exception as e:
+        logger.error(f"Ошибка при быстрой навигации по месяцам: {e}")
+        await safe_answer_callback(callback, get_message('error_generic', language))
+
+@router.callback_query(F.data.startswith("calendar_open_month_selector:"))
+async def open_month_selector(callback: CallbackQuery, user, language: str):
+    """Открытие селектора месяцев"""
+    try:
+        parts = callback.data.split(":")
+        if len(parts) < 3:
+             raise ValueError("Некорректный формат callback_data для calendar_open_month_selector")
+        year = int(parts[1])
+        current_month = int(parts[2])
+        logger.info(f"Открытие селектора месяцев для года: {year}, текущий месяц: {current_month}")
+        
+        month_msg = get_message('archive_select_month', language).format(year=year)
+        await safe_edit_message_text(
+            message=callback.message,
+            text=month_msg,
+            reply_markup=get_month_selection_keyboard(year, current_month, language)
+        )
+        await safe_answer_callback(callback, "")
+        logger.info("Показан выбор месяцев")  
+    except Exception as e:
+        logger.error(f"Ошибка при открытии селектора месяцев: {e}")
+        await safe_answer_callback(callback, get_message('error_generic', language))
+
+@router.callback_query(F.data.startswith("calendar_select_specific_month:"))
+async def select_specific_month(callback: CallbackQuery, user, language: str):
+    """Выбор конкретного месяца"""
+    try:
+        parts = callback.data.split(":")
+        if len(parts) < 3:
+             raise ValueError("Некорректный формат callback_data для calendar_select_specific_month")
+        year = int(parts[1])
+        month = int(parts[2])
         today = datetime.now()
         current_day = today.day if today.month == month and today.year == year else 1
-        month_names_ru = [
-            "", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
-            "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"
-        ]
-        month_names_en = [
-            "", "January", "February", "March", "April", "May", "June",
-            "July", "August", "September", "October", "November", "December"
-        ]
-        month_names = month_names_ru if language == 'ru' else month_names_en
+        
+        month_names = MONTH_NAMES_RU if language == 'ru' else MONTH_NAMES_EN
         month_name = month_names[month] if 1 <= month <= 12 else ""
         calendar_msg = get_message('archive_select_month', language).format(
             month=month_name,
@@ -186,63 +216,12 @@ async def quick_month_navigation(callback: CallbackQuery, user, language: str):
         await safe_edit_message_text(
             message=callback.message,
             text=calendar_msg,
-            reply_markup=get_month_calendar_with_navigation(user, year, month, current_day, language)
+            reply_markup=await get_month_calendar_with_navigation(user, year, month, current_day, language)
         )
         await safe_answer_callback(callback, "")
     except Exception as e:
-        logger.error(f"Ошибка при быстрой навигации по месяцам: {e}")
-        await safe_answer_callback(callback, get_message('error_generic', language))
-# Неактивный хендлер
-@router.callback_query(F.data.startswith("calendar_open_month_selector:"))
-async def open_month_selector(callback: CallbackQuery, language: str):
-    """Открытие селектора месяцев"""
-    try:
-        # Извлекаем год и месяц из callback_data
-        parts = callback.data.split(":")
-        year = int(parts[1])
-        month = int(parts[2])
-        month_msg = get_message('archive_select_month', language).format(year=year)
-        await callback.message.edit_text(
-            month_msg,
-            reply_markup=get_month_selection_keyboard(year, month, language)
-        )
-        await callback.answer()
-        logger.info("Показан выбор месяцев")  
-    except Exception as e:
-        logger.error(f"Ошибка при открытии селектора месяцев: {e}")
-        await callback.answer(get_message('error_generic', language))
-# Неактивный хендлер
-@router.callback_query(F.data.startswith("calendar_select_specific_month:"))
-async def select_specific_month(callback: CallbackQuery, user, language: str):
-    """Выбор конкретного месяца"""
-    try:
-        parts = callback.data.split(":")
-        year = int(parts[1])
-        month = int(parts[2])
-        today = datetime.now()
-        current_day = today.day if today.month == month and today.year == year else 1
-        month_names_ru = [
-            "", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
-            "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"
-        ]
-        month_names_en = [
-            "", "January", "February", "March", "April", "May", "June",
-            "July", "August", "September", "October", "November", "December"
-        ]
-        month_names = month_names_ru if language == 'ru' else month_names_en
-        month_name = month_names[month] if 1 <= month <= 12 else ""
-        calendar_msg = get_message('archive_select_month', language).format(
-            month=month_name,
-            year=year
-        )
-        await callback.message.edit_text(
-            calendar_msg,
-            reply_markup=get_month_calendar_with_navigation(user, year, month, current_day, language)
-        )
-        await callback.answer()
-    except Exception as e:
         logger.error(f"Ошибка при выборе конкретного месяца: {e}")
-        await callback.answer(get_message('error_generic', language))
+        await safe_answer_callback(callback, get_message('error_generic', language))
 
 @router.callback_query(F.data.startswith("calendar_return_to_month:"))
 async def return_to_month(callback: CallbackQuery, user, language: str):
@@ -256,15 +235,7 @@ async def return_to_month(callback: CallbackQuery, user, language: str):
         user.current_calendar_month = month
         today = datetime.now()
         current_day = today.day if today.month == month and today.year == year else 1
-        month_names_ru = [
-            "", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
-            "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"
-        ]
-        month_names_en = [
-            "", "January", "February", "March", "April", "May", "June",
-            "July", "August", "September", "October", "November", "December"
-        ]
-        month_names = month_names_ru if language == 'ru' else month_names_en
+        month_names = MONTH_NAMES_RU if language == 'ru' else MONTH_NAMES_EN
         month_name = month_names[month] if 1 <= month <= 12 else ""
         from messages import get_message
         calendar_msg = get_message('archive_select_month', language).format(

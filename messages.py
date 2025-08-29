@@ -39,6 +39,22 @@ MESSAGES = {
         'voice_too_short': '🎙 Голосовое сообщение слишком короткое. Пожалуйста, отправь более длинное сообщение.',
         'text_too_long': '📝 Текст слишком длинный. Пожалуйста, сократи его до 5000 символов.',
         'invalid_input': '🤔 Не понял твое сообщение. Пожалуйста, отправь текст или голосовое сообщение.',
+        'invalid_input_type': "Пожалуйста, отправьте текстовое сообщение или голосовое сообщение.",
+        'text_too_short': "Текст слишком короткий. Пожалуйста, напишите немного больше.",
+        'text_too_long': "Текст слишком длинный. Пожалуйста, сократите его.",
+        'voice_too_short': "Голосовое сообщение слишком короткое. Пожалуйста, запишите более длинное сообщение.",
+        'voice_too_long': "Голосовое сообщение слишком длинное. Пожалуйста, запишите более короткое сообщение.",
+        'validation_error_text': "Ошибка при проверке текста. Попробуйте еще раз.",
+        'validation_error_voice': "Ошибка при проверке голосового сообщения. Попробуйте еще раз.",
+        'validation_error_message': "Ошибка при проверке сообщения. Попробуйте еще раз.",
+        'day_deleted_success': "🗑 День успешно удален.",
+        'entry_delete_cancelled': "Удаление отменено.",
+        'entry_deleted_success': "Запись удалена.",
+        'confirm_delete_entire_day_prompt': "❓ Вы уверены, что хотите удалить ВСЕ записи за {date}?",
+        'btn_confirm_delete_day': "✅ Да, удалить день",
+        'day_deleted_success': "🗑 День успешно удален.",
+        'confirm_delete_entry_prompt': "❓ Вы уверены, что хотите удалить эту запись?",
+
         
         # === Меню и навигация ===
         'main_menu': '''🧠 <b>Твой психологический дневник</b>
@@ -312,6 +328,26 @@ Let's start?''',
         'voice_too_short': '🎙 Voice message is too short. Please send a longer message.',
         'text_too_long': '📝 Text is too long. Please shorten it to 5000 characters.',
         'invalid_input': '🤔 I didn\'t understand your message. Please send text or voice message.',
+        'invalid_input_type': "Please send a text message or a voice message.",
+        'text_too_short': "The text is too short. Please write a bit more.",
+        'text_too_long': "The text is too long. Please shorten it.",
+        'voice_too_short': "The voice message is too short. Please record a longer message.",
+        'voice_too_long': "The voice message is too long. Please record a shorter message.",
+        'validation_error_text': "Error validating text. Please try again.",
+        'validation_error_voice': "Error validating voice message. Please try again.",
+        'validation_error_message': "Error validating message. Please try again.",
+        'confirm_delete_entire_day_prompt': "❓ Are you sure you want to delete ALL entries for {date}?",
+        'btn_confirm_delete_day': "✅ Yes, delete the day",
+        'day_deleted_success': "🗑 Day successfully deleted.",
+    
+        # Для подтверждения удаления конкретной записи
+        'confirm_delete_entry_prompt': "❓ Are you sure you want to delete this entry?",
+        # Для обработки удаления
+        'day_deleted_success': "🗑 Day successfully deleted.",
+        'entry_delete_cancelled': "Deletion cancelled.",
+        'entry_deleted_success': "Entry deleted.",
+        # Для навигации и ошибок редактирования
+        'invalid_input': "Invalid input. Please try again.",
         
         # === Menu and navigation ===
         'main_menu': '''🧠 <b>Your psychological diary</b>

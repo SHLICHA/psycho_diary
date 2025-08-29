@@ -150,3 +150,25 @@ BOT_SETTINGS = {
     'MESSAGE_EDIT_TIMEOUT': 300,       # таймаут для редактирования сообщений (сек)
     'DEFAULT_REPLY_TIMEOUT': 60,       # таймаут для ответов пользователя (сек)
 }
+
+# Названия месяцев для календаря
+MONTH_NAMES_RU = [
+    "", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+    "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"
+]
+
+MONTH_NAMES_EN = [
+    "", "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+]
+
+# Сокращенные названия месяцев для селектора
+MONTH_NAMES_SHORT_RU = [
+    "Янв", "Фев", "Мар", "Апр", "Май", "Июн",
+    "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"
+]
+
+MONTH_NAMES_SHORT_EN = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+]

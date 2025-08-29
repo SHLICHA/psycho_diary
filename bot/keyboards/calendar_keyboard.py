@@ -10,6 +10,7 @@ from calendar import monthrange
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from bot.services.diary_service import diary_service
+from core.constants import MONTH_NAMES_RU, MONTH_NAMES_EN, MONTH_NAMES_SHORT_RU, MONTH_NAMES_SHORT_EN
 from diary.models import DiaryEntry
 from messages import get_button_text, get_message
 
@@ -26,19 +27,10 @@ async def get_smart_calendar_keyboard(user, language: str) -> InlineKeyboardMark
     except Exception as e:
         return get_basic_calendar_keyboard(language)
 
-# TODO вынести месяцы в глобальную переменную
 async def get_month_calendar_with_navigation(user, year: int, month: int, current_day: int, language: str) -> InlineKeyboardMarkup:
     """Получение календаря месяца с навигацией"""
     buttons = []
-    month_names_ru = [
-        "", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
-        "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"
-    ]
-    month_names_en = [
-        "", "January", "February", "March", "April", "May", "June",
-        "July", "August", "September", "October", "November", "December"
-    ]
-    month_names = month_names_ru if language == 'ru' else month_names_en
+    month_names = MONTH_NAMES_RU if language == 'ru' else MONTH_NAMES_EN
     month_name = month_names[month] if 1 <= month <= 12 else ""
     header_buttons = [
         InlineKeyboardButton(
@@ -47,7 +39,7 @@ async def get_month_calendar_with_navigation(user, year: int, month: int, curren
         ),
         InlineKeyboardButton(
             text=f"{month_name} {year}",
-            callback_data="calendar_empty"  # Не активная кнопка
+            callback_data=f"calendar_quick_month:{year}:{month}"
         ),
         InlineKeyboardButton(
             text="▶️",
@@ -69,7 +61,7 @@ async def get_month_calendar_with_navigation(user, year: int, month: int, curren
     except Exception as e:
         logger.error(f"Ошибка при асинхронном получении дней с записями: {e}")
         days_with_entries = set()
-    first_day_weekday = date(year, month, 1).weekday()  # 0=понедельник
+    first_day_weekday = date(year, month, 1).weekday()
     days_in_month = monthrange(year, month)[1]
     day_buttons = []
     for i in range(first_day_weekday):
@@ -91,7 +83,6 @@ async def get_month_calendar_with_navigation(user, year: int, month: int, curren
             buttons.append(day_buttons)
             day_buttons = []
     if day_buttons:
-        # Добавляем пустые кнопки до конца недели
         while len(day_buttons) % 7 != 0:
             day_buttons.append(InlineKeyboardButton(text=" ", callback_data="calendar_empty"))
         buttons.append(day_buttons)
@@ -144,7 +135,6 @@ def get_year_selection_keyboard(current_year: int, language: str) -> InlineKeybo
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# TODO вынести месяцы в глобальную переменную. Реализовать
 def get_month_selection_keyboard(year: int, current_month: int, language: str) -> InlineKeyboardMarkup:
     """Клавиатура выбора месяца"""
     buttons = []
@@ -154,16 +144,14 @@ def get_month_selection_keyboard(year: int, current_month: int, language: str) -
             callback_data="calendar_empty"
         )
     ])
-    month_names_ru = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"]
-    month_names_en = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    month_names = month_names_ru if language == 'ru' else month_names_en
+    month_names_short = MONTH_NAMES_SHORT_RU if language == 'ru' else MONTH_NAMES_SHORT_EN
     for i in range(0, 12, 3):
         month_row = []
         for j in range(3):
             month_index = i + j + 1
             if month_index <= 12:
                 # Выделяем текущий месяц
-                month_text = f"🔹{month_names[month_index-1]}🔹" if month_index == current_month else month_names[month_index-1]
+                month_text = f"🔹{month_names_short[month_index-1]}🔹" if month_index == current_month else month_names_short[month_index-1]
                 month_row.append(
                     InlineKeyboardButton(
                         text=month_text,
@@ -180,7 +168,6 @@ def get_month_selection_keyboard(year: int, current_month: int, language: str) -
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# TODO вынести месяцы в глобальную переменную. Нужен? Сообщение en
 def get_basic_calendar_keyboard(language: str) -> InlineKeyboardMarkup:
     """Базовый календарь на случай ошибок"""
     buttons = []
@@ -197,11 +184,9 @@ def get_basic_calendar_keyboard(language: str) -> InlineKeyboardMarkup:
             callback_data=f"calendar_open_year_selector:{current_year}"
         )
     ])
-    month_names_ru = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"]
-    month_names_en = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    month_names = month_names_ru if language == 'ru' else month_names_en
+    month_names_short = MONTH_NAMES_SHORT_RU if language == 'ru' else MONTH_NAMES_SHORT_EN
     month_row = []
-    for i, month_name in enumerate(month_names, 1):
+    for i, month_name in enumerate( month_names_short, 1):
         month_row.append(
             InlineKeyboardButton(
                 text=month_name,

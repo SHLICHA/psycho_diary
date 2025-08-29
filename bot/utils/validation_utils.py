@@ -4,7 +4,10 @@
 
 import logging
 import re
+
 from typing import Optional, Tuple
+from aiogram.types import Message, ContentType
+
 from core.constants import (
     TEXT_MESSAGE_MAX_LENGTH,
     TEXT_MESSAGE_MIN_LENGTH,
@@ -32,21 +35,15 @@ def validate_text_entry(
     """
     try:
         if len(text.strip()) < min_length:
-            error_msg = f"Текст слишком короткий. Минимальная длина: {min_length} символов."
-            logger.warning(f"Текст слишком короткий: {len(text.strip())} символов")
-            return False, error_msg
+            return False, "text_too_short" 
         if len(text) > max_length:
-            error_msg = f"Текст слишком длинный. Максимальная длина: {max_length} символов."
-            logger.warning(f"Текст слишком длинный: {len(text)} символов")
-            return False, error_msg
+            return False, "text_too_long"
         if not text.strip():
-            error_msg = "Текст записи пустой."
-            logger.warning("Получена пустая запись")
-            return False, error_msg
+            return False, "invalid_input"
         return True, None
     except Exception as e:
         logger.error(f"Ошибка при валидации текстовой записи: {e}")
-        return False, "Ошибка валидации текстовой записи."
+        return False, "validation_error_text"
 
 def validate_voice_entry(
     duration: int,
@@ -66,17 +63,41 @@ def validate_voice_entry(
     """
     try:
         if duration < min_duration:
-            error_msg = f"Голосовое сообщение слишком короткое. Минимальная длительность: {min_duration} секунд."
-            logger.warning(f"Голосовое сообщение слишком короткое: {duration} секунд")
-            return False, error_msg
+            return False, "voice_too_short"
         if duration > max_duration:
-            error_msg = f"Голосовое сообщение слишком длинное. Максимальная длительность: {max_duration} секунд."
-            logger.warning(f"Голосовое сообщение слишком длинное: {duration} секунд")
-            return False, error_msg
+            return False, "voice_too_long"
         return True, None
     except Exception as e:
         logger.error(f"Ошибка при валидации голосовой записи: {e}")
-        return False, "Ошибка валидации голосовой записи."
+        return False, "validation_error_voice"
+
+def validate_incoming_message(message: Message) -> Tuple[bool, Optional[str]]:
+    """
+    Валидация входящего сообщения (текст или голос).
+    
+    Args:
+        message: Входящее сообщение aiogram
+        
+    Returns:
+        Tuple[bool, Optional[str]]: (валидность, код сообщения об ошибке)
+    """
+    try:
+        if message.content_type == ContentType.TEXT:
+            is_valid, error_code = validate_text_entry(message.text)
+            return is_valid, error_code
+        elif message.content_type == ContentType.VOICE:
+            voice = message.voice
+            if not voice:
+                logger.warning("Получено сообщение типа VOICE, но объект voice отсутствует.")
+                return False, "invalid_input"
+            is_valid, error_code = validate_voice_entry(voice.duration)
+            return is_valid, error_code
+        else:
+            logger.warning(f"Получен недопустимый тип сообщения: {message.content_type}")
+            return False, "invalid_input_type"
+    except Exception as e:
+        logger.error(f"Ошибка при валидации входящего сообщения: {e}")
+        return False, "validation_error_message"
 
 def validate_user_input(
     input_text: str,
