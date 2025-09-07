@@ -3,10 +3,12 @@
 """
 
 import logging
-from typing import Optional, Union
+from typing import Optional, Union, Callable, Any, Awaitable
 from aiogram import Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.exceptions import TelegramBadRequest
+
+from bot.utils.callback_utils import is_message_not_modified_error 
 from messages import get_message
 
 logger = logging.getLogger(__name__)
@@ -95,77 +97,74 @@ async def safe_edit_message_text(
 ) -> bool:
     """
     Безопасное редактирование текста и клавиатуры сообщения с обработкой ошибок.
-    
+
     Args:
-        message: Сообщение для редактирования
-        text: Новый текст сообщения
-        reply_markup: Новая клавиатура сообщения
-        
+        message: Сообщение для редактирования.
+        text: Новый текст сообщения.
+        reply_markup: Новая клавиатура сообщения.
+
     Returns:
-        bool: Успешность редактирования (True, даже если ничего не изменилось)
+        bool: Успешность редактирования (True, даже если ничего не изменилось).
     """
     text_changed = (message.text != text)
     
-    try:
-        if text_changed:
-            await message.edit_text(
-                text=text,
-                reply_markup=reply_markup
+    if text_changed:
+        success, _, _ = await safe_telegram_call(
+            message.edit_text, 
+            text=text, 
+            reply_markup=reply_markup,
+            operation_name=f"edit_text (message_id={message.message_id})"
+        )
+        return success
+    else:
+        try:
+            success, _, error = await safe_telegram_call(
+                message.edit_reply_markup,
+                reply_markup=reply_markup,
+                operation_name=f"edit_reply_markup (message_id={message.message_id})"
             )
-            return True
-        else:
-            try:
-                # Пытаемся обновить клавиатуру
-                await message.edit_reply_markup(reply_markup=reply_markup)
-                return True
-            except TelegramBadRequest as keyboard_error:
-                error_message = str(keyboard_error).lower()
-                if "message is not modified" in error_message:
-                    return True
-                else:
-                    logger.warning(f"Не удалось обновить клавиатуру: {keyboard_error}")
-                    await message.edit_text(text=text, reply_markup=reply_markup)
-                    return True
-            except Exception as keyboard_error_general:
-                logger.warning(f"Общая ошибка при обновлении клавиатуры: {keyboard_error_general}")
-                await message.edit_text(text=text, reply_markup=reply_markup)
-                logger.warning("Сообщение полностью отредактировано из-за ошибки клавиатуры")
-                return True
-                
-    except TelegramBadRequest as e_bad_request:
-        error_message = str(e_bad_request).lower()
-        if "message is not modified" in error_message:
-            logger.info(f"Сообщение {message.message_id} в конечном итоге не было изменено: {e_bad_request}")
-            return True
-        else:
-            logger.error(f"TelegramBadRequest при редактировании сообщения {message.message_id}: {e_bad_request}")
-            return False
-    except Exception as e:
-        logger.error(f"Ошибка при безопасном редактировании сообщения {message.message_id}: {e}")
-        return False
+            if success or (error and is_message_not_modified_error(error)):
+                 return True
+            else:
+                 logger.warning(f"Не удалось обновить клавиатуру: {error}. Пробуем отредактировать всё сообщение.")
+                 success_full_edit, _, _ = await safe_telegram_call(
+                     message.edit_text,
+                     text=text,
+                     reply_markup=reply_markup,
+                     operation_name=f"edit_text (fallback, message_id={message.message_id})"
+                 )
+                 return success_full_edit
+        except Exception as general_error:
+            logger.error(f"Общая ошибка при попытке обновить клавиатуру: {general_error}")
+            # В случае любой ошибки при обновлении клавиатуры, редактируем всё сообщение
+            success_fallback, _, _ = await safe_telegram_call(
+                message.edit_text,
+                text=text,
+                reply_markup=reply_markup,
+                operation_name=f"edit_text (general fallback, message_id={message.message_id})"
+            )
+            return success_fallback
 
 async def safe_edit_message_reply_markup(
     message: Message,
     reply_markup=None
 ) -> bool:
     """
-    Безопасное редактирование клавиатуры сообщения
-    
+    Безопасное редактирование клавиатуры сообщения.
+
     Args:
-        message: Сообщение для редактирования клавиатуры
-        reply_markup: Новая клавиатура сообщения
-        
+        message: Сообщение для редактирования клавиатуры.
+        reply_markup: Новая клавиатура сообщения.
+
     Returns:
-        bool: Успешность редактирования клавиатуры
+        bool: Успешность редактирования клавиатуры.
     """
-    try:
-        await message.edit_reply_markup(
-            reply_markup=reply_markup
-        )
-        return True
-    except Exception as e:
-        logger.error(f"Ошибка при редактировании клавиатуры: {e}")
-        return False
+    success, _, _ = await safe_telegram_call(
+        message.edit_reply_markup,
+        reply_markup=reply_markup,
+        operation_name=f"edit_reply_markup (message_id={message.message_id})"
+    )
+    return success
 
 async def send_processing_message(
     bot: Bot,
@@ -219,6 +218,44 @@ async def update_processing_message(
     except Exception as e:
         logger.error(f"Ошибка при обновлении сообщения об обработке: {e}")
         return False
+
+async def safe_telegram_call(
+    operation: Callable[..., Awaitable[Any]], 
+    *args, 
+    operation_name: str = "Telegram operation",
+    **kwargs
+) -> tuple[bool, Optional[Any], Optional[Exception]]:
+    """
+    Безопасно выполняет асинхронный вызов Telegram API, обрабатывая 
+    специфичные ошибки, такие как "message is not modified".
+
+    Args:
+        operation: Асинхронная функция для вызова (например, message.edit_text).
+        *args: Позиционные аргументы для функции operation.
+        operation_name: Имя операции для логирования.
+        **kwargs: Именованные аргументы для функции operation.
+
+    Returns:
+        tuple[bool, Optional[Any], Optional[Exception]]: 
+            Кортеж из (успех, результат или None, исключение или None).
+            Успех будет False только для критических ошибок, 
+            не включая "message is not modified".
+    """
+    try:
+        logger.debug(f"Выполнение операции: {operation_name}")
+        result = await operation(*args, **kwargs)
+        logger.debug(f"Операция '{operation_name}' выполнена успешно.")
+        return True, result, None
+
+    except Exception as e:
+        if is_message_not_modified_error(e):
+            logger.info(f"Операция '{operation_name}' не выполнена, так как сообщение не изменилось. Это не ошибка.")
+            # Возвращаем True, так как это не критическая ошибка
+            return True, None, e 
+        else:
+            logger.error(f"Ошибка при выполнении операции '{operation_name}': {e}")
+            # Возвращаем False для критических ошибок
+            return False, None, e
 
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
 

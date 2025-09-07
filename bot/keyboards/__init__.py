@@ -19,11 +19,12 @@ from .calendar_keyboard import (
     get_entry_view_keyboard,
     get_basic_calendar_keyboard,
     get_calendar_back_keyboard,
-    get_confirm_delete_entry_keyboard,
     get_back_to_edit_day_keyboard,
     get_day_entries_edit_keyboard,
-    get_confirm_delete_keyboard,
-    format_entry_text_for_editing
+    get_confirmation_keyboard,
+    format_entry_text_for_editing,
+    get_delete_confirmation_keyboard,
+    get_delete_entry_confirmation_keyboard
 )
 
 # Универсальные клавиатуры
@@ -51,7 +52,11 @@ from .tasks_keyboard import (
     get_task_detail_keyboard,
     get_task_completion_keyboard,
     get_task_pagination_keyboard,
-    get_confirm_delete_task_keyboard
+    get_confirm_delete_task_keyboard,
+    get_task_history_main_keyboard,
+    get_task_history_list_keyboard,
+    get_task_history_detail_keyboard,
+    get_task_main_menu_keyboard
 )
 
 __all__ = [
@@ -94,5 +99,9 @@ __all__ = [
     'get_task_detail_keyboard',
     'get_task_actions_keyboard',
     'get_task_completion_keyboard',
-    'get_task_pagination_keyboard'
+    'get_task_pagination_keyboard',
+    'get_task_history_main_keyboard',
+    'get_task_history_list_keyboard',
+    'get_task_history_detail_keyboard',
+    'get_task_main_menu_keyboard'
 ]

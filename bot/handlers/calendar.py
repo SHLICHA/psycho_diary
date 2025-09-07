@@ -12,7 +12,7 @@ from datetime import datetime, date
 
 from messages import get_message
 from diary.models import PsychoAnalysis
-
+from bot.utils.calendar_utils import update_calendar_display
 from core.constants import MONTH_NAMES_RU, MONTH_NAMES_EN
 from bot.keyboards import (
     get_month_calendar_with_navigation,
@@ -55,40 +55,26 @@ async def prev_month(callback: CallbackQuery, user, language: str):
         parts = callback.data.split(":")
         year = int(parts[1])
         month = int(parts[2])
-        prev_month = month - 1
+        prev_month_num = month - 1
         prev_year = year
-        if prev_month < 1:
-            prev_month = 12
+        if prev_month_num < 1:
+            prev_month_num = 12
             prev_year = year - 1  
-        today = datetime.now()
-        current_day = today.day if today.month == prev_month and today.year == prev_year else 1
-        month_names = MONTH_NAMES_RU if language == 'ru' else MONTH_NAMES_EN
-        month_name = month_names[prev_month] if 1 <= prev_month <= 12 else ""
         
-        calendar_msg = get_message('archive_select_month', language).format(
-            month=month_name,
-            year=prev_year
+        target_date = date(prev_year, prev_month_num, 1)
+        
+        success = await update_calendar_display(
+            message=callback.message,
+            user=user,
+            target_date=target_date,
+            language=language
         )
-        if callback.message.text != calendar_msg:
-            await safe_edit_message_text(
-                message=callback.message,
-                text=calendar_msg,
-                reply_markup=await get_month_calendar_with_navigation(user, prev_year, prev_month, current_day, language)
-            )
-        else:
-            try:
-                await callback.message.edit_reply_markup(
-                    reply_markup=get_month_calendar_with_navigation(user, prev_year, prev_month, current_day, language)
-                )
-            except Exception as keyboard_error:
-                logger.warning(f"Не удалось обновить клавиатуру: {keyboard_error}")
-                await safe_edit_message_text(
-                    message=callback.message,
-                    text=calendar_msg,
-                    reply_markup=get_month_calendar_with_navigation(user, prev_year, prev_month, current_day, language)
-                )
         
-        await safe_answer_callback(callback, "")
+        if success:
+            await safe_answer_callback(callback, "")
+        else:
+            await safe_answer_callback(callback, get_message('error_generic', language))
+
     except Exception as e:
         logger.error(f"Ошибка при переходе к предыдущему месяцу: {e}")
         await safe_answer_callback(callback, get_message('error_generic', language))
@@ -100,21 +86,26 @@ async def next_month(callback: CallbackQuery, user, language: str):
         parts = callback.data.split(":")
         year = int(parts[1])
         month = int(parts[2])
-        next_month = month + 1
+        next_month_num = month + 1
         next_year = year
-        if next_month > 12:
-            next_month = 1
+        if next_month_num > 12:
+            next_month_num = 1
             next_year = year + 1
-        today = datetime.now()
-        current_day = today.day if today.month == next_month and today.year == next_year else 1
+            
+        target_date = date(next_year, next_month_num, 1)
         
-        calendar_msg = get_message('archive_menu', language)
-        await safe_edit_message_text(
+        success = await update_calendar_display(
             message=callback.message,
-            text=calendar_msg,
-            reply_markup=await get_month_calendar_with_navigation(user, next_year, next_month, current_day, language)
+            user=user,
+            target_date=target_date,
+            language=language
         )
-        await safe_answer_callback(callback, "")
+        
+        if success:
+            await safe_answer_callback(callback, "")
+        else:
+            await safe_answer_callback(callback, get_message('error_generic', language))
+
     except Exception as e:
         logger.error(f"Ошибка при переходе к следующему месяцу: {e}")
         await safe_answer_callback(callback, get_message('error_generic', language))
@@ -140,8 +131,8 @@ async def select_year(callback: CallbackQuery, user, language: str):
     """Выбор года - показываем календарь выбранного года"""
     try:
         year = int(callback.data.split(":")[1])
-        today = datetime.now()
-        current_day = today.day if today.year == year and today.month == 1 else 1
+        user_local_date = user.get_local_datetime().date()
+        current_day = user_local_date.day if user_local_date.year == year and user_local_date.month == 1 else 1
         calendar_msg = get_message('archive_menu', language)
         await callback.message.edit_text(
             calendar_msg,
@@ -204,21 +195,21 @@ async def select_specific_month(callback: CallbackQuery, user, language: str):
              raise ValueError("Некорректный формат callback_data для calendar_select_specific_month")
         year = int(parts[1])
         month = int(parts[2])
-        today = datetime.now()
-        current_day = today.day if today.month == month and today.year == year else 1
         
-        month_names = MONTH_NAMES_RU if language == 'ru' else MONTH_NAMES_EN
-        month_name = month_names[month] if 1 <= month <= 12 else ""
-        calendar_msg = get_message('archive_select_month', language).format(
-            month=month_name,
-            year=year
-        )
-        await safe_edit_message_text(
+        target_date = date(year, month, 1)
+        
+        success = await update_calendar_display(
             message=callback.message,
-            text=calendar_msg,
-            reply_markup=await get_month_calendar_with_navigation(user, year, month, current_day, language)
+            user=user,
+            target_date=target_date,
+            language=language
         )
-        await safe_answer_callback(callback, "")
+        
+        if success:
+            await safe_answer_callback(callback, "")
+        else:
+            await safe_answer_callback(callback, get_message('error_generic', language))
+
     except Exception as e:
         logger.error(f"Ошибка при выборе конкретного месяца: {e}")
         await safe_answer_callback(callback, get_message('error_generic', language))
@@ -231,23 +222,27 @@ async def return_to_month(callback: CallbackQuery, user, language: str):
         year = int(parts[1])
         month = int(parts[2])
         logger.info(f"Возврат к календарю: {month}.{year}")
+        
+        # Обновляем состояние пользователя (если это нужно для других частей системы)
         user.current_calendar_year = year
         user.current_calendar_month = month
-        today = datetime.now()
-        current_day = today.day if today.month == month and today.year == year else 1
-        month_names = MONTH_NAMES_RU if language == 'ru' else MONTH_NAMES_EN
-        month_name = month_names[month] if 1 <= month <= 12 else ""
-        from messages import get_message
-        calendar_msg = get_message('archive_select_month', language).format(
-            month=month_name,
-            year=year
-        )
-        await safe_edit_message_text(
+        # await sync_to_async(user.save)(update_fields=['current_calendar_year', 'current_calendar_month'])
+        # Или используйте асинхронный сервис, если он есть
+        
+        target_date = date(year, month, 1)
+        
+        success = await update_calendar_display(
             message=callback.message,
-            text=calendar_msg,
-            reply_markup=await get_month_calendar_with_navigation(user, year, month, current_day, language)
+            user=user,
+            target_date=target_date,
+            language=language
         )
-        await safe_answer_callback(callback, "")
+        
+        if success:
+            await safe_answer_callback(callback, "")
+        else:
+            await safe_answer_callback(callback, get_message('error_generic', language))
+
     except Exception as e:
         logger.error(f"Ошибка при возврате к календарю: {e}")
         await safe_answer_callback(callback, get_message('error_generic', language))

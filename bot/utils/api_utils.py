@@ -5,7 +5,7 @@
 import logging
 import asyncio
 import functools
-from typing import Any, Callable, Awaitable
+from typing import Any, Callable, Dict, Awaitable, Tuple
 from functools import wraps
 
 logger = logging.getLogger(__name__)
@@ -138,23 +138,61 @@ async def safe_api_call(
     **kwargs
 ) -> Any:
     """
-    Безопасный вызов API функции с обработкой ошибок
+    Безопасный вызов API функции с обработкой ошибок.
     
     Args:
-        api_func: Функция API для вызова
-        *args: Аргументы функции
-        **kwargs: Именованные аргументы функции
+        api_func: Функция API для вызова.
+        *args: Аргументы функции.
+        **kwargs: Именованные аргументы функции.
         
     Returns:
-        Any: Результат вызова API функции
+        Any: Результат вызова API функции или None в случае ошибки.
     """
+    logger.info(f"Безопасный вызов API функции {api_func.__name__}")
+    
     try:
+        # === ВАЖНО: УБИРАЕМ ВНУТРЕННИЙ retry ИЗ ЭТОЙ ФУНКЦИИ ===
+        # retry логика будет в retry_api_call
         result = await api_func(*args, **kwargs)
         logger.info(f"API функция {api_func.__name__} выполнена успешно")
         return result
-    except Exception as e:
-        logger.error(f"Ошибка при безопасном вызове API функции {api_func.__name__}: {e}")
-        return None
+        
+    except asyncio.TimeoutError as timeout_error:
+        logger.error(f"Таймаут API вызова в функции {api_func.__name__}: {timeout_error}")
+        # Возвращаем структурированную ошибку, как в handle_api_error
+        return {
+            'success': False,
+            'error': 'timeout',
+            'message': 'Превышено время ожидания ответа от API',
+            'result': None
+        }
+        
+    except ConnectionError as connection_error:
+        logger.error(f"Ошибка подключения к API в функции {api_func.__name__}: {connection_error}")
+        return {
+            'success': False,
+            'error': 'connection_error',
+            'message': 'Ошибка подключения к API',
+            'result': None
+        }
+        
+    except ValueError as value_error:
+        logger.error(f"Ошибка значения в API вызове функции {api_func.__name__}: {value_error}")
+        return {
+            'success': False,
+            'error': 'value_error',
+            'message': 'Ошибка в данных API вызова',
+            'result': None
+        }
+        
+    except Exception as general_error:
+        logger.error(f"Общая ошибка API вызова в функции {api_func.__name__}: {general_error}")
+        return {
+            'success': False,
+            'error': 'general_error',
+            'message': 'Произошла ошибка при вызове API',
+            'result': None
+        }
 
 async def retry_api_call(
     api_func: Callable[..., Awaitable[Any]], 
@@ -164,44 +202,65 @@ async def retry_api_call(
     **kwargs
 ) -> Any:
     """
-    Retry вызов API функции
+    Retry вызов API функции с использованием safe_api_call для обработки каждой попытки.
     
     Args:
-        api_func: Функция API для вызова
-        max_attempts: Максимальное количество попыток
-        delay: Задержка между попытками (секунды)
-        *args: Аргументы функции
-        **kwargs: Именованные аргументы функции
+        api_func: Функция API для вызова.
+        max_attempts: Максимальное количество попыток.
+        delay: Задержка между попытками (секунды).
+        *args: Аргументы функции.
+        **kwargs: Именованные аргументы функции.
         
     Returns:
-        Any: Результат вызова API функции
+        Any: Результат вызова API функции (успешный или последняя ошибка из safe_api_call).
     """
     logger.info(f"Retry вызов API функции {api_func.__name__}")
     logger.info(f"Максимальное количество попыток: {max_attempts}")
     logger.info(f"Задержка между попытками: {delay} секунд")
     
-    last_exception = None
+    last_result = None
     
     for attempt in range(max_attempts):
         try:
             logger.info(f"Попытка {attempt + 1}/{max_attempts}")
-            result = await api_func(*args, **kwargs)
-            logger.info(f"API функция {api_func.__name__} выполнена успешно на попытке {attempt + 1}")
-            return result
+            # === ИСПОЛЬЗУЕМ safe_api_call ДЛЯ КАЖДОЙ ПОПЫТКИ ===
+            result = await safe_api_call(api_func, *args, **kwargs)
             
-        except Exception as e:
-            last_exception = e
-            logger.warning(f"Попытка {attempt + 1} не удалась: {e}")
+            # Проверяем, является ли результат ошибкой от safe_api_call
+            # safe_api_call возвращает словарь с 'success': False в случае ошибки
+            if isinstance(result, dict) and result.get('success') is False:
+                last_result = result # Сохраняем последний результат ошибки
+                logger.warning(f"Попытка {attempt + 1} завершилась ошибкой API: {result.get('error')} - {result.get('message')}")
+                
+                if attempt < max_attempts - 1:
+                    logger.info(f"Ожидание {delay} секунд перед следующей попыткой...")
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(f"Все {max_attempts} попыток неудачны. Возвращается последняя ошибка.")
+                    # Возвращаем последнюю ошибку от safe_api_call
+                    return last_result 
+            else:
+                # Успешный результат (не словарь ошибки)
+                logger.info(f"API функция {api_func.__name__} выполнена успешно на попытке {attempt + 1}")
+                return result
+                
+        except Exception as e: # На случай непредвиденных ошибок вне safe_api_call
+            last_result = e
+            logger.warning(f"Попытка {attempt + 1} не удалась с неожиданной ошибкой: {e}")
             
             if attempt < max_attempts - 1:
                 logger.info(f"Ожидание {delay} секунд перед следующей попыткой...")
                 await asyncio.sleep(delay)
             else:
-                logger.error(f"Все {max_attempts} попыток неудачны")
-                raise last_exception
-    if last_exception:
+                logger.error(f"Все {max_attempts} попыток неудачны из-за неожиданных ошибок.")
+                # Перевыбрасываем последнее исключение
+                raise last_result
+            
+    # Этот return теоретически недостижим, но оставим для полноты
+    if last_result:
         logger.error(f"Retry механизм исчерпан для API функции {api_func.__name__}")
-        raise last_exception
+        raise last_result if isinstance(last_result, Exception) else Exception(f"Retry failed, last result: {last_result}")
+
 
 # Удобные функции для использования
 def get_api_error_message(error_code: str, language: str = 'ru') -> str:
@@ -254,3 +313,123 @@ def get_api_error_message(error_code: str, language: str = 'ru') -> str:
     
     logger.info(f"Сообщение об ошибке получено: {error_message}")
     return error_message
+
+def format_api_error_for_analysis(
+    analysis_result: Dict[str, Any], 
+    language: str, 
+    is_final: bool = False
+) -> Tuple[str, str, str, str]:
+    """
+    Форматирует сообщения об ошибках API на основе результата анализа,
+    специфичных для процесса анализа записей дневника.
+
+    Args:
+        analysis_result (Dict[str, Any]): Результат анализа от API сервиса.
+        language (str): Код языка для локализации сообщений.
+        is_final (bool): Флаг, указывающий, является ли это финальный анализ (после уточнений).
+
+    Returns:
+        Tuple[str, str, str, str]: Кортеж из 
+            (comment, recommendation, analysis_text, log_message).
+            - comment: Сообщение комментария для PsychoAnalysis.
+            - recommendation: Рекомендация для PsychoAnalysis.
+            - analysis_text: Текст анализа для PsychoAnalysis.
+            - log_message: Сообщение для логирования.
+    """
+    try:
+        default_comment = f'Анализ записан (ошибка {"финального " if is_final else ""}API)'
+        default_recommendation = 'Попробуйте позже'
+        default_analysis_text = f"{'Финальный ' if is_final else ''}Анализ не доступен из-за ошибки API"
+        default_log_message = f"Ошибка {'финального ' if is_final else ''}анализа API"
+        if not analysis_result:
+            logger.warning("Пустой результат анализа передан в format_api_error_for_analysis.")
+            return (
+                default_comment,
+                default_recommendation,
+                default_analysis_text,
+                default_log_message + ": Пустой результат"
+            )
+        success = analysis_result.get('success', False)
+        if success:
+            logger.warning("Функция format_api_error_for_analysis вызвана для успешного результата.")
+            return (
+                "Анализ записан", # comment
+                "Продолжайте вести дневник", # recommendation
+                "Текст проанализирован.", # analysis_text
+                "Предупреждение: format_api_error_for_analysis вызван для успешного результата" # log_message
+            )
+        error_type = analysis_result.get('error', 'unknown')
+        error_message = get_api_error_message(error_type, language) 
+        error_messages_ru = {
+            'timeout': 'Превышено время ожидания ответа от API',
+            'connection_error': 'Ошибка подключения к API',
+            'value_error': 'Ошибка в данных API вызова',
+            'general_error': 'Произошла ошибка при вызове API',
+            'speechkit_error': 'Ошибка Yandex SpeechKit API',
+            'deepseek_error': 'Ошибка DeepSeek API',
+            'unknown': 'Неизвестная ошибка API',
+            'api_key_missing': 'API ключ не настроен',
+            'api_key_invalid': 'Неверный API ключ',
+            'rate_limit': 'Превышен лимит запросов к API',
+            'invalid_request': 'Неверный запрос к API',
+            'server_error': 'Ошибка сервера API',
+            'service_unavailable': 'Сервис API недоступен'
+        }
+        error_messages_en = {
+            'timeout': 'API response timeout exceeded',
+            'connection_error': 'API connection error',
+            'value_error': 'API call data error',
+            'general_error': 'An error occurred during API call',
+            'speechkit_error': 'Yandex SpeechKit API error',
+            'deepseek_error': 'DeepSeek API error',
+            'unknown': 'Unknown API error',
+            'api_key_missing': 'API key not configured',
+            'api_key_invalid': 'Invalid API key',
+            'rate_limit': 'API request limit exceeded',
+            'invalid_request': 'Invalid API request',
+            'server_error': 'API server error',
+            'service_unavailable': 'API service unavailable'
+        }
+        error_messages = error_messages_ru if language == 'ru' else error_messages_en
+        if error_type == 'timeout':
+            comment = f'Анализ записан (превышено время ожидания {"финального " if is_final else ""}API)'
+            analysis_text_suffix = f" из-за таймаута API."
+        elif error_type == 'connection_error':
+            comment = f'Анализ записан (ошибка подключения {"финального " if is_final else ""}API)'
+            analysis_text_suffix = f" из-за ошибки подключения к API."
+        elif error_type == 'value_error':
+            comment = f'Анализ записан (ошибка данных {"финального " if is_final else ""}API)'
+            analysis_text_suffix = f" из-за ошибки в данных, отправленных в API."
+        elif error_type in ['speechkit_error', 'deepseek_error']:
+            service_name = "Yandex SpeechKit" if error_type == 'speechkit_error' else "DeepSeek API"
+            comment = f'Анализ записан (ошибка {service_name})'
+            analysis_text_suffix = f" из-за ошибки {service_name}."
+        elif error_type == 'rate_limit':
+            comment = f'Анализ записан (превышен лимит запросов {"финального " if is_final else ""}API)'
+            analysis_text_suffix = f" из-за превышения лимита запросов к API."
+        elif error_type == 'invalid_request':
+            comment = f'Анализ записан (некорректный запрос {"финального " if is_final else ""}API)'
+            analysis_text_suffix = f" из-за некорректного запроса к API."
+        elif error_type == 'server_error':
+            comment = f'Анализ записан (ошибка сервера {"финального " if is_final else ""}API)'
+            analysis_text_suffix = f" из-за внутренней ошибки сервера API."
+        elif error_type == 'service_unavailable':
+            comment = f'Анализ записан (сервис {"финального " if is_final else ""}API недоступен)'
+            analysis_text_suffix = f", так как сервис API временно недоступен."
+        else:
+            comment = f'Анализ записан (неизвестная ошибка {"финального " if is_final else ""}API)'
+            analysis_text_suffix = f" из-за неизвестной ошибки API."
+        recommendation = 'Попробуйте позже'
+        analysis_text = f"{'Финальный ' if is_final else ''}Анализ не доступен{analysis_text_suffix}"
+        specific_error_desc = analysis_result.get('message', error_messages.get(error_type, 'Неизвестная ошибка'))
+        log_message = f"Ошибка {'финального ' if is_final else ''}API [{error_type}]: {specific_error_desc}"
+        logger.error(log_message)
+        return (comment, recommendation, analysis_text, log_message)
+    except Exception as e:
+        logger.error(f"Критическая ошибка в format_api_error_for_analysis: {e}", exc_info=True)
+        return (
+            default_comment,
+            default_recommendation,
+            default_analysis_text + " (критическая ошибка в обработчике ошибок)",
+            default_log_message + f" (критическая ошибка в обработчике): {e}"
+        )

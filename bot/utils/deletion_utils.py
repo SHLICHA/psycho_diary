@@ -3,429 +3,293 @@
 """
 
 import logging
+
+from asgiref.sync import sync_to_async
 from django.db import transaction
+from typing import Callable, Any, Optional, Type, List
+from django.db.models import QuerySet, Model
+
 from diary.models import DiaryEntry, PsychoAnalysis, TaskCompletion, TherapyTask
 from users.models import User
 
 logger = logging.getLogger(__name__)
 
-async def delete_entry_safe(
-    entry_id: int,
-    user: User
-) -> bool:
+async def _delete_related_objects(
+    main_object,
+    related_attributes: List[str],
+    pre_delete_hook: Optional[Callable[[Any], None]] = None,
+    post_delete_hook: Optional[Callable[[Any], None]] = None
+):
     """
-    Безопасное удаление записи дневника
+    Универсальная функция для удаления связанных объектов.
     
     Args:
-        entry_id: ID записи
-        user: Пользователь
-        
-    Returns:
-        bool: Успешность удаления
+        main_object: Основной объект, у которого удаляются связанные данные.
+        related_attributes: Список строк - названий атрибутов (related_name) или свойств объекта,
+                            которые представляют связанные объекты или QuerySet'ы.
+        pre_delete_hook: (Опционально) Функция, вызываемая перед удалением каждого связанного объекта/QuerySet'а.
+                         Принимает сам объект/QuerySet.
+        post_delete_hook: (Опционально) Функция, вызываемая после удаления каждого связанного объекта/QuerySet'а.
+                          Принимает сам объект/QuerySet.
     """
-    logger.info(f"Безопасное удаление записи {entry_id} пользователя {user.telegram_id}")
-    
-    try:
-        # Получаем запись с проверкой владельца
+    for attr_name in related_attributes:
         try:
-            entry = await DiaryEntry.objects.aget(
-                id=entry_id,
-                user=user
-            )
-            logger.info(f"Запись найдена: {entry.text[:50]}...")
-        except DiaryEntry.DoesNotExist:
-            logger.warning(f"Запись {entry_id} не найдена или не принадлежит пользователю {user.telegram_id}")
-            return False
-        
-        # Удаляем запись и связанные данные в транзакции
-        async with transaction.atomic():
-            # Удаляем связанные данные
-            await _delete_related_data(entry)
+            related_data = getattr(main_object, attr_name, None)
+            if related_data is None:
+                logger.debug(f"    Атрибут {attr_name} отсутствует или равен None. Пропущено.")
+                continue
+            if pre_delete_hook:
+                try:
+                    pre_delete_hook(related_data)
+                except Exception as hook_error:
+                    logger.warning(f"    Ошибка в pre_delete_hook для {attr_name}: {hook_error}")
+            if hasattr(related_data, 'delete') and callable(getattr(related_data, 'delete')):
+                logger.debug(f"    Удаление связанного объекта {type(related_data).__name__}...")
+                if hasattr(related_data, 'adelete'):
+                     await related_data.adelete()
+                else:
+                     await sync_to_async(related_data.delete)()
+            elif isinstance(related_data, QuerySet):
+                logger.debug(f"    Удаление объектов из QuerySet {related_data.model.__name__}...")
+                # Считаем количество для лога
+                count = await related_data.acount()
+                if count > 0:
+                    logger.debug(f"    Найдено {count} объектов для удаления из {related_data.model.__name__}.")
+                    # Удаляем все объекты в QuerySet
+                    # Для QuerySet'ов используем adelete()
+                    deleted_count, _ = await related_data.adelete()
+                    logger.debug(f"    Удалено {deleted_count} объектов из {related_data.model.__name__}.")
+                else:
+                    logger.debug(f"    Нет объектов для удаления из {related_data.model.__name__}.")
             
-            # Удаляем саму запись
-            await entry.adelete()
-            
-        logger.info(f"Запись {entry_id} успешно удалена")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Ошибка при безопасном удалении записи {entry_id}: {e}")
-        return False
+            # 3. Случай, когда related_data - это асинхронный менеджер (например, entry.key_points)
+            #    У таких менеджеров обычно есть метод all(), который возвращает QuerySet
+            elif hasattr(related_data, 'all'):
+                 try:
+                     related_queryset = related_data.all()
+                     if isinstance(related_queryset, QuerySet):
+                         logger.debug(f"    Удаление объектов через асинхронный менеджер {attr_name}...")
+                         count = await related_queryset.acount()
+                         if count > 0:
+                             logger.debug(f"    Найдено {count} объектов для удаления через {attr_name}.")
+                             deleted_count, _ = await related_queryset.adelete()
+                             logger.debug(f"    Удалено {deleted_count} объектов через {attr_name}.")
+                         else:
+                             logger.debug(f"    Нет объектов для удаления через {attr_name}.")
+                 except Exception as manager_error:
+                     logger.error(f"    Ошибка при работе с асинхронным менеджером {attr_name}: {manager_error}")
 
-async def _delete_related_data(entry: DiaryEntry):
+            else:
+                logger.warning(f"    Неизвестный тип связанных данных для атрибута {attr_name}: {type(related_data)}. Пропущено.")
+
+            # Вызываем post-delete hook, если он задан
+            if post_delete_hook:
+                try:
+                    post_delete_hook(related_data)
+                except Exception as hook_error:
+                    logger.warning(f"    Ошибка в post_delete_hook для {attr_name}: {hook_error}")
+
+        except Exception as e:
+            # Логируем ошибку, но продолжаем удалять другие связи
+            logger.error(f"Ошибка при удалении связанных данных '{attr_name}' для объекта {type(main_object).__name__} ID {getattr(main_object, 'id', 'N/A')}: {e}")
+
+
+# ==================== УНИВЕРСАЛЬНАЯ ФУНКЦИЯ ДЛЯ УДАЛЕНИЯ ДАННЫХ ПОЛЬЗОВАТЕЛЯ ====================
+
+async def _delete_user_data_by_model(
+    user,
+    model_class: Type[Model], # Класс модели, объекты которой нужно удалить
+    filter_kwargs: Optional[dict] = None, # Дополнительные фильтры для QuerySet'а
+    pre_delete_hook: Optional[Callable[[QuerySet], None]] = None, # Хук перед удалением QuerySet'а
+    post_delete_hook: Optional[Callable[[int], None]] = None # Хук после удаления, принимает количество удаленных объектов
+):
     """
-    Удаление связанных данных записи
+    Универсальная функция для удаления данных пользователя по модели.
     
     Args:
-        entry: Запись дневника
+        user: Объект пользователя.
+        model_class: Класс модели Django, объекты которой нужно удалить.
+        filter_kwargs: (Опционально) Словарь для дополнительной фильтрации QuerySet'а.
+                       По умолчанию фильтрует по user.
+        pre_delete_hook: (Опционально) Функция, вызываемая перед удалением QuerySet'а.
+        post_delete_hook: (Опционально) Функция, вызываемая после удаления, принимает количество удаленных объектов.
+    """
+    try:
+        logger.info(f"Удаление данных пользователя {user.telegram_id} для модели {model_class.__name__}")
+        
+        # Формируем базовый фильтр
+        base_filter = {'user': user}
+        if filter_kwargs:
+            base_filter.update(filter_kwargs)
+            
+        # Получаем QuerySet
+        queryset = model_class.objects.filter(**base_filter)
+        
+        # Считаем количество для лога
+        count = await queryset.acount()
+        logger.info(f"Найдено {count} объектов {model_class.__name__} для удаления у пользователя {user.telegram_id}")
+        
+        if count == 0:
+            logger.info(f"Нет объектов {model_class.__name__} для удаления у пользователя {user.telegram_id}")
+            if post_delete_hook:
+                post_delete_hook(0)
+            return
+
+        # Вызываем pre-delete hook
+        if pre_delete_hook:
+            try:
+                pre_delete_hook(queryset)
+            except Exception as hook_error:
+                logger.warning(f"Ошибка в pre_delete_hook для {model_class.__name__}: {hook_error}")
+
+        # Удаляем объекты
+        deleted_count, deleted_details = await queryset.adelete()
+        logger.info(f"Удалено {deleted_count} объектов {model_class.__name__} у пользователя {user.telegram_id}")
+        
+        # Вызываем post-delete hook
+        if post_delete_hook:
+            try:
+                post_delete_hook(deleted_count)
+            except Exception as hook_error:
+                logger.warning(f"Ошибка в post_delete_hook для {model_class.__name__}: {hook_error}")
+
+    except Exception as e:
+        logger.error(f"Ошибка при удалении данных {model_class.__name__} пользователя {user.telegram_id}: {e}")
+
+
+# ==================== ОБНОВЛЕННЫЕ СУЩЕСТВУЮЩИЕ ФУНКЦИИ ====================
+
+# --- Обновляем _delete_related_data ---
+# (Старая версия удаляется или становится deprecated)
+
+async def _delete_related_data_unified(entry: 'DiaryEntry'):
+    """
+    Удаление связанных данных записи дневника, используя универсальную функцию.
     """
     logger.info(f"Удаление связанных данных записи {entry.id}")
     
-    try:
-        # Удаляем анализ записи (если есть)
-        if hasattr(entry, 'analysis'):
-            try:
-                analysis = await PsychoAnalysis.objects.aget(entry=entry)
-                await analysis.adelete()
-                logger.info(f"Анализ записи {entry.id} удален")
-            except PsychoAnalysis.DoesNotExist:
-                logger.info(f"Анализ записи {entry.id} не найден")
-        
-        # Удаляем ключевые моменты (если есть)
-        if hasattr(entry, 'key_points'):
-            try:
-                async for key_point in entry.key_points.all():
-                    await key_point.adelete()
-                logger.info(f"Ключевые моменты записи {entry.id} удалены")
-            except Exception as key_points_error:
-                logger.error(f"Ошибка при удалении ключевых моментов записи {entry.id}: {key_points_error}")
-        
-        # Удаляем информацию о голосовом сообщении (если есть)
-        if hasattr(entry, 'voice_to_text'):
-            try:
-                voice_to_text = await entry.voice_to_text
-                await voice_to_text.adelete()
-                logger.info(f"Информация о голосовом сообщении записи {entry.id} удалена")
-            except Exception as voice_error:
-                logger.error(f"Ошибка при удалении информации о голосовом сообщении записи {entry.id}: {voice_error}")
-        
-        # Удаляем выполнения заданий (если есть)
-        if hasattr(entry, 'task_completion'):
-            try:
-                task_completion = await entry.task_completion
-                await _delete_task_completion_related_data(task_completion)
-                await task_completion.adelete()
-                logger.info(f"Выполнение задания записи {entry.id} удалено")
-            except Exception as task_completion_error:
-                logger.error(f"Ошибка при удалении выполнения задания записи {entry.id}: {task_completion_error}")
-        
-        logger.info(f"Все связанные данные записи {entry.id} удалены")
-        
-    except Exception as e:
-        logger.error(f"Ошибка при удалении связанных данных записи {entry.id}: {e}")
-
-async def _delete_task_completion_related_data(task_completion: TaskCompletion):
-    """
-    Удаление связанных данных выполнения задания
+    # Определяем атрибуты, которые нужно обработать
+    # related_name из моделей: analysis, key_points, voice_to_text, task_completion
+    related_attrs = ['analysis', 'key_points', 'voice_to_text', 'task_completion']
     
-    Args:
-        task_completion: Выполнение задания
+    # Определяем хуки, если нужно что-то специфическое
+    # Например, логирование перед/после
+    def pre_hook(related_data):
+        if hasattr(related_data, 'model'):
+            logger.debug(f"  Начало удаления QuerySet {related_data.model.__name__}")
+        elif hasattr(related_data, '__class__'):
+            logger.debug(f"  Начало удаления объекта {related_data.__class__.__name__}")
+
+    def post_hook(related_data):
+        if hasattr(related_data, 'model'):
+            logger.debug(f"  Завершено удаление QuerySet {related_data.model.__name__}")
+        elif hasattr(related_data, '__class__'):
+             logger.debug(f"  Завершено удаление объекта {related_data.__class__.__name__}")
+
+    await _delete_related_objects(entry, related_attrs, pre_hook, post_hook)
+    logger.info(f"Все связанные данные записи {entry.id} удалены")
+
+
+# --- Обновляем _delete_task_completion_related_data ---
+# (Старая версия удаляется или становится deprecated)
+
+async def _delete_task_completion_related_data_unified(task_completion: 'TaskCompletion'):
+    """
+    Удаление связанных данных выполнения задания, используя универсальную функцию.
     """
     logger.info(f"Удаление связанных данных выполнения задания {task_completion.id}")
     
-    try:
-        # Удаляем анализ выполнения задания (если есть)
-        if hasattr(task_completion, 'analysis'):
-            try:
-                analysis = await task_completion.analysis
-                await analysis.adelete()
-                logger.info(f"Анализ выполнения задания {task_completion.id} удален")
-            except Exception as analysis_error:
-                logger.error(f"Ошибка при удалении анализа выполнения задания {task_completion.id}: {analysis_error}")
-        
-        logger.info(f"Все связанные данные выполнения задания {task_completion.id} удалены")
-        
-    except Exception as e:
-        logger.error(f"Ошибка при удалении связанных данных выполнения задания {task_completion.id}: {e}")
+    # related_name из моделей: analysis
+    related_attrs = ['analysis'] # Предполагается, что у TaskCompletion есть OneToOne related_name='analysis'
+    
+    await _delete_related_objects(task_completion, related_attrs)
+    logger.info(f"Все связанные данные выполнения задания {task_completion.id} удалены")
 
-async def delete_user_data_safe(
-    user: User,
-    include_entries: bool = True,
-    include_tasks: bool = True,
-    include_analytics: bool = True
-) -> bool:
+async def _delete_user_entries_unified(user: 'User'):
     """
-    Безопасное удаление данных пользователя
-    
-    Args:
-        user: Пользователь
-        include_entries: Удалять ли записи дневника
-        include_tasks: Удалять ли задания
-        include_analytics: Удалять ли аналитику
-        
-    Returns:
-        bool: Успешность удаления
+    Удаление записей пользователя, используя универсальную функцию.
     """
-    logger.info(f"Безопасное удаление данных пользователя {user.telegram_id}")
-    logger.info(f"Включены: записи={include_entries}, задания={include_tasks}, аналитика={include_analytics}")
-    
-    try:
-        # Удаляем данные в транзакции
-        async with transaction.atomic():
-            # Удаляем записи дневника (если включено)
-            if include_entries:
-                await _delete_user_entries(user)
-            
-            # Удаляем задания (если включено)
-            if include_tasks:
-                await _delete_user_tasks(user)
-            
-            # Удаляем аналитику (если включено)
-            if include_analytics:
-                await _delete_user_analytics(user)
-            
-            # Удаляем самого пользователя (если нужно)
-            # await user.adelete()  # Пока не удаляем пользователя, только данные
-        
-        logger.info(f"Данные пользователя {user.telegram_id} успешно удалены")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Ошибка при безопасном удалении данных пользователя {user.telegram_id}: {e}")
-        return False
-
-async def _delete_user_entries(user: User):
-    """
-    Удаление записей пользователя
-    
-    Args:
-        user: Пользователь
-    """
+    from diary.models import DiaryEntry # Импортируем здесь, чтобы избежать циклических импортов
     logger.info(f"Удаление записей пользователя {user.telegram_id}")
     
-    try:
-        # Получаем все записи пользователя
-        entries = []
-        async for entry in DiaryEntry.objects.filter(user=user):
-            entries.append(entry)
+    # Функция для удаления связанных данных для каждой записи
+    async def delete_entry_related(entry):
+        await _delete_related_data_unified(entry)
         
-        logger.info(f"Найдено {len(entries)} записей для удаления")
-        
-        # Удаляем каждую запись с связанными данными
-        for entry in entries:
-            await _delete_related_data(entry)
-            await entry.adelete()
-        
-        logger.info(f"Все записи пользователя {user.telegram_id} удалены")
-        
-    except Exception as e:
-        logger.error(f"Ошибка при удалении записей пользователя {user.telegram_id}: {e}")
-
-async def _delete_user_tasks(user: User):
-    """
-    Удаление заданий пользователя
+    # Хук перед удалением записей
+    def pre_delete_entries_hook(queryset):
+        logger.debug(f"Начало удаления записей пользователя {user.telegram_id}")
     
-    Args:
-        user: Пользователь
+    # Хук после удаления записей
+    def post_delete_entries_hook(deleted_count):
+        logger.debug(f"Завершено удаление записей пользователя {user.telegram_id}. Удалено: {deleted_count}")
+
+    # Используем универсальную функцию
+    await _delete_user_data_by_model(
+        user=user,
+        model_class=DiaryEntry,
+        pre_delete_hook=pre_delete_entries_hook,
+        post_delete_hook=post_delete_entries_hook
+    )
+    
+    logger.info(f"Записи пользователя {user.telegram_id} удалены")
+
+async def _delete_user_tasks_unified(user: 'User'):
     """
+    Удаление заданий пользователя, используя универсальную функцию.
+    """
+    from diary.models import TherapyTask # Импортируем здесь
     logger.info(f"Удаление заданий пользователя {user.telegram_id}")
     
-    try:
-        from diary.models import TherapyTask
-        
-        # Получаем все задания пользователя
-        tasks = []
-        async for task in TherapyTask.objects.filter(user=user):
-            tasks.append(task)
-        
-        logger.info(f"Найдено {len(tasks)} заданий для удаления")
-        
-        # Удаляем каждое задание с связанными данными
-        for task in tasks:
-            await _delete_task_related_data(task)
-            await task.adelete()
-        
-        logger.info(f"Все задания пользователя {user.telegram_id} удалены")
-        
-    except Exception as e:
-        logger.error(f"Ошибка при удалении заданий пользователя {user.telegram_id}: {e}")
-
-async def _delete_task_related_data(task: TherapyTask):
-    """
-    Удаление связанных данных задания
-    
-    Args:
-        task: Задание
-    """
-    logger.info(f"Удаление связанных данных задания {task.id}")
-    
-    try:
-        # Удаляем выполнение задания (если есть)
+    # Функция для удаления связанных данных для каждого задания
+    # Предполагаем, что у TherapyTask есть related_name='completion'
+    async def delete_task_related(task):
         if hasattr(task, 'completion'):
             try:
-                completion = await task.completion
-                await _delete_task_completion_related_data(completion)
-                await completion.adelete()
-                logger.info(f"Выполнение задания {task.id} удалено")
-            except Exception as completion_error:
-                logger.error(f"Ошибка при удалении выполнения задания {task.id}: {completion_error}")
-        
-        logger.info(f"Все связанные данные задания {task.id} удалены")
-        
-    except Exception as e:
-        logger.error(f"Ошибка при удалении связанных данных задания {task.id}: {e}")
-
-async def _delete_user_analytics(user: User):
-    """
-    Удаление аналитики пользователя
+                task_completion = await task.completion
+                await _delete_task_completion_related_data_unified(task_completion)
+                # task_completion сам удалится каскадно, если настроено в модели
+            except Exception as e:
+                logger.error(f"Ошибка при удалении связанных данных задания {task.id}: {e}")
     
-    Args:
-        user: Пользователь
+    # Хук перед удалением заданий
+    def pre_delete_tasks_hook(queryset):
+        logger.debug(f"Начало удаления заданий пользователя {user.telegram_id}")
+    
+    # Хук после удаления заданий
+    def post_delete_tasks_hook(deleted_count):
+        logger.debug(f"Завершено удаление заданий пользователя {user.telegram_id}. Удалено: {deleted_count}")
+
+    # Используем универсальную функцию
+    await _delete_user_data_by_model(
+        user=user,
+        model_class=TherapyTask,
+        pre_delete_hook=pre_delete_tasks_hook,
+        post_delete_hook=post_delete_tasks_hook
+    )
+    logger.info(f"Задания пользователя {user.telegram_id} удалены")
+
+async def _delete_user_analytics_unified(user: 'User'):
     """
+    Удаление аналитики пользователя, используя универсальную функцию.
+    """
+    from diary.models import UserActivity, TherapyProgress, UserInsight # Импортируем здесь
     logger.info(f"Удаление аналитики пользователя {user.telegram_id}")
     
-    try:
-        from diary.models import UserActivity, TherapyProgress
-        
-        # Удаляем активность пользователя
-        try:
-            async for activity in UserActivity.objects.filter(user=user):
-                await activity.adelete()
-            logger.info(f"Активность пользователя {user.telegram_id} удалена")
-        except Exception as activity_error:
-            logger.error(f"Ошибка при удалении активности пользователя {user.telegram_id}: {activity_error}")
-        
-        # Удаляем прогресс терапии пользователя
-        try:
-            async for progress in TherapyProgress.objects.filter(user=user):
-                await progress.adelete()
-            logger.info(f"Прогресс терапии пользователя {user.telegram_id} удален")
-        except Exception as progress_error:
-            logger.error(f"Ошибка при удалении прогресса терапии пользователя {user.telegram_id}: {progress_error}")
-        
-        # Удаляем инсайты пользователя
-        try:
-            from diary.models import UserInsight
-            async for insight in UserInsight.objects.filter(user=user):
-                await insight.adelete()
-            logger.info(f"Инсайты пользователя {user.telegram_id} удалены")
-        except Exception as insight_error:
-            logger.error(f"Ошибка при удалении инсайтов пользователя {user.telegram_id}: {insight_error}")
-        
-        logger.info(f"Аналитика пользователя {user.telegram_id} удалена")
-        
-    except Exception as e:
-        logger.error(f"Ошибка при удалении аналитики пользователя {user.telegram_id}: {e}")
+    models_to_delete = [UserActivity, TherapyProgress, UserInsight]
+    
+    for model_class in models_to_delete:
+        # Хуки для каждой модели
+        def make_pre_hook(model_name):
+            return lambda queryset: logger.debug(f"Начало удаления {model_name} пользователя {user.telegram_id}")
+        def make_post_hook(model_name): 
+            return lambda deleted_count: logger.debug(f"Завершено удаление {model_name} пользователя {user.telegram_id}. Удалено: {deleted_count}")
 
-# ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
-
-async def soft_delete_entry(
-    entry_id: int,
-    user: User
-) -> bool:
-    """
-    Мягкое удаление записи (пометка как удаленной)
-    
-    Args:
-        entry_id: ID записи
-        user: Пользователь
+        await _delete_user_data_by_model(
+            user=user,
+            model_class=model_class,
+            pre_delete_hook=make_pre_hook(model_class.__name__),
+            post_delete_hook=make_post_hook(model_class.__name__)
+        )
         
-    Returns:
-        bool: Успешность мягкого удаления
-    """
-    logger.info(f"Мягкое удаление записи {entry_id} пользователя {user.telegram_id}")
-    
-    try:
-        # Получаем запись с проверкой владельца
-        try:
-            entry = await DiaryEntry.objects.aget(
-                id=entry_id,
-                user=user
-            )
-            logger.info(f"Запись найдена: {entry.text[:50]}...")
-        except DiaryEntry.DoesNotExist:
-            logger.warning(f"Запись {entry_id} не найдена или не принадлежит пользователю {user.telegram_id}")
-            return False
-        
-        # Помечаем запись как удаленную
-        from datetime import datetime
-        entry.deleted_at = datetime.now()
-        await entry.asave(update_fields=['deleted_at'])
-        
-        logger.info(f"Запись {entry_id} помечена как удаленная")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Ошибка при мягком удалении записи {entry_id}: {e}")
-        return False
-
-async def restore_soft_deleted_entry(
-    entry_id: int,
-    user: User
-) -> bool:
-    """
-    Восстановление мягко удаленной записи
-    
-    Args:
-        entry_id: ID записи
-        user: Пользователь
-        
-    Returns:
-        bool: Успешность восстановления
-    """
-    logger.info(f"Восстановление мягко удаленной записи {entry_id} пользователя {user.telegram_id}")
-    
-    try:
-        # Получаем запись с проверкой владельца
-        try:
-            entry = await DiaryEntry.objects.aget(
-                id=entry_id,
-                user=user,
-                deleted_at__isnull=False  # Только удаленные записи
-            )
-            logger.info(f"Удаленная запись найдена: {entry.text[:50]}...")
-        except DiaryEntry.DoesNotExist:
-            logger.warning(f"Удаленная запись {entry_id} не найдена или не принадлежит пользователю {user.telegram_id}")
-            return False
-        
-        # Снимаем пометку удаления
-        entry.deleted_at = None
-        await entry.asave(update_fields=['deleted_at'])
-        
-        logger.info(f"Запись {entry_id} восстановлена")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Ошибка при восстановлении записи {entry_id}: {e}")
-        return False
-
-async def purge_soft_deleted_entries(
-    user: User,
-    days_old: int = 30
-) -> int:
-    """
-    Полное удаление мягко удаленных записей старше N дней
-    
-    Args:
-        user: Пользователь
-        days_old: Сколько дней записи остаются в "корзине"
-        
-    Returns:
-        int: Количество удаленных записей
-    """
-    logger.info(f"Полное удаление мягко удаленных записей пользователя {user.telegram_id} старше {days_old} дней")
-    
-    try:
-        from datetime import datetime, timedelta
-        from django.db.models import Q
-        
-        # Определяем дату, старше которой записи будут удалены
-        cutoff_date = datetime.now() - timedelta(days=days_old)
-        
-        # Получаем мягко удаленные записи старше cutoff_date
-        deleted_entries = []
-        async for entry in DiaryEntry.objects.filter(
-            Q(user=user) &
-            Q(deleted_at__isnull=False) &
-            Q(deleted_at__lt=cutoff_date)
-        ):
-            deleted_entries.append(entry)
-        
-        logger.info(f"Найдено {len(deleted_entries)} записей для полного удаления")
-        
-        # Удаляем каждую запись с связанными данными
-        deleted_count = 0
-        for entry in deleted_entries:
-            try:
-                await _delete_related_data(entry)
-                await entry.adelete()
-                deleted_count += 1
-            except Exception as delete_error:
-                logger.error(f"Ошибка при полном удалении записи {entry.id}: {delete_error}")
-        
-        logger.info(f"Полностью удалено {deleted_count} записей")
-        return deleted_count
-        
-    except Exception as e:
-        logger.error(f"Ошибка при полном удалении мягко удаленных записей: {e}")
-        return 0
+    logger.info(f"Аналитика пользователя {user.telegram_id} удалена")

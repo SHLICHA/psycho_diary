@@ -12,6 +12,7 @@ from django.db.models import Q
 from asgiref.sync import sync_to_async
 from aiogram.types import Message
 
+from prompts import get_prompt
 from diary.services.daily_state_service import daily_state_service
 from diary.models import DiaryEntry, TherapyTask, TaskCompletion, TaskAnalysis, TaskCompletionAnalysis, KeyPoint
 from users.models import User
@@ -412,12 +413,17 @@ class TaskService:
             feelings_text = task_completion.feelings_text
             task_title = task_completion.task.title
             task_description = task_completion.task.description
-            prompt = await self._generate_task_effect_prompt(
-                user_profile_data, day_text, avg_mood_before,
-                task_title, task_description,
-                completion_text, feelings_text,
-                key_points_before_data,
-                user.language
+            prompt = get_prompt(
+                'task_effect_analysis',
+                language=user.language, # 'ru' или 'en'
+                user_profile=json.dumps(user_profile_data, ensure_ascii=False, indent=2),
+                day_text=day_text,
+                avg_mood_before=avg_mood_before,
+                key_points_before=json.dumps(key_points_before_data, ensure_ascii=False, indent=2),
+                task_title=task_title,
+                task_description=task_description,
+                completion_text=completion_text,
+                feelings_text=feelings_text
             )
             api_result = await deepseek_api_service.analyze_text(prompt, language=user.language, analysis_type='default')
             if not api_result.get('success'):
@@ -483,92 +489,69 @@ class TaskService:
                 logger.error(f"Не удалось создать запись об ошибке анализа: {inner_e}")
             return None
 
-    # TODO Вынести промпт в prompts.py
-    async def _generate_task_effect_prompt(
-        self,
-        user_profile: dict,
-        day_text: str,
-        avg_mood_before: float,
-        task_title: str,
-        task_description: str,
-        completion_text: str,
-        feelings_text: str,
-        key_points_before: dict,
-        language: str
-    ) -> str:
+    async def get_user_skipped_tasks(self, user: User, limit: int = 10) -> List[TherapyTask]:
         """
-        Генерирует промпт для анализа влияния выполнения задания.
+        Асинхронное получение пропущенных заданий пользователя.
+
+        Args:
+            user: Пользователь.
+            limit: Лимит заданий.
+
+        Returns:
+            List[TherapyTask]: Список пропущенных заданий.
         """
-        if language == 'ru':
-            prompt = (
-                "Проанализируй влияние выполнения терапевтического задания на эмоциональное состояние пользователя за день.\n"
-                "Ответь в формате JSON, строго придерживаясь структуры, заключенной в тройные обратные кавычки с указанием json (```json ... ```).\n\n"
-                "Контекст:\n"
-                f"Профиль пользователя:\n{json.dumps(user_profile, ensure_ascii=False, indent=2)}\n\n"
-                f"Текст всех записей пользователя за день:\n{day_text}\n\n"
-                f"Средняя оценка настроения до выполнения задания: {avg_mood_before}/10\n\n"
-                f"Ключевые моменты дня до выполнения задания:\n{json.dumps(key_points_before, ensure_ascii=False, indent=2)}\n\n"
-                "Выполненное задание:\n"
-                f"Название: {task_title}\n"
-                f"Описание: {task_description}\n\n"
-                "Ответ пользователя на задание:\n"
-                f"Выполнение: {completion_text}\n"
-                f"Ощущения: {feelings_text}\n\n"
-                "Проанализируй, как выполнение задания повлияло на эмоциональное состояние, описанное в записях дня.\n"
-                "Сравни содержание записей, выполнение и ощущения.\n"
-                "Сформулируй краткий вывод об эффекте.\n"
-                "Оцени, на сколько баллов (целое число) это могло повлиять на среднюю оценку дня (может быть отрицательным).\n"
-                "Если влияние неочевидно или нейтрально, укажи это и поставь значение 0.\n\n"
-                "Пример структуры ответа:\n"
-                "```json\n"
-                "{\n"
-                "  \"effect_description\": \"Выполнение задания коррелирует с упоминанием позитивных событий и улучшением настроения.\",\n"
-                "  \"mood_impact_score\": 2\n"
-                "}\n"
-                "```\n\n"
-                "Требуемый формат ответа:\n"
-                "```json\n"
-                "{\n"
-                "  \"effect_description\": \"строка, краткое описание эффекта (1-2 предложения)\",\n"
-                "  \"mood_impact_score\": целое число (оценка влияния на настроение дня, может быть отрицательным)\n"
-                "}\n"
-                "```\n"
-            )
-        else:
-            prompt = (
-                "Analyze the impact of completing a therapeutic task on the user's emotional state for the day.\n"
-                "Respond in JSON format, strictly adhering to the structure enclosed in triple backticks (```json ... ```).\n\n"
-                "Context:\n"
-                f"User Profile:\n{json.dumps(user_profile, ensure_ascii=False, indent=2)}\n\n"
-                f"Text of all user's entries for the day:\n{day_text}\n\n"
-                f"Average mood score before completing the task: {avg_mood_before}/10\n\n"
-                f"Key points of the day before completing the task:\n{json.dumps(key_points_before, ensure_ascii=False, indent=2)}\n\n"
-                "Completed Task:\n"
-                f"Title: {task_title}\n"
-                f"Description: {task_description}\n\n"
-                "User's response to the task:\n"
-                f"Completion: {completion_text}\n"
-                f"Feelings: {feelings_text}\n\n"
-                "Analyze how completing the task influenced the emotional state described in the day's entries.\n"
-                "Compare the content of the entries, the completion, and the feelings.\n"
-                "Formulate a brief conclusion about the effect.\n"
-                "Estimate by how many points (integer) this could have affected the average daily score (can be negative).\n"
-                "If the impact is unclear or neutral, state so and put a value of 0.\n\n"
-                "Example response structure:\n"
-                "```json\n"
-                "{\n"
-                "  \"effect_description\": \"Completing the task correlates with mentioning positive events and improved mood.\",\n"
-                "  \"mood_impact_score\": 2\n"
-                "}\n"
-                "```\n\n"
-                "Required response format:\n"
-                "```json\n"
-                "{\n"
-                "  \"effect_description\": \"string, a brief description of the effect (1-2 sentences)\",\n"
-                "  \"mood_impact_score\": integer (estimated impact on the day's mood score, can be negative)\n"
-                "}\n"
-                "```\n"
-            )
+        try:
+            @sync_to_async
+            def get_skipped_tasks_sync():
+                skipped_tasks = list(
+                    TherapyTask.objects.filter(
+                        user=user,
+                        status='skipped'
+                    ).order_by('-completed_at')[:limit] # Сортируем по дате "завершения" (пропуска)
+                )
+                return skipped_tasks
+            skipped_tasks = await get_skipped_tasks_sync()
+            logger.debug(f"Получено {len(skipped_tasks)} пропущенных заданий для пользователя {user.telegram_id}")
+            return skipped_tasks
+        except Exception as e:
+            logger.error(f"Ошибка при получении пропущенных заданий пользователя {user.telegram_id}: {e}")
+            return []
+
+    async def restore_task(self, task_id: int, user: User) -> bool:
+        """
+        Восстановление (перевод в статус 'pending') пропущенного задания.
+
+        Args:
+            task_id: ID задания.
+            user: Пользователь.
+
+        Returns:
+            bool: Успешность операции.
+        """
+        try:
+            @sync_to_async
+            def restore_task_sync():
+                with transaction.atomic():
+                    try:
+                        task = TherapyTask.objects.select_for_update().get(
+                            id=task_id,
+                            user=user,
+                            status='skipped' # Только пропущенные можно восстановить
+                        )
+                        task.status = 'pending'
+                        # Сбрасываем completed_at, так как задание снова активно
+                        task.completed_at = None 
+                        task.save(update_fields=['status', 'completed_at'])
+                        logger.info(f"Задание {task_id} восстановлено для пользователя {user.telegram_id}")
+                        return True
+                    except TherapyTask.DoesNotExist:
+                        logger.warning(f"Задание {task_id} не найдено, не принадлежит пользователю {user.telegram_id} или не пропущено")
+                        return False
+            success = await restore_task_sync()
+            return success
+        except Exception as e:
+            logger.error(f"Ошибка при восстановлении задания {task_id} для пользователя {user.telegram_id}: {e}")
+            return False
 
 task_service = TaskService()
 
@@ -608,3 +591,12 @@ async def skip_task(task_id: int, user: User) -> bool:
 async def delete_task(task_id: int, user: User) -> bool:
     """Удобная функция для удаления задания"""
     return await task_service.delete_task(task_id, user)
+
+async def get_user_skipped_tasks(user: User, limit: int = 10) -> List[TherapyTask]:
+    """Удобная функция для получения пропущенных заданий."""
+    return await task_service.get_user_skipped_tasks(user, limit)
+
+# Удобная функция для восстановления задания
+async def restore_task(task_id: int, user: User) -> bool:
+    """Удобная функция для восстановления пропущенного задания."""
+    return await task_service.restore_task(task_id, user)

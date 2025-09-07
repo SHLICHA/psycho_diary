@@ -51,6 +51,9 @@ MESSAGES = {
         'entry_delete_cancelled': "Удаление отменено.",
         'entry_deleted_success': "Запись удалена.",
         'confirm_delete_entire_day_prompt': "❓ Вы уверены, что хотите удалить ВСЕ записи за {date}?",
+        'btn_confirm_delete': '✅ Yes, delete',
+        'btn_cancel_delete': '❌ No, cancel',
+        'btn_confirm_delete_entry': '✅ Yes, delete entry',
         'btn_confirm_delete_day': "✅ Да, удалить день",
         'day_deleted_success': "🗑 День успешно удален.",
         'confirm_delete_entry_prompt': "❓ Вы уверены, что хотите удалить эту запись?",
@@ -199,6 +202,11 @@ MESSAGES = {
         'task_cancelled_confirmation': '✅ Задание <b>{title}</b> было успешно отменено (удалено).',
         'task_cancelled_simple_message': '📢 Задание "<b>{title}</b>" было отменено.',
         'task_not_found_for_cancellation': '⚠️ Задание не найдено или уже было удалено.',
+        'task_history_empty': '📭 История заданий пуста.',
+        'error_loading_task_details': '❌ Ошибка при загрузке деталей задания.',
+        'task_restored': '✅ Задание восстановлено и снова доступно!',
+        'task_not_found_or_not_skipped': '❌ Задание не найдено или не является пропущенным.',
+        'btn_restore_task': '🔄 Восстановить задание',
         # === Прогресс ===
         'progress_title': '''📊 <b>Твой прогресс</b>
 
@@ -337,6 +345,9 @@ Let's start?''',
         'validation_error_voice': "Error validating voice message. Please try again.",
         'validation_error_message': "Error validating message. Please try again.",
         'confirm_delete_entire_day_prompt': "❓ Are you sure you want to delete ALL entries for {date}?",
+        'btn_confirm_delte': '✅ Да, удалить',
+        'btn_cancel_delete': '❌ Нет, отмена',
+        'btn_confirm_delete_entry': '✅ Да, удалить запись',
         'btn_confirm_delete_day': "✅ Yes, delete the day",
         'day_deleted_success': "🗑 Day successfully deleted.",
     
@@ -491,7 +502,11 @@ Your response is saved. I will consider this in future analysis.
         'task_cancelled_confirmation': '✅ The task "<b>{title}</b>" has been successfully canceled (deleted).',
         'task_cancelled_simple_message': '📢 The task "<b>{title}</b>" has been canceled.',
         'task_not_found_for_cancellation': '⚠️ Task not found or has already been deleted.',
-        
+        'task_history_empty': '📭 Task history is empty.',
+        'error_loading_task_details': '❌ Error loading task details.',
+        'task_restored': '✅ Task restored and available again!',
+        'task_not_found_or_not_skipped': '❌ Task not found or is not skipped.',
+        'btn_restore_task': '🔄 Restore Task',
         # === Progress ===
         'progress_title': '''📊 <b>Your progress</b>
 
@@ -919,9 +934,8 @@ contact a doctor or emergency services''',
 
 MESSAGES['ru'].update({
     # === Сообщения для заданий ===
-    'ask_task_completion': '''✅ <b>Отлично! Задание получено!</b>
+    'ask_task_completion_with_context': '''Выполняется задание: <b>{title}</b>\n\n{description}\n\nПожалуйста, опишите, как ты выполнял это задание
 
-Теперь опиши, как ты выполнял это задание:
 - Что именно ты сделал?
 - Какие шаги предпринял?
 - Что было сложным или легким?''',
@@ -986,7 +1000,7 @@ MESSAGES['ru'].update({
 
 MESSAGES['en'].update({
     # === Task messages ===
-    'ask_task_completion': '''✅ <b>Great! Task received!</b>
+    'ask_task_completion_with_context': '''Completing task: <b>{title}</b>\n\n{description}\n\nPlease describe how you completed this task
 
 Now describe how you completed this task:
 - What exactly did you do?

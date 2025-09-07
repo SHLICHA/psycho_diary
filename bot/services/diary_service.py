@@ -6,10 +6,10 @@ import logging
 
 from asgiref.sync import sync_to_async
 from typing import List, Dict, Any, Optional
-from datetime import datetime, date
+from datetime import datetime, date, time
 from django.db import transaction
 from django.db.models import F
-from diary.models import DiaryEntry, KeyPoint, PsychoAnalysis, VoiceToText, CombinedDiaryEntry, TaskCompletion, TherapyTask
+from diary.models import DiaryEntry, KeyPoint, PsychoAnalysis, VoiceToText, CombinedDiaryEntry, TaskCompletion, TherapyTask, UserInsight
 from diary.services.daily_state_service import (
     get_daily_state,
     get_or_create_daily_state,
@@ -297,32 +297,48 @@ class DiaryService:
         except Exception as e:
             logger.error(f"Ошибка в асинхронном удалении записи {entry_id} и обновлении CombinedDiaryEntry: {e}", exc_info=True)
             return False
-        
-    async def get_entries_for_day(self, user: User, target_date: date) -> List[DiaryEntry]:
+
+    async def get_user_entries_for_date(
+        self, 
+        user: User, 
+        target_date: date # Дата в терминах пользователя (т.е. какую дату он видит в календаре)
+    ) -> List[DiaryEntry]:
         """
-        Асинхронное получение списка записей пользователя за конкретный день
+        Асинхронное получение списка записей пользователя за конкретный день,
         с учетом часового пояса пользователя.
 
         Args:
             user: Пользователь.
-            target_date: Целевая дата.
+            target_date: Целевая дата (в терминах пользователя).
 
         Returns:
-            List[DiaryEntry]: Список записей.
+            List[DiaryEntry]: Список записей за указанный день пользователя.
         """
+        logger.info(f"[УНИФИЦИРОВАННЫЙ МЕТОД] Получение записей пользователя {user.telegram_id} за {target_date} (учитывая часовой пояс {user.timezone})")
         try:
             user_timezone_str = user.timezone if user.timezone else 'UTC'
+            
+            # 1. Определяем начало и конец target_date в часовом поясе пользователя
             @sync_to_async
             def _get_utc_boundaries():
                 user_tz = pytz.timezone(user_timezone_str)
-                start_of_day_user_tz = datetime.combine(target_date, datetime.min.time())
+                # Начало дня пользователя
+                start_of_day_user_tz = datetime.combine(target_date, time.min) # 00:00:00
                 start_of_day_user_tz = user_tz.localize(start_of_day_user_tz)
-                end_of_day_user_tz = datetime.combine(target_date, datetime.max.time())
+                # Конец дня пользователя
+                end_of_day_user_tz = datetime.combine(target_date, time.max) # 23:59:59.999999
                 end_of_day_user_tz = user_tz.localize(end_of_day_user_tz)
+                
+                # Конвертируем в UTC для запроса к БД (created_at хранится в UTC)
                 start_of_day_utc = start_of_day_user_tz.astimezone(pytz.utc)
                 end_of_day_utc = end_of_day_user_tz.astimezone(pytz.utc)
+                
+                logger.debug(f"  Границы по UTC: {start_of_day_utc} - {end_of_day_utc}")
                 return start_of_day_utc, end_of_day_utc
+
             start_of_day_utc, end_of_day_utc = await _get_utc_boundaries()
+
+            # 2. Запрашиваем записи
             entries = []
             async for entry in DiaryEntry.objects.filter(
                 user=user,
@@ -330,64 +346,56 @@ class DiaryService:
                 created_at__lte=end_of_day_utc
             ).order_by('created_at'):
                 entries.append(entry)
+                
+            logger.info(f"[УНИФИЦИРОВАННЫЙ МЕТОД] Найдено {len(entries)} записей.")
             return entries
+            
         except Exception as e:
-            logger.error(f"Ошибка в асинхронном получении записей за {target_date} для пользователя {user.telegram_id}: {e}", exc_info=True)
+            logger.error(f"Ошибка в унифицированном get_user_entries_for_date для пользователя {user.telegram_id}, дата {target_date}: {e}", exc_info=True)
             return []
 
-    async def get_user_entries_for_date(
+    async def get_combined_entry_text(
         self, 
         user: User, 
-        target_date: date
-    ) -> List[DiaryEntry]:
+        target_date: date, 
+        entries_list: Optional[List[DiaryEntry]] = None  # Новый опциональный параметр
+    ) -> str:
         """
-        Асинхронное получение записей пользователя за конкретную дату.
-
-        Args:
-            user: Пользователь
-            target_date: Целевая дата
-
-        Returns:
-            List[DiaryEntry]: Список записей за дату
-        """
-        try:
-            entries = []
-            async for entry in DiaryEntry.objects.filter(
-                user=user,
-                created_at__date=target_date
-            ).order_by('created_at'):
-                entries.append(entry)
-            return entries
-        except Exception as e:
-            logger.error(f"Ошибка при асинхронном получении записей за {target_date} для пользователя {user.telegram_id}: {e}", exc_info=True)
-            return []
-
-    async def get_combined_entry_text(self, user: User, target_date: date) -> str:
-        """
-        Асинхронное получение объединенного текста всех записей пользователя за конкретную дату.
+        Асинхронное получение объединенного текста всех записей пользователя за конкретную дату,
+        с учетом часового пояса пользователя.
 
         Args:
             user: Пользователь.
-            target_date: Целевая дата.
+            target_date: Целевая дата (в терминах пользователя).
+            entries_list: (Опционально) Список уже полученных записей DiaryEntry за эту дату.
+                        Если предоставлен, будет использован вместо нового запроса к БД.
 
         Returns:
             str: Объединенный текст всех записей дня. Пустая строка, если записей нет или произошла ошибка.
         """
         try:
-            entries = []
-            async for entry in DiaryEntry.objects.filter(
-                user=user,
-                created_at__date=target_date
-            ).order_by('created_at'):
-                entries.append(entry)
+            # === ОПТИМИЗАЦИЯ ===
+            # Если список записей уже предоставлен, используем его.
+            # Иначе - делаем запрос к БД.
+            if entries_list is not None:
+                logger.debug(f"[ОПТИМИЗАЦИЯ] Использование предоставленного списка записей ({len(entries_list)} шт.) для get_combined_entry_text.")
+                entries = entries_list
+            else:
+                logger.debug(f"[ОПТИМИЗАЦИЯ] Выполнение запроса к БД для получения записей за {target_date} в get_combined_entry_text.")
+                # Используем унифицированный метод, который учитывает часовой пояс
+                entries = await self.get_user_entries_for_date(user, target_date) 
+            
             if not entries:
-                logger.info(f"Записи за {target_date} для пользователя {user.telegram_id} не найдены.")
+                logger.info(f"Записи за {target_date} для пользователя {user.telegram_id} не найдены (в т.ч. с учетом часового пояса).")
                 return ""
+            
+            # Объединяем текст
             texts = [entry.text for entry in entries]
             combined_text = "\n\n---\n\n".join(texts)
             return combined_text
+        
         except Exception as e:
-            logger.error(f"Ошибка при асинхронном получении объединенного текста за {target_date} для пользователя {user.telegram_id}: {e}", exc_info=True)
+            logger.error(f"Ошибка при асинхронном получении объединенного текста за {target_date} для пользователя {user.telegram_id} (с учетом часового пояса): {e}", exc_info=True)
             return ""
 
     async def delete_entry(self, entry_id: int, user: User) -> bool:
@@ -567,6 +575,52 @@ class DiaryService:
         except Exception as e:
             logger.error(f"[Сервис] Ошибка при удалении записей за {target_date}: {e}")
             return False
+        
+    async def get_insights_for_entries(self, entry_ids: list) -> List[UserInsight]:
+        """
+        Асинхронно получает инсайты, связанные со списком ID записей.
+
+        Args:
+            entry_ids (list): Список ID записей DiaryEntry.
+
+        Returns:
+            List[UserInsight]: Список объектов UserInsight, отсортированных по весу и дате.
+        """
+        logger.debug(f"Получение инсайтов для записей: {entry_ids}")
+        insights = []
+        try:
+            # Используем асинхронный менеджер для итерации
+            async for insight in UserInsight.objects.filter(
+                source_entry_id__in=entry_ids
+            ).order_by('-weight', '-last_mentioned'):
+                insights.append(insight)
+            logger.debug(f"Получено {len(insights)} инсайтов.")
+        except Exception as e:
+            logger.error(f"Ошибка при получении инсайтов для записей {entry_ids}: {e}", exc_info=True)
+        return insights
+
+    async def get_keypoints_for_entries(self, entry_ids: list) -> List[KeyPoint]:
+        """
+        Асинхронно получает ключевые моменты, связанные со списком ID записей.
+
+        Args:
+            entry_ids (list): Список ID записей DiaryEntry.
+
+        Returns:
+            List[KeyPoint]: Список объектов KeyPoint, отсортированных по уверенности и дате.
+        """
+        logger.debug(f"Получение ключевых моментов для записей: {entry_ids}")
+        keypoints = []
+        try:
+            # Используем асинхронный менеджер для итерации
+            async for kp in KeyPoint.objects.filter(
+                entry_id__in=entry_ids
+            ).order_by('-confidence', '-created_at'):
+                keypoints.append(kp)
+            logger.debug(f"Получено {len(keypoints)} ключевых моментов.")
+        except Exception as e:
+            logger.error(f"Ошибка при получении ключевых моментов для записей {entry_ids}: {e}", exc_info=True)
+        return keypoints        
 
 diary_service = DiaryService()
 
@@ -591,9 +645,13 @@ async def get_user_entries_for_date(user: User, target_date: date) -> List[Diary
     """Удобная функция для получения записей за дату"""
     return await diary_service.get_user_entries_for_date(user, target_date)
 
-async def get_combined_entry_text(user: User, target_date: date) -> str:
-    """Удобная функция для получения объединенного текста"""
-    return await diary_service.get_combined_entry_text(user, target_date)
+async def get_combined_entry_text(
+    user: User, 
+    target_date: date, 
+    entries_list: Optional[List[DiaryEntry]] = None
+) -> str:
+    """Удобная функция для получения объединенного текста (с учетом часового пояса)."""
+    return await diary_service.get_combined_entry_text(user, target_date, entries_list)
 
 async def delete_entry(entry_id: int, user: User) -> bool:
     """Удобная функция для удаления записи"""
@@ -606,3 +664,11 @@ async def get_days_with_entries(user: User, year: int, month: int) -> set:
 async def delete_all_entries_for_day(user: User, target_date: date) -> bool:
     """Удобная асинхронная функция для удаления всех записей за день."""
     return await diary_service.delete_all_entries_for_day(user, target_date)
+
+async def get_insights_for_entries(entry_ids: list) -> List[UserInsight]:
+    """Удобная функция для получения инсайтов по списку ID записей."""
+    return await diary_service.get_insights_for_entries(entry_ids)
+
+async def get_keypoints_for_entries(entry_ids: list) -> List[KeyPoint]:
+    """Удобная функция для получения ключевых моментов по списку ID записей."""
+    return await diary_service.get_keypoints_for_entries(entry_ids)

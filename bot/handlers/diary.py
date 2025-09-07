@@ -20,13 +20,15 @@ from bot.states.diary_states import DiaryStates
 from bot.keyboards import (
     get_cancel_keyboard,
     get_day_entries_edit_keyboard, 
-    get_confirm_delete_entry_keyboard, 
-    get_confirm_delete_keyboard,
+    get_confirmation_keyboard,
     format_entry_text_for_editing,
     get_back_keyboard,
     get_task_pagination_keyboard,
-    get_smart_calendar_keyboard
+    get_smart_calendar_keyboard,
+    get_delete_entry_confirmation_keyboard,
+    get_delete_confirmation_keyboard
     )
+from bot.utils.api_utils import format_api_error_for_analysis
 from bot.utils.validation_utils import validate_incoming_message, validate_text_entry
 from bot.utils.state_manager import state_manager
 from bot.utils.message_utils import safe_edit_message_text, edit_or_send_message
@@ -162,7 +164,7 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
             is_first_entry_of_day, combined_entry, entry_text, user_profile_data, language
         )
         # === ОБРАБОТКА РЕЗУЛЬТАТА АНАЛИЗА ===
-        await _handle_analysis_result(
+        await _process_analysis_result(
             diary_entry, analysis_result, status_message, language, state, user
         )
     except Exception as e:
@@ -219,7 +221,7 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
         processing_msg = get_message('processing', language)
         status_message = await message.answer(processing_msg)
         # === ВЫЗОВ API ДЛЯ ФИНАЛЬНОГО АНАЛИЗА С УТОЧНЕНИЯМИ ===
-        user_profile_data = await user.aget_profile_data()
+        user_profile_data = await user.get_profile_data()
         final_analysis_result = await deepseek_api_service.analyze_text_with_clarifications(
             original_text=diary_entry.text,
             clarification_answers=clarification_text,
@@ -227,7 +229,7 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
             language=language
         )
         # === ОБРАБОТКА ФИНАЛЬНОГО РЕЗУЛЬТАТА АНАЛИЗА ===
-        await _handle_final_analysis_result(
+        await _process_analysis_result(
             entry=diary_entry,
             final_analysis_result=final_analysis_result,
             status_msg=status_message,
@@ -284,19 +286,13 @@ async def delete_selected_entry(callback: CallbackQuery, user, language: str):
             # Используем get_message с форматированием
             confirm_msg = get_message('confirm_delete_entire_day_prompt', language).format(date=target_date.strftime('%d.%m.%Y')) 
             
-            confirm_buttons = [
-                [
-                    InlineKeyboardButton(
-                        text=get_button_text('btn_confirm_delete_day', language),
-                        callback_data=f"confirm_delete_entire_day:{target_date.isoformat()}"
-                    ),
-                    InlineKeyboardButton(
-                        text=get_button_text('btn_cancel', language),
-                        callback_data=f"calendar_select_day:{year}:{month}:{day}"
-                    )
-                ]
-            ]
-            confirm_keyboard = InlineKeyboardMarkup(inline_keyboard=confirm_buttons)
+            confirm_keyboard = get_confirmation_keyboard(
+                language=language,
+                confirm_text_key='btn_confirm_delete_day', # Ключ для "✅ Да, удалить день"
+                cancel_text_key='btn_cancel',              # Ключ для "❌ Нет, отмена"
+                confirm_callback_data=f"confirm_delete_entire_day:{target_date.isoformat()}",
+                cancel_callback_data=f"calendar_select_day:{year}:{month}:{day}"
+)
             await safe_edit_message_text(
                 message=callback.message,
                 text=confirm_msg,
@@ -324,7 +320,7 @@ async def edit_entry_day(callback: CallbackQuery, user, language: str):
         month = int(parts[2])
         day = int(parts[3])
         target_date = date(year, month, day)
-        entries = await diary_service.get_entries_for_day(user, target_date)
+        entries = await diary_service.get_user_entries_for_date(user, target_date)
         if not entries:
             no_entries_msg = get_message('archive_empty', language)
             await safe_edit_message_text(
@@ -435,7 +431,7 @@ async def request_delete_specific_entry(callback: CallbackQuery, user, language:
             return
         # Используем get_message для запроса подтверждения
         confirm_msg = get_message('confirm_delete_entry_prompt', language) # Новый ключ
-        confirm_keyboard = get_confirm_delete_entry_keyboard(entry_id, target_date, language)
+        confirm_keyboard = get_delete_entry_confirmation_keyboard(entry_id, target_date, language)
         await safe_edit_message_text(message=callback.message, text=confirm_msg, reply_markup=confirm_keyboard)
         await safe_answer_callback(callback, "")
     except Exception as e:
@@ -485,7 +481,7 @@ async def delete_specific_entry(callback: CallbackQuery, user, language: str):
         confirm_msg = get_message('confirm_delete_entry', language)
         await callback.message.edit_text(
             confirm_msg,
-            reply_markup=get_confirm_delete_keyboard(language, entry_id)
+            reply_markup=get_delete_confirmation_keyboard(language, entry_id)
         )
         await callback.answer()
     except Exception as e:
@@ -656,7 +652,7 @@ async def view_day_insights(callback: CallbackQuery, user, language: str):
         day = int(parts[3])
         target_date = date(year, month, day)
         target_date_str = target_date.strftime("%d.%m.%Y")
-        entries = await diary_service.get_entries_for_day(user, target_date)
+        entries = await diary_service.get_user_entries_for_date(user, target_date)
         entry_ids = [entry.id for entry in entries]
         back_button = [[InlineKeyboardButton(text=get_button_text('btn_back', language), callback_data=f"calendar_select_day:{year}:{month}:{day}")]]
         back_keyboard = InlineKeyboardMarkup(inline_keyboard=back_button)
@@ -665,22 +661,20 @@ async def view_day_insights(callback: CallbackQuery, user, language: str):
              await safe_edit_message_text(message=callback.message, text=no_data_msg, reply_markup=back_keyboard)
              await safe_answer_callback(callback, "")
              return
-        @sync_to_async
-        def get_insights_sync():
-             return list(UserInsight.objects.filter(source_entry_id__in=entry_ids).order_by('-weight', '-last_mentioned'))
-        insights = await get_insights_sync()
+        insights = await diary_service.get_insights_for_entries(entry_ids)
+
         if not insights:
              no_insights_msg = get_message('no_insights_for_day', language, date=target_date_str)
              await safe_edit_message_text(message=callback.message, text=no_insights_msg, reply_markup=back_keyboard)
         else:
              insights_header = get_message('header_insights', language, date=target_date_str)
-             insights_msg = f"<b>{insights_header}</b>\n\n"
+             insights_msg = f"<b>{insights_header}</b>\n"
              for i, insight in enumerate(insights, 1):
-                 category_display = insight.get_category_display() or insight.category
+                 category_display = getattr(insight, 'get_category_display', lambda: insight.category)()
                  insights_msg += f"<b>{i}. {insight.text}</b>\n"
                  insights_msg += f"   🏷 {category_display}\n"
                  insights_msg += f"   ⭐ {insight.weight}\n"
-                 insights_msg += f"   🕒 {insight.last_mentioned.strftime('%d.%m.%Y %H:%M')}\n\n"
+                 insights_msg += f"   🕒 {insight.last_mentioned.strftime('%d.%m.%Y %H:%M')}\n"
              await safe_edit_message_text(message=callback.message, text=insights_msg, reply_markup=back_keyboard)
         await safe_answer_callback(callback, "")
     except (ValueError, IndexError) as e:
@@ -704,7 +698,7 @@ async def view_day_keypoints(callback: CallbackQuery, user, language: str):
         day = int(parts[3])
         target_date = date(year, month, day)
         target_date_str = target_date.strftime("%d.%m.%Y")
-        entries = await diary_service.get_entries_for_day(user, target_date)
+        entries = await diary_service.get_user_entries_for_date(user, target_date)
         entry_ids = [entry.id for entry in entries]
         back_button = [[InlineKeyboardButton(text=get_button_text('btn_back', language), callback_data=f"calendar_select_day:{year}:{month}:{day}")]]
         back_keyboard = InlineKeyboardMarkup(inline_keyboard=back_button)
@@ -713,19 +707,16 @@ async def view_day_keypoints(callback: CallbackQuery, user, language: str):
              await safe_edit_message_text(message=callback.message, text=no_data_msg, reply_markup=back_keyboard)
              await safe_answer_callback(callback, "")
              return
-        @sync_to_async
-        def get_keypoints_sync():
-             return list(KeyPoint.objects.filter(entry_id__in=entry_ids).order_by('-confidence', '-created_at'))
-        keypoints = await get_keypoints_sync()
+        keypoints = await diary_service.get_keypoints_for_entries(entry_ids)
         if not keypoints:
              no_keypoints_msg = get_message('no_key_points_for_day', language, date=target_date_str)
              await safe_edit_message_text(message=callback.message, text=no_keypoints_msg, reply_markup=back_keyboard)
         else:
              keypoints_header = get_message('header_key_points', language, date=target_date_str)
-             keypoints_msg = f"<b>{keypoints_header}</b>\n\n"
+             keypoints_msg = f"<b>{keypoints_header}</b>\n"
              keypoints_by_type = {}
              for kp in keypoints:
-                 kp_type = kp.get_type_display() or kp.type
+                 kp_type = getattr(kp, 'get_type_display', lambda: kp.type)()
                  if kp_type not in keypoints_by_type:
                      keypoints_by_type[kp_type] = []
                  keypoints_by_type[kp_type].append(kp)
@@ -768,7 +759,7 @@ async def _reanalyze_day_background_silent(user: User, target_date: date, langua
         if not combined_entry:
             logger.warning(f"[Фоновая задача Silent] CombinedDiaryEntry за {target_date} не найден. Создание невозможно без первой записи.")
             return
-        user_profile_data = await user.aget_profile_data()
+        user_profile_data = await user.get_profile_data()
         previous_combined_entry = await daily_state_service.get_daily_state(user, target_date - timedelta(days=1))
         analysis_result = await deepseek_api_service.analyze_text_with_previous_state(
             previous_state_context=previous_combined_entry.ai_state_data,
@@ -805,16 +796,26 @@ async def _get_or_update_combined_entry(user, diary_entry: DiaryEntry):
     entry_date = diary_entry.entry_date
     combined_entry = await daily_state_service.get_daily_state(user, entry_date)
     if combined_entry is None:
+        # Если CombinedDiaryEntry не существует, создаем его на основе первой записи
         combined_entry = await daily_state_service.create_daily_state_from_entry(diary_entry)
         is_first_entry_of_day = True
     else:
-        combined_text = await diary_service.get_combined_entry_text(user, entry_date)
+        # === ОПТИМИЗАЦИЯ ===
+        # Сначала получаем список записей
+        logger.debug("[_get_or_update_combined_entry] Получение записей для обновления CombinedDiaryEntry...")
         entries_today = await diary_service.get_user_entries_for_date(user, entry_date)
         entry_count = len(entries_today)
+        
+        # Затем получаем объединенный текст, передавая уже полученный список
+        logger.debug("[_get_or_update_combined_entry] Получение объединенного текста с использованием уже полученного списка...")
+        combined_text = await diary_service.get_combined_entry_text(user, entry_date, entries_list=entries_today)
+        
+        # Обновляем CombinedDiaryEntry
         await daily_state_service.update_daily_state_text_and_count(
             combined_entry, combined_text, entry_count
         )
         is_first_entry_of_day = False
+        
     return combined_entry, is_first_entry_of_day
 
 async def _perform_analysis(is_first, combined_entry, text, profile, lang):
@@ -876,16 +877,9 @@ async def _process_analysis_result(
         clarification_questions = []
         result_data = {}
         if not analysis_result or not analysis_result.get('success', False):
-            logger.error(f"Ошибка {'финального ' if is_final else ''}анализа API: {analysis_result.get('error', 'Unknown error')}")
-            error_type = analysis_result.get('error', 'unknown_error')
-            error_message = analysis_result.get('message', 'Неизвестная ошибка API')
-            logger.error(f"Ошибка {'финального ' if is_final else ''}анализа API: {error_type} - {error_message}")
-            if error_type == 'timeout':
-                comment = f'Анализ записан (превышено время ожидания {"финального " if is_final else ""}API)'
-            else:
-                comment = f'Анализ записан (ошибка {"финального " if is_final else ""}API: {error_type})'
-            recommendation = 'Попробуйте позже'
-            analysis_text = f"{'Финальный ' if is_final else ''}Анализ не доступен из-за ошибки API: {error_message}"
+            comment, recommendation, analysis_text, log_message = format_api_error_for_analysis(
+                analysis_result, language, is_final
+            )
         else:
             logger.info(f"{'Финальный ' if is_final else ''}Анализ API завершен успешно.")
             api_response_data = analysis_result.get('api_response', {})
@@ -1025,20 +1019,6 @@ async def _process_analysis_result(
         await state_manager.clear_state(state)
         raise 
 
-# TODO Убрать, вынести в вызов?
-async def _handle_analysis_result(entry: DiaryEntry, analysis_result: dict, status_msg, language: str, state: FSMContext, user):
-    """
-    Обрабатывает результат ПЕРВИЧНОГО анализа и выполняет все последующие действия.
-    """
-    await _process_analysis_result(entry, analysis_result, status_msg, language, state, user, is_final=False)
-
-# TODO Убрать, вынести в вызов?
-async def _handle_final_analysis_result(entry: DiaryEntry, final_analysis_result: dict, status_msg, language: str, state: FSMContext, user):
-    """
-    Обрабатывает результат ФИНАЛЬНОГО анализа (после уточнений) и выполняет все последующие действия.
-    """
-    await _process_analysis_result(entry, final_analysis_result, status_msg, language, state, user, is_final=True)
-
 # TODO: Реализовать проверку, было ли уже задание назначено в этот день.
 async def _create_task_from_suggested_data(user, task_data: dict, entry_date: date, related_diary_entry: DiaryEntry = None):
     """
@@ -1095,7 +1075,7 @@ async def _navigate_back_to_edit_day(
         status_message: Дополнительное сообщение статуса для отображения.
     """
     try:
-        entries = await diary_service.get_entries_for_day(user, target_date)
+        entries = await diary_service.get_user_entries_for_date(user, target_date)
         try:
             combined_entry = await CombinedDiaryEntry.objects.aget(user=user, date=target_date)
             is_day_analyzed = combined_entry.is_analyzed

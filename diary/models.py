@@ -78,13 +78,8 @@ class DiaryEntry(models.Model):
     def localized_created_at(self) -> str:
         """Локализованное время создания записи"""
         try:
-            def _localize_time(dt, user_tz_str):
-                if dt.tzinfo is None:
-                    dt = pytz.utc.localize(dt)
-                user_tz = pytz.timezone(user_tz_str)
-                localized_time = dt.astimezone(user_tz)
-                return localized_time.strftime('%d.%m.%Y %H:%M')
-
+            # Используем метод модели User для получения локального времени
+            user_local_dt = self.user.get_local_datetime()
             user_timezone_str = self.user.timezone if self.user else 'UTC'
             if not user_timezone_str:
                  user_timezone_str = 'UTC'
@@ -94,13 +89,15 @@ class DiaryEntry(models.Model):
             if created_at_for_conversion.tzinfo is None:
                 created_at_for_conversion = pytz.utc.localize(created_at_for_conversion)
             
+            # Вместо повторения логики get_local_datetime, просто конвертируем created_at
+            # в часовой пояс пользователя
             user_tz = pytz.timezone(user_timezone_str)
             localized_time = created_at_for_conversion.astimezone(user_tz)
             
             return localized_time.strftime('%d.%m.%Y %H:%M')
-            # =========================================================
+
         except Exception as e:
-            logger.error(f"Ошибка при локализации времени: {e}")
+            logger.error(f"Ошибка при локализации времени для записи {self.id}: {e}")
             # Возвращаем время в UTC если не удалось
             if self.created_at.tzinfo:
                 return self.created_at.strftime('%d.%m.%Y %H:%M UTC')
@@ -109,8 +106,10 @@ class DiaryEntry(models.Model):
 
     @property
     def entry_date(self) -> date:
-        """Дата записи (без времени) с учетом часового пояса"""
+        """Дата записи (без времени) с учетом часового пояса пользователя"""
         try:
+            # Используем метод модели User для получения локального времени
+            user_local_dt = self.user.get_local_datetime()
             user_timezone_str = self.user.timezone if self.user else 'UTC'
             if not user_timezone_str:
                  user_timezone_str = 'UTC'
@@ -120,54 +119,19 @@ class DiaryEntry(models.Model):
             if created_at_for_conversion.tzinfo is None:
                 created_at_for_conversion = pytz.utc.localize(created_at_for_conversion)
             
+            # Конвертируем created_at в часовой пояс пользователя и возвращаем дату
             user_tz = pytz.timezone(user_timezone_str)
             localized_time = created_at_for_conversion.astimezone(user_tz)
             
             return localized_time.date()
-            # =========================================================
+
         except Exception as e:
-            logger.error(f"Ошибка при получении даты записи: {e}")
+            logger.error(f"Ошибка при получении даты записи {self.id}: {e}")
             # Возвращаем дату в UTC если не удалось
             if self.created_at.tzinfo:
                 return self.created_at.date()
             else:
                 return pytz.utc.localize(self.created_at).date()
-            
-    async def aentry_date(self) -> date:
-        """Асинхронная версия получения даты записи."""
-        # Импортируем необходимые модули внутри метода, чтобы избежать циклических импортов
-        import pytz
-        from asgiref.sync import sync_to_async
-        from django.utils import timezone
-
-        try:
-            # Оборачиваем синхронное свойство в sync_to_async
-            @sync_to_async
-            def _get_entry_date_sync():
-                # Здесь повторяем логику вашего существующего свойства entry_date
-                # Пример (замените на вашу логику):
-                user_timezone_str = self.user.timezone if self.user else 'UTC'
-                if not user_timezone_str:
-                    user_timezone_str = 'UTC'
-
-                created_at_for_conversion = self.created_at
-                if created_at_for_conversion.tzinfo is None:
-                    created_at_for_conversion = timezone.utc.localize(created_at_for_conversion)
-
-                user_tz = pytz.timezone(user_timezone_str)
-                localized_time = created_at_for_conversion.astimezone(user_tz)
-                return localized_time.date()
-                # --- Конец логики свойства ---
-
-            return await _get_entry_date_sync()
-
-        except Exception as e:
-            logger.error(f"Ошибка при асинхронном получении даты записи: {e}")
-            # Возвращаем дату в UTC если не удалось
-            if self.created_at.tzinfo:
-                return self.created_at.date()
-            else:
-                return timezone.utc.localize(self.created_at).date()
     
     @property
     def combined_text(self) -> str:

@@ -11,7 +11,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from bot.services.diary_service import diary_service
 from core.constants import MONTH_NAMES_RU, MONTH_NAMES_EN, MONTH_NAMES_SHORT_RU, MONTH_NAMES_SHORT_EN
-from diary.models import DiaryEntry
+from diary.models import DiaryEntry, CombinedDiaryEntry
 from messages import get_button_text, get_message
 
 logger = logging.getLogger(__name__)
@@ -19,10 +19,10 @@ logger = logging.getLogger(__name__)
 async def get_smart_calendar_keyboard(user, language: str) -> InlineKeyboardMarkup:
     """Получение умного календаря с фокусом на текущий месяц"""
     try:
-        today = datetime.now()
-        current_year = today.year
-        current_month = today.month
-        current_day = today.day
+        user_local_date = user.get_local_datetime().date()
+        current_year = user_local_date.year
+        current_month = user_local_date.month
+        current_day = user_local_date.day
         return await get_month_calendar_with_navigation(user, current_year, current_month, current_day, language)
     except Exception as e:
         return get_basic_calendar_keyboard(language)
@@ -56,23 +56,44 @@ async def get_month_calendar_with_navigation(user, year: int, month: int, curren
     ]
     buttons.append(weekday_buttons)
     try:
-        days_with_entries = await get_days_with_entries_async(user, year, month)
-        logger.info(f"Получено {len(days_with_entries)} дней с записями (async)")
+        # Используем новую функцию
+        days_data = await get_days_with_entries_and_mood_async(user, year, month)
+        logger.debug(f"Данные дней для календаря: {days_data}")
     except Exception as e:
-        logger.error(f"Ошибка при асинхронном получении дней с записями: {e}")
-        days_with_entries = set()
+        logger.error(f"Ошибка при асинхронном получении дней с настроением: {e}")
+        days_data = {}
+    user_local_date = user.get_local_datetime().date()
     first_day_weekday = date(year, month, 1).weekday()
     days_in_month = monthrange(year, month)[1]
     day_buttons = []
     for i in range(first_day_weekday):
         day_buttons.append(InlineKeyboardButton(text=" ", callback_data="calendar_empty"))
-    today = datetime.now()
+    today = user.get_local_datetime().date()
     for day in range(1, days_in_month + 1):
         day_text = str(day)
-        if year == today.year and month == today.month and day == today.day:
+        if year == user_local_date.year and month == user_local_date.month and day == user_local_date.day:
             day_text = f"🔹{day}🔹"
-        elif day in days_with_entries:
-            day_text = f"📝{day}"
+        elif day in days_data:
+            # === НОВАЯ ЛОГИКА ОТМЕТКИ ДНЯ ===
+            avg_mood_score = days_data[day]
+            if avg_mood_score is not None and avg_mood_score > 0:
+                # Определяем эмодзи на основе настроения (1-10)
+                # Можно сделать более градационную шкалу
+                if avg_mood_score >= 8:
+                    mood_emoji = "😄" # Отлично
+                elif avg_mood_score >= 6:
+                    mood_emoji = "😊" # Хорошо
+                elif avg_mood_score >= 4:
+                    mood_emoji = "😐" # Нормально
+                elif avg_mood_score >= 2:
+                    mood_emoji = "😞" # Плохо
+                else: # 1 или близко к 1
+                    mood_emoji = "😢" # Ужасно
+                day_text = f"{mood_emoji}{day}"
+            else:
+                # Если CombinedDiaryEntry есть, но средняя оценка 0 или None 
+                # (возможно, день еще не проанализирован ИИ)
+                day_text = f"📝{day}"
         day_buttons.append(
             InlineKeyboardButton(
                 text=day_text,
@@ -168,7 +189,8 @@ def get_month_selection_keyboard(year: int, current_month: int, language: str) -
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def get_basic_calendar_keyboard(language: str) -> InlineKeyboardMarkup:
+# TODO нужена ли функция?
+def get_basic_calendar_keyboard(user, language: str) -> InlineKeyboardMarkup:
     """Базовый календарь на случай ошибок"""
     buttons = []
     buttons.append([
@@ -177,7 +199,7 @@ def get_basic_calendar_keyboard(language: str) -> InlineKeyboardMarkup:
             callback_data="calendar_empty"
         )
     ])
-    current_year = datetime.now().year
+    current_year = user.get_local_datetime().year
     buttons.append([
         InlineKeyboardButton(
             text=str(current_year),
@@ -255,23 +277,6 @@ def get_entry_view_keyboard(language: str, year: int, month: int, day: int) -> I
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# TODO Рассмотреть объединение
-def get_confirm_delete_keyboard(language: str, entry_id: int) -> InlineKeyboardMarkup:
-    """Клавиатура подтверждения удаления записи"""
-    buttons = [
-        [
-            InlineKeyboardButton(
-                text="✅ Да, удалить",
-                callback_data=f"confirm_delete_entry:{entry_id}"
-            ),
-            InlineKeyboardButton(
-                text="❌ Нет, отмена",
-                callback_data="cancel_delete_entry"
-            )
-        ]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
 # TODO Пересмотреть. Пагинация? Подтвердить не в сегодняшнем дне
 def get_day_entries_edit_keyboard(entries: List[DiaryEntry], target_date: date, language: str, is_day_analyzed: bool) -> InlineKeyboardMarkup:
     """
@@ -333,40 +338,61 @@ def get_day_entries_edit_keyboard(entries: List[DiaryEntry], target_date: date, 
     buttons.append(bottom_row)
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# TODO Рассмотреть объединение
-def get_confirm_delete_entry_keyboard(entry_id: int, target_date, language: str) -> InlineKeyboardMarkup: # Указываем тип target_date как Any или Union[date, str]
+def get_confirmation_keyboard(
+    language: str,
+    confirm_text_key: str,      # Ключ для текста кнопки "Подтвердить" из messages.py
+    cancel_text_key: str,       # Ключ для текста кнопки "Отменить" из messages.py
+    confirm_callback_data: str, # Callback data для кнопки "Подтвердить"
+    cancel_callback_data: str,  # Callback data для кнопки "Отменить"
+    # Опционально: можно добавить параметры для кастомизации внешнего вида
+) -> InlineKeyboardMarkup:
     """
-    Клавиатура подтверждения удаления конкретной записи.
+    Универсальная клавиатура подтверждения/отмены действия.
+
     Args:
-        entry_id: ID записи.
-        target_date: Объект date или строка в формате ISO даты записи.
-        language: Язык интерфейса.
+        language (str): Язык интерфейса.
+        confirm_text_key (str): Ключ для локализованного текста кнопки подтверждения.
+        cancel_text_key (str): Ключ для локализованного текста кнопки отмены.
+        confirm_callback_data (str): Данные callback для кнопки подтверждения.
+        cancel_callback_data (str): Данные callback для кнопки отмены.
+
+    Returns:
+        InlineKeyboardMarkup: Сгенерированная клавиатура.
     """
-    if isinstance(target_date, str):
-        iso_date_str = target_date
-        logger.debug(f"target_date уже является строкой: {iso_date_str}")
-    else:
-        try:
-            iso_date_str = target_date.isoformat()
-            logger.debug(f"target_date преобразована в строку: {iso_date_str}")
-        except AttributeError:
-            logger.error(f"Невозможно преобразовать target_date в строку. Тип: {type(target_date)}, Значение: {target_date}")
-            raise ValueError(f"target_date должен быть объектом date или строкой, но получен {type(target_date)}: {target_date}")
     buttons = [
         [
             InlineKeyboardButton(
-                text="✅ " + get_message('confirm_delete_entry_yes', language),
-                callback_data=f"confirm_delete_specific_entry:{entry_id}:{iso_date_str}"
+                text=get_button_text(confirm_text_key, language), # Используем get_button_text как в других клавиатурах
+                callback_data=confirm_callback_data
             ),
             InlineKeyboardButton(
-                text="❌ " + get_message('confirm_delete_entry_no', language),
-                callback_data=f"cancel_delete_specific_entry:{entry_id}:{iso_date_str}"
+                text=get_button_text(cancel_text_key, language), # Используем get_button_text как в других клавиатурах
+                callback_data=cancel_callback_data
             )
         ]
     ]
-    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-    logger.debug("Клавиатура подтверждения удаления записи сформирована.")
-    return keyboard
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_delete_confirmation_keyboard(language: str, entry_id: int) -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения удаления записи (алиас)."""
+    return get_confirmation_keyboard(
+        language=language,
+        confirm_text_key='btn_confirm_delete', # Убедись, что такой ключ есть в messages.py
+        cancel_text_key='btn_cancel_delete',   # Убедись, что такой ключ есть в messages.py
+        confirm_callback_data=f"confirm_delete_entry:{entry_id}",
+        cancel_callback_data="cancel_delete_entry"
+    )
+
+def get_delete_entry_confirmation_keyboard(entry_id: int, target_date, language: str) -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения удаления конкретной записи (алиас)."""
+    iso_date_str = target_date.isoformat() if not isinstance(target_date, str) else target_date
+    return get_confirmation_keyboard(
+        language=language,
+        confirm_text_key='btn_confirm_delete_entry', # Убедись, что такой ключ есть
+        cancel_text_key='btn_cancel',                # Используем общий ключ
+        confirm_callback_data=f"confirm_delete_specific_entry:{entry_id}:{iso_date_str}",
+        cancel_callback_data=f"cancel_delete_specific_entry:{entry_id}:{iso_date_str}"
+    )
 
 def get_back_to_edit_day_keyboard(target_date: date, language: str) -> InlineKeyboardMarkup:
     """
@@ -407,11 +433,35 @@ def format_entry_text_for_editing(entry_text: str) -> str:
     """
     return entry_text
 
-async def get_days_with_entries_async(user, year: int, month: int) -> set:
-    """Асинхронное получение дней месяца, в которые есть записи"""
+async def get_days_with_entries_and_mood_async(user, year: int, month: int) -> dict:
+    """
+    Асинхронное получение дней месяца, в которые есть записи,
+    и средней оценки настроения за эти дни.
+    
+    Returns:
+        dict: Словарь, где ключ - день месяца (int), 
+              значение - средняя оценка настроения (float) или None, если CombinedDiaryEntry отсутствует.
+    """
+    logger.debug(f"Получение дней с записями и настроением для {year}-{month} пользователя {user.telegram_id}")
+    days_data = {}
     try:
-        days_with_entries = await diary_service.get_days_with_entries(user, year, month)
-        return days_with_entries
+        # Используем select_related для оптимизации запроса к CombinedDiaryEntry
+        async for combined_entry in CombinedDiaryEntry.objects.filter(
+            user=user,
+            date__year=year,
+            date__month=month
+        ).select_related('user'): # select_related может помочь, если будут дополнительные поля из user
+            day = combined_entry.date.day
+            # Проверяем, есть ли записи (entry_count > 0) - это надежнее, чем просто существование CombinedDiaryEntry
+            if combined_entry.entry_count > 0:
+                # Сохраняем среднюю оценку. Если 0.0, все равно сохраняем, чтобы отличать от отсутствия данных.
+                days_data[day] = combined_entry.average_mood_score 
+            # Если entry_count == 0, CombinedDiaryEntry может быть артефактом или остатком от удаления,
+            # и мы его игнорируем.
+            
+        logger.debug(f"Получены данные для дней: {list(days_data.keys())}")
+        return days_data
     except Exception as e:
-        logger.error(f"Ошибка при асинхронном получении дней с записями: {e}")
-        return set()
+        logger.error(f"Ошибка при асинхронном получении дней с записями и настроением: {e}")
+        # Возвращаем пустой словарь в случае ошибки
+        return {}
