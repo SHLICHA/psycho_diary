@@ -6,6 +6,7 @@ Handlers для работы с дневником
 
 import asyncio
 import logging
+import json
 
 from asgiref.sync import sync_to_async
 from aiogram import Router, F
@@ -38,6 +39,7 @@ from bot.services.diary_service import diary_service, update_daily_state
 from bot.services.psycho_analysis_service import psycho_analysis_service
 from bot.services.yandex_speechkit import yandex_speechkit_service
 from bot.services.deepseek_api import deepseek_api_service
+from prompts import get_prompt
 from core.constants import TEXT_MESSAGE_MAX_LENGTH, VOICE_MESSAGE_MAX_DURATION, TASK_TYPES
 from users.models import User
 
@@ -65,111 +67,96 @@ async def new_entry(callback: CallbackQuery, state: FSMContext, language: str):
         await safe_answer_callback(callback, get_message('error_generic', language))
 
 @router.message(DiaryStates.waiting_for_text_entry, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
-async def process_any_entry(message: Message, state: FSMContext, user, language: str):
+async def process_any_entry(message: Message, state: FSMContext, user: User, language: str):
     """
-    Обработка текстовой или голосовой записи с инкрементальным анализом.
+    Обработка записи с инкрементальным анализом.
+    Использует полный контекст дня и обновляет состояние.
     """
-    logger.info(f"[СОЗДАНИЕ ЗАПИСИ] Обработка записи ({message.content_type}) от пользователя {message.from_user.id}")
-    status_message = None
+    logger.info(f"[СОЗДАНИЕ ЗАПИСИ] Обработка {message.content_type} от {user.telegram_id}")
+    status_msg = None
     try:
+        # === ВАЛИДАЦИЯ ===
         is_valid, error_code = validate_incoming_message(message)
         if not is_valid:
-            error_msg = get_message(error_code, language) 
-            await message.answer(error_msg)
-            logger.warning(f"Валидация не пройдена: {error_code}")
-            # Не очищаем состояние, чтобы пользователь мог попробовать снова
-            # Если нужно очистить при определенных ошибках, можно добавить логику
+            await message.answer(get_message(error_code, language))
             return
+
         entry_text = ""
         voice_file_id = None
         duration = 0
-        speechkit_api_response = None
-        deepseek_api_response_postproc = None
-        if message.content_type == ContentType.TEXT:
-            entry_text = message.text
-        elif message.content_type == ContentType.VOICE:
+
+        if message.content_type == ContentType.VOICE:
             voice = message.voice
             duration = voice.duration
             voice_file_id = voice.file_id
-        user_local_datetime = await user.aget_local_datetime()
-        logger.info(f"[СОЗДАНИЕ ЗАПИСИ] Локальное время пользователя: {user_local_datetime}")
-        processing_msg = get_message('processing', language)
-        status_message = await message.answer(processing_msg)
+
+        user_local_dt = await user.aget_local_datetime()
+        status_msg = await message.answer(get_message('processing', language))
+
+        # === ОБРАБОТКА ГОЛОСА ===
         if message.content_type == ContentType.VOICE:
-            try:
-                file = await message.bot.get_file(voice_file_id)
-                file_path = file.file_path
-                voice_data = await message.bot.download_file(file_path)
-                voice_bytes = voice_data.read()
-                logger.info(f"Голосовое сообщение скачано, размер: {len(voice_bytes)} байт")
-            except Exception as download_error:
-                logger.error(f"Ошибка при скачивании голосового сообщения: {download_error}")
-                await _send_error_message(status_message, message, language)
+            file = await message.bot.get_file(voice_file_id)
+            voice_bytes = (await message.bot.download_file(file.file_path)).read()
+
+            rec_result = await yandex_speechkit_service.recognize_voice(voice_bytes, language, 'oggopus')
+            if not rec_result['success']:
+                await status_msg.edit_text(f"{get_message('error_processing', language)}: {rec_result.get('message', 'Unknown')}")
                 return
-            recognition_result = await yandex_speechkit_service.recognize_voice(
-                voice_data=voice_bytes,
-                language=language,
-                audio_format='oggopus'
-            )
-            if not recognition_result['success']:
-                logger.error(f"Ошибка распознавания голоса: {recognition_result['error']}")
-                error_detail = recognition_result.get('message', 'Неизвестная ошибка распознавания')
-                await status_message.edit_text(f"{get_message('error_processing', language)} (Распознавание: {error_detail})")
-                return
-            recognized_text = recognition_result['result']
-            speechkit_api_response = recognition_result
-        # ПОСТОБРАБОТКА ТЕКСТА (пунктуация, форматирование)
-            if recognized_text:
-                punctuation_result = await deepseek_api_service.punctuate_and_format_text(
-                    text=recognized_text,
-                    language=language
-                )
-                if not punctuation_result['success']:
-                    logger.error(f"Ошибка постобработки текста: {punctuation_result['error']}")
-                    entry_text = recognized_text
-                else:
-                    entry_text = punctuation_result['result']
-                    deepseek_api_response_postproc = punctuation_result.get('api_response', {})
-                    logger.info(f"Текст успешно отформатирован, длина: {len(entry_text)} символов")
-            else:
-                entry_text = ""
-                logger.warning("Распознанный текст пустой")
-        # === СОХРАНЕНИЕ ЗАПИСИ В БД ===
-        diary_entry = None
-        if message.content_type == ContentType.TEXT:
-            diary_entry = await diary_service.create_text_entry(
-                user=user,
-                text=entry_text,
-                language=language,
-                entry_datetime=user_local_datetime
-            )
-        elif message.content_type == ContentType.VOICE:
-            diary_entry = await diary_service.create_voice_entry(
-                user=user,
-                voice_file_id=voice_file_id,
-                duration=duration,
-                recognized_text=entry_text,
-                language=language,
-                entry_datetime=user_local_datetime,
-                speechkit_api_response=speechkit_api_response,
-                deepseek_api_response=deepseek_api_response_postproc
-            )
-        # === ПОЛУЧЕНИЕ/СОЗДАНИЕ/ОБНОВЛЕНИЕ СОСТОЯНИЯ ДНЯ ===
-        combined_entry, is_first_entry_of_day = await _get_or_update_combined_entry(
-            user, diary_entry
+
+            punct_result = await deepseek_api_service.punctuate_and_format_text(rec_result['result'], language)
+            entry_text = punct_result.get('result') or rec_result['result']
+        else:
+            entry_text = message.text
+
+        # === СОХРАНЕНИЕ ЗАПИСИ ===
+        diary_entry = await diary_service.create_text_entry(
+            user=user,
+            text=entry_text,
+            language=language,
+            entry_datetime=user_local_dt
+        ) if message.content_type == ContentType.TEXT else await diary_service.create_voice_entry(
+            user=user,
+            voice_file_id=voice_file_id,
+            duration=duration,
+            recognized_text=entry_text,
+            language=language,
+            entry_datetime=user_local_dt
         )
-        # === ВЫБОР И ВЫПОЛНЕНИЕ МЕТОДА АНАЛИЗА ===
-        user_profile_data = await user.aget_profile_data()
-        analysis_result = await _perform_analysis(
-            is_first_entry_of_day, combined_entry, entry_text, user_profile_data, language
+
+        # === ОБНОВЛЕНИЕ СОСТОЯНИЯ ДНЯ ===
+        combined_entry, is_first = await _get_or_update_combined_entry(user, diary_entry)
+
+        # === ФОРМИРОВАНИЕ ПРОМПТА ===
+        all_entries_text = await diary_service.get_combined_entry_text(user, diary_entry.entry_date)
+        user_profile = await user.aget_profile_data()
+        ai_state_data = combined_entry.ai_state_data if combined_entry else ""
+
+        prompt = get_prompt(
+            key='incremental_day_analysis',
+            language=language,
+            all_entries_combined=all_entries_text,
+            new_entry_text=entry_text,
+            ai_state_data=ai_state_data,
+            user_profile=user_profile
         )
-        # === ОБРАБОТКА РЕЗУЛЬТАТА АНАЛИЗА ===
+
+        # === АНАЛИЗ ===
+        analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
+
+        # === ОБРАБОТКА РЕЗУЛЬТАТА ===
         await _process_analysis_result(
-            diary_entry, analysis_result, status_message, language, state, user
+            entry=diary_entry,
+            analysis_result=analysis_result,
+            status_msg=status_msg,
+            language=language,
+            state=state,
+            user=user
         )
+
     except Exception as e:
-        logger.error(f"Ошибка при обработке записи ({message.content_type}): {e}", exc_info=True)
-        await _send_error_message(status_message, message, language)
+        logger.error(f"Ошибка в process_any_entry: {e}", exc_info=True)
+        if status_msg:
+            await status_msg.edit_text(get_message('error_processing', language))
         await state_manager.clear_state(state)
 
 @router.message(DiaryStates.asking_clarifying_questions)
@@ -791,32 +778,21 @@ async def _reanalyze_day_background_silent(user: User, target_date: date, langua
     except Exception as e:
         logger.error(f"[Фоновая задача Silent] Критическая ошибка: {e}", exc_info=True)
 
-async def _get_or_update_combined_entry(user, diary_entry: DiaryEntry):
-    """Получает или создает/обновляет CombinedDiaryEntry."""
+async def _get_or_update_combined_entry(user: User, diary_entry: DiaryEntry):
+    """Получает или создаёт CombinedDiaryEntry."""
     entry_date = diary_entry.entry_date
     combined_entry = await daily_state_service.get_daily_state(user, entry_date)
+
     if combined_entry is None:
-        # Если CombinedDiaryEntry не существует, создаем его на основе первой записи
         combined_entry = await daily_state_service.create_daily_state_from_entry(diary_entry)
-        is_first_entry_of_day = True
-    else:
-        # === ОПТИМИЗАЦИЯ ===
-        # Сначала получаем список записей
-        logger.debug("[_get_or_update_combined_entry] Получение записей для обновления CombinedDiaryEntry...")
-        entries_today = await diary_service.get_user_entries_for_date(user, entry_date)
-        entry_count = len(entries_today)
-        
-        # Затем получаем объединенный текст, передавая уже полученный список
-        logger.debug("[_get_or_update_combined_entry] Получение объединенного текста с использованием уже полученного списка...")
-        combined_text = await diary_service.get_combined_entry_text(user, entry_date, entries_list=entries_today)
-        
-        # Обновляем CombinedDiaryEntry
-        await daily_state_service.update_daily_state_text_and_count(
-            combined_entry, combined_text, entry_count
-        )
-        is_first_entry_of_day = False
-        
-    return combined_entry, is_first_entry_of_day
+        return combined_entry, True
+
+    entries = await diary_service.get_user_entries_for_date(user, entry_date)
+    combined_text = await diary_service.get_combined_entry_text(user, entry_date, entries_list=entries)
+    await daily_state_service.update_daily_state_text_and_count(
+        combined_entry, combined_text, len(entries)
+    )
+    return combined_entry, False
 
 async def _perform_analysis(is_first, combined_entry, text, profile, lang):
     """Выбирает и выполняет метод анализа."""
@@ -838,7 +814,7 @@ async def _perform_analysis(is_first, combined_entry, text, profile, lang):
                 user_profile=profile,
                 language=lang
             )
-
+        
 async def _send_error_message(status_msg, original_msg, language: str):
     """Отправляет сообщение об ошибке, стараясь использовать любой доступный способ."""
     error_message_sent = False
@@ -855,207 +831,109 @@ async def _send_error_message(status_msg, original_msg, language: str):
             pass
 
 async def _process_analysis_result(
-    entry: DiaryEntry, 
-    analysis_result: dict, 
-    status_msg, 
-    language: str, 
-    state: FSMContext, 
-    user,
-    is_final: bool = False
+    entry: DiaryEntry,
+    analysis_result: dict,
+    status_msg,
+    language: str,
+    state: FSMContext,
+    user: User
 ):
-    """
-    Обрабатывает результат анализа (первичного или финального) и выполняет все последующие действия.
-    """
+    """Обрабатывает результат анализа."""
     try:
-        mood_score = 5
-        comment = 'Анализ записан'
-        recommendation = 'Продолжайте вести дневник'
-        analysis_text = "Текст проанализирован."
-        api_response_data = {}
-        suggested_task_data = None
-        needs_clarification = False
-        clarification_questions = []
-        result_data = {}
-        if not analysis_result or not analysis_result.get('success', False):
-            comment, recommendation, analysis_text, log_message = format_api_error_for_analysis(
-                analysis_result, language, is_final
-            )
+        # === ИЗВЛЕЧЕНИЕ ДАННЫХ ===
+        if not analysis_result or not analysis_result.get('success'):
+            comment, recommendation, analysis_text, _ = format_api_error_for_analysis(analysis_result, language, False)
+            mood_score = 5
         else:
-            logger.info(f"{'Финальный ' if is_final else ''}Анализ API завершен успешно.")
-            api_response_data = analysis_result.get('api_response', {})
-            result_data_raw = analysis_result.get('result', {})
-            if not isinstance(result_data_raw, dict):
-                logger.error("Поле 'result' в ответе API не является словарем.")
-                result_data = {}
-            else:
-                result_data = result_data_raw
-            mood_score_raw = result_data.get('mood_score')
-            if mood_score_raw is not None and isinstance(mood_score_raw, int) and 1 <= mood_score_raw <= 10:
-                mood_score = mood_score_raw
-            else:
-                logger.warning(f"Некорректное значение mood_score: {mood_score_raw}. Используется значение по умолчанию: {mood_score}")    
+            result_data = analysis_result.get('result', {})
+            mood_score = result_data.get('mood_score', 5)
+            comment = result_data.get('comment', 'Анализ записан')
+            recommendation = result_data.get('recommendation', 'Продолжайте вести дневник')
+            analysis_text = result_data.get('analysis', 'Текст проанализирован.')
+            suggested_task = result_data.get('suggested_task')
 
-            comment_raw = result_data.get('comment')
-            if comment_raw and isinstance(comment_raw, str):
-                comment = comment_raw
-            else:
-                logger.warning(f"Некорректное значение comment: {comment_raw}. Используется значение по умолчанию.")   
-
-            recommendation_raw = result_data.get('recommendation')
-            if recommendation_raw and isinstance(recommendation_raw, str):
-                recommendation = recommendation_raw
-            else:
-                logger.warning(f"Некорректное значение recommendation: {recommendation_raw}. Используется значение по умолчанию.")    
-
-            analysis_text_raw = result_data.get('analysis')
-            if analysis_text_raw and isinstance(analysis_text_raw, str):
-                analysis_text = analysis_text_raw
-            else:
-                logger.warning(f"Некорректное значение analysis: {analysis_text_raw}. Используется значение по умолчанию.")
-            if not is_final:
-                needs_clarification = result_data.get('needs_clarification', False)
-                if not isinstance(needs_clarification, bool):
-                    logger.debug(f"Некорректное значение needs_clarification: {needs_clarification}. Используется False.")
-                    needs_clarification = False
-
-                clarification_questions_raw = result_data.get('clarification_questions')
-                if isinstance(clarification_questions_raw, list):
-                    if all(isinstance(q, str) for q in clarification_questions_raw):
-                        clarification_questions = clarification_questions_raw
-                    else:
-                        logger.warning("Элементы clarification_questions не являются строками. Используется пустой список.")
-                        clarification_questions = []
-                else:
-                    logger.warning(f"Некорректное значение clarification_questions: {clarification_questions_raw}. Используется пустой список.")
-                    clarification_questions = []
-            suggested_task_data = result_data.get('suggested_task')
-            if suggested_task_data is not None and not isinstance(suggested_task_data, dict):
-                logger.warning(f"Некорректное значение suggested_task: {suggested_task_data}. Игнорируется.")
-                suggested_task_data = None
-        if not is_final and needs_clarification and clarification_questions:
-            try:
+            # === УТОЧНЕНИЯ ===
+            needs_clarification = result_data.get('needs_clarification', False)
+            clarification_questions = result_data.get('clarification_questions', [])
+            if needs_clarification and clarification_questions:
                 entry.clarification_questions_asked = clarification_questions
                 await sync_to_async(entry.save)(update_fields=['clarification_questions_asked'])
-            except Exception as save_error:
-                logger.error(f"Ошибка при сохранении clarification_questions_asked в DiaryEntry ID {entry.id}: {save_error}")
-            
-            await state_manager.update_state_data(
-                state,
-                clarifying_entry_id=entry.id,
-                clarification_questions=clarification_questions
-            )
-            await state_manager.set_state(state, DiaryStates.asking_clarifying_questions)
-            
-            questions_text = "\n".join([f"{i+1}. {q}" for i, q in enumerate(clarification_questions)])
-            clarification_msg = f"{get_message('clarification_needed', language)}\n{questions_text}"
-            await status_msg.edit_text(
-                clarification_msg,
-                reply_markup=get_cancel_keyboard(language)
-            )
-            return
-        psycho_analysis = await psycho_analysis_service.create_or_update_analysis(
+                await state_manager.update_state_data(
+                    state,
+                    clarifying_entry_id=entry.id,
+                    clarification_questions=clarification_questions
+                )
+                await state_manager.set_state(state, DiaryStates.asking_clarifying_questions)
+                questions_text = "\n".join([f"{i+1}. {q}" for i, q in enumerate(clarification_questions)])
+                await status_msg.edit_text(
+                    f"{get_message('clarification_needed', language)}\n{questions_text}",
+                    reply_markup=get_cancel_keyboard(language)
+                )
+                return
+
+        # === СОХРАНЕНИЕ PSYCHO ANALYSIS ===
+        await psycho_analysis_service.create_or_update_analysis(
             entry=entry,
             mood_score=mood_score,
             comment=comment,
             recommendation=recommendation,
             analysis_text=analysis_text,
-            api_response=api_response_data
+            api_response=analysis_result.get('api_response', {})
         )
+
+        # === ОБНОВЛЕНИЕ СОСТОЯНИЯ ДНЯ ===
         combined_entry = await daily_state_service.get_daily_state(user, entry.entry_date)
-        update_success = False
-        if combined_entry:
-            new_ai_state_data = analysis_text
-            update_success = await daily_state_service.update_daily_state(
-                combined_entry, new_ai_state_data, latest_mood_score=mood_score 
-            )
+        if combined_entry and 'updated_ai_state_data' in result_data:
+            new_state = result_data['updated_ai_state_data']
         else:
-            logger.warning("CombinedDiaryEntry не найден для обновления состояния.")
-        try:
-            await analysis_service.extract_and_save_insights_and_keypoints(entry, result_data)
-        except Exception as insight_error:
-            logger.error(f"Ошибка при обновлении инсайтов: {insight_error}")
-        task_info_text = ""
-        final_reply_markup = None
-        if suggested_task_data and isinstance(suggested_task_data, dict):
-            therapy_task = await _create_task_from_suggested_data(
-                user, suggested_task_data, entry.entry_date, related_diary_entry=entry
-            )
-            if therapy_task:
-                task_desc_preview = therapy_task.description[:150] + "..." if len(therapy_task.description) > 150 else therapy_task.description
-                task_info_text = f"\n📌 <b>Новое задание от ИИ:</b>\n<b>{therapy_task.title}</b>\n{task_desc_preview}"
-                # TODO: Логика пагинации требует доработки, если предполагается больше одного задания
-                task_index = 0 
-                final_reply_markup = get_task_pagination_keyboard(
-                    task_id=therapy_task.id,
-                    current_index=task_index,
-                    total_tasks=1,
-                    language=language
-                )
-            else:
-                logger.warning(f"Не удалось создать задание от ИИ ({'финальный' if is_final else 'первичный'} анализ).")
-                final_reply_markup = get_back_keyboard(language)
-        else:
-            final_reply_markup = get_back_keyboard(language)
-        entry_saved_msg = get_message(
-            'entry_saved',
-            language,
-            score=mood_score,
-            mood=get_message(f'mood_{mood_score}', language),
-            comment=comment,
-            recommendation=recommendation
+            new_state = analysis_text
+
+        await daily_state_service.update_daily_state(
+            combined_entry=combined_entry,
+            new_ai_state_data=new_state,
+            latest_mood_score=mood_score
         )
-        final_message_text = entry_saved_msg + task_info_text
-        await status_msg.edit_text(
-            final_message_text,
-            reply_markup=final_reply_markup
-        )
+
+        # === СОЗДАНИЕ ЗАДАНИЯ ===
+        task_info = ""
+        reply_markup = get_back_keyboard(language)
+        if suggested_task and isinstance(suggested_task, dict):
+            task = await _create_task_from_suggested_data(user, suggested_task, entry.entry_date, entry)
+            if task:
+                preview = task.description[:150] + "..." if len(task.description) > 150 else task.description
+                task_info = f"\n📌 <b>Новое задание от ИИ:</b>\n<b>{task.title}</b>\n{preview}"
+                reply_markup = get_task_pagination_keyboard(task.id, 0, 1, language)
+
+        # === ОТВЕТ ПОЛЬЗОВАТЕЛЮ ===
+        final_text = get_message('entry_saved', language, score=mood_score, mood=get_message(f'mood_{mood_score}', language), comment=comment, recommendation=recommendation) + task_info
+        await status_msg.edit_text(final_text, reply_markup=reply_markup)
         await state_manager.clear_state(state)
+
     except Exception as e:
-        logger.error(f"Критическая ошибка в _process_analysis_result (is_final={is_final}): {e}", exc_info=True)
-        try:
+        logger.error(f"Ошибка в _process_analysis_result: {e}", exc_info=True)
+        if status_msg:
             await status_msg.edit_text(get_message('error_processing', language))
-        except:
-            pass
         await state_manager.clear_state(state)
-        raise 
+        raise
 
 # TODO: Реализовать проверку, было ли уже задание назначено в этот день.
-async def _create_task_from_suggested_data(user, task_data: dict, entry_date: date, related_diary_entry: DiaryEntry = None):
-    """
-    Создает TherapyTask из данных, предложенных ИИ.
-    
-    Args:
-        user: Объект пользователя Django.
-        task_data: Словарь с данными задания от API.
-        entry_date: Дата записи, к которой относится задание.
-    """
-    try:
-        title = task_data.get('title', 'Задание от ИИ')
-        description = task_data.get('description', 'Выполните задание, предложенное ИИ.')
-        task_type_raw = task_data.get('type', 'daily')
-        priority_str = task_data.get('priority', 'medium').lower()
-        valid_task_types = [t[0] for t in TASK_TYPES]
-        task_type = task_type_raw if task_type_raw in valid_task_types else 'daily'
-        priority_str_to_int = {
-            'low': 1, 
-            'medium': 2, 
-            'high': 3, 
-            'critical': 4
-        }
-        priority_int = priority_str_to_int.get(priority_str, 2)
-        logger.info(f"Создание задания: '{title}', тип: {task_type}, приоритет: {priority_int}")
-        therapy_task = await task_service.assign_task(
-            user=user,
-            title=title,
-            description=description,
-            task_type=task_type,
-            priority=priority_int,
-            related_entry=related_diary_entry
-        )
-        return therapy_task
-
-    except Exception as task_error:
-        logger.error(f"Ошибка при создании задания от ИИ: {task_error}", exc_info=True)
+async def _create_task_from_suggested_data(user, task_data, entry_date, related_entry):
+    """Создаёт задание из данных ИИ."""
+    from core.constants import TASK_TYPES
+    valid_types = [t[0] for t in TASK_TYPES]
+    task_type = task_data.get('type', 'daily')
+    if task_type not in valid_types:
+        task_type = 'daily'
+    priority_map = {'low': 1, 'medium': 2, 'high': 3, 'critical': 4}
+    priority = priority_map.get(task_data.get('priority', 'medium').lower(), 2)
+    return await task_service.assign_task(
+        user=user,
+        title=task_data.get('title', 'Задание от ИИ'),
+        description=task_data.get('description', 'Выполните задание.'),
+        task_type=task_type,
+        priority=priority,
+        related_entry=related_entry
+    )
 
 async def _navigate_back_to_edit_day(
     message: Message, 

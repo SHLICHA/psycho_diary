@@ -21,7 +21,6 @@ class DeepSeekAPIService:
         if not DEEPSEEK_API_KEY:
             logger.warning("DEEPSEEK_API_KEY не настроен")
 
-    # TODO Объединить валидацию длинны текста
     @api_retry(max_attempts=3, delay=1.0)
     @handle_api_error
     async def analyze_text(self, text: str, language: str = 'ru', analysis_type: str = 'default') -> Dict[str, Any]:
@@ -1392,186 +1391,79 @@ Example response:
                 'api_response': api_response_data  # Ответ API для сохранения в БД!
             }
     
+    async def send_prompt_and_parse(self, prompt: str, language: str) -> dict:
+        """
+        Отправляет готовый промт в DeepSeek и парсит ответ.
+        """
+        try:
+            url = "https://api.deepseek.com/v1/chat/completions"
+            payload = {
+                "model": "deepseek-chat",
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.3,
+                "max_tokens": 5000
+            }
+            headers = {
+                "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                "Content-Type": "application/json"
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        response_text = data['choices'][0]['message']['content']
+                        # Предполагаем, что у тебя есть парсер
+                        result = await self._parse_analysis_response(response_text, language)
+                        return {
+                            'success': True,
+                            'result': result,
+                            'raw_response': response_text
+                        }
+                    else:
+                        error_text = await response.text()
+                        return {
+                            'success': False,
+                            'error': f'status_{response.status}',
+                            'message': error_text,
+                            'result': {},
+                            'raw_response': error_text
+                        }
+        except Exception as e:
+            logger.error(f"Ошибка при отправке промта: {e}")
+            return {
+                'success': False,
+                'error': 'request_failed',
+                'message': str(e),
+                'result': {},
+                'raw_response': ''
+            }
+
     async def _generate_analysis_prompt(
         self, 
         text: str, 
-        language: str, 
-        analysis_type: str
+        user_profile: dict, 
+        language: str,
+        ai_state_data: str = ""
     ) -> str:
         """
-        Генерация промта для анализа текста.
-        
-        Args:
-            text: Текст для анализа.
-            language: Язык анализа ('ru' или 'en').
-            analysis_type: Тип анализа ('default', 'emotion').
-            
-        Returns:
-            str: Сформированный промт.
+        Генерация промта для инкрементального анализа текста.
         """
-        logger.info(f"Генерация промта для анализа текста, тип: {analysis_type}, язык: {language}")
-        
-        prompts = {
-            'ru': {
-                'emotion': f'''Проанализируй мое эмоциональное состояние и ответь в формате JSON:
+        logger.info(f"Генерация промта для инкрементального анализа, язык: {language}")
+        try:
+            prompt = get_prompt(
+                key='incremental_day_analysis',
+                language=language,
+                ai_state_data=ai_state_data or "Нет предыдущего контекста.",
+                new_entry_text=text,
+                user_profile=user_profile
+            )
+            logger.info(f"Промт для инкрементального анализа сгенерирован (длина: {len(prompt)} символов)")
+            return prompt
+        except Exception as e:
+            logger.error(f"Ошибка при генерации промта: {e}")
+            return text  # fallback
 
-Текст для анализа:
-{text}
-
-Ответь в формате JSON с полями:
-- "mood_score": оценка настроения от 1 до 10 (1 - ужасно, 10 - прекрасно)
-- "comment": краткий комментарий (1 предложение)
-- "recommendation": персональная рекомендация (1-2 предложения)
-- "analysis": подробный анализ (2-3 предложения)
-- "key_points": массив объектов (ключевые моменты)
-   - "text": текст ключевого момента
-   - "type": тип (emotion, event, thought, trigger, other)
-   - "confidence": уверенность (float от 0.0 до 1.0)
-- "user_insights": массив объектов (новые инсайты)
-   - "text": текст инсайта
-   - "category": категория (personal, relational, professional, health, spiritual, other)
-   - "weight": вес (int, от 1 до 10)
-
-Пример ответа:
-{{
-  "mood_score": 7,
-  "comment": "Хорошее настроение",
-  "recommendation": "Продолжайте в том же духе",
-  "analysis": "Текст содержит позитивные эмоции",
-  "key_points": [
-    {{
-      "text": "счастье",
-      "type": "emotion",
-      "confidence": 0.9
-    }},
-    {{
-      "text": "успех",
-      "type": "event",
-      "confidence": 0.8
-    }}
-  ],
-  "user_insights": [
-    {{
-      "text": "Позитивные события повышают настроение",
-      "category": "personal",
-      "weight": 2
-    }}
-  ]
-}}''',
-                
-                'default': f'''Проанализируй текст и ответь в формате JSON:
-
-Текст для анализа:
-{text}
-
-Ответь в формате JSON с полями:
-- "mood_score": оценка настроения от 1 до 10
-- "comment": краткий комментарий
-- "recommendation": персональная рекомендация
-- "analysis": подробный анализ
-- "key_points": массив объектов (ключевые моменты)
-   - "text": текст ключевого момента
-   - "type": тип (emotion, event, thought, trigger, other)
-   - "confidence": уверенность (float от 0.0 до 1.0)
-- "user_insights": массив объектов (новые инсайты)
-   - "text": текст инсайта
-   - "category": категория (personal, relational, professional, health, spiritual, other)
-   - "weight": вес (int, от 1 до 10)
-
-Пример ответа:
-{{
-  "mood_score": 5,
-  "comment": "Нормальное настроение",
-  "recommendation": "Продолжайте вести дневник",
-  "analysis": "Текст нейтральный",
-  "key_points": [],
-  "user_insights": []
-}}'''
-            },
-            'en': {
-                'emotion': f'''Analyze my emotional state and respond in JSON format:
-
-Text to analyze:
-{text}
-
-Respond in JSON format with fields:
-- "mood_score": mood rating from 1 to 10 (1 - terrible, 10 - wonderful)
-- "comment": brief comment (1 sentence)
-- "recommendation": personal recommendation (1-2 sentences)
-- "analysis": detailed analysis (2-3 sentences)
-- "key_points": array of objects (key points)
-   - "text": text of the key point
-   - "type": type (emotion, event, thought, trigger, other)
-   - "confidence": confidence (float from 0.0 to 1.0)
-- "user_insights": array of objects (new insights)
-   - "text": text of the insight
-   - "category": category (personal, relational, professional, health, spiritual, other)
-   - "weight": weight (int, from 1 to 10)
-
-Example response:
-{{
-  "mood_score": 7,
-  "comment": "Good mood",
-  "recommendation": "Keep it up",
-  "analysis": "The text contains positive emotions",
-  "key_points": [
-    {{
-      "text": "happiness",
-      "type": "emotion",
-      "confidence": 0.9
-    }},
-    {{
-      "text": "success",
-      "type": "event",
-      "confidence": 0.8
-    }}
-  ],
-  "user_insights": [
-    {{
-      "text": "Positive events improve mood",
-      "category": "personal",
-      "weight": 2
-    }}
-  ]
-}}''',
-                
-                'default': f'''Analyze the text and respond in JSON format:
-
-Text to analyze:
-{text}
-
-Respond in JSON format with fields:
-- "mood_score": mood rating from 1 to 10
-- "comment": brief comment
-- "recommendation": personal recommendation
-- "analysis": detailed analysis
-- "key_points": array of objects (key points)
-   - "text": text of the key point
-   - "type": type (emotion, event, thought, trigger, other)
-   - "confidence": confidence (float from 0.0 to 1.0)
-- "user_insights": array of objects (new insights)
-   - "text": text of the insight
-   - "category": category (personal, relational, professional, health, spiritual, other)
-   - "weight": weight (int, from 1 to 10)
-
-Example response:
-{{
-  "mood_score": 5,
-  "comment": "Normal mood",
-  "recommendation": "Continue keeping a diary",
-  "analysis": "The text is neutral",
-  "key_points": [],
-  "user_insights": []
-}}'''
-            }
-        }
-        
-        language_prompts = prompts.get(language, prompts['en']) # По умолчанию английский
-        prompt = language_prompts.get(analysis_type, language_prompts['default'])
-        
-        logger.info(f"Промт для анализа сгенерирован длиной: {len(prompt)} символов")
-        return prompt
-    
     async def _generate_punctuation_prompt(
         self, 
         text: str, 

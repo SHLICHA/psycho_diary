@@ -166,7 +166,6 @@ async def show_premium(callback: CallbackQuery, user, language: str):
         logger.error(f"Ошибка при показе премиум функций: {e}")
         await callback.answer(get_message('error_generic', language=language))
 
-# TODO Сообщение на en. Реализовать подписку 
 @router.callback_query(F.data == "premium_subscribe")
 async def premium_subscribe(callback: CallbackQuery, user, language: str):
     """Подписка на премиум"""

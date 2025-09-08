@@ -737,7 +737,7 @@ class CombinedDiaryEntryAdmin(admin.ModelAdmin):
         'created_at', 'updated_at', 'user_link', 'text_full', 
         'ai_state_data_display', 'analysis_result_display',
         'daily_mood_scores_display', 'average_mood_score_display',
-        'daily_analysis_link'
+        'daily_analysis_link',
     )
     
     fieldsets = (

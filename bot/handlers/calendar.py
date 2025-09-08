@@ -8,12 +8,11 @@ import logging
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
 from aiogram.fsm.context import FSMContext
-from datetime import datetime, date
+from datetime import date
 
 from messages import get_message
 from diary.models import PsychoAnalysis
 from bot.utils.calendar_utils import update_calendar_display
-from core.constants import MONTH_NAMES_RU, MONTH_NAMES_EN
 from bot.keyboards import (
     get_month_calendar_with_navigation,
     get_calendar_back_keyboard,

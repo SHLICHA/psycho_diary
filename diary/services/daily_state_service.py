@@ -75,6 +75,66 @@ class DailyStateService:
             logger.error(f"Ошибка при получении или создании CombinedDiaryEntry за {target_date}: {e}")
             raise
 
+    async def get_day_context(self, user: User, target_date: date) -> dict:
+        """
+        Возвращает структурированный контекст дня для промпта.
+        Включает все записи, инсайты, ключевые моменты, настроение и т.д.
+        """
+        from bot.services.diary_service import diary_service
+        try:
+            # Получаем все записи за день
+            entries = await diary_service.get_user_entries_for_date(user, target_date)
+            entry_ids = [e.id for e in entries]
+
+            # Получаем инсайты и ключевые моменты
+            insights = await diary_service.get_insights_for_entries(entry_ids)
+            keypoints = await diary_service.get_keypoints_for_entries(entry_ids)
+
+            # Получаем CombinedDiaryEntry (если есть)
+            combined_entry = await self.get_daily_state(user, target_date)
+
+            # Собираем контекст
+            context = {
+                "all_entries_combined": "\n\n---\n\n".join([e.text for e in entries]) if entries else "",
+                "entry_count": len(entries),
+                "average_mood_score": round(combined_entry.average_mood_score, 2) if combined_entry else 0.0,
+                "key_points": [
+                    {
+                        "text": kp.text,
+                        "type": kp.get_type_display(),
+                        "confidence": round(kp.confidence, 2)
+                    }
+                    for kp in sorted(keypoints, key=lambda x: x.confidence, reverse=True)[:10]
+                ],
+                "user_insights": [
+                    {
+                        "text": insight.text,
+                        "category": insight.get_category_display(),
+                        "weight": insight.weight,
+                        "last_mentioned": insight.last_mentioned.isoformat()
+                    }
+                    for insight in insights[:15]  # Топ-15 по весу
+                ],
+                "is_analyzed": combined_entry.is_analyzed if combined_entry else False,
+                "last_analysis_summary": combined_entry.ai_state_data if combined_entry and combined_entry.ai_state_data else "No previous analysis.",
+                "daily_mood_scores": combined_entry.daily_mood_scores if combined_entry else []
+            }
+
+            return context
+
+        except Exception as e:
+            logger.error(f"Ошибка при получении контекста дня: {e}", exc_info=True)
+            return {
+                "all_entries_combined": "",
+                "entry_count": 0,
+                "average_mood_score": 0.0,
+                "key_points": [],
+                "user_insights": [],
+                "is_analyzed": False,
+                "last_analysis_summary": "",
+                "daily_mood_scores": []
+            }
+
     async def update_daily_state(
         self, 
         combined_entry: CombinedDiaryEntry, 
