@@ -2,6 +2,7 @@ import uuid
 import logging
 import pytz
 
+from asgiref.sync import sync_to_async
 from datetime import datetime, date
 from django.db import models
 from users.models import User
@@ -132,7 +133,17 @@ class DiaryEntry(models.Model):
                 return self.created_at.date()
             else:
                 return pytz.utc.localize(self.created_at).date()
-    
+
+    @sync_to_async
+    def aentry_date(self) -> date:
+        """Асинхронная версия entry_date."""
+        return self.entry_date
+
+    @sync_to_async
+    def alocalized_created_at(self) -> str:
+        """Асинхронная версия localized_created_at."""
+        return self.localized_created_at
+
     @property
     def combined_text(self) -> str:
         """Объединенный текст всех записей дня"""
@@ -388,32 +399,6 @@ class TaskCompletion(models.Model):
     def __str__(self):
         return f"Выполнение {self.task.title}"
 
-class TaskAnalysis(models.Model):
-    """Анализ выполнения задания"""
-    completion = models.OneToOneField(
-        TaskCompletion, 
-        on_delete=models.CASCADE, 
-        related_name='analysis',
-        verbose_name=_("Выполнение")
-    )
-    bot_response = models.TextField(verbose_name=_("Ответ бота"))
-    insights_updated = models.BooleanField(default=False, verbose_name=_("Инсайты обновлены"))
-    quality_score = models.PositiveIntegerField(verbose_name=_("Оценка качества (1-10)"))
-    feedback_given = models.BooleanField(default=False, verbose_name=_("Обратная связь дана"))
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата создания"))
-
-    class Meta:
-        verbose_name = _("Анализ задания")
-        verbose_name_plural = _("Анализы заданий")
-        db_table = "diary_task_analysis"
-        indexes = [
-            models.Index(fields=['created_at']),
-            models.Index(fields=['completion', 'created_at']),
-        ]
-
-    def __str__(self):
-        return f"Анализ выполнения {self.completion.task.title}"
-
 class TaskCompletionAnalysis(models.Model):
     """
     Анализ выполнения терапевтического задания.
@@ -434,26 +419,6 @@ class TaskCompletionAnalysis(models.Model):
         verbose_name=_("Влияние на настроение"),
         help_text=_("Изменение оценки настроения дня после выполнения задания (может быть положительным или отрицательным).")
     )
-    related_insights = models.ManyToManyField(
-        'UserInsight', 
-        blank=True, 
-        verbose_name=_("Связанные инсайты"),
-        help_text=_("Инсайты пользователя, которые были выявлены или усилена в результате выполнения этого задания.")
-    )
-    # Ключевые моменты дня до выполнения задания (сохраненные для сравнения)
-    key_points_before = models.JSONField(
-        default=dict, 
-        blank=True, 
-        verbose_name=_("Ключевые моменты дня до выполнения"),
-        help_text=_("Ключевые моменты (эмоции, события и т.д.) из CombinedDiaryEntry на момент до выполнения задания.")
-    )
-    # Ключевые моменты дня после выполнения задания (сохраненные для сравнения)
-    key_points_after = models.JSONField(
-        default=dict, 
-        blank=True, 
-        verbose_name=_("Ключевые моменты дня после выполнения"),
-        help_text=_("Ключевые моменты (эмоции, события и т.д.) из CombinedDiaryEntry на момент после выполнения задания (если анализ проводился позже).")
-    )
     comment = models.TextField(
         blank=True,
         verbose_name=_("Комментарий ИИ"),
@@ -468,6 +433,16 @@ class TaskCompletionAnalysis(models.Model):
     analysis_performed_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата выполнения анализа"))
     # Храним ответ API для дебага/детализации
     api_response = models.JSONField(default=dict, blank=True, verbose_name=_("Ответ API DeepSeek"))
+    detailed_analysis = models.TextField(
+        blank=True,
+        verbose_name=_("Развернутый анализ"),
+        help_text=_("Подробный анализ влияния выполнения задания, включая сравнение дней и обоснование оценки.")
+    )
+    is_obsolete = models.BooleanField(
+        default=False,
+        verbose_name=_("Устаревший анализ"),
+        help_text=_("Помечает анализ как устаревший, если задание было выполнено повторно.")
+    )
 
     class Meta:
         verbose_name = _("Анализ выполнения задания")
@@ -475,7 +450,10 @@ class TaskCompletionAnalysis(models.Model):
         db_table = "diary_task_completion_analysis"
 
     def __str__(self):
-        return f"Анализ выполнения {self.completion.task.title} ({self.completion.task.user.username})"
+        base_str = f"Анализ выполнения {self.completion.task.title} ({self.completion.task.user.username})"
+        if self.detailed_analysis:
+            return f"{base_str}: {self.detailed_analysis[:50]}..."
+        return base_str
 
 class UserActivity(models.Model):
     """Активность пользователя"""

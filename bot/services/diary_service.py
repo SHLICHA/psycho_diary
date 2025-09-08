@@ -298,6 +298,31 @@ class DiaryService:
             logger.error(f"Ошибка в асинхронном удалении записи {entry_id} и обновлении CombinedDiaryEntry: {e}", exc_info=True)
             return False
 
+    async def get_or_update_daily_state_with_entries(
+        self,
+        user: User,
+        diary_entry: DiaryEntry
+    ) -> tuple[CombinedDiaryEntry, bool]:
+        """
+        Получает или создаёт CombinedDiaryEntry и обновляет его текст и счётчик.
+        Возвращает объект и флаг is_first_entry_of_day.
+        """
+        entry_date = diary_entry.entry_date
+        combined_entry = await self.get_daily_state(user, entry_date)
+
+        if combined_entry is None:
+            # Первая запись дня
+            combined_entry = await self.create_daily_state_from_entry(diary_entry)
+            return combined_entry, True
+
+        # Не первая запись — обновляем текст и счётчик
+        entries = await self.get_user_entries_for_date(user, entry_date)
+        combined_text = await self.get_combined_entry_text(user, entry_date, entries_list=entries)
+        await self.update_daily_state_text_and_count(
+            combined_entry, combined_text, len(entries)
+        )
+        return combined_entry, False
+
     async def get_user_entries_for_date(
         self, 
         user: User, 

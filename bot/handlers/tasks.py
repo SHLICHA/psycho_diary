@@ -1,7 +1,6 @@
 """
 Handlers для работы с терапевтическими заданиями
 """
-# TODO Реализовать просмотр истории заданий
 
 import logging
 
@@ -26,7 +25,7 @@ from bot.utils.state_manager import state_manager
 from bot.utils.message_utils import safe_edit_message_text
 from bot.utils.callback_utils import safe_answer_callback
 from bot.services.task_service import task_service
-from diary.models import TherapyTask, TaskCompletion, TaskAnalysis
+from diary.models import TherapyTask, TaskCompletion, TaskCompletionAnalysis
 from core.constants import TEXT_MESSAGE_MAX_LENGTH
 
 router = Router()
@@ -248,6 +247,7 @@ async def process_feelings_description(message: Message, state: FSMContext, user
             if not completion_result:
                 logger.error(f"Сервис вернул None при выполнении задания {task_id}")
                 await status_message.edit_text(get_message('error_processing', language))
+                return
         except Exception as service_error:
             logger.error(f"Ошибка при выполнении задания через сервис: {service_error}")
             await status_message.edit_text(get_message('error_processing', language))
@@ -361,86 +361,6 @@ async def cancel_delete_task(callback: CallbackQuery, language: str):
 
 # ==================== ВСПОМОГАТЕЛЬНЫЕ HANDLERS ====================
 
-'''@router.callback_query(F.data.startswith("view_task_history:"))
-async def view_task_history(callback: CallbackQuery, user, language: str):
-    """Просмотр истории заданий"""
-    try:
-        completed_tasks = await task_service.get_user_completed_tasks(user, limit=10)
-        if completed_tasks:
-            history_msg = "🎯 <b>История выполненных заданий</b>\n\n"
-            for i, task in enumerate(completed_tasks, 1):
-                task_type = task.get_type_display()
-                history_msg += f"<b>{i}. {task.title}</b> ({task_type})\n"
-                history_msg += f"🕒 {task.completed_at.strftime('%d.%m.%Y %H:%M')}\n"
-                history_msg += f"⭐ Приоритет: {task.priority}\n\n"
-            buttons = []
-            for i, task in enumerate(completed_tasks, 1):
-                buttons.append([
-                    InlineKeyboardButton(
-                        text=f"👁 Просмотреть задание {i}",
-                        callback_data=f"view_completed_task:{task.id}"
-                    )
-                ])
-            buttons.append([
-                InlineKeyboardButton(
-                    text=get_button_text('btn_back', language),
-                    callback_data="tasks"
-                )
-            ])
-            keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-            await callback.message.edit_text(
-                history_msg,
-                reply_markup=keyboard
-            )
-        else:
-            no_tasks_msg = get_message('task_no_completed', language)
-            await callback.message.edit_text(
-                no_tasks_msg,
-                reply_markup=get_back_keyboard(language)
-            )
-        await callback.answer()
-    except Exception as e:
-        logger.error(f"Ошибка при просмотре истории заданий: {e}")
-        await callback.answer(get_message('error_generic', language))'''
-
-'''@router.callback_query(F.data.startswith("view_completed_task:"))
-async def view_completed_task(callback: CallbackQuery, user, language: str):
-    """Просмотр выполненного задания"""
-    try:
-        task_id = int(callback.data.split(":")[1])
-        try:
-            task = await TherapyTask.objects.aget(id=task_id, user=user)
-            completion_text = "Выполнение не доступен"
-            feelings_text = "Ощущения не доступны"
-            try:
-                if hasattr(task, 'completion'):
-                    try:
-                        completion = await TaskCompletion.objects.aget(task=task)
-                        completion_text = completion.completion_text or "Выполнение записано"
-                        feelings_text = completion.feelings_text or "Ощущения не описаны"
-                    except TaskCompletion.DoesNotExist:
-                        logger.info("Выполнение для задания не найдено")
-            except Exception as completion_error:
-                logger.error(f"Ошибка при получении выполнения: {completion_error}")
-            task_msg = f"🎯 <b>Выполненное задание: {task.title}</b>\n\n"
-            task_msg += f"📝 <b>Описание:</b>\n{task.description}\n\n"
-            task_msg += f"🕒 <b>Выполнено:</b> {task.completed_at.strftime('%d.%m.%Y %H:%M')}\n"
-            task_msg += f"⭐ <b>Приоритет:</b> {task.priority}\n\n"
-            task_msg += f"✅ <b>Выполнение:</b>\n{completion_text}\n\n"
-            task_msg += f"💭 <b>Ощущения:</b>\n{feelings_text}"
-            await callback.message.edit_text(
-                task_msg,
-                reply_markup=get_back_keyboard(language)
-            )
-        except TherapyTask.DoesNotExist:
-            error_msg = get_message('task_not_found', language)
-            await callback.answer(error_msg)
-            logger.warning(f"Задание {task_id} не найдено или не принадлежит пользователю {user.telegram_id}")
-        await callback.answer()
-    except Exception as e:
-        logger.error(f"Ошибка при просмотре выполненного задания: {e}")
-        await callback.answer(get_message('error_generic', language))'''
-
 @router.callback_query(F.data == "task_history_main")
 async def show_task_history_main(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Показывает историю заданий с пагинацией (аналогично активным заданиям)."""
@@ -495,48 +415,6 @@ async def show_task_history_main(callback: CallbackQuery, state: FSMContext, use
         logger.error(f"Ошибка при показе истории заданий для пользователя {user.telegram_id}: {e}", exc_info=True)
         await safe_answer_callback(callback, get_message('error_generic', language))
 
-'''@router.callback_query(F.data.startswith("task_history_list:"))
-async def show_task_history_list_at_index(callback: CallbackQuery, state: FSMContext, user, language: str):
-    """Показывает список истории заданий, начиная с определенного индекса (для кнопки "Назад" из деталей)."""
-    try:
-        parts = callback.data.split(":")
-        target_index = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
-        state_data = await state_manager.get_state_data(state)
-        task_ids_for_pagination = state_data.get('task_history_ids', [])
-        if not task_ids_for_pagination:
-            logger.warning("Список ID заданий истории не найден в FSM.")
-            await show_task_history_main(callback, state, user, language)
-            return
-        if not (0 <= target_index < len(task_ids_for_pagination)):
-            logger.warning(f"Неверный индекс {target_index} для списка заданий длиной {len(task_ids_for_pagination)}. Используется 0.")
-            target_index = 0
-        task_id = task_ids_for_pagination[target_index]
-        try:
-            task = await TherapyTask.objects.aget(id=task_id, user=user)
-        except TherapyTask.DoesNotExist:
-            logger.error(f"Задание {task_id} не найдено для пользователя {user.telegram_id}.")
-            await safe_answer_callback(callback, get_message('task_not_found', language), show_alert=True)
-            await show_task_history_main(callback, state, user, language)
-            return
-        detail_msg = await _format_task_history_detail(task, language, state)
-        await safe_edit_message_text(
-            message=callback.message,
-            text=detail_msg,
-            reply_markup=get_task_history_detail_keyboard(
-                task_id=task.id,
-                task_status=task.status,
-                current_index=target_index,
-                language=language
-            )
-        )
-        await safe_answer_callback(callback, "")
-    except (ValueError, IndexError) as e:
-        logger.error(f"Ошибка обработки callback_data для списка истории: {callback.data} - {e}")
-        await safe_answer_callback(callback, get_message('error_generic', language))
-    except Exception as e:
-        logger.error(f"Неожиданная ошибка в show_task_history_list_at_index для пользователя {user.telegram_id}: {e}", exc_info=True)
-        await safe_answer_callback(callback, get_message('error_generic', language))'''
-
 @router.callback_query(F.data.startswith("task_history_paginate:"))
 async def paginate_task_history(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Пагинация по истории заданий."""
@@ -580,7 +458,9 @@ async def paginate_task_history(callback: CallbackQuery, state: FSMContext, user
             reply_markup=get_task_history_list_keyboard(
                 task_ids=task_ids_for_pagination,
                 current_index=target_index,
-                current_task_status=task.status,
+                # === ПЕРЕДАЧА СТАТУСА ===
+                current_task_status=task.status, # Передаем статус текущего задания
+                # === ===
                 language=language
             )
         )
@@ -636,50 +516,75 @@ async def restore_skipped_task(callback: CallbackQuery, state: FSMContext, user,
         logger.error(f"Ошибка при восстановлении задания {task_id} для пользователя {user.telegram_id}: {e}", exc_info=True)
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
-@router.callback_query(F.data.startswith("task_history_paginate:"))
-async def paginate_task_history(callback: CallbackQuery, state: FSMContext, user, language: str):
-    """Пагинация по истории заданий."""
+@router.callback_query(F.data.startswith("view_detailed_task_analysis:"))
+async def view_detailed_task_analysis(callback: CallbackQuery, user, language: str):
+    """Просмотр детального анализа выполнения задания."""
     try:
-        parts = callback.data.split(":")
-        if len(parts) < 2 or not parts[1].isdigit():
-             raise ValueError("Некорректный формат callback_data для пагинации истории")
-        target_index = int(parts[1])
-        logger.debug(f"Пагинация истории заданий: переход к индексу {target_index}")
-        state_data = await state_manager.get_state_data(state) 
-        task_ids_for_pagination = state_data.get('task_history_ids', [])
-        if not task_ids_for_pagination:
-            logger.warning("Список ID заданий истории не найден в FSM при пагинации.")
-            await safe_answer_callback(callback, get_message('error_generic', language))
-            return
-        if not (0 <= target_index < len(task_ids_for_pagination)):
-            logger.warning(f"Индекс пагинации {target_index} вне диапазона [0, {len(task_ids_for_pagination)-1}]")
-            await safe_answer_callback(callback, get_message('error_generic', language))
-            return
-        task_id = task_ids_for_pagination[target_index]
+        task_id = int(callback.data.split(":")[1])
+        
         try:
             task = await TherapyTask.objects.aget(id=task_id, user=user)
         except TherapyTask.DoesNotExist:
-            logger.error(f"Задание {task_id} не найдено при пагинации для пользователя {user.telegram_id}.")
             await safe_answer_callback(callback, get_message('task_not_found', language), show_alert=True)
             return
-        detail_msg = await _format_task_history_detail(task, language, state) 
+
+        if task.status != 'completed':
+             await safe_answer_callback(callback, get_message('task_not_completed_for_analysis', language), show_alert=True)
+             return
+
+        try:
+            completion = await TaskCompletion.objects.aget(task=task)
+        except TaskCompletion.DoesNotExist:
+            await safe_answer_callback(callback, get_message('task_completion_not_found', language), show_alert=True)
+            await safe_edit_message_text(
+                message=callback.message,
+                text=get_message('task_completion_not_found', language),
+                reply_markup=get_back_keyboard(language)
+            )
+            return
+
+        try:
+            # Получаем НЕ устаревший анализ
+            analysis = await TaskCompletionAnalysis.objects.aget(completion=completion, is_obsolete=False)
+        except TaskCompletionAnalysis.DoesNotExist:
+            await safe_answer_callback(callback, get_message('task_analysis_not_found', language), show_alert=True)
+            await safe_edit_message_text(
+                message=callback.message,
+                text=get_message('task_analysis_not_found', language),
+                reply_markup=get_back_keyboard(language)
+            )
+            return
+        except TaskCompletionAnalysis.MultipleObjectsReturned:
+            analysis = await TaskCompletionAnalysis.objects.filter(completion=completion, is_obsolete=False).afirst()
+            if not analysis:
+                 await safe_answer_callback(callback, get_message('task_analysis_error', language), show_alert=True)
+                 return
+
+        if analysis.detailed_analysis:
+            header = get_message('detailed_task_analysis_header', language).format(task_title=task.title)
+            analysis_text = f"<b>{header}</b>\n\n{analysis.detailed_analysis}"
+        else:
+            analysis_text = get_message('task_analysis_no_details', language).format(task_title=task.title)
+
+        back_button = [[InlineKeyboardButton(
+            text=get_button_text('btn_back', language),
+            callback_data="task_history_main" # Или другой callback для возврата
+        )]]
+        reply_markup = InlineKeyboardMarkup(inline_keyboard=back_button)
+
         await safe_edit_message_text(
             message=callback.message,
-            text=detail_msg,
-            reply_markup=get_task_history_detail_keyboard(
-                task_id=task.id,
-                task_status=task.status,
-                current_index=target_index,
-                language=language
-            )
+            text=analysis_text,
+            reply_markup=reply_markup
         )
         await safe_answer_callback(callback, "")
-    except (ValueError, IndexError) as e:
-        logger.error(f"Ошибка обработки callback_data для пагинации истории: {callback.data} - {e}")
-        await safe_answer_callback(callback, get_message('error_generic', language))
+
+    except (ValueError, IndexError):
+        logger.error(f"Ошибка парсинга task_id из callback_data: {callback.data}")
+        await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
     except Exception as e:
-        logger.error(f"Неожиданная ошибка в paginate_task_history для пользователя {user.telegram_id}: {e}", exc_info=True)
-        await safe_answer_callback(callback, get_message('error_generic', language))
+        logger.error(f"Ошибка при просмотре детального анализа задания {task_id}: {e}", exc_info=True)
+        await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
 #=========================ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ=====================================
 
@@ -696,44 +601,30 @@ async def _format_task_history_detail(task: TherapyTask, language: str, state: F
         detail_msg += f"⭐ <b>Приоритет:</b> {task.priority}\n\n"
         
         detail_msg += f"<b>Описание:</b>\n{task.description}\n\n"
+        
+        # --- Получение данных выполнения ---
         completion_text = "Выполнение не найдено"
         feelings_text = "Ощущения не найдены"
-        analysis_text = "Анализ не найден"
+        # analysis_text = "Анализ не найден" # Убираем, так как TaskAnalysis больше нет
         
         try:
-            try:
-                completion = await TaskCompletion.objects.aget(task=task)
-                
-                if completion:
-                    completion_text = completion.completion_text or "Текст выполнения отсутствует"
-                    feelings_text = completion.feelings_text or "Описание ощущений отсутствует"
-                    try:
-                        try:
-                            analysis = await TaskAnalysis.objects.aget(completion=completion)
-                            if analysis:
-                                analysis_text = analysis.bot_response or "Анализ от бота отсутствует"
-                        except TaskAnalysis.DoesNotExist:
-                            logger.debug(f"Анализ для выполнения задания {task.id} не найден.")
-                            analysis_text = "Анализ от бота отсутствует"
-                        except Exception as analysis_access_error:
-                            logger.error(f"Ошибка при доступе к анализа выполнения для задания {task.id}: {analysis_access_error}")
-                            analysis_text = "Ошибка при загрузке анализа"
-                    except Exception as analysis_general_error:
-                        logger.error(f"Общая ошибка при обработке анализа для задания {task.id}: {analysis_general_error}")
-                        analysis_text = "Ошибка при загрузке анализа"
-            except TaskCompletion.DoesNotExist:
-                logger.debug(f"Выполнение для задания {task.id} не найдено.")
-            except Exception as completion_access_error:
-                logger.error(f"Ошибка при доступе к выполнению задания {task.id}: {completion_access_error}")
-                completion_text = "Ошибка при загрузке выполнения"
-                feelings_text = "Ошибка при загрузке ощущений"
-        except Exception as general_completion_error:
-            logger.error(f"Общая ошибка при получении выполнения задания {task.id}: {general_completion_error}")
+            # Попытка получить TaskCompletion
+            completion = await TaskCompletion.objects.aget(task=task)
+            
+            if completion:
+                completion_text = completion.completion_text or "Текст выполнения отсутствует"
+                feelings_text = completion.feelings_text or "Описание ощущений отсутствует"
+        except TaskCompletion.DoesNotExist:
+            logger.debug(f"Выполнение для задания {task.id} не найдено.")
+        except Exception as completion_access_error:
+            logger.error(f"Ошибка при доступе к выполнению задания {task.id}: {completion_access_error}")
             completion_text = "Ошибка при загрузке выполнения"
             feelings_text = "Ошибка при загрузке ощущений"
+            
         detail_msg += f"<b>Выполнение:</b>\n{completion_text}\n\n"
-        detail_msg += f"<b>Ощущения:</b>\n{feelings_text}\n\n"
-        detail_msg += f"<b>Анализ выполнения:</b>\n{analysis_text}\n"
+        detail_msg += f"<b>Ощущения:</b>\n{feelings_text}\n"
+        # detail_msg += f"<b>Анализ выполнения:</b>\n{analysis_text}\n" # Убираем
+        
         return detail_msg
     except Exception as e:
         logger.error(f"Ошибка при форматировании деталей задания {task.id}: {e}")

@@ -2,8 +2,6 @@
 Handlers для работы с дневником
 """
 
-# TODO Типы в инсайтах
-
 import asyncio
 import logging
 import json
@@ -67,15 +65,14 @@ async def new_entry(callback: CallbackQuery, state: FSMContext, language: str):
         await safe_answer_callback(callback, get_message('error_generic', language))
 
 @router.message(DiaryStates.waiting_for_text_entry, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
-async def process_any_entry(message: Message, state: FSMContext, user: User, language: str):
+async def process_any_entry(message: Message, state: FSMContext, user, language: str):
     """
-    Обработка записи с инкрементальным анализом.
-    Использует полный контекст дня и обновляет состояние.
+    Хендлер: получает данные → вызывает сервис → отправляет ответ.
     """
     logger.info(f"[СОЗДАНИЕ ЗАПИСИ] Обработка {message.content_type} от {user.telegram_id}")
     status_msg = None
     try:
-        # === ВАЛИДАЦИЯ ===
+        # === 1. Валидация и обработка голоса ===
         is_valid, error_code = validate_incoming_message(message)
         if not is_valid:
             await message.answer(get_message(error_code, language))
@@ -93,7 +90,6 @@ async def process_any_entry(message: Message, state: FSMContext, user: User, lan
         user_local_dt = await user.aget_local_datetime()
         status_msg = await message.answer(get_message('processing', language))
 
-        # === ОБРАБОТКА ГОЛОСА ===
         if message.content_type == ContentType.VOICE:
             file = await message.bot.get_file(voice_file_id)
             voice_bytes = (await message.bot.download_file(file.file_path)).read()
@@ -108,7 +104,7 @@ async def process_any_entry(message: Message, state: FSMContext, user: User, lan
         else:
             entry_text = message.text
 
-        # === СОХРАНЕНИЕ ЗАПИСИ ===
+        # === 2. Сохранение записи ===
         diary_entry = await diary_service.create_text_entry(
             user=user,
             text=entry_text,
@@ -123,10 +119,10 @@ async def process_any_entry(message: Message, state: FSMContext, user: User, lan
             entry_datetime=user_local_dt
         )
 
-        # === ОБНОВЛЕНИЕ СОСТОЯНИЯ ДНЯ ===
-        combined_entry, is_first = await _get_or_update_combined_entry(user, diary_entry)
+        # === 3. Обновление состояния дня ===
+        combined_entry, is_first = await diary_service.get_or_update_daily_state_with_entries(user, diary_entry)
 
-        # === ФОРМИРОВАНИЕ ПРОМПТА ===
+        # === 4. Формирование промпта ===
         all_entries_text = await diary_service.get_combined_entry_text(user, diary_entry.entry_date)
         user_profile = await user.aget_profile_data()
         ai_state_data = combined_entry.ai_state_data if combined_entry else ""
@@ -140,10 +136,10 @@ async def process_any_entry(message: Message, state: FSMContext, user: User, lan
             user_profile=user_profile
         )
 
-        # === АНАЛИЗ ===
+        # === 5. Анализ ===
         analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
 
-        # === ОБРАБОТКА РЕЗУЛЬТАТА ===
+        # === 6. Обработка результата ===
         await _process_analysis_result(
             entry=diary_entry,
             analysis_result=analysis_result,
@@ -161,80 +157,72 @@ async def process_any_entry(message: Message, state: FSMContext, user: User, lan
 
 @router.message(DiaryStates.asking_clarifying_questions)
 async def process_clarification_answers(message: Message, state: FSMContext, user, language: str):
-    """
-    Обработка ответов на уточняющие вопросы.
-    """
     status_message = None
     try:
-        # === ПОЛУЧЕНИЕ ДАННЫХ ИЗ СОСТОЯНИЯ FSM ===
         state_data = await state_manager.get_state_data(state)
         entry_id = state_data.get('clarifying_entry_id')
         clarification_questions = state_data.get('clarification_questions', [])
+
         if not entry_id:
-            logger.error("Не найден ID записи для уточнений в состоянии FSM")
+            logger.error("ID записи не найден в FSM")
             await message.answer(get_message('error_generic', language))
             await state_manager.clear_state(state)
             return
-        # Получаем объект записи
+
         try:
             diary_entry = await DiaryEntry.objects.aget(id=entry_id, user=user)
         except DiaryEntry.DoesNotExist:
-            logger.error(f"Запись с ID {entry_id} не найдена или не принадлежит пользователю {user.telegram_id}")
             await message.answer(get_message('error_generic', language))
             await state_manager.clear_state(state)
             return
-        clarification_text = message.text
-        if not clarification_text or len(clarification_text.strip()) < 1:
-            error_msg = get_message('invalid_input', language)
-            await message.answer(error_msg)
-            logger.warning("Получен пустой ответ на уточнения")
+
+        clarification_text = message.text.strip()
+        if not clarification_text:
+            await message.answer(get_message('invalid_input', language))
             return
-        logger.info(f"Получены ответы на уточнения длиной: {len(clarification_text)} символов")
-        # === СОХРАНЕНИЕ ОТВЕТОВ В DiaryEntry ===
-        try:
-            answers_list = [ans.strip() for ans in clarification_text.split("\n\n") if ans.strip()]
-            clarification_answers_dict = {}
-            for i, question in enumerate(clarification_questions):
-                if i < len(answers_list):
-                    clarification_answers_dict[question] = answers_list[i]
-                else:
-                    clarification_answers_dict[question] = "[Ответ не получен или пуст]"
-        # Сохраняем словарь ответов в поле DiaryEntry
-            diary_entry.clarification_answers = clarification_answers_dict
-            await sync_to_async(diary_entry.save)(update_fields=['clarification_answers'])
-        except Exception as save_answers_error:
-            logger.error(f"Ошибка при сохранении clarification_answers в DiaryEntry ID {diary_entry.id}: {save_answers_error}")
-        # === ПОКАЗ СООБЩЕНИЯ ОБ ОБРАБОТКЕ ===
-        processing_msg = get_message('processing', language)
-        status_message = await message.answer(processing_msg)
-        # === ВЫЗОВ API ДЛЯ ФИНАЛЬНОГО АНАЛИЗА С УТОЧНЕНИЯМИ ===
-        user_profile_data = await user.get_profile_data()
-        final_analysis_result = await deepseek_api_service.analyze_text_with_clarifications(
+
+        # Сохраняем ответы
+        answers_list = [ans.strip() for ans in clarification_text.split("\n") if ans.strip()]
+        clarification_answers_dict = {}
+        for i, q in enumerate(clarification_questions):
+            clarification_answers_dict[q] = answers_list[i] if i < len(answers_list) else "[Ответ не получен]"
+
+        diary_entry.clarification_answers = clarification_answers_dict
+        await sync_to_async(diary_entry.save)(update_fields=['clarification_answers'])
+
+        # === ФОРМИРОВАНИЕ ПРОМПТА ЧЕРЕЗ get_prompt ===
+        user_profile = await user.aget_profile_data()
+        combined_entry = await daily_state_service.get_daily_state(user, diary_entry.entry_date)
+        ai_state_data = combined_entry.ai_state_data if combined_entry else ""
+
+        prompt = get_prompt(
+            key='clarification_analysis',
+            language=language,
             original_text=diary_entry.text,
-            clarification_answers=clarification_text,
-            user_profile=user_profile_data,
-            language=language
+            clarification_questions="\n".join(clarification_questions),
+            clarification_answers="\n".join([f"{q}: {a}" for q, a in clarification_answers_dict.items()]),
+            user_profile=user_profile
         )
-        # === ОБРАБОТКА ФИНАЛЬНОГО РЕЗУЛЬТАТА АНАЛИЗА ===
+
+        status_message = await message.answer(get_message('processing', language))
+
+        # === ОТПРАВКА В API ===
+        analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
+
+        # === ОБРАБОТКА РЕЗУЛЬТАТА ===
         await _process_analysis_result(
             entry=diary_entry,
-            final_analysis_result=final_analysis_result,
+            analysis_result=analysis_result,
             status_msg=status_message,
             language=language,
             state=state,
             user=user
         )
+
     except Exception as e:
-        logger.error(f"Ошибка при обработке ответов на уточняющие вопросы: {e}", exc_info=True)
-        try:
-            await message.answer(get_message('error_processing', language))
-        except:
-            try:
-                if status_message:
-                    await status_message.edit_text(get_message('error_processing', language))
-            except:
-                pass
-        # Очищаем состояние в случае ошибки
+        logger.error(f"Ошибка при обработке уточнений: {e}", exc_info=True)
+        if status_message:
+            await status_message.edit_text(get_message('error_processing', language))
         await state_manager.clear_state(state)
 
 @router.message(DiaryStates.waiting_for_text_entry)
@@ -777,43 +765,6 @@ async def _reanalyze_day_background_silent(user: User, target_date: date, langua
             logger.error(f"[Фоновая задача Silent] TypeError: {te}", exc_info=True)
     except Exception as e:
         logger.error(f"[Фоновая задача Silent] Критическая ошибка: {e}", exc_info=True)
-
-async def _get_or_update_combined_entry(user: User, diary_entry: DiaryEntry):
-    """Получает или создаёт CombinedDiaryEntry."""
-    entry_date = diary_entry.entry_date
-    combined_entry = await daily_state_service.get_daily_state(user, entry_date)
-
-    if combined_entry is None:
-        combined_entry = await daily_state_service.create_daily_state_from_entry(diary_entry)
-        return combined_entry, True
-
-    entries = await diary_service.get_user_entries_for_date(user, entry_date)
-    combined_text = await diary_service.get_combined_entry_text(user, entry_date, entries_list=entries)
-    await daily_state_service.update_daily_state_text_and_count(
-        combined_entry, combined_text, len(entries)
-    )
-    return combined_entry, False
-
-async def _perform_analysis(is_first, combined_entry, text, profile, lang):
-    """Выбирает и выполняет метод анализа."""
-    if is_first:
-        return await deepseek_api_service.analyze_text_with_profile(
-            text=text, user_profile=profile, language=lang
-        )
-    else:
-        previous_state = combined_entry.ai_state_data
-        if not previous_state:
-            logger.warning("ai_state_data в CombinedDiaryEntry пуст. Используем analyze_text_with_profile.")
-            return await deepseek_api_service.analyze_text_with_profile(
-                text=text, user_profile=profile, language=lang
-            )
-        else:
-            return await deepseek_api_service.analyze_text_with_previous_state(
-                previous_state_context=previous_state,
-                new_text=text,
-                user_profile=profile,
-                language=lang
-            )
         
 async def _send_error_message(status_msg, original_msg, language: str):
     """Отправляет сообщение об ошибке, стараясь использовать любой доступный способ."""

@@ -207,6 +207,13 @@ MESSAGES = {
         'task_restored': '✅ Задание восстановлено и снова доступно!',
         'task_not_found_or_not_skipped': '❌ Задание не найдено или не является пропущенным.',
         'btn_restore_task': '🔄 Восстановить задание',
+
+        'btn_detailed_analysis': '🔬 Детальный анализ',
+        'detailed_task_analysis_header': 'Детальный анализ задания "{task_title}"',
+        'task_analysis_not_found': 'Детальный анализ для этого выполнения задания пока недоступен.',
+        'task_analysis_no_details': 'Детальный анализ для задания "{task_title}" не содержит информации.',
+        'task_completion_not_found': 'Информация о выполнении задания не найдена.',
+        'task_analysis_error': 'Ошибка при получении анализа задания.',      
         # === Прогресс ===
         'progress_title': '''📊 <b>Твой прогресс</b>
 
@@ -507,6 +514,13 @@ Your response is saved. I will consider this in future analysis.
         'task_restored': '✅ Task restored and available again!',
         'task_not_found_or_not_skipped': '❌ Task not found or is not skipped.',
         'btn_restore_task': '🔄 Restore Task',
+
+        'btn_detailed_analysis': '🔬 Detailed Analysis',
+        'detailed_task_analysis_header': 'Detailed Analysis for Task "{task_title}"',
+        'task_analysis_not_found': 'Detailed analysis for this task completion is not available yet.',
+        'task_analysis_no_details': 'Detailed analysis for task "{task_title}" contains no information.',
+        'task_completion_not_found': 'Task completion information not found.',
+        'task_analysis_error': 'Error retrieving task analysis.',
         # === Progress ===
         'progress_title': '''📊 <b>Your progress</b>
 

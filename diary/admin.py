@@ -604,55 +604,6 @@ class TaskCompletionAdmin(admin.ModelAdmin):
         return '-'
     analysis_link.short_description = _('Анализ выполнения')
 
-# === TaskAnalysis Admin ===
-@admin.register(TaskAnalysis)
-class TaskAnalysisAdmin(admin.ModelAdmin):
-    """
-    Админка для анализа выполнения заданий.
-    """
-    list_display = (
-        'id', 'completion_link', 'quality_score', 'insights_updated', 
-        'feedback_given', 'created_at'
-    )
-    list_filter = (
-        'quality_score', 'insights_updated', 'feedback_given', 'created_at',
-        ('completion__task__user', admin.RelatedOnlyFieldListFilter),
-    )
-    search_fields = (
-        'completion__task__title', 'completion__task__user__username', 'bot_response'
-    )
-    readonly_fields = (
-        'created_at', 'completion_link', 'bot_response_full'
-    )
-    
-    fieldsets = (
-        (None, {
-            'fields': ('completion_link', 'quality_score', 'insights_updated', 'feedback_given')
-        }),
-        (_('Ответ бота'), {
-            'fields': ('bot_response_full',)
-        }),
-        (_('Дата'), {
-            'fields': ('created_at',),
-            'classes': ('collapse',)
-        }),
-    )
-
-    def completion_link(self, obj):
-        """Ссылка на выполнение задания."""
-        if obj.completion:
-            url = reverse('admin:diary_taskcompletion_change', args=[obj.completion.id])
-            return format_html('<a href="{}">Выполнение ID {}</a>', url, obj.completion.id)
-        return '-'
-    completion_link.short_description = _('Выполнение')
-
-    def bot_response_full(self, obj):
-        """Полный ответ бота."""
-        if obj.bot_response:
-            return format_html('<pre>{}</pre>', obj.bot_response)
-        return '-'
-    bot_response_full.short_description = _('Полный ответ бота')
-
 # === UserActivity Admin ===
 @admin.register(UserActivity)
 class UserActivityAdmin(admin.ModelAdmin):
@@ -953,10 +904,8 @@ class TaskCompletionAnalysisAdmin(admin.ModelAdmin):
         'recommendation',
         'comment',
         'mood_impact_score',
-        'related_insights',
-        'key_points_before',
-        'key_points_after',
         'analysis_performed_at',
+        'detailed_analysis',
         'api_response', # Для дебага
     )
     # raw_id_fields = ('related_insights',) # Если инсайтов много, удобнее так

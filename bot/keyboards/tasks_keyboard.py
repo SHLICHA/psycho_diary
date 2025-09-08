@@ -174,9 +174,9 @@ def get_task_history_main_keyboard(language: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_task_history_list_keyboard(
-    task_ids: List[int], # Список ID заданий
+    task_ids: List[int],
     current_index: int,
-    current_task_status: str,
+    current_task_status: str, # <-- ДОБАВЛЕНО
     language: str
 ) -> InlineKeyboardMarkup:
     """
@@ -185,6 +185,7 @@ def get_task_history_list_keyboard(
     Args:
         task_ids: Список ID заданий.
         current_index: Индекс текущего задания в списке.
+        current_task_status: Статус текущего задания (например, 'completed', 'skipped').
         language: Язык интерфейса.
 
     Returns:
@@ -193,11 +194,9 @@ def get_task_history_list_keyboard(
     buttons = []
     total_tasks = len(task_ids)
     
-    # === ПАГИНАЦИЯ (аналогично get_task_pagination_keyboard) ===
+    # === ПАГИНАЦИЯ ===
     if total_tasks > 1:
         pagination_buttons = []
-        
-        # Кнопка "Назад" (предыдущее задание)
         if current_index > 0:
             pagination_buttons.append(
                 InlineKeyboardButton(
@@ -205,16 +204,12 @@ def get_task_history_list_keyboard(
                     callback_data=f"task_history_paginate:{current_index - 1}"
                 )
             )
-        
-        # Индикатор страницы
         pagination_buttons.append(
             InlineKeyboardButton(
                 text=f"{current_index + 1}/{total_tasks}",
-                callback_data="task_history_empty" # Не активная кнопка
+                callback_data="task_history_empty"
             )
         )
-        
-        # Кнопка "Вперед" (следующее задание)
         if current_index < total_tasks - 1:
             pagination_buttons.append(
                 InlineKeyboardButton(
@@ -222,27 +217,35 @@ def get_task_history_list_keyboard(
                     callback_data=f"task_history_paginate:{current_index + 1}"
                 )
             )
-        
         if pagination_buttons:
             buttons.append(pagination_buttons)
 
-    # === Кнопки действий с текущим заданием из истории ===
+    # === Кнопки действий ===
     current_task_id = task_ids[current_index] if task_ids and 0 <= current_index < len(task_ids) else None
     action_buttons = []
     
+    # === НОВАЯ ЛОГИКА: Кнопка "Детальный анализ" только для выполненных ===
+    if current_task_id and current_task_status == 'completed':
+        action_buttons.append([
+            InlineKeyboardButton(
+                text=get_button_text('btn_detailed_analysis', language),
+                callback_data=f"view_detailed_task_analysis:{current_task_id}"
+            )
+        ])
+    # === ===
+
     if current_task_id and current_task_status == 'skipped':
         action_buttons.append([
             InlineKeyboardButton(
                 text=get_button_text('btn_restore_task', language),
-                callback_data=f"task_history_restore:{current_task_id}:{current_index}"
+                callback_data=f"task_history_restore:{current_task_id}"
             )
         ])
     
-    # Кнопка "Назад" к меню задач
     action_buttons.append([
         InlineKeyboardButton(
             text=get_button_text('btn_back', language),
-            callback_data="tasks" # Возврат к активным заданиям
+            callback_data="tasks"
         )
     ])
     
