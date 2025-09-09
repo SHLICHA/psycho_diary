@@ -10,90 +10,6 @@ PROMPTS = {
     'en': {}
 }
 
-TASK_EFFECT_ANALYSIS_PROMPT = {
-    'ru': '''Проанализируй влияние выполнения терапевтического задания на эмоциональное состояние пользователя за день.
-Ответь в формате JSON, строго придерживаясь структуры, заключенной в тройные обратные кавычки с указанием json (```json ... ```).
-
-Контекст:
-Профиль пользователя:
-{user_profile}
-
-Текст всех записей пользователя за день:
-{day_text}
-
-Средняя оценка настроения до выполнения задания: {avg_mood_before}/10
-
-Ключевые моменты дня до выполнения задания:
-{key_points_before}
-
-Выполненное задание:
-Название: {task_title}
-Описание: {task_description}
-
-Ответ пользователя на задание:
-Выполнение: {completion_text}
-Ощущения: {feelings_text}
-
-Проанализируй, как выполнение задания повлияло на эмоциональное состояние, описанное в записях дня.
-Сравни содержание записей, выполнение и ощущения.
-Сформулируй краткий вывод об эффекте.
-Оцени, на сколько баллов (целое число) это могло повлиять на среднюю оценку дня (может быть отрицательным).
-Если влияние неочевидно или нейтрально, укажи это и поставь значение 0.
-
-Пример структуры ответа:
-```json
-{{
-  "effect_description": "Выполнение задания коррелирует с упоминанием позитивных событий и улучшением настроения.",
-  "mood_impact_score": 2
-}}
-{{
-  "effect_description": "строка, краткое описание эффекта (1-2 предложения)",
-  "mood_impact_score": целое число (оценка влияния на настроение дня, может быть отрицательным)
-}}
-```''',
-
-    'en': '''Analyze the impact of completing a therapeutic task on the user's emotional state for the day.
-Respond in JSON format, strictly adhering to the structure enclosed in triple backticks (```json ... ```).
-
-Context:
-User Profile:
-{user_profile}
-
-Text of all user's entries for the day:
-{day_text}
-
-Average mood score before completing the task: {avg_mood_before}/10
-
-Key points of the day before completing the task:
-{key_points_before}
-
-Completed Task:
-Title: {task_title}
-Description: {task_description}
-
-User's response to the task:
-Completion: {completion_text}
-Feelings: {feelings_text}
-
-Analyze how completing the task influenced the emotional state described in the day's entries.
-Compare the content of the entries, the completion, and the feelings.
-Formulate a brief conclusion about the effect.
-Estimate by how many points (integer) this could have affected the average daily score (can be negative).
-If the impact is unclear or neutral, state so and put a value of 0.
-
-Example response structure:
-```json
-{{
-  "effect_description": "Completing the task correlates with mentioning positive events and improved mood.",
-  "mood_impact_score": 2
-}}
-{{
-  "effect_description": "string, a brief description of the effect (1-2 sentences)",
-  "mood_impact_score": integer (estimated impact on the day's mood score, can be negative)
-}}
-```'''
-}
-
 INCREMENTAL_DAY_ANALYSIS_PROMPT = {
     'ru': '''Ты — профессиональный психолог, ведущий инкрементальный анализ дневника пользователя. Твоя задача — **обогатить** состояние дня, а не переписать его с нуля.
 
@@ -369,8 +285,9 @@ TASK_EFFECT_ANALYSIS_PROMPT = {
 
 === КОНТЕКСТ ===
 
-Профиль пользователя:
-{user_profile}
+**Профиль пользователя:**
+Имя: {first_name}
+Уровень осознанности: {awareness_level}/10
 
 --- КОНТЕКСТ ДНЯ НАЗНАЧЕНИЯ ЗАДАНИЯ ---
 (День, когда запись в дневнике привела к назначению этого задания)
@@ -433,8 +350,9 @@ RESPOND STRICTLY IN JSON FORMAT, enclosed in triple backticks (```json ... ```).
 
 === CONTEXT ===
 
-User Profile:
-{user_profile}
+**User profile:**
+Name: {first_name}
+Awareness level: {awareness_level}/10
 
 --- ASSIGNMENT DAY CONTEXT ---
 (The day the diary entry led to the assignment of this task)
@@ -492,7 +410,190 @@ User's Feelings During Completion (what feelings, thoughts, reactions arose): {f
 ```'''
 }
 
-# Обновляем словарь PROMPTS
+FULL_DAY_ANALYSIS_PROMPT = {
+    'ru': '''Ты — профессиональный психолог, специализирующийся на глубоком анализе дневниковых записей. Твоя задача — провести комплексный анализ дня пользователя на основе предоставленного контекста. Ты должен выявить ключевые темы, эмоциональные паттерны, глубокие инсайты и сформулировать персонализированные рекомендации. Также ты должен предложить обновления для психологического портрета пользователя, если текущий день предоставляет новую значимую информацию.
+
+---
+
+### 📥 ВХОДНЫЕ ДАННЫЕ
+
+**Профиль пользователя:**
+{user_profile}
+
+**Все записи за день (объединенный текст):**
+{all_entries_combined_text}
+
+**Анализы отдельных записей за день:**
+{entry_analyses}
+
+**Оценки настроения за день:**
+{daily_mood_scores}
+
+**Выполненные задания за день:**
+{completed_tasks}
+
+**Текущий психологический портрет пользователя:**
+{current_user_data}
+
+---
+
+### 🧠 ИНСТРУКЦИЯ
+
+1.  **Проанализируй весь предоставленный контекст.**
+2.  **Определи `mood_trend`** дня: улучшение, ухудшение, стабильность, нестабильность. Обоснуй свой выбор, опираясь на `daily_mood_scores` и `entry_analyses`.
+3.  **Выяви `key_themes`** дня. Это могут быть повторяющиеся темы, важные события, доминирующие мысли. Укажи количество упоминаний и значимость (0.0 - 1.0).
+4.  **Определи `emotional_patterns`**. Какие эмоции преобладали? В каком контексте они возникали? Укажи частоту и контекст.
+5.  **Сформируй `insights`**. Это глубокие выводы о пользователе, его поведении, мышлении, паттернах. Категоризуй их и оцени значимость (0.0 - 1.0).
+6.  **Дай `recommendations`**. Персонализированные рекомендации на основе всего анализа дня.
+7.  **Напиши `overall_analysis_text`**. Это связный, развернутый текстовый анализ дня, объединяющий все вышеуказанные пункты. Он должен быть понятным пользователю и давать общее представление о его психологическом состоянии в этот день. (примерно 3-5 предложений).
+8.  **Проанализируй `current_user_data`** и `all_entries_combined_text`, `entry_analyses`, `completed_tasks`.
+9.  **Предложи `user_profile_updates`**. ...
+10. **Оцени и при необходимости обнови `awareness_level`** пользователя (1-10), обосновав свое решение.
+
+---
+
+### 📤 ОТВЕТ В СТРОГОМ ФОРМАТЕ JSON
+
+ОТВЕЧАЙ ТОЛЬКО В СЛЕДУЮЩЕМ ФОРМАТЕ JSON, заключенном в тройные обратные кавычки (```json ... ```).
+
+```json
+{{
+  "daily_analysis": {{
+    "mood_trend": "stable",
+    "key_themes": [
+      {{
+        "theme": "работа",
+        "mentions": 3,
+        "significance": 0.8
+      }}
+    ],
+    "emotional_patterns": [
+      {{
+        "emotion": "тревога",
+        "frequency": 2,
+        "context": "перед встречами"
+      }}
+    ],
+    "insights": [
+      {{
+        "text": "Пользователь лучше справляется, когда планирует день",
+        "category": "behavior",
+        "significance": 0.9
+      }}
+    ],
+    "recommendations": [
+      "Попробуйте выделить 10 минут утром для планирования"
+    ],
+    "overall_analysis_text": "В целом день был продуктивным, но сопровождался чувством тревоги перед встречами. Пользователь демонстрирует хорошие навыки рефлексии, особенно в части анализа своих действий. Основные темы дня - работа и планирование. Рекомендуется продолжать уделять внимание планированию и отмечать положительные моменты."
+  }},
+  "user_profile_updates": {{
+    "life_facts": [
+      "начал новый проект на работе"
+    ],
+    "strengths": [
+      "хорошая рефлексия"
+    ]
+  }},
+  "awareness_level_adjustment": {{
+    "new_level": 7,
+    "reasoning": "Пользователь подробно описал свои эмоции и связал их с событиями."
+  }}
+}}
+```''',
+
+    'en': '''You are a professional psychologist specializing in the deep analysis of diary entries. Your task is to conduct a comprehensive analysis of the user's day based on the provided context. You need to identify key themes, emotional patterns, deep insights, and formulate personalized recommendations. You should also suggest updates to the user's psychological profile if the current day provides new significant information.
+
+---
+
+### 📥 INPUT DATA
+
+**User Profile:**
+{user_profile}
+
+**All entries for the day (combined text):**
+{all_entries_combined_text}
+
+**Analyses of individual entries for the day:**
+{entry_analyses}
+
+**Mood scores for the day:**
+{daily_mood_scores}
+
+**Completed tasks for the day:**
+{completed_tasks}
+
+**Current user's psychological profile:**
+{current_user_data}
+
+---
+
+### 🧠 INSTRUCTIONS
+
+1.  **Analyze all the provided context.**
+2.  **Determine the day's `mood_trend`:** improving, declining, stable, volatile. Justify your choice based on `daily_mood_scores` and `entry_analyses`.
+3.  **Identify `key_themes`** of the day. These can be recurring themes, important events, dominant thoughts. Indicate the number of mentions and significance (0.0 - 1.0).
+4.  **Determine `emotional_patterns`.** What emotions prevailed? In what context did they arise? Indicate frequency and context.
+5.  **Formulate `insights`.** These are deep conclusions about the user, their behavior, thinking, patterns. Categorize them and assess significance (0.0 - 1.0).
+6.  **Give `recommendations`.** Personalized recommendations based on the entire day's analysis.
+7.  **Write `overall_analysis_text`.** This is a coherent, detailed textual analysis of the day that combines all the above points. It should be understandable to the user and give a general idea of their psychological state on that day. (about 3-5 sentences).
+8.  **Analyze `current_user_data`** and `all_entries_combined_text`, `entry_analyses`, `completed_tasks`.
+9.  **Suggest `user_profile_updates`.** If there is new significant information in the day's data, propose updates for the fields `personality_traits`, `life_facts`, `hobbies`, `core_values`, `triggers`, `strengths`, `areas_for_growth`. Format for adding: just a string. Format for removal: `{{"remove": "what needs to be removed"}}`.
+10. **Evaluate and, if necessary, update the user's `awareness_level`** (1-10), justifying your decision.
+
+---
+
+### 📤 RESPOND IN STRICT JSON FORMAT
+
+RESPOND ONLY IN THE FOLLOWING JSON FORMAT, enclosed in triple backticks (```json ... ```).
+
+```json
+{{
+  "daily_analysis": {{
+    "mood_trend": "stable",
+    "key_themes": [
+      {{
+        "theme": "work",
+        "mentions": 3,
+        "significance": 0.8
+      }}
+    ],
+    "emotional_patterns": [
+      {{
+        "emotion": "anxiety",
+        "frequency": 2,
+        "context": "before meetings"
+      }}
+    ],
+    "insights": [
+      {{
+        "text": "The user copes better when planning the day",
+        "category": "behavior",
+        "significance": 0.9
+      }}
+    ],
+    "recommendations": [
+      "Try setting aside 10 minutes in the morning for planning"
+    ],
+    "overall_analysis_text": "Overall, the day was productive but accompanied by anxiety before meetings. The user demonstrates good reflection skills, especially in analyzing their actions. The main themes of the day are work and planning. It is recommended to continue paying attention to planning and noting positive moments."
+  }},
+  "user_profile_updates": {{
+    "life_facts": [
+      "started a new project at work"
+    ],
+    "strengths": [
+      "good reflection"
+    ]
+  }},
+  "awareness_level_adjustment": {{
+    "new_level": 7,
+    "reasoning": "The user described their emotions in detail and linked them to events."
+  }}
+}}
+```'''
+}
+
+PROMPTS['ru']['full_day_analysis'] = FULL_DAY_ANALYSIS_PROMPT['ru']
+PROMPTS['en']['full_day_analysis'] = FULL_DAY_ANALYSIS_PROMPT['en']
 PROMPTS['ru']['task_effect_analysis'] = TASK_EFFECT_ANALYSIS_PROMPT['ru']
 PROMPTS['en']['task_effect_analysis'] = TASK_EFFECT_ANALYSIS_PROMPT['en']
 PROMPTS['ru']['clarification_analysis'] = CLARIFICATION_ANALYSIS_PROMPT['ru']
@@ -538,7 +639,6 @@ def get_prompt(key: str, language: str = 'ru', **kwargs) -> str:
             return prompt_template
     except KeyError as e:
         logger.error(f"Ошибка форматирования промпта '{key}': отсутствует параметр {e}")
-        # Возвращаем промпт, подменяя проблемные поля
         safe_template = prompt_template.replace("{user_profile['first_name']}", "Пользователь")
         try:
             return safe_template.format(**{k: v or 'N/A' for k, v in kwargs.items()})

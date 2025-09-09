@@ -49,7 +49,6 @@ async def show_faq(callback: CallbackQuery, language: str = 'ru'):
             faq_msg,
             reply_markup=keyboard
         )
-        await callback.answer("FAQ показан")
     except Exception as e:
         logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ FAQ: {e}", exc_info=True)
         await callback.answer("Ошибка при показе FAQ")
@@ -64,7 +63,6 @@ async def show_how_to_start(callback: CallbackQuery, language: str = 'ru'):
             how_to_start_msg,
             reply_markup=keyboard
         )
-        await callback.answer("Помощь по началу работы показана")
     except Exception as e:
         logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ ПОМОЩИ ПО НАЧАЛУ РАБОТЫ: {e}", exc_info=True)
         await callback.answer("Ошибка при показе помощи по началу работы")
@@ -79,7 +77,6 @@ async def show_writing_entries_help(callback: CallbackQuery, language: str = 'ru
             writing_entries_msg,
             reply_markup=keyboard
         )
-        await callback.answer("Помощь по написанию записей показана")
     except Exception as e:
         logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ ПОМОЩИ ПО НАПИСАНИЮ ЗАПИСЕЙ: {e}", exc_info=True)
         await callback.answer("Ошибка при показе помощи по написанию записей")
@@ -94,7 +91,6 @@ async def show_tasks_help(callback: CallbackQuery, language: str = 'ru'):
             tasks_help_msg,
             reply_markup=keyboard
         )
-        await callback.answer("Помощь по заданиям показана")
     except Exception as e:
         logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ ПОМОЩИ ПО ЗАДАНИЯМ: {e}", exc_info=True)
         await callback.answer("Ошибка при показе помощи по заданиям")
@@ -110,7 +106,6 @@ async def show_privacy_help(callback: CallbackQuery, language: str = 'ru'):
             privacy_help_msg,
             reply_markup=keyboard
         )
-        await callback.answer("Помощь по приватности показана")
     except Exception as e:
         logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ ПОМОЩИ ПО ПРИВАТНОСТИ: {e}", exc_info=True)
         await callback.answer("Ошибка при показе помощи по приватности")
@@ -120,14 +115,12 @@ async def show_privacy_help(callback: CallbackQuery, language: str = 'ru'):
 async def show_contact_help(callback: CallbackQuery, language: str = 'ru'):
     """Контактная помощь"""
     try:
-        # ИЗМЕНЕН КЛЮЧ - добавлен _text
         contact_help_msg = get_message('help_contact_text', language=language)
         keyboard = get_help_section_keyboard(language)
         await callback.message.edit_text(
             contact_help_msg,
             reply_markup=keyboard
         )
-        await callback.answer("Контактная помощь показана")
     except Exception as e:
         logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ КОНТАКТНОЙ ПОМОЩИ: {e}", exc_info=True)
         await callback.answer("Ошибка при показе контактной помощи")

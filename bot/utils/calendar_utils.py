@@ -18,10 +18,10 @@ logger = logging.getLogger(__name__)
 async def update_calendar_display(
     message: Message,
     user: User,
-    target_date: date, # Дата, календарь которой нужно показать
+    target_date: date,
     language: str,
-    status_message: Optional[str] = None, # Дополнительное сообщение сверху
-    force_full_update: bool = False # Флаг для полного обновления текста сообщения
+    status_message: Optional[str] = None,
+    force_full_update: bool = False
 ) -> bool:
     """
     Утилита для обновления отображения календаря в чате.
@@ -51,8 +51,7 @@ async def update_calendar_display(
         base_calendar_msg = get_message('archive_select_month', language).format(
             month=month_name,
             year=year
-        )
-        
+        )    
         final_message_text = f"{status_message}\n{base_calendar_msg}" if status_message else base_calendar_msg
         calendar_keyboard = await get_month_calendar_with_navigation(
             user, year, month, current_day_to_highlight, language

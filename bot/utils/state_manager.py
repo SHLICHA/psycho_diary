@@ -70,13 +70,10 @@ class StateManager:
             current_state = await context.get_state()
             if current_state is None:
                 return False
-            
-            # Проверяем, принадлежит ли состояние к группе
             state_prefix = f"{state_group.__class__.__module__}.{state_group.__class__.__name__}"
             return current_state.startswith(state_prefix)
         except Exception as e:
             logger.error(f"Error checking state group: {e}")
             return False
 
-# Глобальный экземпляр менеджера состояний
 state_manager = StateManager()

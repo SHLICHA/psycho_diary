@@ -33,7 +33,6 @@ class User(AbstractUser):
     preferred_analysis_time = models.TimeField(default='02:00', verbose_name="Время анализа")
     current_calendar_year = models.PositiveIntegerField(default=2025, verbose_name="Текущий год календаря")
     current_calendar_month = models.PositiveIntegerField(default=8, verbose_name="Текущий месяц календаря")
-    # Добавляем настройки пользователя
     notifications_enabled = models.BooleanField(default=True, verbose_name="Уведомления включены")
     auto_analysis_enabled = models.BooleanField(default=True, verbose_name="Автоанализ включен")
     max_ai_tasks_per_day = models.PositiveIntegerField(
@@ -41,6 +40,15 @@ class User(AbstractUser):
         verbose_name="Максимум заданий от ИИ в день"
     )    
     
+    # === ДОЛГОСРОЧНЫЕ ДАННЫЕ ПОЛЬЗОВАТЕЛЯ (Этап 1) ===
+    personality_traits = models.JSONField(default=dict, blank=True, verbose_name="Черты характера")
+    life_facts = models.JSONField(default=list, blank=True, verbose_name="Факты о жизни")
+    hobbies = models.JSONField(default=list, blank=True, verbose_name="Увлечения")
+    core_values = models.JSONField(default=list, blank=True, verbose_name="Ключевые ценности")
+    triggers = models.JSONField(default=list, blank=True, verbose_name="Триггеры")
+    strengths = models.JSONField(default=list, blank=True, verbose_name="Сильные стороны")
+    areas_for_growth = models.JSONField(default=list, blank=True, verbose_name="Зоны роста")
+
     class Meta:
         verbose_name = "Пользователь"
         verbose_name_plural = "Пользователи"
@@ -74,10 +82,7 @@ class User(AbstractUser):
             logger.error(f"Ошибка при получении локального времени пользователя {self.telegram_id}: {e}")
             return datetime.now(pytz.utc)
 
-    # Асинхронные версии (если потребуются напрямую в асинхронном контексте, 
-    # хотя обычно достаточно синхронных)
     async def aget_profile_data(self) -> dict:
-        # Убедись, что все поля — из текущего объекта, без ORM-запросов
         return {
             'first_name': self.first_name or self.username or f'Пользователь {self.telegram_id}',
             'awareness_level': self.awareness_level,
@@ -90,5 +95,4 @@ class User(AbstractUser):
 
     async def aget_local_datetime(self):
         """Асинхронная версия get_local_datetime."""
-        # Аналогично, вызываем синхронный метод
         return self.get_local_datetime()

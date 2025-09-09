@@ -102,6 +102,8 @@ MESSAGES = {
         # === Сообщения об ошибках ===
         'error_loading_insights': '❌ Ошибка при загрузке инсайтов.',
         'error_loading_key_points': '❌ Ошибка при загрузке ключевых моментов.',
+        'full_day_analysis_header': '🔬 Полный анализ дня {date}',
+        'no_full_analysis_yet': '🔬 Полный анализ дня еще не выполнен. Нажмите "Пересчитать анализ дня".', 
         
         # === Настройки ===
         'settings_language': '🌍 Язык: {language}',
@@ -272,7 +274,7 @@ MESSAGES = {
         
         # === Подтверждения ===
         'edit_entries_header': '📝 Редактирование записей за {date}',
-        'ask_entry_edit_with_text': '📝 <b>Отредактируйте свою запись:</b>\n\n<i>Текущий текст:</i>\n{old_text}\n\n<i>Отправьте новый текст записи:</i>',
+        'ask_entry_edit_with_text': '📝 <b>Отредактируйте свою запись:</b>\n\n<i>Текущий текст:</i>\n<code>{old_text}</code>\n\n<i>Отправьте новый текст записи:</i>',
         'entry_updated_success': '✅ <b>Запись обновлена!</b>\n\nДля получения нового анализа нажмите "Подтвердить" в меню редактирования дня.',
         'confirm_delete_entry_prompt': '❓ Вы уверены, что хотите удалить эту запись?',
         'confirm_delete_entry_yes': 'Да, удалить',
@@ -414,6 +416,8 @@ Here you can customize the diary for yourself:''',
         # === Error messages ===
         'error_loading_insights': '❌ Error loading insights.',
         'error_loading_key_points': '❌ Error loading key points.',
+        'full_day_analysis_header': '🔬 Full Day Analysis for {date}',
+        'no_full_analysis_yet': '🔬 Full day analysis has not been performed yet. Click "Recalculate day analysis".',
         
         # === Settings ===
         'settings_language': '🌍 Language: {language}',
@@ -583,7 +587,7 @@ Need more help? Contact your psychologist!''',
         
         # === Confirmations ===
         'edit_entries_header': '📝 Editing entries for {date}',
-        'ask_entry_edit_with_text': '📝 <b>Edit your entry:</b>\n\n<i>Current text:</i>\n{old_text}\n\n<i>Send the new entry text:</i>',
+        'ask_entry_edit_with_text': '📝 <b>Edit your entry:</b>\n\n<i>Current text:</i>\n<code>{old_text}</code>\n\n<i>Send the new entry text:</i>',
         'entry_updated_success': '✅ <b>Entry updated!</b>\n\nTo get a new analysis, click "Confirm" in the day editing menu.',
         'confirm_delete_entry_prompt': '❓ Are you sure you want to delete this entry?',
         'confirm_delete_entry_yes': 'Yes, delete',

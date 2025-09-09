@@ -56,7 +56,7 @@ def get_task_pagination_keyboard(task_id: int,
             ),
             InlineKeyboardButton(
                 text=f"{current_index + 1}/{total_tasks}",
-                callback_data="tasks_empty"  # Не активная кнопка
+                callback_data="tasks_empty"
             ),
             InlineKeyboardButton(
                 text="▶️",
@@ -89,13 +89,13 @@ def get_task_pagination_keyboard(task_id: int,
     if show_history_button:
         navigation_buttons.append([
             InlineKeyboardButton(
-                text=get_button_text('btn_task_history', language), # "История заданий"
+                text=get_button_text('btn_task_history', language),
                 callback_data="task_history_main"
             )
         ])
     navigation_buttons.append([
         InlineKeyboardButton(
-            text=get_button_text('btn_back', language), # "Назад"
+            text=get_button_text('btn_back', language),
             callback_data="main_menu"
         )
     ])
@@ -176,7 +176,7 @@ def get_task_history_main_keyboard(language: str) -> InlineKeyboardMarkup:
 def get_task_history_list_keyboard(
     task_ids: List[int],
     current_index: int,
-    current_task_status: str, # <-- ДОБАВЛЕНО
+    current_task_status: str,
     language: str
 ) -> InlineKeyboardMarkup:
     """

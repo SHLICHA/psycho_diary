@@ -112,7 +112,7 @@ LOGGING = {
     'formatters': {
         'colored': {
             '()': 'colorlog.ColoredFormatter',
-            'format': '%(log_color)s%(asctime)s %(levelname)s %(name)s %(message)s',
+            'format': '%(log_color)s%(asctime)s %(levelname)s %(name)s [%(filename)s:%(lineno)d - %(funcName)s] %(message)s',
         },
     },
     'handlers': {

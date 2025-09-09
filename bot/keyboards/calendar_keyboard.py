@@ -4,14 +4,12 @@
 
 import logging
 
-from typing import List
-from datetime import datetime, date
+from datetime import date
 from calendar import monthrange
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-from bot.services.diary_service import diary_service
 from core.constants import MONTH_NAMES_RU, MONTH_NAMES_EN, MONTH_NAMES_SHORT_RU, MONTH_NAMES_SHORT_EN
-from diary.models import DiaryEntry, CombinedDiaryEntry
+from diary.models import CombinedDiaryEntry
 from messages import get_button_text, get_message
 
 logger = logging.getLogger(__name__)
@@ -56,7 +54,6 @@ async def get_month_calendar_with_navigation(user, year: int, month: int, curren
     ]
     buttons.append(weekday_buttons)
     try:
-        # Используем новую функцию
         days_data = await get_days_with_entries_and_mood_async(user, year, month)
         logger.debug(f"Данные дней для календаря: {days_data}")
     except Exception as e:
@@ -74,25 +71,20 @@ async def get_month_calendar_with_navigation(user, year: int, month: int, curren
         if year == user_local_date.year and month == user_local_date.month and day == user_local_date.day:
             day_text = f"🔹{day}🔹"
         elif day in days_data:
-            # === НОВАЯ ЛОГИКА ОТМЕТКИ ДНЯ ===
             avg_mood_score = days_data[day]
             if avg_mood_score is not None and avg_mood_score > 0:
-                # Определяем эмодзи на основе настроения (1-10)
-                # Можно сделать более градационную шкалу
                 if avg_mood_score >= 8:
-                    mood_emoji = "😄" # Отлично
+                    mood_emoji = "😄"
                 elif avg_mood_score >= 6:
-                    mood_emoji = "😊" # Хорошо
+                    mood_emoji = "😊"
                 elif avg_mood_score >= 4:
-                    mood_emoji = "😐" # Нормально
+                    mood_emoji = "😐"
                 elif avg_mood_score >= 2:
-                    mood_emoji = "😞" # Плохо
-                else: # 1 или близко к 1
-                    mood_emoji = "😢" # Ужасно
+                    mood_emoji = "😞"
+                else:
+                    mood_emoji = "😢"
                 day_text = f"{mood_emoji}{day}"
             else:
-                # Если CombinedDiaryEntry есть, но средняя оценка 0 или None 
-                # (возможно, день еще не проанализирован ИИ)
                 day_text = f"📝{day}"
         day_buttons.append(
             InlineKeyboardButton(
@@ -138,7 +130,6 @@ def get_year_selection_keyboard(current_year: int, language: str) -> InlineKeybo
         for j in range(3):
             year = i + j
             if year <= end_year:
-                # Выделяем текущий год
                 year_text = f"🔹{year}🔹" if year == current_year else str(year)
                 year_row.append(
                     InlineKeyboardButton(
@@ -171,7 +162,6 @@ def get_month_selection_keyboard(year: int, current_month: int, language: str) -
         for j in range(3):
             month_index = i + j + 1
             if month_index <= 12:
-                # Выделяем текущий месяц
                 month_text = f"🔹{month_names_short[month_index-1]}🔹" if month_index == current_month else month_names_short[month_index-1]
                 month_row.append(
                     InlineKeyboardButton(
@@ -279,11 +269,10 @@ def get_entry_view_keyboard(language: str, year: int, month: int, day: int) -> I
 
 def get_confirmation_keyboard(
     language: str,
-    confirm_text_key: str,      # Ключ для текста кнопки "Подтвердить" из messages.py
-    cancel_text_key: str,       # Ключ для текста кнопки "Отменить" из messages.py
-    confirm_callback_data: str, # Callback data для кнопки "Подтвердить"
-    cancel_callback_data: str,  # Callback data для кнопки "Отменить"
-    # Опционально: можно добавить параметры для кастомизации внешнего вида
+    confirm_text_key: str,
+    cancel_text_key: str,
+    confirm_callback_data: str,
+    cancel_callback_data: str,
 ) -> InlineKeyboardMarkup:
     """
     Универсальная клавиатура подтверждения/отмены действия.
@@ -301,11 +290,11 @@ def get_confirmation_keyboard(
     buttons = [
         [
             InlineKeyboardButton(
-                text=get_button_text(confirm_text_key, language), # Используем get_button_text как в других клавиатурах
+                text=get_button_text(confirm_text_key, language),
                 callback_data=confirm_callback_data
             ),
             InlineKeyboardButton(
-                text=get_button_text(cancel_text_key, language), # Используем get_button_text как в других клавиатурах
+                text=get_button_text(cancel_text_key, language),
                 callback_data=cancel_callback_data
             )
         ]
@@ -316,8 +305,8 @@ def get_delete_confirmation_keyboard(language: str, entry_id: int) -> InlineKeyb
     """Клавиатура подтверждения удаления записи (алиас)."""
     return get_confirmation_keyboard(
         language=language,
-        confirm_text_key='btn_confirm_delete', # Убедись, что такой ключ есть в messages.py
-        cancel_text_key='btn_cancel_delete',   # Убедись, что такой ключ есть в messages.py
+        confirm_text_key='btn_confirm_delete',
+        cancel_text_key='btn_cancel_delete', 
         confirm_callback_data=f"confirm_delete_entry:{entry_id}",
         cancel_callback_data="cancel_delete_entry"
     )
@@ -327,46 +316,56 @@ def get_delete_entry_confirmation_keyboard(entry_id: int, target_date, language:
     iso_date_str = target_date.isoformat() if not isinstance(target_date, str) else target_date
     return get_confirmation_keyboard(
         language=language,
-        confirm_text_key='btn_confirm_delete_entry', # Убедись, что такой ключ есть
-        cancel_text_key='btn_cancel',                # Используем общий ключ
+        confirm_text_key='btn_confirm_delete_entry',
+        cancel_text_key='btn_cancel',
         confirm_callback_data=f"confirm_delete_specific_entry:{entry_id}:{iso_date_str}",
         cancel_callback_data=f"cancel_delete_specific_entry:{entry_id}:{iso_date_str}"
     )
 
-def get_entry_pagination_keyboard(
+def get_entry_page_keyboard(
     entry_id: int,
-    entry_index: int,
+    current_index: int,
     total_entries: int,
-    year: int,
-    month: int,
-    day: int,
-    language: str
+    target_date: date,
+    language: str,
+    is_day_analyzed: bool # Новый параметр
 ) -> InlineKeyboardMarkup:
     """
-    Клавиатура для пагинации по записям дня.
-    """
-    buttons = []
+    Формирует клавиатуру для страницы просмотра записи с учетом статуса анализа дня.
 
-    # Пагинация: только если больше одной записи
+    Args:
+        entry_id: ID текущей записи.
+        current_index: Индекс текущей записи в списке.
+        total_entries: Общее количество записей за день.
+        target_date: Дата, к которой относится запись.
+        language: Язык интерфейса.
+        is_day_analyzed: Был ли день проанализирован.
+
+    Returns:
+        InlineKeyboardMarkup: Сформированная клавиатура.
+    """
+    keyboard_buttons = []
+
+    # Кнопки пагинации (если больше одной записи)
     if total_entries > 1:
-        pagination_buttons = [
+        pagination_row = [
             InlineKeyboardButton(
                 text="◀️",
                 callback_data=f"entry_prev:{entry_id}"
             ),
             InlineKeyboardButton(
-                text=f"{entry_index + 1}/{total_entries}",
-                callback_data="entry_empty"  # Неактивная кнопка
+                text=f"{current_index + 1}/{total_entries}",
+                callback_data="entry_empty" # Или другая заглушка
             ),
             InlineKeyboardButton(
                 text="▶️",
                 callback_data=f"entry_next:{entry_id}"
             )
         ]
-        buttons.append(pagination_buttons)
+        keyboard_buttons.append(pagination_row)
 
-    # Действия с текущей записью
-    action_row_1 = [
+    # Кнопки действий с записью
+    actions_row_1 = [
         InlineKeyboardButton(
             text=get_button_text('btn_edit_entry', language),
             callback_data=f"entry_edit:{entry_id}"
@@ -376,46 +375,54 @@ def get_entry_pagination_keyboard(
             callback_data=f"entry_delete_confirm:{entry_id}"
         )
     ]
-    buttons.append(action_row_1)
+    keyboard_buttons.append(actions_row_1)
 
-    # Просмотр инсайтов и ключевых моментов
+    # Кнопки инсайтов и ключевых моментов
     insights_row = [
         InlineKeyboardButton(
-            text=get_message('btn_view_insights', language),
-            callback_data=f"view_day_insights:{year}:{month}:{day}"
+            text=get_message('btn_view_insights', language), # Используем существующее сообщение
+            callback_data=f"view_day_insights:{target_date.year}:{target_date.month}:{target_date.day}"
         ),
         InlineKeyboardButton(
-            text=get_message('btn_view_key_points', language),
-            callback_data=f"view_day_keypoints:{year}:{month}:{day}"
+            text=get_message('btn_view_key_points', language), # Используем существующее сообщение
+            callback_data=f"view_day_keypoints:{target_date.year}:{target_date.month}:{target_date.day}"
         )
     ]
-    buttons.append(insights_row)
+    keyboard_buttons.append(insights_row)
 
-    # Пересчитать анализ дня (глобально)
-    buttons.append([
-        InlineKeyboardButton(
-            text=get_button_text('btn_reanalyze_entry', language),
-            callback_data=f"reanalyze_day:{year}:{month}:{day}"
+    # --- КНОПКА АНАЛИЗА ДНЯ ---
+    if is_day_analyzed:
+        # Если день проанализирован, показываем кнопку "Анализ дня"
+        analysis_day_button = InlineKeyboardButton(
+            text="🔬 Анализ дня", # Или get_message('btn_view_day_analysis', language) если добавите
+            callback_data=f"view_full_day_analysis:{target_date.year}:{target_date.month}:{target_date.day}" # Новый callback
         )
-    ])
+    else:
+        # Если день НЕ проанализирован, показываем кнопку "Пересчитать анализ дня"
+        analysis_day_button = InlineKeyboardButton(
+            text=get_button_text('btn_reanalyze_entry', language),
+            callback_data=f"reanalyze_day:{target_date.year}:{target_date.month}:{target_date.day}"
+        )
+    
+    keyboard_buttons.append([analysis_day_button]) # Добавляем кнопку в отдельный ряд
 
-    # Удалить весь день
-    buttons.append([
+    # Кнопка удаления всего дня
+    keyboard_buttons.append([
         InlineKeyboardButton(
             text=get_button_text('btn_delete_all_entries', language),
-            callback_data=f"delete_entire_day:{year}-{month}-{day}"
+            callback_data=f"delete_entire_day:{target_date.year}-{target_date.month}-{target_date.day}"
         )
     ])
 
-    # Назад в календарь
-    buttons.append([
+    # Кнопка "Назад к дню" (календарю)
+    keyboard_buttons.append([
         InlineKeyboardButton(
             text=get_button_text('btn_back_to_day', language),
-            callback_data=f"calendar_return_to_month:{year}:{month}"
+            callback_data=f"calendar_return_to_month:{target_date.year}:{target_date.month}"
         )
     ])
 
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+    return InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
 
 def get_back_to_edit_day_keyboard(target_date: date, language: str) -> InlineKeyboardMarkup:
     """
@@ -468,23 +475,15 @@ async def get_days_with_entries_and_mood_async(user, year: int, month: int) -> d
     logger.debug(f"Получение дней с записями и настроением для {year}-{month} пользователя {user.telegram_id}")
     days_data = {}
     try:
-        # Используем select_related для оптимизации запроса к CombinedDiaryEntry
         async for combined_entry in CombinedDiaryEntry.objects.filter(
             user=user,
             date__year=year,
             date__month=month
-        ).select_related('user'): # select_related может помочь, если будут дополнительные поля из user
+        ).select_related('user'):
             day = combined_entry.date.day
-            # Проверяем, есть ли записи (entry_count > 0) - это надежнее, чем просто существование CombinedDiaryEntry
             if combined_entry.entry_count > 0:
-                # Сохраняем среднюю оценку. Если 0.0, все равно сохраняем, чтобы отличать от отсутствия данных.
                 days_data[day] = combined_entry.average_mood_score 
-            # Если entry_count == 0, CombinedDiaryEntry может быть артефактом или остатком от удаления,
-            # и мы его игнорируем.
-            
-        logger.debug(f"Получены данные для дней: {list(days_data.keys())}")
         return days_data
     except Exception as e:
         logger.error(f"Ошибка при асинхронном получении дней с записями и настроением: {e}")
-        # Возвращаем пустой словарь в случае ошибки
         return {}

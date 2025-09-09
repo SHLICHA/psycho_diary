@@ -794,7 +794,7 @@ class DailyAnalysisAdmin(admin.ModelAdmin):
     readonly_fields = (
         'created_at', 'combined_entry_link', 
         'key_themes_display', 'emotional_patterns_display',
-        'insights_display', 'recommendations_display'
+        'insights_display', 'recommendations_display', 'overall_analysis_text'
     )
     
     fieldsets = (
@@ -804,7 +804,8 @@ class DailyAnalysisAdmin(admin.ModelAdmin):
         (_('Анализ'), {
             'fields': (
                 'key_themes_display', 'emotional_patterns_display',
-                'insights_display', 'recommendations_display'
+                'insights_display', 'recommendations_display', 'overall_analysis_text',
+                'api_response'
             )
         }),
         (_('Дата'), {

@@ -151,22 +151,17 @@ async def safe_api_call(
     logger.info(f"Безопасный вызов API функции {api_func.__name__}")
     
     try:
-        # === ВАЖНО: УБИРАЕМ ВНУТРЕННИЙ retry ИЗ ЭТОЙ ФУНКЦИИ ===
-        # retry логика будет в retry_api_call
         result = await api_func(*args, **kwargs)
         logger.info(f"API функция {api_func.__name__} выполнена успешно")
         return result
-        
     except asyncio.TimeoutError as timeout_error:
         logger.error(f"Таймаут API вызова в функции {api_func.__name__}: {timeout_error}")
-        # Возвращаем структурированную ошибку, как в handle_api_error
         return {
             'success': False,
             'error': 'timeout',
             'message': 'Превышено время ожидания ответа от API',
             'result': None
         }
-        
     except ConnectionError as connection_error:
         logger.error(f"Ошибка подключения к API в функции {api_func.__name__}: {connection_error}")
         return {
@@ -175,7 +170,6 @@ async def safe_api_call(
             'message': 'Ошибка подключения к API',
             'result': None
         }
-        
     except ValueError as value_error:
         logger.error(f"Ошибка значения в API вызове функции {api_func.__name__}: {value_error}")
         return {
@@ -184,7 +178,6 @@ async def safe_api_call(
             'message': 'Ошибка в данных API вызова',
             'result': None
         }
-        
     except Exception as general_error:
         logger.error(f"Общая ошибка API вызова в функции {api_func.__name__}: {general_error}")
         return {

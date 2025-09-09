@@ -23,7 +23,7 @@ class DiaryEntry(models.Model):
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
     language = models.CharField(
         max_length=2, 
-        choices=LANGUAGES,  # из constants
+        choices=LANGUAGES,
         verbose_name=_("Язык")
     )
     word_count = models.PositiveIntegerField(verbose_name=_("Количество слов"))
@@ -69,7 +69,7 @@ class DiaryEntry(models.Model):
         indexes = [
             models.Index(fields=['user', 'created_at']),
             models.Index(fields=['user', 'day_group']),
-            models.Index(fields=['created_at']),  # Для быстрого поиска по дате
+            models.Index(fields=['created_at']),
         ]
 
     def __str__(self):
@@ -79,27 +79,18 @@ class DiaryEntry(models.Model):
     def localized_created_at(self) -> str:
         """Локализованное время создания записи"""
         try:
-            # Используем метод модели User для получения локального времени
             user_local_dt = self.user.get_local_datetime()
             user_timezone_str = self.user.timezone if self.user else 'UTC'
             if not user_timezone_str:
                  user_timezone_str = 'UTC'
-                 
-            # Убедимся, что created_at это aware datetime
             created_at_for_conversion = self.created_at
             if created_at_for_conversion.tzinfo is None:
                 created_at_for_conversion = pytz.utc.localize(created_at_for_conversion)
-            
-            # Вместо повторения логики get_local_datetime, просто конвертируем created_at
-            # в часовой пояс пользователя
             user_tz = pytz.timezone(user_timezone_str)
             localized_time = created_at_for_conversion.astimezone(user_tz)
-            
             return localized_time.strftime('%d.%m.%Y %H:%M')
-
         except Exception as e:
             logger.error(f"Ошибка при локализации времени для записи {self.id}: {e}")
-            # Возвращаем время в UTC если не удалось
             if self.created_at.tzinfo:
                 return self.created_at.strftime('%d.%m.%Y %H:%M UTC')
             else:
@@ -111,19 +102,14 @@ class DiaryEntry(models.Model):
         try:
             user_timezone_str = self.user.timezone if self.user.timezone else 'UTC'
             user_tz = pytz.timezone(user_timezone_str)
-
-            # Убедимся, что created_at — aware datetime
             created_at = self.created_at
             if created_at.tzinfo is None:
                 created_at = pytz.utc.localize(created_at)
-
-            # Конвертируем в часовой пояс пользователя
             localized_time = created_at.astimezone(user_tz)
             return localized_time.date()
-
         except Exception as e:
             logger.error(f"Ошибка при получении даты записи {self.id}: {e}")
-            return self.created_at.date()  # fallback
+            return self.created_at.date()
 
     @sync_to_async
     def aentry_date(self) -> date:
@@ -139,23 +125,19 @@ class DiaryEntry(models.Model):
     def combined_text(self) -> str:
         """Объединенный текст всех записей дня"""
         if self.is_primary:
-            # Если это основная запись, объединяем все записи дня
             from django.db.models import Q
             entries = DiaryEntry.objects.filter(
                 Q(user=self.user) & 
                 Q(created_at__date=self.entry_date)
             ).order_by('created_at')
-            
             texts = [entry.text for entry in entries]
-            return "\n\n---\n\n".join(texts)  # Разделяем записями
+            return "\n\n---\n\n".join(texts)
         else:
-            # Если не основная, возвращаем только свой текст
             return self.text
     
     async def acombined_text(self) -> str:
         """Асинхронный вариант объединенного текста"""
         if self.is_primary:
-            # Если это основная запись, объединяем все записи дня
             from django.db.models import Q
             texts = []
             async for entry in DiaryEntry.objects.filter(
@@ -163,10 +145,8 @@ class DiaryEntry(models.Model):
                 Q(created_at__date=self.entry_date)
             ).order_by('created_at'):
                 texts.append(entry.text)
-            
-            return "\n\n---\n\n".join(texts)  # Разделяем записями
+            return "\n\n---\n\n".join(texts)
         else:
-            # Если не основная, возвращаем только свой текст
             return self.text
 
 class VoiceToText(models.Model):
@@ -215,7 +195,7 @@ class KeyPoint(models.Model):
     text = models.TextField(verbose_name=_("Текст ключевого момента"))
     type = models.CharField(
         max_length=10, 
-        choices=KEYPOINT_TYPES,  # из constants
+        choices=KEYPOINT_TYPES,
         verbose_name=_("Тип")
     )
     confidence = models.FloatField(default=1.0, verbose_name=_("Уверенность"))
@@ -225,7 +205,6 @@ class KeyPoint(models.Model):
         verbose_name = _("Ключевой момент")
         verbose_name_plural = _("Ключевые моменты")
         db_table = "diary_key_point"
-        # === НОВЫЙ ИНДЕКС ===
         indexes = [
             models.Index(fields=['created_at']),
             models.Index(fields=['entry', 'created_at']),
@@ -263,7 +242,7 @@ class PsychoAnalysis(models.Model):
         indexes = [
             models.Index(fields=['created_at']),
             models.Index(fields=['entry', 'created_at']),
-            models.Index(fields=['-created_at']), # Для сортировки по убыванию
+            models.Index(fields=['-created_at']),
         ]
 
     def __str__(self):
@@ -288,13 +267,13 @@ class UserInsight(models.Model):
     )
     first_mentioned = models.DateTimeField(auto_now_add=True, verbose_name=_("Первое упоминание"))
     source_entry = models.ForeignKey(
-        'DiaryEntry', # Используем строковое имя для избежания циклических импортов
-        on_delete=models.CASCADE, # Каскадное удаление: если DiaryEntry удаляется, UserInsight тоже удаляется
-        related_name='generated_insights', # related_name для доступа из DiaryEntry: entry.generated_insights.all()
+        'DiaryEntry',
+        on_delete=models.CASCADE,
+        related_name='generated_insights',
         verbose_name=_("Исходная запись дневника"),
         help_text=_("Запись дневника, из которой был извлечен этот инсайт."),
-        null=True, # Разрешаем временно NULL, если инсайты создаются не только из записей
-        blank=True # Разрешаем пустое поле в формах
+        null=True,
+        blank=True
     )
 
     class Meta:
@@ -340,24 +319,23 @@ class TherapyTask(models.Model):
     completed_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Выполнено"))
     related_entry = models.ForeignKey(
         DiaryEntry,
-        on_delete=models.SET_NULL, # Или CASCADE, если удаление записи должно удалять задание
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
         verbose_name="Связанная запись дневника",
         help_text="Запись дневника, которая привела к назначению этого задания.",
-        related_name='assigned_tasks' # Позволяет получить задания из записи: entry.assigned_tasks.all()
+        related_name='assigned_tasks'
     )
     status = models.CharField(
         max_length=11, 
-        choices=TASK_STATUS,  # из constants
+        choices=TASK_STATUS,
         verbose_name=_("Статус")
     )
     type = models.CharField(
         max_length=15, 
-        choices=TASK_TYPES,  # из constants
+        choices=TASK_TYPES,
         verbose_name=_("Тип")
     )
-
     priority = models.PositiveIntegerField(default=1, verbose_name=_("Сложность"))
 
     class Meta:
@@ -422,7 +400,6 @@ class TaskCompletionAnalysis(models.Model):
     )
     
     analysis_performed_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата выполнения анализа"))
-    # Храним ответ API для дебага/детализации
     api_response = models.JSONField(default=dict, blank=True, verbose_name=_("Ответ API DeepSeek"))
     detailed_analysis = models.TextField(
         blank=True,
@@ -456,7 +433,7 @@ class UserActivity(models.Model):
     )
     activity_type = models.CharField(
         max_length=20, 
-        choices=ACTIVITY_TYPES,  # из constants
+        choices=ACTIVITY_TYPES,
         verbose_name=_("Тип активности")
     )
     timestamp = models.DateTimeField(auto_now_add=True, verbose_name=_("Время"))
@@ -488,35 +465,29 @@ class CombinedDiaryEntry(models.Model):
     entry_count = models.PositiveIntegerField(verbose_name=_("Количество записей в этот день"))
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата создания"))
     updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Дата последнего обновления"))
-    # === ФЛАГ АНАЛИЗА ИИ ===
     ai_state_data = models.TextField(
         blank=True, 
         default="", 
         verbose_name=_("Состояние дня по версии ИИ"),
         help_text=_("Текстовый контекст или структурированные данные от ИИ, описывающие состояние дня.")
     )
-    # === ФЛАГ АНАЛИЗА ИИ ===
     is_analyzed = models.BooleanField(
         default=False, 
         verbose_name=_("Проанализирован ИИ"),
         help_text=_("Указывает, был ли день проанализирован ИИ с учетом всех записей.")
     )
-    # === РЕЗУЛЬТАТ АНАЛИЗА ===
     analysis_result = models.JSONField(
         blank=True, 
         default=dict, 
         verbose_name=_("Результат анализа (детали)"),
         help_text=_("Детальный результат финального анализа дня (например, JSON с итоговой оценкой, комментарием и т.д.).")
     )
-    # Храним список всех mood_score за день для расчета среднего
     daily_mood_scores = models.JSONField(
         default=list,
         blank=True,
         verbose_name=_("Список оценок настроения за день"),
         help_text=_("Список всех mood_score из PsychoAnalysis для записей этого дня.")
     )
-    
-    # Храним рассчитанное среднее значение настроения за день
     average_mood_score = models.FloatField(
         default=0.0,
         verbose_name=_("Средняя оценка настроения за день"),
@@ -527,8 +498,8 @@ class CombinedDiaryEntry(models.Model):
         verbose_name = _("Объединенная запись дня")
         verbose_name_plural = _("Объединенные записи дней")
         db_table = "diary_combined_entry"
-        unique_together = ['user', 'date'] # Уникальность по пользователю и дате
-        ordering = ['-date'] # Сортировка по убыванию даты
+        unique_together = ['user', 'date']
+        ordering = ['-date']
 
     def __str__(self):
         return f"Объединенная запись {self.user.username} от {self.date}"
@@ -541,13 +512,10 @@ class CombinedDiaryEntry(models.Model):
         try:
             user_timezone_str = self.user.timezone if self.user else 'UTC'
             if not user_timezone_str:
-                 user_timezone_str = 'UTC'
-                 
+                 user_timezone_str = 'UTC'      
             user_tz = pytz.timezone(user_timezone_str)
-            # Создаем datetime для начала дня (00:00:00) в UTC, затем локализуем и переводим
             naive_datetime = datetime.combine(self.date, datetime.min.time())
             localized_datetime = user_tz.localize(naive_datetime)
-            
             return localized_datetime
         except Exception as e:
             logger.error(f"Ошибка при локализации даты CombinedDiaryEntry: {e}")
@@ -561,26 +529,15 @@ class CombinedDiaryEntry(models.Model):
         Args:
             new_score: Новая оценка настроения (1-10).
         """
-        logger.info(f"Обновление оценок настроения для CombinedDiaryEntry ID {self.id}")
         if not isinstance(new_score, int) or not (1 <= new_score <= 10):
             logger.warning(f"Некорректная оценка {new_score} для CombinedDiaryEntry ID {self.id}")
             return
-
-        # Добавляем новую оценку
         self.daily_mood_scores.append(new_score)
-        logger.debug(f"Добавлена оценка {new_score}. Список: {self.daily_mood_scores}")
-
-        # Пересчитываем среднее
         if self.daily_mood_scores:
             self.average_mood_score = sum(self.daily_mood_scores) / len(self.daily_mood_scores)
-            logger.info(f"Средняя оценка пересчитана: {self.average_mood_score:.2f}")
         else:
             self.average_mood_score = 0.0
-            logger.info("Список оценок пуст, средняя оценка установлена в 0.0")
-
-        # Сохраняем изменения
         self.save(update_fields=['daily_mood_scores', 'average_mood_score'])
-        logger.info(f"CombinedDiaryEntry ID {self.id} обновлен с новой оценкой и средним значением.")
 
     def reset_analysis_flag(self):
         """
@@ -610,6 +567,17 @@ class DailyAnalysis(models.Model):
     emotional_patterns = models.JSONField(default=list, verbose_name=_("Эмоциональные паттерны"))
     insights = models.JSONField(default=list, verbose_name=_("Инсайты"))
     recommendations = models.JSONField(default=list, verbose_name=_("Рекомендации"))
+    overall_analysis_text = models.TextField(
+        blank=True,
+        verbose_name=_("Общий текстовый анализ дня"),
+        help_text=_("Полный текстовый анализ дня, сгенерированный ИИ.")
+    )
+    api_response = models.JSONField(
+        default=dict, 
+        blank=True, 
+        verbose_name=_("Ответ API DeepSeek"),
+        help_text=_("Полный ответ API DeepSeek при анализе дня.")
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата создания"))
 
     class Meta:
