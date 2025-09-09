@@ -14,7 +14,7 @@ class CustomUserAdmin(UserAdmin):
             'fields': ('telegram_id', 'awareness_level', 'last_entry', 'is_premium', 'deleted_at')
         }),
         ('Настройки', {
-            'fields': ('language', 'notifications_enabled', 'auto_analysis_enabled', 'timezone', 'current_calendar_year', 'current_calendar_month')
+            'fields': ('language', 'notifications_enabled', 'auto_analysis_enabled', 'timezone', 'current_calendar_year', 'current_calendar_month', 'max_ai_tasks_per_day')
         }),
     )
     

@@ -4,17 +4,17 @@ Handlers для работы с дневником
 
 import asyncio
 import logging
-import json
+import pytz
 
 from asgiref.sync import sync_to_async
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, ContentType, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 
 from messages import get_message, get_button_text
-from diary.models import CombinedDiaryEntry, DiaryEntry, KeyPoint, UserInsight
-from diary.services import analysis_service, daily_state_service
+from diary.models import CombinedDiaryEntry, DiaryEntry, TherapyTask
+from diary.services import daily_state_service
 from bot.states.diary_states import DiaryStates
 from bot.keyboards import (
     get_cancel_keyboard,
@@ -49,8 +49,7 @@ logger = logging.getLogger(__name__)
 @router.callback_query(F.data == "new_entry")
 async def new_entry(callback: CallbackQuery, state: FSMContext, language: str):
     """Создание новой записи - предложение ввести текст или голосовое сообщение"""
-    logger.info(f"Запрос на создание новой записи от пользователя {callback.from_user.id}")
-    
+    logger.debug(f"Запрос на создание новой записи от пользователя {callback.from_user.id}")
     try:
         await state_manager.set_state(state, DiaryStates.waiting_for_text_entry)
         entry_msg = get_message('ask_entry', language)
@@ -66,13 +65,9 @@ async def new_entry(callback: CallbackQuery, state: FSMContext, language: str):
 
 @router.message(DiaryStates.waiting_for_text_entry, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
 async def process_any_entry(message: Message, state: FSMContext, user, language: str):
-    """
-    Хендлер: получает данные → вызывает сервис → отправляет ответ.
-    """
     logger.info(f"[СОЗДАНИЕ ЗАПИСИ] Обработка {message.content_type} от {user.telegram_id}")
     status_msg = None
     try:
-        # === 1. Валидация и обработка голоса ===
         is_valid, error_code = validate_incoming_message(message)
         if not is_valid:
             await message.answer(get_message(error_code, language))
@@ -87,59 +82,60 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
             duration = voice.duration
             voice_file_id = voice.file_id
 
-        user_local_dt = await user.aget_local_datetime()
+        # ✅ Исправлено: используем UTC из message.date
+        entry_datetime = message.date
         status_msg = await message.answer(get_message('processing', language))
 
         if message.content_type == ContentType.VOICE:
             file = await message.bot.get_file(voice_file_id)
             voice_bytes = (await message.bot.download_file(file.file_path)).read()
-
             rec_result = await yandex_speechkit_service.recognize_voice(voice_bytes, language, 'oggopus')
             if not rec_result['success']:
                 await status_msg.edit_text(f"{get_message('error_processing', language)}: {rec_result.get('message', 'Unknown')}")
                 return
-
             punct_result = await deepseek_api_service.punctuate_and_format_text(rec_result['result'], language)
             entry_text = punct_result.get('result') or rec_result['result']
         else:
             entry_text = message.text
 
-        # === 2. Сохранение записи ===
+        # ✅ Передаём правильное время
         diary_entry = await diary_service.create_text_entry(
             user=user,
             text=entry_text,
             language=language,
-            entry_datetime=user_local_dt
+            entry_datetime=entry_datetime
         ) if message.content_type == ContentType.TEXT else await diary_service.create_voice_entry(
             user=user,
             voice_file_id=voice_file_id,
             duration=duration,
             recognized_text=entry_text,
             language=language,
-            entry_datetime=user_local_dt
+            entry_datetime=entry_datetime
         )
 
-        # === 3. Обновление состояния дня ===
-        combined_entry, is_first = await diary_service.get_or_update_daily_state_with_entries(user, diary_entry)
+        # ✅ Исправлено: используем aentry_date()
+        entry_date = await diary_entry.aentry_date()
 
-        # === 4. Формирование промпта ===
-        all_entries_text = await diary_service.get_combined_entry_text(user, diary_entry.entry_date)
+        combined_entry, is_first = await diary_service.get_or_update_daily_state_with_entries(user, diary_entry)
+        all_entries_text = await diary_service.get_combined_entry_text(user, entry_date)
         user_profile = await user.aget_profile_data()
         ai_state_data = combined_entry.ai_state_data if combined_entry else ""
-
+        first_name = user_profile.get('first_name', 'Пользователь')
+        logger.debug(f'Профиль пользователя: {user_profile}')
         prompt = get_prompt(
             key='incremental_day_analysis',
             language=language,
             all_entries_combined=all_entries_text,
             new_entry_text=entry_text,
             ai_state_data=ai_state_data,
-            user_profile=user_profile
+            first_name=first_name,
+            awareness_level=user_profile['awareness_level'],
+            is_premium=user_profile['is_premium'],
+            entries_count=user_profile['entries_count']
         )
 
-        # === 5. Анализ ===
         analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
 
-        # === 6. Обработка результата ===
         await _process_analysis_result(
             entry=diary_entry,
             analysis_result=analysis_result,
@@ -152,7 +148,13 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
     except Exception as e:
         logger.error(f"Ошибка в process_any_entry: {e}", exc_info=True)
         if status_msg:
-            await status_msg.edit_text(get_message('error_processing', language))
+            try:
+                # Используем существующую утилиту, предполагая, что она обрабатывает "message not modified"
+                # Если нет, она должна быть обновлена.
+                await safe_edit_message_text(status_msg, get_message('error_processing', language))
+            except Exception as edit_error:
+                # Если safe_edit_message_text не справилась, логируем и продолжаем
+                logger.warning(f"Не удалось отредактировать сообщение об ошибке: {edit_error}")
         await state_manager.clear_state(state)
 
 @router.message(DiaryStates.asking_clarifying_questions)
@@ -181,7 +183,6 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
             await message.answer(get_message('invalid_input', language))
             return
 
-        # Сохраняем ответы
         answers_list = [ans.strip() for ans in clarification_text.split("\n") if ans.strip()]
         clarification_answers_dict = {}
         for i, q in enumerate(clarification_questions):
@@ -190,26 +191,28 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
         diary_entry.clarification_answers = clarification_answers_dict
         await sync_to_async(diary_entry.save)(update_fields=['clarification_answers'])
 
-        # === ФОРМИРОВАНИЕ ПРОМПТА ЧЕРЕЗ get_prompt ===
-        user_profile = await user.aget_profile_data()
-        combined_entry = await daily_state_service.get_daily_state(user, diary_entry.entry_date)
-        ai_state_data = combined_entry.ai_state_data if combined_entry else ""
+        # ✅ Исправлено: используем aentry_date()
+        entry_date = await diary_entry.aentry_date()
 
+        user_profile = await user.aget_profile_data()
+        first_name = user_profile.get('first_name', 'Пользователь')
+        awareness_level = user_profile['awareness_level']
+        logger.debug(f'Профиль пользователя: {user_profile}')
+        combined_entry = await daily_state_service.get_daily_state(user, entry_date)
+        ai_state_data = combined_entry.ai_state_data if combined_entry else ""
         prompt = get_prompt(
             key='clarification_analysis',
             language=language,
             original_text=diary_entry.text,
             clarification_questions="\n".join(clarification_questions),
             clarification_answers="\n".join([f"{q}: {a}" for q, a in clarification_answers_dict.items()]),
-            user_profile=user_profile
+            first_name=first_name,
+            awareness_level=awareness_level,
         )
 
         status_message = await message.answer(get_message('processing', language))
-
-        # === ОТПРАВКА В API ===
         analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
 
-        # === ОБРАБОТКА РЕЗУЛЬТАТА ===
         await _process_analysis_result(
             entry=diary_entry,
             analysis_result=analysis_result,
@@ -229,7 +232,6 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
 async def handle_invalid_entry_type(message: Message, language: str):
     """Обработка недопустимого типа сообщения"""
     try:
-        # Сообщение об ошибке для недопустимого типа
         invalid_msg = get_message('invalid_input', language)
         await edit_or_send_message(
             bot=message.bot,
@@ -258,13 +260,11 @@ async def delete_selected_entry(callback: CallbackQuery, user, language: str):
             month = int(parts[2])
             day = int(parts[3])
             target_date = date(year, month, day)
-            # Используем get_message с форматированием
             confirm_msg = get_message('confirm_delete_entire_day_prompt', language).format(date=target_date.strftime('%d.%m.%Y')) 
-            
             confirm_keyboard = get_confirmation_keyboard(
                 language=language,
-                confirm_text_key='btn_confirm_delete_day', # Ключ для "✅ Да, удалить день"
-                cancel_text_key='btn_cancel',              # Ключ для "❌ Нет, отмена"
+                confirm_text_key='btn_confirm_delete_day',
+                cancel_text_key='btn_cancel',
                 confirm_callback_data=f"confirm_delete_entire_day:{target_date.isoformat()}",
                 cancel_callback_data=f"calendar_select_day:{year}:{month}:{day}"
 )
@@ -808,7 +808,7 @@ async def _process_analysis_result(
             clarification_questions = result_data.get('clarification_questions', [])
             if needs_clarification and clarification_questions:
                 entry.clarification_questions_asked = clarification_questions
-                await sync_to_async(entry.save)(update_fields=['clarification_questions_asked'])
+                await sync_to_async(lambda: entry.save(update_fields=['clarification_questions_asked']))()
                 await state_manager.update_state_data(
                     state,
                     clarifying_entry_id=entry.id,
@@ -849,11 +849,41 @@ async def _process_analysis_result(
         task_info = ""
         reply_markup = get_back_keyboard(language)
         if suggested_task and isinstance(suggested_task, dict):
-            task = await _create_task_from_suggested_data(user, suggested_task, entry.entry_date, entry)
-            if task:
-                preview = task.description[:150] + "..." if len(task.description) > 150 else task.description
-                task_info = f"\n📌 <b>Новое задание от ИИ:</b>\n<b>{task.title}</b>\n{preview}"
-                reply_markup = get_task_pagination_keyboard(task.id, 0, 1, language)
+            # === ПРОВЕРКА ЛИМИТА ЗАДАНИЙ ОТ ИИ В ДЕНЬ ===
+            @sync_to_async
+            def check_ai_tasks_limit_sync():
+                today = entry.entry_date
+                count = TherapyTask.objects.filter(
+                    user=user,
+                    related_entry__created_at__date=today # Используем date lookup
+                ).count()
+                
+                logger.debug(f"Проверка лимита заданий от ИИ для пользователя {user.telegram_id} на {today}: "
+                             f"назначено {count}, лимит {user.max_ai_tasks_per_day}")
+                return count < user.max_ai_tasks_per_day
+
+            limit_not_exceeded = await check_ai_tasks_limit_sync()
+            
+            if limit_not_exceeded:
+                try:
+                    task = await _create_task_from_suggested_data(user, suggested_task, entry.entry_date, entry)
+                    if task:
+                        preview = task.description[:150] + "..." if len(task.description) > 150 else task.description
+                        task_info = f"\n📌 <b>Новое задание от ИИ:</b>\n<b>{task.title}</b>\n{preview}"
+                        reply_markup = get_task_pagination_keyboard(task.id, 0, 1, language)
+                        logger.info(f"Задание от ИИ '{task.title}' назначено пользователю {user.telegram_id}. Лимит не превышен.")
+                    else:
+                         logger.info(f"Задание от ИИ не было создано для пользователя {user.telegram_id} (возможно, превышен общий лимит активных заданий).")
+                         # Можно добавить сообщение, если _create_task_from_suggested_data возвращает None из-за ValidationError
+                         # task_info = f"\n⚠️ <i>Новое задание от ИИ не было добавлено: превышен лимит активных заданий.</i>"
+                except Exception as task_creation_error:
+                    logger.error(f"Ошибка при создании задания от ИИ для пользователя {user.telegram_id}: {task_creation_error}")
+                    # Можно отобразить общее сообщение об ошибке, если нужно
+                    # task_info = f"\n⚠️ <i>Ошибка при создании задания от ИИ.</i>"
+            else:
+                logger.info(f"Задание от ИИ для пользователя {user.telegram_id} не создано: превышен дневной лимит ({user.max_ai_tasks_per_day}).")
+                # Опционально: добавить сообщение пользователю
+                # task_info = f"\nℹ️ <i>Сегодня ИИ уже предложил максимальное количество заданий.</i>"
 
         # === ОТВЕТ ПОЛЬЗОВАТЕЛЮ ===
         final_text = get_message('entry_saved', language, score=mood_score, mood=get_message(f'mood_{mood_score}', language), comment=comment, recommendation=recommendation) + task_info
@@ -863,8 +893,11 @@ async def _process_analysis_result(
     except Exception as e:
         logger.error(f"Ошибка в _process_analysis_result: {e}", exc_info=True)
         if status_msg:
-            await status_msg.edit_text(get_message('error_processing', language))
-        await state_manager.clear_state(state)
+            try:
+                await safe_edit_message_text(status_msg, get_message('error_processing', language))
+            except Exception as edit_error:
+                logger.warning(f"Не удалось отредактировать сообщение об ошибке в _process_analysis_result: {edit_error}")
+                await state_manager.clear_state(state)
         raise
 
 # TODO: Реализовать проверку, было ли уже задание назначено в этот день.

@@ -36,6 +36,10 @@ class User(AbstractUser):
     # Добавляем настройки пользователя
     notifications_enabled = models.BooleanField(default=True, verbose_name="Уведомления включены")
     auto_analysis_enabled = models.BooleanField(default=True, verbose_name="Автоанализ включен")
+    max_ai_tasks_per_day = models.PositiveIntegerField(
+        default=1, 
+        verbose_name="Максимум заданий от ИИ в день"
+    )    
     
     class Meta:
         verbose_name = "Пользователь"
@@ -72,11 +76,17 @@ class User(AbstractUser):
 
     # Асинхронные версии (если потребуются напрямую в асинхронном контексте, 
     # хотя обычно достаточно синхронных)
-    async def aget_profile_data(self):
-        """Асинхронная версия get_profile_data."""
-        # В данном случае просто вызываем синхронный метод
-        # Если логика станет сложнее и потребует await, здесь будет асинхронный код
-        return self.get_profile_data()
+    async def aget_profile_data(self) -> dict:
+        # Убедись, что все поля — из текущего объекта, без ORM-запросов
+        return {
+            'first_name': self.first_name or self.username or f'Пользователь {self.telegram_id}',
+            'awareness_level': self.awareness_level,
+            'is_premium': self.is_premium,
+            'entries_count': await self.diary_entries.acount(),
+            'username': self.username,
+            'language': self.language,
+            'telegram_id': self.telegram_id
+        }
 
     async def aget_local_datetime(self):
         """Асинхронная версия get_local_datetime."""

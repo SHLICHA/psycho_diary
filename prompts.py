@@ -111,8 +111,8 @@ INCREMENTAL_DAY_ANALYSIS_PROMPT = {
 {ai_state_data}
 
 **Профиль пользователя:**
-Имя: {user_profile['first_name']}
-Уровень осознанности: {user_profile['awareness_level']}/10
+Имя: {first_name}
+Уровень осознанности: {awareness_level}/10
 ---
 
 ### 🧠 ИНСТРУКЦИЯ
@@ -137,6 +137,8 @@ INCREMENTAL_DAY_ANALYSIS_PROMPT = {
 6. **Определи, нужны ли уточнения**:
    - Если запись **недостаточно ясна**, **есть неоднозначность** или **можно глубже проработать тему** — установи `needs_clarification: true`.
    - Предложи **1–3 конкретных вопроса**, которые помогут уточнить контекст.
+   - **Вопросы должны напрямую ссылаться на фразы из новой записи (new_entry_text)**.
+   - **Не задавай шаблонные вопросы о тревоге, звонках или контроле, если они не упомянуты в тексте**.
    - Если всё понятно и уточнения не нужны — `needs_clarification: false`, `clarification_questions: []`.
 
 ---
@@ -180,8 +182,8 @@ INCREMENTAL_DAY_ANALYSIS_PROMPT = {
 {ai_state_data}
 
 **User Profile:**
-Name: {user_profile['first_name']}
-Awareness Level: {user_profile['awareness_level']}/10
+Name: {first_name}
+Awareness Level: {awareness_level}/10
 ---
 
 ### 🧠 INSTRUCTIONS
@@ -206,6 +208,8 @@ Awareness Level: {user_profile['awareness_level']}/10
 6. **Determine if clarification is needed**:
    - If the entry is **unclear**, **ambiguous**, or **can be explored deeper** — set `needs_clarification: true`.
    - Provide **1–3 specific questions** that would help clarify the context.
+   - **Questions must directly reference phrases from the new entry (new_entry_text).**
+   - **Do not ask generic questions about anxiety, calls, or control if they are not mentioned in the text.**
    - If everything is clear — `needs_clarification: false`, `clarification_questions: []`.
 
 ---
@@ -273,8 +277,8 @@ CLARIFICATION_ANALYSIS_PROMPT = {
 {clarification_answers}
 
 **Профиль пользователя:**
-Имя: {user_profile['first_name']}
-Уровень осознанности: {user_profile['awareness_level']}/10
+Имя: {first_name}
+Уровень осознанности: {awareness_level}/10
 
 ---
 
@@ -322,9 +326,9 @@ CLARIFICATION_ANALYSIS_PROMPT = {
 **User answers:**
 {clarification_answers}
 
-**User profile:**
-Name: {user_profile['first_name']}
-Awareness Level: {user_profile['awareness_level']}/10
+**User Profile:**
+Name: {first_name}
+Awareness Level: {awareness_level}/10
 
 ---
 
@@ -509,35 +513,37 @@ def get_prompt(key: str, language: str = 'ru', **kwargs) -> str:
     if language not in PROMPTS:
         logger.warning(f"Неподдерживаемый язык: {language}, используем 'ru'")
         language = 'ru'
-    
+
     messages = PROMPTS.get(language, PROMPTS['ru'])
-    
+
     if key not in messages:
         logger.error(f"Ключ промпта '{key}' не найден для языка {language}")
         return f"[ОШИБКА: Промпт '{key}' не найден]"
-    
+
     prompt_template = messages[key]
-    
+
     try:
         if kwargs:
-            # Попробуем безопасно подставить
-            result = prompt_template.format(**kwargs)
-            return result
+            # Гарантируем, что user_profile есть и содержит first_name
+            user_profile = kwargs.get('user_profile', {})
+            safe_user_profile = {
+                'first_name': user_profile.get('first_name') or user_profile.get('username') or f'Пользователь {user_profile.get("telegram_id", "ID")}'
+
+            }
+            safe_user_profile.update({k: v for k, v in user_profile.items() if k != 'first_name'})
+            kwargs['user_profile'] = safe_user_profile
+            logger.debug(f'Полученный промпт: {prompt_template.format(**kwargs)}')
+            return prompt_template.format(**kwargs)
         else:
             return prompt_template
     except KeyError as e:
         logger.error(f"Ошибка форматирования промпта '{key}': отсутствует параметр {e}")
-        # Попробуем заменить отсутствующие ключи на 'N/A' или fallback
+        # Возвращаем промпт, подменяя проблемные поля
+        safe_template = prompt_template.replace("{user_profile['first_name']}", "Пользователь")
         try:
-            import re
-            # Заменяем все {key} на {key:} или {key!r}, чтобы избежать KeyError
-            safe_template = re.sub(r'\{([^}]+)\}', r'{\1}', prompt_template)
-            # Или просто заменим вручную
-            safe_kwargs = {k: v if v is not None else 'N/A' for k, v in kwargs.items()}
-            safe_kwargs.setdefault('first_name', 'Пользователь')
-            return prompt_template.format(**safe_kwargs)
+            return safe_template.format(**{k: v or 'N/A' for k, v in kwargs.items()})
         except:
-            return prompt_template
+            return safe_template
     except Exception as e:
         logger.error(f"Ошибка форматирования промпта '{key}': {e}", exc_info=True)
         return prompt_template

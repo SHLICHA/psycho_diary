@@ -109,30 +109,21 @@ class DiaryEntry(models.Model):
     def entry_date(self) -> date:
         """Дата записи (без времени) с учетом часового пояса пользователя"""
         try:
-            # Используем метод модели User для получения локального времени
-            user_local_dt = self.user.get_local_datetime()
-            user_timezone_str = self.user.timezone if self.user else 'UTC'
-            if not user_timezone_str:
-                 user_timezone_str = 'UTC'
-                 
-            # Убедимся, что created_at это aware datetime
-            created_at_for_conversion = self.created_at
-            if created_at_for_conversion.tzinfo is None:
-                created_at_for_conversion = pytz.utc.localize(created_at_for_conversion)
-            
-            # Конвертируем created_at в часовой пояс пользователя и возвращаем дату
+            user_timezone_str = self.user.timezone if self.user.timezone else 'UTC'
             user_tz = pytz.timezone(user_timezone_str)
-            localized_time = created_at_for_conversion.astimezone(user_tz)
-            
+
+            # Убедимся, что created_at — aware datetime
+            created_at = self.created_at
+            if created_at.tzinfo is None:
+                created_at = pytz.utc.localize(created_at)
+
+            # Конвертируем в часовой пояс пользователя
+            localized_time = created_at.astimezone(user_tz)
             return localized_time.date()
 
         except Exception as e:
             logger.error(f"Ошибка при получении даты записи {self.id}: {e}")
-            # Возвращаем дату в UTC если не удалось
-            if self.created_at.tzinfo:
-                return self.created_at.date()
-            else:
-                return pytz.utc.localize(self.created_at).date()
+            return self.created_at.date()  # fallback
 
     @sync_to_async
     def aentry_date(self) -> date:
