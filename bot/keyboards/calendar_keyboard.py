@@ -277,67 +277,6 @@ def get_entry_view_keyboard(language: str, year: int, month: int, day: int) -> I
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# TODO Пересмотреть. Пагинация? Подтвердить не в сегодняшнем дне
-def get_day_entries_edit_keyboard(entries: List[DiaryEntry], target_date: date, language: str, is_day_analyzed: bool) -> InlineKeyboardMarkup:
-    """
-    Клавиатура для редактирования записей за день.
-
-    Args:
-        entries: Список записей DiaryEntry.
-        target_date: Дата, для которой отображаются записи.
-        language: Язык интерфейса.
-        is_day_analyzed: Флаг, проанализирован ли день (для отображения кнопки "Подтвердить").
-
-    Returns:
-        InlineKeyboardMarkup: Клавиатура.
-    """
-    buttons = []
-    year = target_date.year
-    month = target_date.month
-    day = target_date.day
-    # Заголовок с датой
-    date_str = target_date.strftime("%d.%m.%Y")
-    header_text = get_message('edit_entries_header', language).format(date=date_str)
-    buttons.append([
-        InlineKeyboardButton(text=header_text, callback_data="edit_empty_header")
-    ])
-    for i, entry in enumerate(entries, 1):
-        entry_preview = entry.text[:50] + "..." if len(entry.text) > 50 else entry.text
-        entry_button_text = f"{i}. {entry_preview}"
-        buttons.append([
-            InlineKeyboardButton(
-                text=entry_button_text,
-                callback_data=f"edit_specific_entry:{entry.id}"
-            )
-        ])
-        buttons.append([
-            InlineKeyboardButton(
-                text=get_button_text('btn_edit_entry', language),
-                callback_data=f"edit_specific_entry:{entry.id}"
-            ),
-            InlineKeyboardButton(
-                text=get_button_text('btn_delete_entry', language),
-                callback_data=f"request_delete_specific_entry:{entry.id}"
-            )
-        ])
-    bottom_row = []
-    if not is_day_analyzed:
-        bottom_row.append(
-            InlineKeyboardButton(
-                text=get_button_text('btn_confirm_changes', language),
-                callback_data=f"confirm_day_analysis:{target_date.isoformat()}"
-            )
-        )
-    back_text_key = 'btn_back_to_day_without_analysis' if not is_day_analyzed else 'btn_back_to_day'
-    bottom_row.append(
-        InlineKeyboardButton(
-            text=get_button_text(back_text_key, language),
-            callback_data=f"calendar_select_day:{year}:{month}:{day}"
-        )
-    )
-    buttons.append(bottom_row)
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
 def get_confirmation_keyboard(
     language: str,
     confirm_text_key: str,      # Ключ для текста кнопки "Подтвердить" из messages.py
@@ -393,6 +332,90 @@ def get_delete_entry_confirmation_keyboard(entry_id: int, target_date, language:
         confirm_callback_data=f"confirm_delete_specific_entry:{entry_id}:{iso_date_str}",
         cancel_callback_data=f"cancel_delete_specific_entry:{entry_id}:{iso_date_str}"
     )
+
+def get_entry_pagination_keyboard(
+    entry_id: int,
+    entry_index: int,
+    total_entries: int,
+    year: int,
+    month: int,
+    day: int,
+    language: str
+) -> InlineKeyboardMarkup:
+    """
+    Клавиатура для пагинации по записям дня.
+    """
+    buttons = []
+
+    # Пагинация: только если больше одной записи
+    if total_entries > 1:
+        pagination_buttons = [
+            InlineKeyboardButton(
+                text="◀️",
+                callback_data=f"entry_prev:{entry_id}"
+            ),
+            InlineKeyboardButton(
+                text=f"{entry_index + 1}/{total_entries}",
+                callback_data="entry_empty"  # Неактивная кнопка
+            ),
+            InlineKeyboardButton(
+                text="▶️",
+                callback_data=f"entry_next:{entry_id}"
+            )
+        ]
+        buttons.append(pagination_buttons)
+
+    # Действия с текущей записью
+    action_row_1 = [
+        InlineKeyboardButton(
+            text=get_button_text('btn_edit_entry', language),
+            callback_data=f"entry_edit:{entry_id}"
+        ),
+        InlineKeyboardButton(
+            text=get_button_text('btn_delete_entry', language),
+            callback_data=f"entry_delete_confirm:{entry_id}"
+        )
+    ]
+    buttons.append(action_row_1)
+
+    # Просмотр инсайтов и ключевых моментов
+    insights_row = [
+        InlineKeyboardButton(
+            text=get_message('btn_view_insights', language),
+            callback_data=f"view_day_insights:{year}:{month}:{day}"
+        ),
+        InlineKeyboardButton(
+            text=get_message('btn_view_key_points', language),
+            callback_data=f"view_day_keypoints:{year}:{month}:{day}"
+        )
+    ]
+    buttons.append(insights_row)
+
+    # Пересчитать анализ дня (глобально)
+    buttons.append([
+        InlineKeyboardButton(
+            text=get_button_text('btn_reanalyze_entry', language),
+            callback_data=f"reanalyze_day:{year}:{month}:{day}"
+        )
+    ])
+
+    # Удалить весь день
+    buttons.append([
+        InlineKeyboardButton(
+            text=get_button_text('btn_delete_all_entries', language),
+            callback_data=f"delete_entire_day:{year}-{month}-{day}"
+        )
+    ])
+
+    # Назад в календарь
+    buttons.append([
+        InlineKeyboardButton(
+            text=get_button_text('btn_back_to_day', language),
+            callback_data=f"calendar_return_to_month:{year}:{month}"
+        )
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_back_to_edit_day_keyboard(target_date: date, language: str) -> InlineKeyboardMarkup:
     """

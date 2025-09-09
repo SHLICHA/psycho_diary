@@ -645,7 +645,9 @@ class DiaryService:
             logger.debug(f"Получено {len(keypoints)} ключевых моментов.")
         except Exception as e:
             logger.error(f"Ошибка при получении ключевых моментов для записей {entry_ids}: {e}", exc_info=True)
-        return keypoints        
+        return keypoints
+
+
 
 diary_service = DiaryService()
 
@@ -696,4 +698,17 @@ async def get_insights_for_entries(entry_ids: list) -> List[UserInsight]:
 
 async def get_keypoints_for_entries(entry_ids: list) -> List[KeyPoint]:
     """Удобная функция для получения ключевых моментов по списку ID записей."""
-    return await diary_service.get_keypoints_for_entries(entry_ids)
+    return await diary_service.get_keypoints_for_entries(entry_ids)    
+
+async def get_entry_date(entry: DiaryEntry) -> date:
+        try:
+            user = await entry.user.aget()
+            user_timezone_str = user.timezone or 'UTC'
+            user_tz = pytz.timezone(user_timezone_str)
+            created_at = entry.created_at
+            if created_at.tzinfo is None:
+                created_at = pytz.utc.localize(created_at)
+            return created_at.astimezone(user_tz).date()
+        except Exception as e:
+            logger.error(f"Ошибка при получении даты записи {entry.id}: {e}")
+            return entry.created_at.date()    

@@ -246,60 +246,6 @@ async def return_to_month(callback: CallbackQuery, user, language: str):
         logger.error(f"Ошибка при возврате к календарю: {e}")
         await safe_answer_callback(callback, get_message('error_generic', language))
 
-@router.callback_query(F.data.startswith("calendar_select_day:"))
-async def select_day(callback: CallbackQuery, user, language: str):
-    """Выбор дня для просмотра записей"""
-    try:
-        parts = callback.data.split(":")
-        year = int(parts[1])
-        month = int(parts[2])
-        day = int(parts[3])
-        logger.info(f"Выбран день: {day}.{month}.{year}")
-        user.current_calendar_year = year
-        user.current_calendar_month = month
-        selected_date = date(year, month, day)
-        entries = await diary_service.get_user_entries_for_date(user, selected_date)
-        if entries:
-            combined_text = await diary_service.get_combined_entry_text(user, selected_date)
-            analysis_text = "Анализ не доступен"
-            mood_score = 5
-            recommendation = "Продолжайте в том же духе"
-            mood_text = get_message(f'mood_{mood_score}', language)
-            try:
-                first_entry = entries[0]
-                if hasattr(first_entry, 'analysis'):
-                    try:
-                        analysis = await PsychoAnalysis.objects.aget(entry=first_entry)
-                        analysis_text = analysis.analysis_text or analysis.comment or "Анализ записан"
-                        mood_score = analysis.mood_score
-                        recommendation = analysis.recommendation or "Продолжайте в том же духе"
-                        mood_text = get_message(f'mood_{mood_score}', language)
-                    except PsychoAnalysis.DoesNotExist:
-                        logger.warning("Анализ для первой записи не найден")
-                    except Exception as analysis_error:
-                        logger.error(f"Ошибка при получении анализа: {analysis_error}")
-            except Exception as e:
-                logger.error(f"Общая ошибка при работе с анализом: {e}")
-            archive_entry_msg = get_message('archive_entry', language,
-                date=selected_date.strftime("%d.%m.%Y"),
-                text=combined_text[:1000] + "..." if len(combined_text) > 1000 else combined_text,
-                score=mood_score,
-                mood=mood_text,
-                analysis=analysis_text
-            )
-            await callback.message.edit_text(archive_entry_msg, 
-                reply_markup=get_entry_view_keyboard(language, year, month, day))
-            logger.info(f"Показана запись за {day}.{month}.{year}")
-        else:
-            no_entries_msg = get_message('archive_empty', language)
-            await callback.message.edit_text(no_entries_msg, 
-                reply_markup=get_calendar_back_keyboard(language, year, month))
-            logger.info(f"Нет записей за {day}.{month}.{year}")  
-        await callback.answer()
-    except Exception as e:
-        logger.error(f"Ошибка при выборе дня: {e}", exc_info=True)
-        await callback.answer(get_message('error_generic', language))
-
 @router.callback_query(F.data == "calendar_empty")
 async def handle_empty_calendar_button(callback: CallbackQuery):
     """Обработка пустых кнопок в календаре"""
