@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from decouple import config
 from dotenv import load_dotenv
+from celery.schedules import crontab
 
 load_dotenv()
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -101,6 +102,32 @@ STATIC_URL = 'static/'
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+
+CELERY_BEAT_SCHEDULE = {
+    'run-daily-analysis-check': {
+        'task': 'diary.tasks.scheduler_tasks.schedule_daily_analyses',
+        'schedule': crontab(minute=0), # Запускать каждый час, когда минуты = 0 (например, 14:00, 15:00 UTC)
+        # 'schedule': 3600.0, # Альтернатива: каждые 3600 секунд (1 час)
+    },
+}
+CELERY_BROKER_URL = 'redis://localhost:6379/0' # Адрес вашего локального Redis
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0' # Адрес вашего локального Redis
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'UTC'  # Используем UTC, локальное время будет обрабатываться в задачах
+
+# Расписание периодических задач
+from celery.schedules import crontab
+
+CELERY_BEAT_SCHEDULE = {
+    'run-hourly-check-for-daily-analyses': {
+        'task': 'bot.tasks.scheduler_tasks.schedule_daily_analyses',
+        'schedule': crontab(minute=0), # Запускать каждый час, когда минуты = 0 (например, 14:00, 15:00 UTC)
+        # 'schedule': 3600.0, # Альтернатива: каждые 3600 секунд (1 час)
+    },
+}
+
 # Custom User Model
 AUTH_USER_MODEL = 'users.User'
 YANDEX_SPEECHKIT_API_KEY = os.getenv('YANDEX_SPEECHKIT_API_KEY')
@@ -133,7 +160,7 @@ LOGGING = {
         },
         'bot': {
             'handlers': ['console'],
-            'level': 'DEBUG',
+            'level': os.getenv('LOGGING_LEVEL'),
             'propagate': False,
         },
     },

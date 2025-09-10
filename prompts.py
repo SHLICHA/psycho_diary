@@ -29,6 +29,15 @@ INCREMENTAL_DAY_ANALYSIS_PROMPT = {
 **Профиль пользователя:**
 Имя: {first_name}
 Уровень осознанности: {awareness_level}/10
+Премиум: {is_premium}
+Количество записей: {entries_count}
+Черты характера: {user_personality_traits}
+Факты о жизни: {user_life_facts}
+Увлечения: {user_hobbies}
+Ключевые ценности: {user_core_values}
+Триггеры: {user_triggers}
+Сильные стороны: {user_strengths}
+Зоны роста: {user_areas_for_growth}
 ---
 
 ### 🧠 ИНСТРУКЦИЯ
@@ -43,18 +52,20 @@ INCREMENTAL_DAY_ANALYSIS_PROMPT = {
    - Добавь новые значимые.
    - Удали устаревшие, если они больше не актуальны.
    - Сформулируй краткий, но содержательный контекст дня (3–4 предложения).
+   - При формировании `ai_state_data` учитывай **психологический портрет пользователя**. Например, если пользователь упомянул "работу", а в `Факты о жизни` есть "занимается программированием", уточни, что это работа программиста.
 
 3. **Сформируй краткий комментарий** (1 предложение) — как новая запись повлияла на день.
 
-4. **Дай персональную рекомендацию** (1–2 предложения) — что может быть полезно прямо сейчас.
+4. **Дай персональную рекомендацию** (1–2 предложения) — что может быть полезно прямо сейчас. Используй знания о пользователе (ценности, сильные стороны) для персонализации.
 
-5. **Предложи задание**, только если оно **существенно** поможет проработать тему (не чаще 1 раза в 2–3 дня).
+5. **Предложи задание**, только если оно **существенно** поможет проработать тему (не чаще 1 раза в 2–3 дня). Учитывай интересы и зоны роста пользователя.
 
 6. **Определи, нужны ли уточнения**:
    - Если запись **недостаточно ясна**, **есть неоднозначность** или **можно глубже проработать тему** — установи `needs_clarification: true`.
    - Предложи **1–3 конкретных вопроса**, которые помогут уточнить контекст.
    - **Вопросы должны напрямую ссылаться на фразы из новой записи (new_entry_text)**.
    - **Не задавай шаблонные вопросы о тревоге, звонках или контроле, если они не упомянуты в тексте**.
+   - При формулировании вопросов учитывай черты характера и триггеры пользователя для большей точности.
    - Если всё понятно и уточнения не нужны — `needs_clarification: false`, `clarification_questions: []`.
 
 ---
@@ -100,6 +111,15 @@ INCREMENTAL_DAY_ANALYSIS_PROMPT = {
 **User Profile:**
 Name: {first_name}
 Awareness Level: {awareness_level}/10
+Premium: {is_premium}
+Entries Count: {entries_count}
+Personality Traits: {user_personality_traits}
+Life Facts: {user_life_facts}
+Hobbies: {user_hobbies}
+Core Values: {user_core_values}
+Triggers: {user_triggers}
+Strengths: {user_strengths}
+Areas for Growth: {user_areas_for_growth}
 ---
 
 ### 🧠 INSTRUCTIONS
@@ -114,18 +134,20 @@ Awareness Level: {awareness_level}/10
    - Add new significant ones.
    - Remove outdated ones.
    - Formulate a concise, but meaningful day context (3–4 sentences).
+   - When forming `ai_state_data`, consider the **user's psychological profile**. For example, if the user mentions "work" and `Life Facts` include "works as a programmer", clarify that it's a programmer's work.
 
 3. **Form a brief comment** (1 sentence) — how the new entry affected the day.
 
-4. **Give a personal recommendation** (1–2 sentences) — what would be helpful right now.
+4. **Give a personal recommendation** (1–2 sentences) — what would be helpful right now. Use knowledge of the user (values, strengths) to personalize it.
 
-5. **Suggest a task** only if it **significantly** helps work through a theme (no more than once every 2–3 days).
+5. **Suggest a task** only if it **significantly** helps work through a theme (no more than once every 2–3 days). Take into account the user's interests and areas for growth.
 
 6. **Determine if clarification is needed**:
    - If the entry is **unclear**, **ambiguous**, or **can be explored deeper** — set `needs_clarification: true`.
    - Provide **1–3 specific questions** that would help clarify the context.
    - **Questions must directly reference phrases from the new entry (new_entry_text).**
    - **Do not ask generic questions about anxiety, calls, or control if they are not mentioned in the text.**
+   - When formulating questions, consider the user's personality traits and triggers for greater accuracy.
    - If everything is clear — `needs_clarification: false`, `clarification_questions: []`.
 
 ---
@@ -419,6 +441,7 @@ FULL_DAY_ANALYSIS_PROMPT = {
 
 **Профиль пользователя:**
 {user_profile}
+*Это включает имя, уровень осознанности, премиум-статус, а также психологический портрет: черты характера, факты о жизни, увлечения, ценности, триггеры, сильные стороны и зоны роста.*
 
 **Все записи за день (объединенный текст):**
 {all_entries_combined_text}
@@ -432,8 +455,7 @@ FULL_DAY_ANALYSIS_PROMPT = {
 **Выполненные задания за день:**
 {completed_tasks}
 
-**Текущий психологический портрет пользователя:**
-{current_user_data}
+*Используй эту информацию как основу для анализа и формулирования выводов. Сравнивай новые данные с уже известными фактами, чертами и триггерами.*
 
 ---
 
@@ -441,14 +463,20 @@ FULL_DAY_ANALYSIS_PROMPT = {
 
 1.  **Проанализируй весь предоставленный контекст.**
 2.  **Определи `mood_trend`** дня: улучшение, ухудшение, стабильность, нестабильность. Обоснуй свой выбор, опираясь на `daily_mood_scores` и `entry_analyses`.
-3.  **Выяви `key_themes`** дня. Это могут быть повторяющиеся темы, важные события, доминирующие мысли. Укажи количество упоминаний и значимость (0.0 - 1.0).
-4.  **Определи `emotional_patterns`**. Какие эмоции преобладали? В каком контексте они возникали? Укажи частоту и контекст.
-5.  **Сформируй `insights`**. Это глубокие выводы о пользователе, его поведении, мышлении, паттернах. Категоризуй их и оцени значимость (0.0 - 1.0).
-6.  **Дай `recommendations`**. Персонализированные рекомендации на основе всего анализа дня.
+3.  **Выяви `key_themes`** дня. Это могут быть повторяющиеся темы, важные события, доминирующие мысли. Укажи количество упоминаний и значимость (0.0 - 1.0). *Учитывай `Факты о жизни` и `Увлечения` из профиля пользователя для точной категоризации тем.*
+4.  **Определи `emotional_patterns`**. Какие эмоции преобладали? В каком контексте они возникали? Укажи частоту и контекст. *Сопоставляй паттерны с `Триггерами` и `Чертами характера` пользователя.*
+5.  **Сформируй `insights`**. Это глубокие выводы о пользователе, его поведении, мышлении, паттернах. Категоризуй их и оцени значимость (0.0 - 1.0). *Ищи подтверждения, опровержения или новые аспекты в `Чертах характера`, `Сильных сторонах`, `Зонах роста`.*
+6.  **Дай `recommendations`**. Персонализированные рекомендации на основе всего анализа дня. *Опираясь на `Ключевые ценности` и `Сильные стороны`, предложи конкретные и значимые действия.*
 7.  **Напиши `overall_analysis_text`**. Это связный, развернутый текстовый анализ дня, объединяющий все вышеуказанные пункты. Он должен быть понятным пользователю и давать общее представление о его психологическом состоянии в этот день. (примерно 3-5 предложений).
-8.  **Проанализируй `current_user_data`** и `all_entries_combined_text`, `entry_analyses`, `completed_tasks`.
-9.  **Предложи `user_profile_updates`**. ...
-10. **Оцени и при необходимости обнови `awareness_level`** пользователя (1-10), обосновав свое решение.
+8.  **Проанализируй `user_profile`** и `all_entries_combined_text`, `entry_analyses`, `completed_tasks`.
+    - **Подтвердились ли существующие данные?** Какие `Факты о жизни`, `Черты характера` или `Ценности` из `user_profile` подтвердились?
+    - **Появились ли новые значимые данные?** Есть ли что-то, что стоит добавить в профиль?
+    - **Есть ли признаки устаревшей информации?** Повторяется ли что-то, что давно не упоминалось? (Пока не предлагай удаление, просто отметь).
+9.  **Предложи `user_profile_updates`**.
+    - **Добавление**: Предложи новые `life_facts`, `hobbies`, `core_values`, `triggers`, `strengths`, `areas_for_growth` или `personality_traits`.
+    - **Удаление**: Предложи удаление устаревших данных в формате `{{"remove": "старый_факт"}}`.
+    - **(Опционально) Взвешивание**: Для `personality_traits` можешь предложить уровень уверенности (например, `{{"trait_name": 0.8}}`), если это уместно.
+10. **Оцени и при необходимости обнови `awareness_level`** пользователя (1-10), обосновав свое решение. *Учитывай глубину рефлексии, разнообразие тем, работу с заданиями.*
 
 ---
 
@@ -509,6 +537,7 @@ FULL_DAY_ANALYSIS_PROMPT = {
 
 **User Profile:**
 {user_profile}
+*This includes your name, awareness level, premium status, as well as your psychological profile: personality traits, life facts, hobbies, values, triggers, strengths, and areas for growth.*
 
 **All entries for the day (combined text):**
 {all_entries_combined_text}
@@ -522,8 +551,7 @@ FULL_DAY_ANALYSIS_PROMPT = {
 **Completed tasks for the day:**
 {completed_tasks}
 
-**Current user's psychological profile:**
-{current_user_data}
+*Use this information as a basis for analysis and formulating conclusions. Compare new data with already known facts, traits and triggers.*
 
 ---
 
@@ -531,14 +559,20 @@ FULL_DAY_ANALYSIS_PROMPT = {
 
 1.  **Analyze all the provided context.**
 2.  **Determine the day's `mood_trend`:** improving, declining, stable, volatile. Justify your choice based on `daily_mood_scores` and `entry_analyses`.
-3.  **Identify `key_themes`** of the day. These can be recurring themes, important events, dominant thoughts. Indicate the number of mentions and significance (0.0 - 1.0).
-4.  **Determine `emotional_patterns`.** What emotions prevailed? In what context did they arise? Indicate frequency and context.
-5.  **Formulate `insights`.** These are deep conclusions about the user, their behavior, thinking, patterns. Categorize them and assess significance (0.0 - 1.0).
-6.  **Give `recommendations`.** Personalized recommendations based on the entire day's analysis.
+3.  **Identify `key_themes`** of the day. These can be recurring themes, important events, dominant thoughts. Indicate the number of mentions and significance (0.0 - 1.0). *Take into account `Life Facts` and `Hobbies` from the user profile for accurate theme categorization.*
+4.  **Determine `emotional_patterns`.** What emotions prevailed? In what context did they arise? Indicate frequency and context. *Compare patterns with the user's `Triggers` and `Personality Traits`.*
+5.  **Formulate `insights`.** These are deep conclusions about the user, their behavior, thinking, patterns. Categorize them and assess significance (0.0 - 1.0). *Look for confirmations, contradictions or new aspects in `Personality Traits`, `Strengths`, `Areas for Growth`.*
+6.  **Give `recommendations`.** Personalized recommendations based on the entire day's analysis. *Based on `Core Values` and `Strengths`, suggest specific and meaningful actions.*
 7.  **Write `overall_analysis_text`.** This is a coherent, detailed textual analysis of the day that combines all the above points. It should be understandable to the user and give a general idea of their psychological state on that day. (about 3-5 sentences).
-8.  **Analyze `current_user_data`** and `all_entries_combined_text`, `entry_analyses`, `completed_tasks`.
-9.  **Suggest `user_profile_updates`.** If there is new significant information in the day's data, propose updates for the fields `personality_traits`, `life_facts`, `hobbies`, `core_values`, `triggers`, `strengths`, `areas_for_growth`. Format for adding: just a string. Format for removal: `{{"remove": "what needs to be removed"}}`.
-10. **Evaluate and, if necessary, update the user's `awareness_level`** (1-10), justifying your decision.
+8.  **Analyze `user_profile`** and `all_entries_combined_text`, `entry_analyses`, `completed_tasks`.
+    - **Were existing data confirmed?** Which `Life Facts`, `Personality Traits` or `Values` from `user_profile` were confirmed?
+    - **Are there any new significant data?** Is there anything that should be added to the profile?
+    - **Are there signs of outdated information?** Is there anything that has not been mentioned for a long time? (Do not suggest deletion yet, just note it).
+9.  **Suggest `user_profile_updates`.**
+    - **Addition**: Suggest new `life_facts`, `hobbies`, `core_values`, `triggers`, `strengths`, `areas_for_growth` or `personality_traits`.
+    - **Removal**: Suggest deleting outdated data in the format `{{"remove": "old_fact"}}`.
+    - **(Optional) Weighting**: For `personality_traits` you can suggest a confidence level (e.g. `{{"trait_name": 0.8}}`) if appropriate.
+10. **Evaluate and, if necessary, update the user's `awareness_level`** (1-10), justifying your decision. *Take into account the depth of reflection, variety of topics, work with tasks.*
 
 ---
 
@@ -610,7 +644,7 @@ def get_prompt(key: str, language: str = 'ru', **kwargs) -> str:
     logger.debug(f"Ключ: {key}")
     logger.debug(f"Язык: {language}")
     logger.debug(f"Параметры: {list(kwargs.keys())}")
-
+    
     if language not in PROMPTS:
         logger.warning(f"Неподдерживаемый язык: {language}, используем 'ru'")
         language = 'ru'
@@ -633,8 +667,9 @@ def get_prompt(key: str, language: str = 'ru', **kwargs) -> str:
             }
             safe_user_profile.update({k: v for k, v in user_profile.items() if k != 'first_name'})
             kwargs['user_profile'] = safe_user_profile
-            logger.debug(f'Полученный промпт: {prompt_template.format(**kwargs)}')
+            logger.debug(f'{prompt_template.format(**kwargs)}')
             return prompt_template.format(**kwargs)
+            
         else:
             return prompt_template
     except KeyError as e:

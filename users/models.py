@@ -18,11 +18,7 @@ class User(AbstractUser):
         default='ru',
         verbose_name="Язык"
     )
-    timezone = models.CharField(
-        max_length=50, 
-        default='UTC',
-        verbose_name="Часовой пояс"
-    )
+    timezone = models.CharField(max_length=50, default='UTC',verbose_name="Часовой пояс")
     last_entry = models.DateTimeField(null=True, blank=True, verbose_name="Последняя запись")
     awareness_level = models.PositiveIntegerField(default=1, verbose_name="Уровень осознанности")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
@@ -39,8 +35,6 @@ class User(AbstractUser):
         default=1, 
         verbose_name="Максимум заданий от ИИ в день"
     )    
-    
-    # === ДОЛГОСРОЧНЫЕ ДАННЫЕ ПОЛЬЗОВАТЕЛЯ (Этап 1) ===
     personality_traits = models.JSONField(default=dict, blank=True, verbose_name="Черты характера")
     life_facts = models.JSONField(default=list, blank=True, verbose_name="Факты о жизни")
     hobbies = models.JSONField(default=list, blank=True, verbose_name="Увлечения")

@@ -74,7 +74,7 @@ class FullDayAnalysisService:
                 entry_analyses=context['entry_analyses'], # Передаем список словарей
                 daily_mood_scores=context['daily_mood_scores'], # Передаем список
                 completed_tasks=context['completed_tasks'], # Передаем список словарей
-                current_user_data=context['current_user_data'] # Передаем словарь
+                #current_user_data=context['current_user_data'] # Передаем словарь
             )
             logger.debug(f"[FullDayAnalysisService] Промпт сформирован для {user.telegram_id} за {target_date} (длина: {len(prompt)} символов)")
 
@@ -88,10 +88,15 @@ class FullDayAnalysisService:
                 logger.error(f"[FullDayAnalysisService] Ошибка API при полном анализе дня: {error_msg}")
                 
                 # Создаем/обновляем DailyAnalysis с информацией об ошибке
-                daily_analysis = await self._create_or_update_daily_analysis(
-                    combined_entry, parsed_result, api_result # Передаем api_result
+                # Передаем только api_result, так как parsed_result отсутствует
+                daily_analysis = await self._create_or_update_daily_analysis_with_error(
+                    combined_entry, api_result # Передаем api_result напрямую или извлекаем ошибку
                 )
-                logger.info(f"[FullDayAnalysisService] DailyAnalysis (ID: {daily_analysis.id}) создан/обновлен для {user.telegram_id} за {target_date}")
+                # Если _create_or_update_daily_analysis_with_error не использует api_result,
+                # можно передать словарь с ошибкой, как было раньше:
+                # daily_analysis = await self._create_or_update_daily_analysis_with_error(
+                #     combined_entry, {"error": error_msg, "raw_api_response": api_result}
+                # )
 
                 return {
                     "success": False,
@@ -103,18 +108,21 @@ class FullDayAnalysisService:
             # 6. Парсинг результата
             parsed_result = api_result.get('result', {})
             logger.debug(f"[FullDayAnalysisService] Распарсенный результат от API: {parsed_result}")
+            
             # 7. Создать/обновить DailyAnalysis
             daily_analysis = await self._create_or_update_daily_analysis(
                 combined_entry, parsed_result, api_result # Передаем api_result
             )
             logger.info(f"[FullDayAnalysisService] DailyAnalysis (ID: {daily_analysis.id}) создан/обновлен для {user.telegram_id} за {target_date}")
-            # 8. (Опционально) Обновить поля User
-            # TODO: Реализовать логику обновления полей User на основе user_profile_updates
-            # Это может быть сложная логика, требующая отдельной реализации.
-            # Например, добавление новых фактов, обновление черт характера, удаление устаревших данных.
-            # user_profile_updates = parsed_result.get('user_profile_updates', {})
-            # await self._update_user_profile(user, user_profile_updates)
-
+            
+            # 8. Обновить поля User на основе user_profile_updates
+            user_profile_updates = parsed_result.get('user_profile_updates', {})
+            if user_profile_updates:
+                update_success = await self._update_user_profile(user, user_profile_updates)
+                if not update_success:
+                    logger.warning(f"[FullDayAnalysisService] Не удалось обновить профиль пользователя {user.telegram_id} после анализа {target_date}.")
+                # Даже если обновление профиля не удалось, основной анализ считаем успешным
+            
             # 9. (Опционально) Обновить awareness_level
             awareness_adjustment = parsed_result.get('awareness_level_adjustment', {})
             if awareness_adjustment and isinstance(awareness_adjustment, dict):
@@ -175,15 +183,6 @@ class FullDayAnalysisService:
         """
         logger.debug(f"[FullDayAnalysisService] Сбор контекста для {user.telegram_id} за {target_date}")
 
-        # --- 1. Профиль пользователя ---
-        user_profile_data = {
-            'username': user.username or f"user_{user.telegram_id}",
-            'first_name': user.first_name or "",
-            'awareness_level': user.awareness_level,
-            'is_premium': user.is_premium,
-            # Не передаем telegram_id и другие чувствительные данные
-        }
-
         # --- 2. Все записи за день (уже в combined_entry.text) ---
         all_entries_text = combined_entry.text
 
@@ -241,7 +240,12 @@ class FullDayAnalysisService:
                     # Можно добавить заглушку или пропустить
 
         # --- 6. Текущие данные профиля пользователя ---
-        current_user_data = {
+
+        extended_user_profile = {
+            'username': user.username or f"user_{user.telegram_id}",
+            'first_name': user.first_name or "",
+            'awareness_level': user.awareness_level,
+            'is_premium': user.is_premium,
             "personality_traits": user.personality_traits,
             "life_facts": user.life_facts,
             "hobbies": user.hobbies,
@@ -249,15 +253,15 @@ class FullDayAnalysisService:
             "triggers": user.triggers,
             "strengths": user.strengths,
             "areas_for_growth": user.areas_for_growth,
+            # Не передаем telegram_id и другие чувствительные данные
         }
 
         context = {
-            "user_profile": user_profile_data,
+            "user_profile": extended_user_profile, # <-- Передаем расширенный профиль
             "all_entries_combined_text": all_entries_text,
             "entry_analyses": entry_analyses_data,
             "daily_mood_scores": daily_mood_scores,
             "completed_tasks": completed_tasks_data,
-            "current_user_data": current_user_data,
         }
 
         logger.debug(f"[FullDayAnalysisService] Контекст собран для {user.telegram_id} за {target_date}")
@@ -368,6 +372,129 @@ class FullDayAnalysisService:
         except Exception as e:
             logger.error(f"[FullDayAnalysisService] Ошибка при создании DailyAnalysis с ошибкой: {e}")
             return None
+
+    async def _update_user_profile(self, user: User, profile_updates: Dict[str, Any]) -> bool:
+        """
+        Обновляет поля профиля пользователя на основе данных от ИИ.
+
+        Args:
+            user: Объект пользователя.
+            profile_updates: Словарь обновлений из ответа ИИ (user_profile_updates).
+
+        Returns:
+            bool: True, если обновление прошло успешно, иначе False.
+        """
+        logger.info(f"[FullDayAnalysisService] Обновление профиля пользователя {user.telegram_id} на основе данных ИИ.")
+        logger.debug(f"[FullDayAnalysisService] Полученные обновления: {profile_updates}")
+
+        if not profile_updates or not isinstance(profile_updates, dict):
+            logger.info("[FullDayAnalysisService] Нет данных для обновления профиля пользователя.")
+            return True # Не ошибка, просто нет данных
+
+        fields_updated = []
+
+        try:
+            # --- Обработка personality_traits (словарь {trait: weight}) ---
+            # Ожидаем список строк от ИИ, например: ["trait1", "trait2"]
+            # Мы будем добавлять их как ключи в словарь с начальным весом 1.0 или увеличивать существующий вес.
+            new_traits_list = profile_updates.get('personality_traits')
+            if new_traits_list and isinstance(new_traits_list, list):
+                # Убедимся, что текущее значение - словарь
+                if not isinstance(user.personality_traits, dict):
+                    logger.warning("[FullDayAnalysisService] user.personality_traits не является словарем. Переинициализируем.")
+                    user.personality_traits = {}
+                    fields_updated.append('personality_traits')
+
+                traits_changed = False
+                initial_weight = 1.0
+                increment_value = 1.0
+
+                for trait in new_traits_list:
+                    if isinstance(trait, str):
+                        if trait in user.personality_traits:
+                            # Увеличиваем вес существующей черты
+                            old_weight = user.personality_traits[trait]
+                            user.personality_traits[trait] = old_weight + increment_value
+                            logger.debug(f"[FullDayAnalysisService] Увеличен вес personality_trait '{trait}': {old_weight} -> {user.personality_traits[trait]}")
+                        else:
+                            # Добавляем новую черту с начальным весом
+                            user.personality_traits[trait] = initial_weight
+                            logger.debug(f"[FullDayAnalysisService] Добавлен новый personality_trait '{trait}' с весом {initial_weight}")
+                        traits_changed = True
+                    else:
+                        logger.warning(f"[FullDayAnalysisService] Некорректный элемент в personality_traits: {trait} (тип: {type(trait)})")
+
+                if traits_changed:
+                    fields_updated.append('personality_traits')
+            elif new_traits_list is not None:
+                 logger.warning(f"[FullDayAnalysisService] Некорректный формат для personality_traits: {type(new_traits_list)}. Ожидается список строк.")
+
+            # --- Обработка списков (life_facts, hobbies, core_values, triggers, strengths, areas_for_growth) ---
+            list_field_names = ['life_facts', 'hobbies', 'core_values', 'triggers', 'strengths', 'areas_for_growth']
+            for field_name in list_field_names:
+                updates_for_field = profile_updates.get(field_name)
+                if updates_for_field is None:
+                    continue # Поле не передано, пропускаем
+
+                if not isinstance(updates_for_field, list):
+                    logger.warning(f"[FullDayAnalysisService] Некорректный формат для {field_name}: {type(updates_for_field)}. Ожидается список.")
+                    continue
+
+                # Получаем текущее значение поля у пользователя
+                current_user_list = getattr(user, field_name, [])
+                if not isinstance(current_user_list, list):
+                    logger.warning(f"[FullDayAnalysisService] Текущее значение {field_name} у пользователя не является списком. Перезаписываем.")
+                    current_user_list = []
+                
+                current_user_set = set(item for item in current_user_list if isinstance(item, str))
+                items_to_add = set()
+                items_to_remove = set()
+
+                for item in updates_for_field:
+                    if isinstance(item, str):
+                        items_to_add.add(item)
+                    elif isinstance(item, dict) and 'remove' in item:
+                        item_to_remove = item['remove']
+                        if isinstance(item_to_remove, str):
+                            items_to_remove.add(item_to_remove)
+                        else:
+                            logger.warning(f"[FullDayAnalysisService] Некорректный формат 'remove' в {field_name}: {item_to_remove}")
+                    else:
+                        logger.warning(f"[FullDayAnalysisService] Некорректный элемент в {field_name}: {item}")
+
+                # Удаляем
+                if items_to_remove:
+                    new_set = current_user_set - items_to_remove
+                    if len(new_set) != len(current_user_set):
+                        current_user_set = new_set
+                        logger.debug(f"[FullDayAnalysisService] Удалены из {field_name}: {items_to_remove}")
+                
+                # Добавляем (избегая дубликатов)
+                if items_to_add:
+                    actually_added = items_to_add - current_user_set
+                    if actually_added:
+                        current_user_set.update(actually_added)
+                        logger.debug(f"[FullDayAnalysisService] Добавлены в {field_name}: {actually_added}")
+                
+                # Сохраняем обратно в поле пользователя, если было изменение
+                final_list = list(current_user_set)
+                if set(final_list) != set(current_user_list):
+                    setattr(user, field_name, final_list)
+                    fields_updated.append(field_name)
+
+            # --- Сохранение изменений ---
+            if fields_updated:
+                logger.info(f"[FullDayAnalysisService] Обновлены поля профиля пользователя {user.telegram_id}: {fields_updated}")
+                await sync_to_async(user.save)(update_fields=fields_updated)
+                logger.debug(f"[FullDayAnalysisService] Изменения профиля пользователя {user.telegram_id} сохранены.")
+            else:
+                logger.debug(f"[FullDayAnalysisService] Нет изменений для сохранения в профиле пользователя {user.telegram_id}.")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"[FullDayAnalysisService] Ошибка при обновлении профиля пользователя {user.telegram_id}: {e}", exc_info=True)
+            return False
 
 
 # Глобальный экземпляр сервиса

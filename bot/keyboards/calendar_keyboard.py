@@ -378,7 +378,7 @@ def get_entry_page_keyboard(
     keyboard_buttons.append(actions_row_1)
 
     # Кнопки инсайтов и ключевых моментов
-    insights_row = [
+    '''insights_row = [
         InlineKeyboardButton(
             text=get_message('btn_view_insights', language), # Используем существующее сообщение
             callback_data=f"view_day_insights:{target_date.year}:{target_date.month}:{target_date.day}"
@@ -388,7 +388,7 @@ def get_entry_page_keyboard(
             callback_data=f"view_day_keypoints:{target_date.year}:{target_date.month}:{target_date.day}"
         )
     ]
-    keyboard_buttons.append(insights_row)
+    keyboard_buttons.append(insights_row)'''
 
     # --- КНОПКА АНАЛИЗА ДНЯ ---
     if is_day_analyzed:

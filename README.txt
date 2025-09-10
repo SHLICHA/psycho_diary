@@ -11,6 +11,9 @@ docker build -t shlicha/dairy_bot:v1 . - локально создать обр�
 docker login -u shlicha - залогиниться в dockerHub
 docker push shlicha/dairy_bot:v1 - отправить образ на DockerHub
 
+celery -A core worker --loglevel=info - запуск celery
+sudo systemctl start redis-server - если redis не запущен
+
 git add .
 git commit -m 'Название'
 git push origin master #загрузить в GitHub

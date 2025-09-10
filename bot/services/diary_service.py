@@ -711,4 +711,12 @@ async def get_entry_date(entry: DiaryEntry) -> date:
             return created_at.astimezone(user_tz).date()
         except Exception as e:
             logger.error(f"Ошибка при получении даты записи {entry.id}: {e}")
-            return entry.created_at.date()    
+            return entry.created_at.date()
+        
+def get_user_entries_for_date_sync(user: User, target_date: date) -> List[DiaryEntry]:
+    """
+    Синхронная удобная функция для получения записей за дату.
+    """
+    # Предполагаем, что есть sync_to_async, импортированный в diary_service
+    from asgiref.sync import async_to_sync
+    return async_to_sync(diary_service.get_user_entries_for_date)(user, target_date)

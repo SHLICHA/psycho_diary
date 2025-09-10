@@ -106,19 +106,42 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
         entry_date = await diary_entry.aentry_date()
         combined_entry, _ = await diary_service.get_or_update_daily_state_with_entries(user, diary_entry)
         all_entries_text = await diary_service.get_combined_entry_text(user, entry_date)
-        user_profile = await user.aget_profile_data()
         ai_state_data = combined_entry.ai_state_data if combined_entry else ""
-        first_name = user_profile.get('first_name', 'Пользователь')
+        base_user_profile = await user.aget_profile_data() # Получаем базовые данные
+        extended_user_context = {
+            "first_name": base_user_profile.get('first_name', 'Пользователь'),
+            "awareness_level": base_user_profile.get('awareness_level', 1),
+            "is_premium": base_user_profile.get('is_premium', False),
+            "entries_count": base_user_profile.get('entries_count', 0), 
+            # Добавляем новые поля из модели User
+            "personality_traits": user.personality_traits, # Это словарь {trait: weight}
+            "life_facts": user.life_facts, # Это список строк
+            "hobbies": user.hobbies, # Это список строк
+            "core_values": user.core_values, # Это список строк
+            "triggers": user.triggers, # Это список строк
+            "strengths": user.strengths, # Это список строк
+            "areas_for_growth": user.areas_for_growth, # Это список строк
+        }
+
         prompt = get_prompt(
             key='incremental_day_analysis',
             language=language,
             all_entries_combined=all_entries_text,
             new_entry_text=entry_text,
             ai_state_data=ai_state_data,
-            first_name=first_name,
-            awareness_level=user_profile['awareness_level'],
-            is_premium=user_profile['is_premium'],
-            entries_count=user_profile['entries_count']
+            # Передаем данные из расширенного контекста
+            first_name=extended_user_context["first_name"],
+            awareness_level=extended_user_context["awareness_level"],
+            is_premium=extended_user_context["is_premium"],
+            # Передаем новые данные (если промпт обновлен)
+            user_personality_traits=extended_user_context["personality_traits"],
+            user_life_facts=extended_user_context["life_facts"],
+            user_hobbies=extended_user_context["hobbies"],
+            user_core_values=extended_user_context["core_values"],
+            user_triggers=extended_user_context["triggers"],
+            user_strengths=extended_user_context["strengths"],
+            user_areas_for_growth=extended_user_context["areas_for_growth"],
+            entries_count=extended_user_context["entries_count"],
         )
         analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
         await _process_analysis_result(
@@ -428,7 +451,7 @@ async def entry_prev(callback: CallbackQuery, user, language: str):
     try:
         entry_id = int(callback.data.split(":")[1])
         current_entry = await DiaryEntry.objects.aget(id=entry_id, user=user)
-        target_date = current_entry.entry_date
+        target_date = await current_entry.aentry_date()
         entries = await diary_service.get_user_entries_for_date(user, target_date)
         if not entries:
             no_entries_msg = get_message('archive_empty', language)
@@ -461,7 +484,7 @@ async def entry_next(callback: CallbackQuery, user, language: str):
     try:
         entry_id = int(callback.data.split(":")[1])
         current_entry = await DiaryEntry.objects.aget(id=entry_id, user=user)
-        target_date = current_entry.entry_date
+        target_date = await current_entry.aentry_date()
         entries = await diary_service.get_user_entries_for_date(user, target_date)
         if not entries:
             no_entries_msg = get_message('archive_empty', language)
