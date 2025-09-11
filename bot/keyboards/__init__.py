@@ -42,6 +42,8 @@ from .settings_keyboard import (
     get_city_timezone_confirmation_keyboard,
     get_analysis_time_selection_keyboard,
     get_edit_profile_keyboard,
+    get_account_deletion_confirmation_keyboard,
+    get_account_deletion_menu_keyboard
 )
 
 # Клавиатуры помощи
@@ -96,8 +98,8 @@ __all__ = [
     'get_multiple_city_timezones_keyboard',
     'get_city_timezone_confirmation_keyboard',
     'get_analysis_time_selection_keyboard',
-
-
+    'get_account_deletion_confirmation_keyboard',
+    'get_account_deletion_menu_keyboard',
     
     # Клавиатуры помощи
     'get_help_keyboard',

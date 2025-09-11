@@ -40,5 +40,10 @@ class SettingsStates(StatesGroup):
     waiting_for_hobbies_input = State()
     waiting_for_life_facts_input = State()
 
+    # Удаление аккаунта
+    in_account_deletion_menu = State()
+    waiting_for_deletion_confirmation = State()
+    account_deletion_confirmed = State()
+
     def __str__(self):
         return f"SettingsStates.{self.__class__.__name__}"

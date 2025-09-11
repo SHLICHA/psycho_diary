@@ -145,6 +145,48 @@ MESSAGES = {
         'invalid_email_format': '❌ Неверный формат email. Попробуйте еще раз.',
         'invalid_date_format': '❌ Неверный формат даты. Используйте ДД.ММ.ГГГГ.',
         'invalid_date_future': '❌ Дата рождения не может быть в будущем.',
+        'delete_account': '🗑 Удалить аккаунт',
+        'account_deletion_menu': '''🗑 <b>Удаление аккаунта</b>
+
+Вы собираетесь удалить свой аккаунт и все связанные с ним данные.
+
+⚠️ <b>Важно:</b>
+• Это действие невозможно отменить.
+• Все ваши записи, задания и персональные данные будут удалены.
+• {balance_info}
+
+Выберите действие:''',
+
+        'account_balance_info_positive': 'На вашем балансе <b>{balance} ₽</b>. При удалении аккаунта эти средства будут утеряны.',
+        'account_balance_info_zero': 'Ваш баланс пуст.',
+        'account_balance_info_negative': 'У вас отрицательный баланс ({balance} ₽).',
+
+        'btn_delete_account_and_funds': '🗑 Удалить аккаунт и средства',
+        'btn_contact_support_for_refund': '📞 Связаться с поддержкой',
+        'btn_cancel_deletion': '❌ Отмена',
+
+        'confirm_account_deletion': '''❓ <b>Подтверждение удаления аккаунта</b>
+
+Вы уверены, что хотите удалить свой аккаунт?
+Это действие невозможно отменить.
+
+После удаления:
+• Все ваши данные будут удалены.
+• Доступ к аккаунту будет утерян.
+• {balance_warning}
+
+Введите "УДАЛИТЬ МОЙ АККАУНТ" для подтверждения:''',
+
+        'balance_warning_positive': 'Вы потеряете <b>{balance} ₽</b> на балансе.',
+        'balance_warning_zero_or_negative': 'Все данные будут удалены.',
+
+        'account_deletion_cancelled': '✅ Удаление аккаунта отменено.',
+        'account_deletion_confirmed': '''✅ <b>Аккаунт удален</b>
+
+Ваш аккаунт и все связанные с ним данные были успешно удалены.
+Спасибо за использование нашего сервиса.''',
+        'account_deletion_error': '❌ Произошла ошибка при удалении аккаунта. Пожалуйста, попробуйте позже или свяжитесь с поддержкой.',
+
         
         # === Сообщения для выбора часового пояса ===
         'ask_timezone_selection': '🌍 <b>Выберите свой часовой пояс</b>\n\nТекущий пояс: {current_timezone}\n\nВы можете выбрать из списка популярных поясов или ввести свой.',
@@ -481,6 +523,47 @@ Choose what you want to change:''',
         'invalid_email_format': '❌ Invalid email format. Please try again.',
         'invalid_date_format': '❌ Invalid date format. Use DD.MM.YYYY.',
         'invalid_date_future': '❌ Date of birth cannot be in the future.',
+        'delete_account': '🗑 Delete account',
+        'account_deletion_menu': '''🗑 <b>Account Deletion</b>
+
+You are about to delete your account and all associated data.
+
+⚠️ <b>Important:</b>
+• This action cannot be undone.
+• All your entries, tasks, and personal data will be deleted.
+• {balance_info}
+
+Choose an action:''',
+
+        'account_balance_info_positive': 'Your balance is <b>{balance} RUB</b>. These funds will be lost if you delete your account.',
+        'account_balance_info_zero': 'Your balance is zero.',
+        'account_balance_info_negative': 'You have a negative balance of {balance} RUB.',
+
+        'btn_delete_account_and_funds': '🗑 Delete Account and Funds',
+        'btn_contact_support_for_refund': '📞 Contact Support',
+        'btn_cancel_deletion': '❌ Cancel',
+
+        'confirm_account_deletion': '''❓ <b>Confirm Account Deletion</b>
+
+Are you sure you want to delete your account?
+This action cannot be undone.
+
+After deletion:
+• All your data will be deleted.
+• Access to the account will be lost.
+• {balance_warning}
+
+Type "DELETE MY ACCOUNT" to confirm:''',
+
+        'balance_warning_positive': 'You will lose <b>{balance} RUB</b> from your balance.',
+        'balance_warning_zero_or_negative': 'All data will be deleted.',
+
+        'account_deletion_cancelled': '✅ Account deletion cancelled.',
+        'account_deletion_confirmed': '''✅ <b>Account Deleted</b>
+
+Your account and all associated data have been successfully deleted.
+Thank you for using our service.''',
+        'account_deletion_error': '❌ An error occurred while deleting the account. Please try again later or contact support.',
         
         # === Messages for timezone selection ===
         'ask_timezone_selection': '🌍 <b>Select your timezone</b>\n\nCurrent timezone: {current_timezone}\n\nYou can choose from a list of popular timezones or enter your own.',

@@ -65,6 +65,12 @@ def get_settings_keyboard(user, language: str) -> InlineKeyboardMarkup:
                 callback_data="edit_profile"
             )
         ],
+                [
+            InlineKeyboardButton(
+                text=get_button_text('delete_account', language),
+                callback_data="delete_account"
+            )
+        ],
         [
             InlineKeyboardButton(
                 text=get_button_text('btn_back', language),
@@ -341,6 +347,48 @@ def get_edit_profile_keyboard(language: str) -> InlineKeyboardMarkup:
             InlineKeyboardButton(
                 text=get_button_text('btn_back', language),
                 callback_data="settings"
+            )
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_account_deletion_menu_keyboard(language: str, balance_info: str) -> InlineKeyboardMarkup:
+    """Клавиатура меню удаления аккаунта"""
+    buttons = [
+        [
+            InlineKeyboardButton(
+                text=get_button_text('btn_delete_account_and_funds', language),
+                callback_data="delete_account_confirm"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=get_button_text('btn_contact_support_for_refund', language),
+                callback_data="contact_support_for_refund"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=get_button_text('btn_cancel_deletion', language),
+                callback_data="settings"
+            )
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_account_deletion_confirmation_keyboard(language: str) -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения удаления аккаунта"""
+    buttons = [
+        [
+            InlineKeyboardButton(
+                text=get_button_text('btn_confirm_delete', language),
+                callback_data="confirm_account_deletion_final"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=get_button_text('btn_cancel_deletion', language),
+                callback_data="delete_account_cancel"
             )
         ]
     ]

@@ -26,6 +26,16 @@ class User(AbstractUser):
     is_premium = models.BooleanField(default=False, verbose_name="Премиум статус")
     is_blocked = models.BooleanField(default=False, verbose_name="Бот заблокирован")
     deleted_at = models.DateTimeField(null=True, blank=True, verbose_name="Дата удаления")
+    deletion_status = models.CharField(
+        max_length=20,
+        choices=[
+            ('active', 'Активен'),
+            ('deleted', 'Удален'),
+            ('anonymized', 'Обезличен'), # Новый статус
+        ],
+        default='active',
+        verbose_name="Статус удаления"
+    )
     last_activity = models.DateTimeField(null=True, blank=True, verbose_name="Последняя активность")
     preferred_analysis_time = models.TimeField(default='02:00', verbose_name="Время анализа")
     current_calendar_year = models.PositiveIntegerField(default=2025, verbose_name="Текущий год календаря")

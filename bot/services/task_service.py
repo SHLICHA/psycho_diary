@@ -543,13 +543,21 @@ class TaskService:
                 'first_name': user.first_name or "",
                 'awareness_level': user.awareness_level,
                 'is_premium': user.is_premium,
+                # Добавляем новые поля из модели User
+                'personality_traits': user.personality_traits, # Это теперь словарь {trait: weight}
+                'life_facts': user.life_facts, # Список строк
+                'hobbies': user.hobbies, # Список строк
+                'core_values': user.core_values, # Список строк
+                'triggers': user.triggers, # Список строк
+                'strengths': user.strengths, # Список строк
+                'areas_for_growth': user.areas_for_growth, # Список строк
             }
 
             # === 3. Формирование промпта ===
             prompt = get_prompt(
                 'task_effect_analysis',
                 language=user.language,
-                user_profile=json.dumps(user_profile_data, ensure_ascii=False, indent=2),
+                user_profile=user_profile_data,
                 assigned_date=assigned_date_str,
                 assigned_day_text=assigned_day_context['text'],
                 assigned_day_analysis=json.dumps(assigned_day_context['analysis_result'], ensure_ascii=False, indent=2),
