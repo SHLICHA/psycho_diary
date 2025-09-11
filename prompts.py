@@ -626,10 +626,17 @@ RESPOND ONLY IN THE FOLLOWING JSON FORMAT, enclosed in triple backticks (```json
 ```'''
 }
 
+TIMEZONE_DETECTION_PROMPT = {
+    'ru': '''Ты - помощник, который определяет часовой пояс по названию города. Пользователь указал название города: "{city_name}". Твоя задача: 1. Определить правильный идентификатор часового пояса в формате tz database (например, Europe/Moscow, America/New_York). 2. Если городов с таким названием несколько, верни список возможных вариантов с указанием страны. 3. Если город не найден, верни пустой результат. Ответ должен быть в формате JSON. Если найден один вариант: ```json {{ "success": true, "timezone": "Europe/Moscow", "city": "Москва", "country": "Россия" }} ```. Если найдено несколько вариантов: ```json {{ "success": true, "multiple": true, "options": [ {{ "timezone": "Europe/Moscow", "city": "Москва", "country": "Россия" }}, {{ "timezone": "Europe/Kiev", "city": "Москва", "country": "Украина" }} ] }} ```. Если город не найден: ```json {{ "success": false, "error": "Город не найден" }} ```''',
+
+    'en': '''You are an assistant that determines the timezone by city name. The user specified the city name: "{city_name}". Your task: 1. Determine the correct timezone identifier in tz database format (e.g., Europe/Moscow, America/New_York). 2. If there are multiple cities with the same name, return a list of possible options with country indication. 3. If the city is not found, return an empty result. The response should be in JSON format. If one option is found: ```json {{ "success": true, "timezone": "Europe/Moscow", "city": "Moscow", "country": "Russia" }} ```. If multiple options are found: ```json {{ "success": true, "multiple": true, "options": [ {{ "timezone": "Europe/Moscow", "city": "Moscow", "country": "Russia" }}, {{ "timezone": "Europe/Kiev", "city": "Moscow", "country": "Ukraine" }} ] }} ```. If city is not found: ```json {{ "success": false, "error": "City not found" }} ```'''
+}
+
+PROMPTS['ru']['timezone_detection'] = TIMEZONE_DETECTION_PROMPT['ru']
+PROMPTS['en']['timezone_detection'] = TIMEZONE_DETECTION_PROMPT['en']
+
 PROMPTS['ru']['full_day_analysis'] = FULL_DAY_ANALYSIS_PROMPT['ru']
 PROMPTS['en']['full_day_analysis'] = FULL_DAY_ANALYSIS_PROMPT['en']
-PROMPTS['ru']['task_effect_analysis'] = TASK_EFFECT_ANALYSIS_PROMPT['ru']
-PROMPTS['en']['task_effect_analysis'] = TASK_EFFECT_ANALYSIS_PROMPT['en']
 PROMPTS['ru']['clarification_analysis'] = CLARIFICATION_ANALYSIS_PROMPT['ru']
 PROMPTS['en']['clarification_analysis'] = CLARIFICATION_ANALYSIS_PROMPT['en']
 PROMPTS['ru']['punctuation'] = PUNCTUATION_PROMPT['ru']

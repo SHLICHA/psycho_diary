@@ -251,6 +251,132 @@ class DeepSeekAPIService:
             'raw_response': error_text,
             'api_response': api_response_data
         }
+    
+    async def detect_timezone_by_city(
+        self, 
+        city_name: str, 
+        language: str = 'ru'
+    ) -> Dict[str, Any]:
+        """
+        Определяет часовой пояс по названию города через DeepSeek API.
+        """
+        logger.info(f"Определение часового пояса для города: {city_name}, язык: {language}")
+
+        # Проверки
+        if not city_name or len(city_name.strip()) < 1:
+            return {
+                'success': False,
+                'error': 'city_name_empty',
+                'message': 'Название города не указано'
+            }
+
+        if not DEEPSEEK_API_KEY:
+            return {
+                'success': False,
+                'error': 'api_key_missing',
+                'message': 'API ключ DeepSeek не настроен'
+            }
+
+        # === ГЕНЕРАЦИЯ ПРОМПТА ЧЕРЕЗ get_prompt ===
+        try:
+            prompt = get_prompt(
+                key='timezone_detection',
+                language=language,
+                city_name=city_name
+            )
+            logger.info(f"Промт для определения часового пояса сгенерирован (длина: {len(prompt)} символов)")
+        except Exception as e:
+            logger.error(f"Ошибка форматирования промпта 'timezone_detection': {e}")
+            return {
+                'success': False,
+                'error': 'prompt_generation_failed',
+                'message': f'Ошибка генерации промпта: {e}'
+            }
+
+        # === ОТПРАВКА В API ===
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    "https://api.deepseek.com/v1/chat/completions",
+                    json={
+                        "model": "deepseek-chat",
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.1,
+                        "max_tokens": 1000
+                    },
+                    headers={
+                        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as response:
+                    raw_response_text = await response.text()
+                    logger.info(f"Ответ от DeepSeek API: {response.status}")
+
+                    if response.status == 200:
+                        result = await response.json()
+                        response_text = result['choices'][0]['message']['content']
+                        
+                        # Попытка парсинга JSON из ответа
+                        try:
+                            import json
+                            import re
+                            
+                            # Ищем JSON в код блоке
+                            json_match = re.search(r'```(?:json)?\s*({.*?})\s*```', response_text, re.DOTALL)
+                            if json_match:
+                                json_text = json_match.group(1)
+                            else:
+                                # Прямая попытка парсинга
+                                json_text = response_text
+                            
+                            parsed_result = json.loads(json_text)
+                            
+                            # Проверяем структуру ответа
+                            if not isinstance(parsed_result, dict):
+                                raise ValueError("Ответ не является словарем")
+                                
+                            return {
+                                'success': True,
+                                'result': parsed_result,
+                                'raw_response': response_text
+                            }
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Ошибка парсинга JSON из ответа API: {e}")
+                            return {
+                                'success': False,
+                                'error': 'json_parse_error',
+                                'message': 'Ошибка парсинга ответа от API',
+                                'raw_response': response_text
+                            }
+                        except Exception as e:
+                            logger.error(f"Ошибка обработки ответа API: {e}")
+                            return {
+                                'success': False,
+                                'error': 'response_processing_error',
+                                'message': f'Ошибка обработки ответа: {e}',
+                                'raw_response': response_text
+                            }
+                    else:
+                        return {
+                            'success': False,
+                            'error': f'deepseek_api_error_{response.status}',
+                            'message': f'Ошибка API: {response.status}',
+                            'raw_response': raw_response_text
+                        }
+        except asyncio.TimeoutError:
+            return {
+                'success': False,
+                'error': 'timeout',
+                'message': 'Превышено время ожидания'
+            }
+        except Exception as e:
+            logger.error(f"Ошибка при запросе к DeepSeek API: {e}", exc_info=True)
+            return {
+                'success': False,
+                'error': 'request_failed',
+                'message': str(e)
+            }
 
 # Глобальный экземпляр сервиса DeepSeek API
 deepseek_api_service = DeepSeekAPIService()

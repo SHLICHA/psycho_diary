@@ -24,6 +24,7 @@ class User(AbstractUser):
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
     is_premium = models.BooleanField(default=False, verbose_name="Премиум статус")
+    is_blocked = models.BooleanField(default=False, verbose_name="Бот заблокирован")
     deleted_at = models.DateTimeField(null=True, blank=True, verbose_name="Дата удаления")
     last_activity = models.DateTimeField(null=True, blank=True, verbose_name="Последняя активность")
     preferred_analysis_time = models.TimeField(default='02:00', verbose_name="Время анализа")
@@ -31,10 +32,7 @@ class User(AbstractUser):
     current_calendar_month = models.PositiveIntegerField(default=8, verbose_name="Текущий месяц календаря")
     notifications_enabled = models.BooleanField(default=True, verbose_name="Уведомления включены")
     auto_analysis_enabled = models.BooleanField(default=True, verbose_name="Автоанализ включен")
-    max_ai_tasks_per_day = models.PositiveIntegerField(
-        default=1, 
-        verbose_name="Максимум заданий от ИИ в день"
-    )    
+    max_ai_tasks_per_day = models.PositiveIntegerField(default=1, verbose_name="Максимум заданий от ИИ в день")    
     personality_traits = models.JSONField(default=dict, blank=True, verbose_name="Черты характера")
     life_facts = models.JSONField(default=list, blank=True, verbose_name="Факты о жизни")
     hobbies = models.JSONField(default=list, blank=True, verbose_name="Увлечения")
@@ -42,6 +40,8 @@ class User(AbstractUser):
     triggers = models.JSONField(default=list, blank=True, verbose_name="Триггеры")
     strengths = models.JSONField(default=list, blank=True, verbose_name="Сильные стороны")
     areas_for_growth = models.JSONField(default=list, blank=True, verbose_name="Зоны роста")
+    date_of_birth = models.DateField(null=True, blank=True, verbose_name="Дата рождения")
+    email = models.EmailField(blank=True, verbose_name="Email")
 
     class Meta:
         verbose_name = "Пользователь"
@@ -90,3 +90,30 @@ class User(AbstractUser):
     async def aget_local_datetime(self):
         """Асинхронная версия get_local_datetime."""
         return self.get_local_datetime()
+    
+class CityTimezone(models.Model):
+    """
+    Модель для хранения соответствия городов и часовых поясов
+    """
+    city_name = models.CharField(max_length=100, verbose_name="Название города")
+    timezone = models.CharField(max_length=50, verbose_name="Часовой пояс")
+    country = models.CharField(max_length=100, blank=True, verbose_name="Страна")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
+
+    class Meta:
+        verbose_name = "Город и часовой пояс"
+        verbose_name_plural = "Города и часовые пояса"
+        db_table = "users_city_timezone"
+        unique_together = ['city_name', 'country']
+
+    def __str__(self):
+        return f"{self.city_name}, {self.country} ({self.timezone})"
+
+    def save(self, *args, **kwargs):
+        """Проверка валидности часового пояса перед сохранением"""
+        try:
+            pytz.timezone(self.timezone)
+        except pytz.UnknownTimeZoneError:
+            raise ValueError(f"Неверный часовой пояс: {self.timezone}")
+        super().save(*args, **kwargs)

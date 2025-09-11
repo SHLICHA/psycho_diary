@@ -1,7 +1,6 @@
 """
 Middleware для регистрации пользователей
 """
-# TODO добавить расчет времени пользователя, исходя из часового пояса
 import logging
 from typing import Any, Awaitable, Callable, Dict
 from aiogram import BaseMiddleware
@@ -84,9 +83,6 @@ class UserMiddleware(BaseMiddleware):
                 )
                 logger.info(f"Новый пользователь создан: {user.username} ({user.telegram_id}) с языком {language} и часовым поясом {timezone_to_set} (по умолчанию)")
                 return user
-        except Exception as e:
-            logger.error(f"Ошибка при создании/загрузке пользователя: {e}", exc_info=True)
-            return None
         except Exception as e:
             logger.error(f"Ошибка при создании/загрузке пользователя: {e}", exc_info=True)
             return None

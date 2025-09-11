@@ -16,6 +16,9 @@ def get_settings_keyboard(user, language: str) -> InlineKeyboardMarkup:
     auto_analysis_text = get_button_text('settings_auto_analysis', language).format(
         status=get_status_text(user.auto_analysis_enabled, language)
     )
+    analysis_time_text = get_button_text('settings_analysis_time', language).format(
+        time=user.preferred_analysis_time.strftime('%H:%M') if user.preferred_analysis_time else '02:00'
+    )
     premium_text = get_button_text('settings_premium', language).format(
         status=get_status_text(user.is_premium, language)
     )
@@ -40,6 +43,12 @@ def get_settings_keyboard(user, language: str) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
+                text=analysis_time_text,
+                callback_data="settings_change_analysis_time"
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 text=get_message('settings_timezone', language, timezone=user.timezone),
                 callback_data="settings_change_timezone"
             )
@@ -48,6 +57,12 @@ def get_settings_keyboard(user, language: str) -> InlineKeyboardMarkup:
             InlineKeyboardButton(
                 text=premium_text,
                 callback_data="settings_premium"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=get_button_text('btn_edit_profile', language),
+                callback_data="edit_profile"
             )
         ],
         [
@@ -112,8 +127,8 @@ def get_timezone_selection_method_keyboard(language: str, current_timezone: str)
         ],
         [
             InlineKeyboardButton(
-                text=get_button_text('btn_enter_custom_timezone', language),
-                callback_data="timezone_enter_manually"
+                text=get_message('btn_enter_city', language), # Используем get_message
+                callback_data="timezone_enter_city"
             )
         ],
         [
@@ -123,6 +138,51 @@ def get_timezone_selection_method_keyboard(language: str, current_timezone: str)
             )
         ]
     ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_city_timezone_confirmation_keyboard(language: str, timezone_data: dict) -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения часового пояса по городу"""
+    buttons = [
+        [
+            InlineKeyboardButton(
+                text="✅ Подтвердить",
+                callback_data=f"confirm_timezone:{timezone_data['timezone']}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=get_button_text('btn_back', language),
+                callback_data="timezone_enter_city"
+            )
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_multiple_city_timezones_keyboard(language: str, options: list) -> InlineKeyboardMarkup:
+    """Клавиатура выбора из нескольких вариантов часовых поясов"""
+    buttons = []
+    
+    for option in options:
+        timezone_str = option['timezone']
+        city = option.get('city', '')
+        country = option.get('country', '')
+        button_text = f"{city}, {country} ({timezone_str})"
+        
+        buttons.append([
+            InlineKeyboardButton(
+                text=button_text,
+                callback_data=f"select_timezone:{timezone_str}"
+            )
+        ])
+    
+    # Кнопка "Назад"
+    buttons.append([
+        InlineKeyboardButton(
+            text=get_button_text('btn_back', language),
+            callback_data="timezone_enter_city"
+        )
+    ])
+    
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 # TODO Расширить список популярный поясов. Реализовать ввод своего города и определение пояса автоматически
@@ -215,3 +275,73 @@ def get_common_timezones_keyboard(language: str, current_timezone: str) -> Inlin
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=timezone_buttons)
+
+def get_analysis_time_selection_keyboard(language: str, current_time: str) -> InlineKeyboardMarkup:
+    """Клавиатура выбора времени автоанализа (24 часа, 2 столбца)"""
+    buttons = []
+    
+    # Создаем 24 кнопки времени (00:00 до 23:00)
+    for hour in range(24):
+        time_str = f"{hour:02d}:00"
+        button = InlineKeyboardButton(
+            text=time_str, # Отображаем время напрямую
+            callback_data=f"set_analysis_time:{time_str}"
+        )
+        
+        # Добавляем кнопку в последнюю строку или создаем новую строку
+        if not buttons or len(buttons[-1]) >= 2: # 2 кнопки в строке
+            buttons.append([button])
+        else:
+            buttons[-1].append(button)
+    
+    # Добавляем кнопку "Назад" в отдельную строку
+    buttons.append([
+        InlineKeyboardButton(
+            text=get_button_text('btn_back', language),
+            callback_data="settings"
+        )
+    ])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_edit_profile_keyboard(language: str) -> InlineKeyboardMarkup:
+    """Клавиатура редактирования профиля"""
+    buttons = [
+        [
+            InlineKeyboardButton(
+                text=get_button_text('btn_edit_name', language),
+                callback_data="edit_profile_name"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=get_button_text('btn_edit_email', language),
+                callback_data="edit_profile_email"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=get_button_text('btn_edit_dob', language),
+                callback_data="edit_profile_dob"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=get_button_text('btn_edit_hobbies', language),
+                callback_data="edit_profile_hobbies"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=get_button_text('btn_edit_life_facts', language),
+                callback_data="edit_profile_life_facts"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=get_button_text('btn_back', language),
+                callback_data="settings"
+            )
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)

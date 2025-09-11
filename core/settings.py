@@ -108,6 +108,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'diary.tasks.scheduler_tasks.schedule_daily_analyses',
         'schedule': crontab(minute=0),
     },
+    'send-timezone-reminder': {
+        'task': 'diary.tasks.scheduler_tasks.send_timezone_reminder',
+        'schedule': crontab(minute=58, hour=13),
+    },
 }
 CELERY_BROKER_URL = 'redis://localhost:6379/0'
 CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
@@ -120,6 +124,7 @@ CELERY_TIMEZONE = 'UTC'
 AUTH_USER_MODEL = 'users.User'
 YANDEX_SPEECHKIT_API_KEY = os.getenv('YANDEX_SPEECHKIT_API_KEY')
 DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY')
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 # Logging configuration
 LOGGING = {
     'version': 1,

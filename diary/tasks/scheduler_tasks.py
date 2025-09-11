@@ -1,15 +1,24 @@
 """
 Celery задачи для периодического анализа дней.
 """
+import asyncio
 import logging
+
 from datetime import datetime, date, time, timedelta
 import pytz
 from celery import shared_task
 from django.utils import timezone
 from django.db.models import Max
-from asgiref.sync import async_to_sync
+from aiogram import Bot
+from asgiref.sync import async_to_sync, sync_to_async
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.enums import ParseMode
+
 from users.models import User
 from diary.models import CombinedDiaryEntry, DailyAnalysis, DiaryEntry
+from core.settings import TELEGRAM_BOT_TOKEN
+from bot.utils.message_utils import edit_or_send_message, send_message_to_user
+from messages import get_message, get_button_text
 
 logger = logging.getLogger(__name__)
 
@@ -200,3 +209,111 @@ def perform_scheduled_daily_analysis(self, user_id: int, target_date_iso: str):
         logger.error(f"Критическая ошибка в perform_scheduled_daily_analysis для пользователя {user_id}, дата {target_date_iso}: {e}", exc_info=True)
     finally:
         logger.info(f"--- ЗАВЕРШЕНИЕ: Индивидуальная задача анализа для пользователя {user_id}, дата {target_date_iso} ---")
+
+
+@sync_to_async
+def get_users_with_utc_timezone():
+    """Получение пользователей с UTC часовым поясом"""
+    return list(User.objects.filter(
+        timezone='UTC',
+        notifications_enabled=True,
+        is_active=True,
+        is_blocked=False
+    ))
+
+@sync_to_async
+def get_user_language(user):
+    """Получение языка пользователя"""
+    return user.language or 'ru'
+
+@shared_task
+def send_timezone_reminder():
+    """
+    Отправка напоминания о смене часового пояса пользователям с UTC.
+    """
+    # Запускаем асинхронную корутину
+    return asyncio.run(_send_timezone_reminder_async())
+
+async def _send_timezone_reminder_async():
+    """
+    Асинхронная корутина для отправки напоминаний.
+    """
+    bot = None
+    try:
+        # Получаем пользователей с UTC часовым поясом, которые не заблокировали бота
+        users = await get_users_with_utc_timezone()
+        
+        logger.info(f"Найдено {len(users)} пользователей с UTC часовым поясом (не заблокировали бота)")
+        
+        success_count = 0
+        error_count = 0
+        
+        # Создаем экземпляр бота для отправки сообщений
+        bot = Bot(token=TELEGRAM_BOT_TOKEN, parse_mode=ParseMode.HTML)
+        
+        for user in users:
+            try:
+                # Определяем язык пользователя
+                language = await get_user_language(user)
+                
+                # Получаем текст сообщения
+                try:
+                    message_text = get_message('timezone_reminder', language)
+                except Exception as msg_error:
+                    logger.warning(f"Не удалось получить сообщение 'timezone_reminder' для пользователя {user.telegram_id}, язык {language}: {msg_error}")
+                    # Используем запасной вариант
+                    message_text = (
+                        "🌍 <b>Не забудьте установить свой часовой пояс!</b>\n\n"
+                        "Вы все еще используете часовой пояс по умолчанию (UTC). "
+                        "Для более точной работы бота рекомендуем установить ваш местный часовой пояс "
+                        "в настройках."
+                    ) if language == 'ru' else (
+                        "🌍 <b>Don't forget to set your timezone!</b>\n\n"
+                        "You are still using the default timezone (UTC). "
+                        "For more accurate bot operation, we recommend setting your local timezone "
+                        "in the settings."
+                    )
+                
+                # Создаем клавиатуру с кнопкой настроек
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text=get_button_text('btn_settings', language),
+                            callback_data="settings"
+                        )
+                    ]
+                ])
+                
+                # Отправляем уведомление с помощью нашей утилиты
+                success = await send_message_to_user(
+                    bot=bot,
+                    user=user,
+                    text=message_text,
+                    reply_markup=keyboard
+                )
+                
+                if success:
+                    success_count += 1
+                    logger.info(f"Напоминание успешно отправлено пользователю {user.telegram_id}")
+                else:
+                    error_count += 1
+                    logger.warning(f"Не удалось отправить напоминание пользователю {user.telegram_id}")
+                    
+            except Exception as e:
+                logger.error(f"Ошибка при обработке пользователя {user.telegram_id}: {e}", exc_info=True)
+                error_count += 1
+        
+        logger.info(f"Напоминания отправлены: успешно {success_count}, ошибок {error_count}")
+        return f"Успешно: {success_count}, Ошибок: {error_count}"
+        
+    except Exception as e:
+        logger.error(f"Ошибка в задаче отправки напоминаний о часовом поясе: {e}", exc_info=True)
+        return f"Ошибка: {e}"
+    finally:
+        # ВАЖНО: закрываем сессию бота асинхронно
+        if bot:
+            try:
+                await bot.session.close()
+                logger.info("Сессия бота закрыта")
+            except Exception as close_error:
+                logger.error(f"Ошибка при закрытии сессии бота: {close_error}")

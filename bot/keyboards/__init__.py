@@ -37,7 +37,11 @@ from .settings_keyboard import (
     get_language_selection_keyboard,
     get_premium_keyboard,
     get_common_timezones_keyboard,
-    get_timezone_selection_method_keyboard
+    get_timezone_selection_method_keyboard,
+    get_multiple_city_timezones_keyboard,
+    get_city_timezone_confirmation_keyboard,
+    get_analysis_time_selection_keyboard,
+    get_edit_profile_keyboard,
 )
 
 # Клавиатуры помощи
@@ -81,13 +85,18 @@ __all__ = [
     'get_cancel_keyboard',
     'get_confirm_cancel_keyboard',
     'get_common_main_menu_keyboard',
+    'get_edit_profile_keyboard',
     
     # Клавиатуры настроек
     'get_settings_keyboard',
     'get_language_selection_keyboard',
     'get_premium_keyboard',
     'get_common_timezones_keyboard',
-    'get_timezone_selection_method_keyboard'
+    'get_timezone_selection_method_keyboard',
+    'get_multiple_city_timezones_keyboard',
+    'get_city_timezone_confirmation_keyboard',
+    'get_analysis_time_selection_keyboard',
+
 
     
     # Клавиатуры помощи

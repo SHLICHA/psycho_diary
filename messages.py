@@ -106,6 +106,7 @@ MESSAGES = {
         'settings_auto_analysis': '📈 Автоанализ: {status}',
         'settings_premium': '👑 Премиум: {status}',
         
+        'btn_enter_city': '🏙 Ввести город',
         'language_changed': '✅ Язык успешно изменен на {language}',
         'notifications_enabled': '✅ Уведомления включены',
         'notifications_disabled': '✅ Уведомления отключены',
@@ -113,6 +114,37 @@ MESSAGES = {
         'settings_timezone': '🌍 Часовой пояс: {timezone}',
         'timezone_changed': '✅ Часовой пояс успешно изменен на {timezone}',
         'timezone_not_changed': '❌ Не удалось изменить часовой пояс. Попробуйте еще раз.',
+        'timezone_reminder': '''🌍 <b>Не забудьте установить свой часовой пояс!</b>
+
+Вы все еще используете часовой пояс по умолчанию (UTC). 
+Для более точной работы бота рекомендуем установить ваш местный часовой пояс в настройках.''',
+
+        'settings_analysis_time': '⏰ Время анализа: {time}',
+        'ask_analysis_time': '⏰ <b>Выберите время автоматического анализа</b>\nТекущее время: {current_time}\n\nАнализ будет запускаться каждый день в выбранное время по вашему часовому поясу.',
+        'analysis_time_changed': '✅ Время автоматического анализа установлено на {time}',
+        'profile_menu': '''👤 <b>Ваш профиль</b>
+📝 <b>Имя:</b> {first_name}
+📧 <b>Email:</b> {email}
+🎂 <b>Дата рождения:</b> {date_of_birth}
+🎯 <b>Увлечения:</b> {hobbies}
+📌 <b>Факты о жизни:</b> {life_facts}
+
+Выберите, что хотите изменить:''',
+        'btn_edit_profile': '👤 Редактировать профиль',
+        'btn_edit_name': '📝 Изменить имя',
+        'btn_edit_email': '📧 Изменить email',
+        'btn_edit_dob': '🎂 Изменить дату рождения',
+        'btn_edit_hobbies': '🎯 Изменить увлечения',
+        'btn_edit_life_facts': '📌 Изменить факты о жизни',
+        'ask_new_name': '📝 <b>Введите ваше новое имя:</b>',
+        'ask_new_email': '📧 <b>Введите ваш новый email:</b>',
+        'ask_new_dob': '🎂 <b>Введите вашу новую дату рождения (ДД.ММ.ГГГГ):</b>',
+        'ask_new_hobbies': '🎯 <b>Введите ваши увлечения через запятую:</b>',
+        'ask_new_life_facts': '📌 <b>Введите факты о вашей жизни через запятую:</b>',
+        'profile_updated': '✅ Профиль успешно обновлен!',
+        'invalid_email_format': '❌ Неверный формат email. Попробуйте еще раз.',
+        'invalid_date_format': '❌ Неверный формат даты. Используйте ДД.ММ.ГГГГ.',
+        'invalid_date_future': '❌ Дата рождения не может быть в будущем.',
         
         # === Сообщения для выбора часового пояса ===
         'ask_timezone_selection': '🌍 <b>Выберите свой часовой пояс</b>\n\nТекущий пояс: {current_timezone}\n\nВы можете выбрать из списка популярных поясов или ввести свой.',
@@ -414,9 +446,41 @@ Here you can customize the diary for yourself:''',
         'notifications_enabled': '✅ Notifications enabled',
         'notifications_disabled': '✅ Notifications disabled',
 
+        'btn_enter_city': '🏙 Enter city',
         'settings_timezone': '🌍 Timezone: {timezone}',
         'timezone_changed': '✅ Timezone successfully changed to {timezone}',
         'timezone_not_changed': '❌ Failed to change timezone. Please try again.',
+        'timezone_reminder': '''🌍 <b>Don't forget to set your timezone!</b>
+
+You are still using the default timezone (UTC). 
+For more accurate bot operation, we recommend setting your local timezone in the settings.''',
+
+        'settings_analysis_time': '⏰ Analysis time: {time}',
+        'ask_analysis_time': '⏰ <b>Select automatic analysis time</b>\nCurrent time: {current_time}\n\nAnalysis will run daily at the selected time according to your timezone.',
+        'analysis_time_changed': '✅ Automatic analysis time set to {time}',
+        'profile_menu': '''👤 <b>Your Profile</b>
+📝 <b>Name:</b> {first_name}
+📧 <b>Email:</b> {email}
+🎂 <b>Date of Birth:</b> {date_of_birth}
+🎯 <b>Hobbies:</b> {hobbies}
+📌 <b>Life Facts:</b> {life_facts}
+
+Choose what you want to change:''',
+        'btn_edit_profile': '👤 Edit Profile',
+        'btn_edit_name': '📝 Edit Name',
+        'btn_edit_email': '📧 Edit Email',
+        'btn_edit_dob': '🎂 Edit Date of Birth',
+        'btn_edit_hobbies': '🎯 Edit Hobbies',
+        'btn_edit_life_facts': '📌 Edit Life Facts',
+        'ask_new_name': '📝 <b>Enter your new name:</b>',
+        'ask_new_email': '📧 <b>Enter your new email:</b>',
+        'ask_new_dob': '🎂 <b>Enter your new date of birth (DD.MM.YYYY):</b>',
+        'ask_new_hobbies': '🎯 <b>Enter your hobbies separated by commas:</b>',
+        'ask_new_life_facts': '📌 <b>Enter facts about your life separated by commas:</b>',
+        'profile_updated': '✅ Profile updated successfully!',
+        'invalid_email_format': '❌ Invalid email format. Please try again.',
+        'invalid_date_format': '❌ Invalid date format. Use DD.MM.YYYY.',
+        'invalid_date_future': '❌ Date of birth cannot be in the future.',
         
         # === Messages for timezone selection ===
         'ask_timezone_selection': '🌍 <b>Select your timezone</b>\n\nCurrent timezone: {current_timezone}\n\nYou can choose from a list of popular timezones or enter your own.',

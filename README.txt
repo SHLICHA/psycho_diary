@@ -11,7 +11,7 @@ docker build -t shlicha/dairy_bot:v1 . - локально создать обр�
 docker login -u shlicha - залогиниться в dockerHub
 docker push shlicha/dairy_bot:v1 - отправить образ на DockerHub
 
-celery -A core worker --loglevel=info - запуск celery
+celery -A core worker --beat --loglevel=info - запуск celery
 sudo systemctl start redis-server - если redis не запущен
 
 git add .
@@ -20,3 +20,13 @@ git push origin master #загрузить в GitHub
 git pull origin master #обновить из GitHub
 
 python -m pytest tests/test_messages.py -v
+
+Привет. Сейчас я буду присылать тебе части кода. Пока ты просто принимаешь данные. Будем дорабатывать уже существующего кода.
+Есть несколько ВАЖНЫХ МОМЕНТОВ
+1. Ты не делаешь ничего, пока я не попрошу
+2. Не делаешь ничего сверх того, что мы обсуждаем
+3. Если ты со мной не согласен, ты мне прямо об этом говоришь
+4. Если тебе чего то непонятно, или нужны еще какие-то части кода, ты мне об этом сообщаешь, а не пытаешься придумать
+5. Перед началом решения какой-то задачи мы ее сначала обсуждаем, чтобы синхронизировать цели и задачи
+
+Все понятно? Я начинаю?

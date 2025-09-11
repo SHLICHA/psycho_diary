@@ -9,18 +9,23 @@ import logging
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
+from datetime import datetime
 from messages import get_message
 from bot.states.settings_states import SettingsStates
 from bot.keyboards import (
     get_settings_keyboard,
     get_language_selection_keyboard,
-    get_language_selection_keyboard,
     get_premium_keyboard,
     get_back_keyboard,
     get_common_timezones_keyboard,
-    get_timezone_selection_method_keyboard
+    get_timezone_selection_method_keyboard,
+    get_city_timezone_confirmation_keyboard,
+    get_multiple_city_timezones_keyboard,
+    get_analysis_time_selection_keyboard,
+    get_edit_profile_keyboard
     )
 from bot.utils.state_manager import state_manager
+from users.models import CityTimezone
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -197,6 +202,232 @@ async def change_timezone(callback: CallbackQuery, user, language: str):
         logger.error(f"Ошибка при показе вариантов выбора часового пояса: {e}")
         await callback.answer(get_message('error_generic', language=language))
 
+@router.callback_query(F.data == "timezone_enter_city")
+async def enter_city_for_timezone(callback: CallbackQuery, state: FSMContext, user, language: str):
+    """Ввод города для определения часового пояса"""
+    try:
+        city_msg = "🏙 <b>Введите название вашего города</b>\nНапример: Москва, Санкт-Петербург, Новосибирск"
+        reply_markup = get_back_keyboard(language)
+        await callback.message.edit_text(
+            city_msg,
+            reply_markup=reply_markup
+        )
+        await state_manager.set_state(state, SettingsStates.waiting_for_city_input)
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка при запросе ввода города: {e}")
+        await callback.answer(get_message('error_generic', language=language))
+
+@router.message(SettingsStates.waiting_for_city_input)
+async def process_city_input(message: Message, state: FSMContext, user, language: str):
+    """Обработка ввода города для определения часового пояса"""
+    try:
+        city_name = message.text.strip()
+        
+        # Проверка на команды выхода
+        if city_name.lower() in ['назад', 'back', '/start', '/menu']:
+            await state_manager.clear_state(state)
+            settings_msg = get_message('settings_menu', language=language)
+            await message.answer(
+                settings_msg,
+                reply_markup=get_settings_keyboard(user, language)
+            )
+            return
+        
+        # Проверка на пустой ввод
+        if not city_name:
+            error_msg = "Пожалуйста, введите название города"
+            await message.answer(error_msg)
+            return
+        
+        # Проверка в кэше
+        try:
+            city_tz = await CityTimezone.objects.aget(city_name__iexact=city_name)
+            # Найдено в кэше
+            timezone_data = {
+                'timezone': city_tz.timezone,
+                'city': city_tz.city_name,
+                'country': city_tz.country
+            }
+            
+            confirmation_msg = f"🏙 Найден часовой пояс для города <b>{city_tz.city_name}</b>, <b>{city_tz.country}</b>:\n\n🕒 <code>{city_tz.timezone}</code>"
+            reply_markup = get_city_timezone_confirmation_keyboard(language, timezone_data)
+            await message.answer(
+                confirmation_msg,
+                reply_markup=reply_markup
+            )
+            await state_manager.set_state(state, SettingsStates.waiting_for_timezone_confirmation, timezone_data=timezone_data)
+            return
+        except CityTimezone.DoesNotExist:
+            # Не найдено в кэше, обращаемся к API
+            pass
+        
+        # Обращение к API для определения часового пояса
+        await message.answer("⏳ Ищу часовой пояс для указанного города...")
+        
+        from bot.services.deepseek_api import deepseek_api_service
+        result = await deepseek_api_service.detect_timezone_by_city(city_name, language)
+        
+        if not result['success']:
+            error_msg = result.get('message', 'Ошибка при определении часового пояса')
+            await message.answer(f"❌ {error_msg}")
+            city_msg = "🏙 <b>Введите название вашего города</b>\nНапример: Москва, Санкт-Петербург, Новосибирск"
+            await message.answer(city_msg, reply_markup=get_back_keyboard(language))
+            return
+        
+        api_result = result['result']
+        
+        if not api_result.get('success', False):
+            error_msg = api_result.get('error', 'Город не найден')
+            await message.answer(f"❌ {error_msg}")
+            city_msg = "🏙 <b>Введите название вашего города</b>\nНапример: Москва, Санкт-Петербург, Новосибирск"
+            await message.answer(city_msg, reply_markup=get_back_keyboard(language))
+            return
+        
+        # Проверяем, есть ли несколько вариантов
+        if api_result.get('multiple', False):
+            options = api_result.get('options', [])
+            if options:
+                selection_msg = "🏙 Найдено несколько вариантов. Выберите правильный:"
+                reply_markup = get_multiple_city_timezones_keyboard(language, options)
+                await message.answer(
+                    selection_msg,
+                    reply_markup=reply_markup
+                )
+                return
+            else:
+                await message.answer("❌ Не удалось получить варианты выбора")
+                city_msg = "🏙 <b>Введите название вашего города</b>\nНапример: Москва, Санкт-Петербург, Новосибирск"
+                await message.answer(city_msg, reply_markup=get_back_keyboard(language))
+                return
+        
+        # Один вариант
+        timezone_str = api_result.get('timezone')
+        city = api_result.get('city', city_name)
+        country = api_result.get('country', 'Неизвестно')
+        
+        if not timezone_str:
+            await message.answer("❌ Не удалось определить часовой пояс")
+            city_msg = "🏙 <b>Введите название вашего города</b>\nНапример: Москва, Санкт-Петербург, Новосибирск"
+            await message.answer(city_msg, reply_markup=get_back_keyboard(language))
+            return
+        
+        # Проверка валидности часового пояса
+        try:
+            pytz.timezone(timezone_str)
+        except pytz.UnknownTimeZoneError:
+            await message.answer("❌ Определен неверный часовой пояс")
+            city_msg = "🏙 <b>Введите название вашего города</b>\nНапример: Москва, Санкт-Петербург, Новосибирск"
+            await message.answer(city_msg, reply_markup=get_back_keyboard(language))
+            return
+        
+        timezone_data = {
+            'timezone': timezone_str,
+            'city': city,
+            'country': country
+        }
+        
+        confirmation_msg = f"🏙 Найден часовой пояс для города <b>{city}</b>, <b>{country}</b>:\n\n🕒 <code>{timezone_str}</code>"
+        reply_markup = get_city_timezone_confirmation_keyboard(language, timezone_data)
+        await message.answer(
+            confirmation_msg,
+            reply_markup=reply_markup
+        )
+        await state_manager.set_state(state, SettingsStates.waiting_for_timezone_confirmation, timezone_data=timezone_data)
+        
+    except Exception as e:
+        logger.error(f"Ошибка при обработке ввода города: {e}", exc_info=True)
+        await message.answer(get_message('error_generic', language=language))
+        await state_manager.clear_state(state)
+
+@router.callback_query(F.data.startswith("select_timezone:"))
+async def select_timezone_from_options(callback: CallbackQuery, state: FSMContext, user, language: str):
+    """Выбор часового пояса из предложенных вариантов"""
+    try:
+        timezone_str = callback.data.split(":", 1)[1]
+        
+        # Проверка валидности часового пояса
+        try:
+            pytz.timezone(timezone_str)
+        except pytz.UnknownTimeZoneError:
+            await callback.answer("❌ Неверный часовой пояс", show_alert=True)
+            return
+        
+        # Установка часового пояса
+        user.timezone = timezone_str
+        await user.asave(update_fields=['timezone'])
+        
+        # Сохранение в кэш
+        try:
+            # Здесь можно добавить логику сохранения в кэш, если нужно
+            pass
+        except Exception as e:
+            logger.warning(f"Не удалось сохранить в кэш: {e}")
+        
+        success_msg = get_message('timezone_changed', language, timezone=timezone_str)
+        settings_msg = get_message('settings_menu', language=language)
+        reply_markup = get_settings_keyboard(user, language)
+        await callback.message.edit_text(
+            settings_msg,
+            reply_markup=reply_markup
+        )
+        await callback.answer(success_msg)
+        await state_manager.clear_state(state)
+        
+    except Exception as e:
+        logger.error(f"Ошибка при выборе часового пояса: {e}")
+        await callback.answer(get_message('error_generic', language=language), show_alert=True)
+
+@router.callback_query(F.data.startswith("confirm_timezone:"))
+async def confirm_timezone_by_city(callback: CallbackQuery, state: FSMContext, user, language: str):
+    """Подтверждение часового пояса по городу"""
+    try:
+        data = await state_manager.get_state_data(state)
+        timezone_data = data.get('timezone_data')
+        
+        if not timezone_data:
+            await callback.answer("❌ Данные не найдены", show_alert=True)
+            return
+        
+        timezone_str = timezone_data['timezone']
+        city = timezone_data.get('city', '')
+        country = timezone_data.get('country', '')
+        
+        # Проверка валидности часового пояса
+        try:
+            pytz.timezone(timezone_str)
+        except pytz.UnknownTimeZoneError:
+            await callback.answer("❌ Неверный часовой пояс", show_alert=True)
+            return
+        
+        # Установка часового пояса
+        user.timezone = timezone_str
+        await user.asave(update_fields=['timezone'])
+        
+        # Сохранение в кэш
+        try:
+            await CityTimezone.objects.acreate(
+                city_name=city,
+                timezone=timezone_str,
+                country=country
+            )
+        except Exception as e:
+            logger.warning(f"Не удалось сохранить в кэш: {e}")
+        
+        success_msg = get_message('timezone_changed', language, timezone=timezone_str)
+        settings_msg = get_message('settings_menu', language=language)
+        reply_markup = get_settings_keyboard(user, language)
+        await callback.message.edit_text(
+            settings_msg,
+            reply_markup=reply_markup
+        )
+        await callback.answer(success_msg)
+        await state_manager.clear_state(state)
+        
+    except Exception as e:
+        logger.error(f"Ошибка при подтверждении часового пояса: {e}")
+        await callback.answer(get_message('error_generic', language=language), show_alert=True)
+
 @router.callback_query(F.data == "timezone_select_from_list")
 async def select_timezone_from_list(callback: CallbackQuery, user, language: str):
     """Выбор часового пояса из списка"""
@@ -211,23 +442,6 @@ async def select_timezone_from_list(callback: CallbackQuery, user, language: str
         logger.info("Показан список популярных часовых поясов")
     except Exception as e:
         logger.error(f"Ошибка при показе списка часовых поясов: {e}")
-        await callback.answer(get_message('error_generic', language=language))
-
-# TODO Реализовать ввод местополения и определения часового пояса
-@router.callback_query(F.data == "timezone_enter_manually")
-async def enter_timezone_manually(callback: CallbackQuery, state: FSMContext, user, language: str):
-    """Ввод часового пояса вручную"""
-    try:
-        timezone_msg = get_message('ask_enter_custom_timezone', language, current_timezone=user.timezone)
-        reply_markup = get_back_keyboard(language)
-        await callback.message.edit_text(
-            timezone_msg,
-            reply_markup=reply_markup
-        )
-        await state_manager.set_state(state, SettingsStates.waiting_for_timezone_input)
-        await callback.answer()
-    except Exception as e:
-        logger.error(f"Ошибка при запросе ручного введения часового пояса: {e}")
         await callback.answer(get_message('error_generic', language=language))
 
 @router.callback_query(F.data.startswith("set_timezone:"))
@@ -301,3 +515,400 @@ async def process_timezone_input(message: Message, state: FSMContext, user, lang
         logger.error(f"Ошибка при обработке ручного ввода часового пояса: {e}")
         await message.answer(get_message('error_generic', language=language))
         await state_manager.clear_state(state)
+
+@router.callback_query(F.data == "settings_change_analysis_time")
+async def change_analysis_time(callback: CallbackQuery, user, language: str):
+    """Изменение времени автоанализа"""
+    try:
+        current_time = user.preferred_analysis_time.strftime('%H:%M') if user.preferred_analysis_time else '02:00'
+        time_msg = get_message('ask_analysis_time', language, current_time=current_time)
+        
+        reply_markup = get_analysis_time_selection_keyboard(language, current_time)
+        await callback.message.edit_text(
+            time_msg,
+            reply_markup=reply_markup
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка при показе выбора времени автоанализа: {e}")
+        await callback.answer(get_message('error_generic', language=language))
+
+@router.callback_query(F.data.startswith("set_analysis_time:"))
+async def set_analysis_time(callback: CallbackQuery, user, language: str):
+    """Установка времени автоанализа"""
+    try:
+        time_str = callback.data.split(":", 1)[1]  # Получаем "HH:MM"
+        
+        # Проверка формата времени
+        try:
+            from datetime import datetime
+            new_time = datetime.strptime(time_str, '%H:%M').time()
+        except ValueError:
+            await callback.answer("❌ Неверный формат времени", show_alert=True)
+            return
+        
+        # Установка нового времени
+        user.preferred_analysis_time = new_time
+        await user.asave(update_fields=['preferred_analysis_time'])
+        
+        success_msg = get_message('analysis_time_changed', language, time=time_str)
+        settings_msg = get_message('settings_menu', language=language)
+        reply_markup = get_settings_keyboard(user, language)
+        await callback.message.edit_text(
+            settings_msg,
+            reply_markup=reply_markup
+        )
+        await callback.answer(success_msg, show_alert=True)
+    except Exception as e:
+        logger.error(f"Ошибка при установке времени автоанализа: {e}")
+        await callback.answer(get_message('error_generic', language=language), show_alert=True)
+
+@router.callback_query(F.data == "edit_profile")
+async def show_edit_profile_menu(callback: CallbackQuery, user, language: str):
+    """Показ меню редактирования профиля"""
+    try:
+        # Формируем текст профиля
+        profile_data = {
+            'first_name': user.first_name or 'Не указано',
+            'email': user.email or 'Не указан',
+            'date_of_birth': user.date_of_birth.strftime('%d.%m.%Y') if user.date_of_birth else 'Не указана',
+            'hobbies': ', '.join(user.hobbies) if user.hobbies else 'Не указаны',
+            'life_facts': ', '.join(user.life_facts) if user.life_facts else 'Не указаны'
+        }
+        
+        profile_msg = get_message('profile_menu', language, **profile_data)
+        
+        reply_markup = get_edit_profile_keyboard(language)
+        await callback.message.edit_text(
+            profile_msg,
+            reply_markup=reply_markup
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка при показе меню редактирования профиля: {e}")
+        await callback.answer(get_message('error_generic', language=language))
+
+# Обработчики для перехода к редактированию конкретных полей
+@router.callback_query(F.data == "edit_profile_name")
+async def edit_profile_name(callback: CallbackQuery, state: FSMContext, user, language: str):
+    """Редактирование имени"""
+    try:
+        await state_manager.set_state(state, SettingsStates.waiting_for_name_input)
+        ask_msg = get_message('ask_new_name', language)
+        reply_markup = get_back_keyboard(language)
+        await callback.message.edit_text(
+            ask_msg,
+            reply_markup=reply_markup
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка при запросе нового имени: {e}")
+        await callback.answer(get_message('error_generic', language=language))
+
+@router.callback_query(F.data == "edit_profile_email")
+async def edit_profile_email(callback: CallbackQuery, state: FSMContext, user, language: str):
+    """Редактирование email"""
+    try:
+        await state_manager.set_state(state, SettingsStates.waiting_for_email_input)
+        ask_msg = get_message('ask_new_email', language)
+        reply_markup = get_back_keyboard(language)
+        await callback.message.edit_text(
+            ask_msg,
+            reply_markup=reply_markup
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка при запросе нового email: {e}")
+        await callback.answer(get_message('error_generic', language=language))
+
+@router.callback_query(F.data == "edit_profile_dob")
+async def edit_profile_dob(callback: CallbackQuery, state: FSMContext, user, language: str):
+    """Редактирование даты рождения"""
+    try:
+        await state_manager.set_state(state, SettingsStates.waiting_for_date_of_birth_input)
+        ask_msg = get_message('ask_new_dob', language)
+        reply_markup = get_back_keyboard(language)
+        await callback.message.edit_text(
+            ask_msg,
+            reply_markup=reply_markup
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка при запросе новой даты рождения: {e}")
+        await callback.answer(get_message('error_generic', language=language))
+
+@router.callback_query(F.data == "edit_profile_hobbies")
+async def edit_profile_hobbies(callback: CallbackQuery, state: FSMContext, user, language: str):
+    """Редактирование увлечений"""
+    try:
+        current_hobbies = ', '.join(user.hobbies) if user.hobbies else ''
+        await state_manager.set_state(state, SettingsStates.waiting_for_hobbies_input)
+        ask_msg = get_message('ask_new_hobbies', language)
+        if current_hobbies:
+            ask_msg += f"\n\n<i>Текущие увлечения:</i> <code>{current_hobbies}</code>"
+        reply_markup = get_back_keyboard(language)
+        await callback.message.edit_text(
+            ask_msg,
+            reply_markup=reply_markup
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка при запросе новых увлечений: {e}")
+        await callback.answer(get_message('error_generic', language=language))
+
+@router.callback_query(F.data == "edit_profile_life_facts")
+async def edit_profile_life_facts(callback: CallbackQuery, state: FSMContext, user, language: str):
+    """Редактирование фактов о жизни"""
+    try:
+        current_facts = ', '.join(user.life_facts) if user.life_facts else ''
+        await state_manager.set_state(state, SettingsStates.waiting_for_life_facts_input)
+        ask_msg = get_message('ask_new_life_facts', language)
+        if current_facts:
+            ask_msg += f"\n\n<i>Текущие факты:</i> <code>{current_facts}</code>"
+        reply_markup = get_back_keyboard(language)
+        await callback.message.edit_text(
+            ask_msg,
+            reply_markup=reply_markup
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка при запросе новых фактов о жизни: {e}")
+        await callback.answer(get_message('error_generic', language=language))
+
+# Обработчики для получения и сохранения введенных данных
+@router.message(SettingsStates.waiting_for_name_input)
+async def process_name_input(message: Message, state: FSMContext, user, language: str):
+    """Обработка ввода нового имени"""
+    try:
+        new_name = message.text.strip()
+        
+        # Проверка на команды выхода
+        if new_name.lower() in ['назад', 'back', '/start', '/menu']:
+            await state_manager.clear_state(state)
+            # Возвращаем к меню редактирования профиля
+            await show_edit_profile_menu_callback(message, user, language)
+            return
+        
+        # Проверка на пустой ввод
+        if not new_name:
+            error_msg = get_message('invalid_input', language)
+            await message.answer(error_msg)
+            return
+        
+        # Обновление имени
+        user.first_name = new_name
+        await user.asave(update_fields=['first_name'])
+        
+        success_msg = get_message('profile_updated', language)
+        await message.answer(success_msg)
+        
+        # Возвращаем к меню редактирования профиля
+        await show_edit_profile_menu_callback(message, user, language)
+        await state_manager.clear_state(state)
+        
+    except Exception as e:
+        logger.error(f"Ошибка при обработке ввода нового имени: {e}")
+        error_msg = get_message('error_generic', language)
+        await message.answer(error_msg)
+        await state_manager.clear_state(state)
+
+@router.message(SettingsStates.waiting_for_email_input)
+async def process_email_input(message: Message, state: FSMContext, user, language: str):
+    """Обработка ввода нового email"""
+    try:
+        new_email = message.text.strip()
+        
+        # Проверка на команды выхода
+        if new_email.lower() in ['назад', 'back', '/start', '/menu']:
+            await state_manager.clear_state(state)
+            # Возвращаем к меню редактирования профиля
+            await show_edit_profile_menu_callback(message, user, language)
+            return
+        
+        # Проверка на пустой ввод
+        if not new_email:
+            error_msg = get_message('invalid_input', language)
+            await message.answer(error_msg)
+            return
+        
+        # Валидация email
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_pattern, new_email):
+            error_msg = get_message('invalid_email_format', language)
+            await message.answer(error_msg)
+            return
+        
+        # Обновление email
+        user.email = new_email
+        await user.asave(update_fields=['email'])
+        
+        success_msg = get_message('profile_updated', language)
+        await message.answer(success_msg)
+        
+        # Возвращаем к меню редактирования профиля
+        await show_edit_profile_menu_callback(message, user, language)
+        await state_manager.clear_state(state)
+        
+    except Exception as e:
+        logger.error(f"Ошибка при обработке ввода нового email: {e}")
+        error_msg = get_message('error_generic', language)
+        await message.answer(error_msg)
+        await state_manager.clear_state(state)
+
+@router.message(SettingsStates.waiting_for_date_of_birth_input)
+async def process_dob_input(message: Message, state: FSMContext, user, language: str):
+    """Обработка ввода новой даты рождения"""
+    try:
+        dob_text = message.text.strip()
+        
+        # Проверка на команды выхода
+        if dob_text.lower() in ['назад', 'back', '/start', '/menu']:
+            await state_manager.clear_state(state)
+            # Возвращаем к меню редактирования профиля
+            await show_edit_profile_menu_callback(message, user, language)
+            return
+        
+        # Проверка на пустой ввод
+        if not dob_text:
+            error_msg = get_message('invalid_input', language)
+            await message.answer(error_msg)
+            return
+        
+        # Попытка парсинга даты
+        try:
+            new_dob = datetime.strptime(dob_text, '%d.%m.%Y').date()
+            # Проверка, что дата не в будущем
+            if new_dob > datetime.now().date():
+                error_msg = get_message('invalid_date_future', language)
+                await message.answer(error_msg)
+                return
+        except ValueError:
+            error_msg = get_message('invalid_date_format', language)
+            await message.answer(error_msg)
+            return
+        
+        # Обновление даты рождения
+        user.date_of_birth = new_dob
+        await user.asave(update_fields=['date_of_birth'])
+        
+        success_msg = get_message('profile_updated', language)
+        await message.answer(success_msg)
+        
+        # Возвращаем к меню редактирования профиля
+        await show_edit_profile_menu_callback(message, user, language)
+        await state_manager.clear_state(state)
+        
+    except Exception as e:
+        logger.error(f"Ошибка при обработке ввода новой даты рождения: {e}")
+        error_msg = get_message('error_generic', language)
+        await message.answer(error_msg)
+        await state_manager.clear_state(state)
+
+@router.message(SettingsStates.waiting_for_hobbies_input)
+async def process_hobbies_input(message: Message, state: FSMContext, user, language: str):
+    """Обработка ввода новых увлечений"""
+    try:
+        hobbies_text = message.text.strip()
+        
+        # Проверка на команды выхода
+        if hobbies_text.lower() in ['назад', 'back', '/start', '/menu']:
+            await state_manager.clear_state(state)
+            # Возвращаем к меню редактирования профиля
+            await show_edit_profile_menu_callback(message, user, language)
+            return
+        
+        # Парсинг увлечений
+        if hobbies_text:
+            new_hobbies = [hobby.strip() for hobby in hobbies_text.split(',') if hobby.strip()]
+        else:
+            new_hobbies = []
+        
+        # Обновление увлечений
+        user.hobbies = new_hobbies
+        await user.asave(update_fields=['hobbies'])
+        
+        success_msg = get_message('profile_updated', language)
+        await message.answer(success_msg)
+        
+        # Возвращаем к меню редактирования профиля
+        await show_edit_profile_menu_callback(message, user, language)
+        await state_manager.clear_state(state)
+        
+    except Exception as e:
+        logger.error(f"Ошибка при обработке ввода новых увлечений: {e}")
+        error_msg = get_message('error_generic', language)
+        await message.answer(error_msg)
+        await state_manager.clear_state(state)
+
+@router.message(SettingsStates.waiting_for_life_facts_input)
+async def process_life_facts_input(message: Message, state: FSMContext, user, language: str):
+    """Обработка ввода новых фактов о жизни"""
+    try:
+        facts_text = message.text.strip()
+        
+        # Проверка на команды выхода
+        if facts_text.lower() in ['назад', 'back', '/start', '/menu']:
+            await state_manager.clear_state(state)
+            # Возвращаем к меню редактирования профиля
+            await show_edit_profile_menu_callback(message, user, language)
+            return
+        
+        # Парсинг фактов
+        if facts_text:
+            new_facts = [fact.strip() for fact in facts_text.split(',') if fact.strip()]
+        else:
+            new_facts = []
+        
+        # Обновление фактов
+        user.life_facts = new_facts
+        await user.asave(update_fields=['life_facts'])
+        
+        success_msg = get_message('profile_updated', language)
+        await message.answer(success_msg)
+        
+        # Возвращаем к меню редактирования профиля
+        await show_edit_profile_menu_callback(message, user, language)
+        await state_manager.clear_state(state)
+        
+    except Exception as e:
+        logger.error(f"Ошибка при обработке ввода новых фактов о жизни: {e}")
+        error_msg = get_message('error_generic', language)
+        await message.answer(error_msg)
+        await state_manager.clear_state(state)
+
+# Вспомогательная функция для возврата к меню редактирования профиля
+async def show_edit_profile_menu_callback(message_or_callback, user, language: str):
+    """Показ меню редактирования профиля (callback)"""
+    try:
+        # Формируем текст профиля
+        profile_data = {
+            'first_name': user.first_name or 'Не указано',
+            'email': user.email or 'Не указан',
+            'date_of_birth': user.date_of_birth.strftime('%d.%m.%Y') if user.date_of_birth else 'Не указана',
+            'hobbies': ', '.join(user.hobbies) if user.hobbies else 'Не указаны',
+            'life_facts': ', '.join(user.life_facts) if user.life_facts else 'Не указаны'
+        }
+        
+        profile_msg = get_message('profile_menu', language, **profile_data)
+        
+        reply_markup = get_edit_profile_keyboard(language)
+        
+        # Определяем, является ли message_or_callback Message или CallbackQuery
+        if isinstance(message_or_callback, Message):
+            await message_or_callback.answer(
+                profile_msg,
+                reply_markup=reply_markup
+            )
+        elif isinstance(message_or_callback, CallbackQuery):
+            await message_or_callback.message.edit_text(
+                profile_msg,
+                reply_markup=reply_markup
+            )
+            await message_or_callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка при показе меню редактирования профиля: {e}")
+        error_msg = get_message('error_generic', language)
+        if isinstance(message_or_callback, Message):
+            await message_or_callback.answer(error_msg)
+        elif isinstance(message_or_callback, CallbackQuery):
+            await message_or_callback.answer(error_msg)

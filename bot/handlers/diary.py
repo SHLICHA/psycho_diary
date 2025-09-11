@@ -1098,17 +1098,12 @@ async def _show_entry_page(message, user, entry, entries, target_date, language)
             text += f"\n📊 <b>Анализ:</b>\n{analysis.comment}"
         except PsychoAnalysis.DoesNotExist:
             pass
-
-        # --- НОВАЯ ЛОГИКА: Проверяем статус анализа дня ---
         is_day_analyzed = False
         try:
             combined_entry = await CombinedDiaryEntry.objects.aget(user=user, date=target_date)
             is_day_analyzed = combined_entry.is_analyzed
         except CombinedDiaryEntry.DoesNotExist:
-            # Если CombinedDiaryEntry не существует, считаем день не проанализированным
             pass
-
-        # --- Формируем клавиатуру через новую функцию ---
         keyboard = get_entry_page_keyboard(
             entry_id=entry.id,
             current_index=current_index,

@@ -6,9 +6,10 @@ import logging
 from typing import Optional, Union, Callable, Any, Awaitable
 from aiogram import Bot
 from aiogram.types import Message, CallbackQuery
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramAPIError
 
 from bot.utils.callback_utils import is_message_not_modified_error 
+from users.models import User
 from messages import get_message
 
 logger = logging.getLogger(__name__)
@@ -316,3 +317,79 @@ def escape_html(text: str) -> str:
     except Exception as e:
         logger.error(f"Ошибка при экранировании HTML символов: {e}")
         return text
+    
+async def send_message_to_user(
+    bot: Bot,
+    user: User,
+    text: str,
+    reply_markup=None,
+    disable_notification: bool = False
+) -> bool:
+    """
+    Безопасная отправка сообщения пользователю с обработкой исключений.
+    
+    Args:
+        bot: Экземпляр бота
+        user: Пользователь (модель User)
+        text: Текст сообщения
+        reply_markup: Клавиатура сообщения
+        disable_notification: Отключить уведомление
+        
+    Returns:
+        bool: True если сообщение отправлено успешно, False в противном случае
+    """
+    try:
+        # Проверяем, не заблокирован ли пользователь
+        if user.is_blocked:
+            logger.info(f"Пользователь {user.telegram_id} заблокирован, сообщение не отправляется")
+            return False
+            
+        # Отправляем сообщение
+        await bot.send_message(
+            chat_id=user.telegram_id,
+            text=text,
+            reply_markup=reply_markup,
+            disable_notification=disable_notification
+        )
+        
+        # Если пользователь был заблокирован, но сообщение отправилось,
+        # сбрасываем флаг блокировки
+        if user.is_blocked:
+            user.is_blocked = False
+            await user.asave(update_fields=['is_blocked'])
+            logger.info(f"Пользователь {user.telegram_id} разблокировал бота")
+            
+        logger.info(f"Сообщение успешно отправлено пользователю {user.telegram_id}")
+        return True
+        
+    except TelegramBadRequest as e:
+        # Обрабатываем специфичные ошибки
+        error_message = str(e).lower()
+        
+        # Пользователь заблокировал бота
+        if "chat not found" in error_message or "bot was blocked" in error_message:
+            if not user.is_blocked: # Обновляем только если флаг не установлен
+                user.is_blocked = True
+                await user.asave(update_fields=['is_blocked'])
+                logger.info(f"Пользователь {user.telegram_id} заблокировал бота")
+            return False
+            
+        # Чат недоступен по другим причинам
+        elif "chat unavailable" in error_message:
+            logger.warning(f"Чат пользователя {user.telegram_id} недоступен: {e}")
+            return False
+            
+        # Другие ошибки BadRequest
+        else:
+            logger.error(f"TelegramBadRequest при отправке сообщения пользователю {user.telegram_id}: {e}")
+            return False
+            
+    except TelegramAPIError as e:
+        # Другие ошибки Telegram API
+        logger.error(f"TelegramAPIError при отправке сообщения пользователю {user.telegram_id}: {e}")
+        return False
+        
+    except Exception as e:
+        # Другие непредвиденные ошибки
+        logger.error(f"Неизвестная ошибка при отправке сообщения пользователю {user.telegram_id}: {e}")
+        return False
