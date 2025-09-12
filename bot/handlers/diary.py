@@ -28,6 +28,7 @@ from bot.keyboards import (
     get_entry_page_keyboard
     )
 from bot.utils.api_utils import format_api_error_for_analysis
+from bot.utils.audio_utils import process_voice_message
 from bot.utils.validation_utils import validate_incoming_message, validate_text_entry
 from bot.utils.state_manager import state_manager
 from bot.utils.message_utils import safe_edit_message_text, edit_or_send_message
@@ -36,6 +37,7 @@ from bot.services.task_service import task_service
 from bot.services.diary_service import diary_service, update_daily_state, get_entry_date
 from bot.services.psycho_analysis_service import psycho_analysis_service
 from bot.services.yandex_speechkit import yandex_speechkit_service
+from bot.services.yandex_object_storage import yandex_storage_service
 from bot.services.deepseek_api import deepseek_api_service
 from prompts import get_prompt
 from users.models import User
@@ -70,39 +72,48 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
         if not is_valid:
             await message.answer(get_message(error_code, language))
             return
+
         entry_text = ""
-        voice_file_id = None
-        duration = 0
-        if message.content_type == ContentType.VOICE:
-            voice = message.voice
-            duration = voice.duration
-            voice_file_id = voice.file_id
+        
         entry_datetime = message.date
         status_msg = await message.answer(get_message('processing', language))
+
+        # --- НАЧАЛО НОВОГО БЛОКА ОБРАБОТКИ ТЕКСТА/ГОЛОСА ---
         if message.content_type == ContentType.VOICE:
-            file = await message.bot.get_file(voice_file_id)
-            voice_bytes = (await message.bot.download_file(file.file_path)).read()
-            rec_result = await yandex_speechkit_service.recognize_voice(voice_bytes, language, 'oggopus')
-            if not rec_result['success']:
-                await status_msg.edit_text(f"{get_message('error_processing', language)}: {rec_result.get('message', 'Unknown')}")
-                return
-            punct_result = await deepseek_api_service.punctuate_and_format_text(rec_result['result'], language)
-            entry_text = punct_result.get('result') or rec_result['result']
-        else:
+            # Обработка голосового сообщения с помощью вспомогательной функции
+            success, recognized_text, error_message = await process_voice_message(
+                message=message,
+                context_name="New Entry",
+                language=language,
+                status_msg=status_msg # Передаем сообщение статуса для редактирования
+            )
+
+            if not success:
+                await status_msg.edit_text(f"{get_message('error_processing', language)}: {error_message}")
+                return # Завершаем обработчик
+            
+            entry_text = recognized_text
+
+        elif message.content_type == ContentType.TEXT:
+            # Обработка текстового сообщения (старая логика)
             entry_text = message.text
+        else:
+            # На случай, если фильтр как-то пропустит неподдерживаемый тип
+            logger.warning(f"[New Entry] Получен неподдерживаемый тип контента: {message.content_type}")
+            await message.answer(get_message('invalid_input', language))
+            await status_msg.delete() # Удаляем сообщение статуса, если оно было создано
+            return
+        # --- КОНЕЦ НОВОГО БЛОКА ---
+
+        # --- Остальная логика обработчика (создание записи, анализ и т.д.) ---
+        # Создание записи теперь использует обработанный entry_text независимо от типа ввода
         diary_entry = await diary_service.create_text_entry(
             user=user,
-            text=entry_text,
+            text=entry_text, # Используем обработанный текст
             language=language,
             entry_datetime=entry_datetime
-        ) if message.content_type == ContentType.TEXT else await diary_service.create_voice_entry(
-            user=user,
-            voice_file_id=voice_file_id,
-            duration=duration,
-            recognized_text=entry_text,
-            language=language,
-            entry_datetime=entry_datetime
-        )
+        ) # Убираем условную логику для VOICE, так как entry_text уже содержит распознанный текст
+        
         entry_date = await diary_entry.aentry_date()
         combined_entry, _ = await diary_service.get_or_update_daily_state_with_entries(user, diary_entry)
         all_entries_text = await diary_service.get_combined_entry_text(user, entry_date)
@@ -161,7 +172,7 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
                 logger.warning(f"Не удалось отредактировать сообщение об ошибке: {edit_error}")
         await state_manager.clear_state(state)
 
-@router.message(DiaryStates.asking_clarifying_questions)
+@router.message(DiaryStates.asking_clarifying_questions, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
 async def process_clarification_answers(message: Message, state: FSMContext, user, language: str):
     status_message = None
     try:
@@ -179,10 +190,49 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
             await message.answer(get_message('error_generic', language))
             await state_manager.clear_state(state)
             return
-        clarification_text = message.text.strip()
-        if not clarification_text:
+
+        # --- НАЧАЛО НОВОГО БЛОКА ОБРАБОТКИ ТЕКСТА/ГОЛОСА ---
+        clarification_text = ""
+
+        if message.content_type == ContentType.VOICE:
+            # Обработка голосового сообщения с помощью вспомогательной функции
+            # Создаем временное сообщение статуса "Обработка" для process_voice_message
+            processing_voice_msg = await message.answer(get_message('processing', language))
+            
+            success, recognized_text, error_message = await process_voice_message(
+                message=message,
+                context_name="Clarification",
+                language=language,
+                status_msg=processing_voice_msg # Передаем сообщение статуса для редактирования
+            )
+
+            # Удаляем временное сообщение статуса обработки голоса
+            try:
+                await processing_voice_msg.delete()
+            except Exception as delete_error:
+                logger.warning(f"[Clarification] Не удалось удалить сообщение статуса обработки голоса: {delete_error}")
+
+            if not success:
+                await message.answer(f"{get_message('error_processing', language)}: {error_message}")
+                await state_manager.clear_state(state) # Очищаем состояние
+                return # Завершаем обработчик
+            
+            clarification_text = recognized_text
+
+        elif message.content_type == ContentType.TEXT:
+            # Обработка текстового сообщения (старая логика)
+            clarification_text = message.text.strip()
+            if not clarification_text:
+                await message.answer(get_message('invalid_input', language))
+                return
+        else:
+            # На случай, если фильтр как-то пропустит неподдерживаемый тип
+            logger.warning(f"[Clarification] Получен неподдерживаемый тип контента: {message.content_type}")
             await message.answer(get_message('invalid_input', language))
             return
+        # --- КОНЕЦ НОВОГО БЛОКА ---
+
+        # --- Остальная логика обработчика (разбор ответов, анализ и т.д.) ---
         answers_list = [ans.strip() for ans in clarification_text.split("\n") if ans.strip()]
         clarification_answers_dict = {}
         for i, q in enumerate(clarification_questions):
@@ -622,12 +672,50 @@ async def delete_selected_entry(callback: CallbackQuery, user, language: str):
         logger.error(f"Неожиданная ошибка в delete_selected_entry: {e}", exc_info=True)
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
         
-@router.message(DiaryStates.waiting_for_entry_edit)
+@router.message(DiaryStates.waiting_for_entry_edit, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
 async def process_entry_edit(message: Message, state: FSMContext, user, language: str):
-    """Обработка отредактированного текста записи."""  
+    """Обработка отредактированного текста записи или голосового сообщения."""  
     target_date_for_navigation = None
     try:
-        new_text = message.text
+        # --- НАЧАЛО НОВОГО БЛОКА ОБРАБОТКИ ТЕКСТА/ГОЛОСА ---
+        new_text = ""
+
+        if message.content_type == ContentType.VOICE:
+            # Обработка голосового сообщения с помощью вспомогательной функции
+            # Создаем временное сообщение статуса "Обработка" для process_voice_message
+            processing_voice_msg = await message.answer(get_message('processing', language))
+            
+            success, recognized_text, error_message = await process_voice_message(
+                message=message,
+                context_name="Entry Edit",
+                language=language,
+                status_msg=processing_voice_msg # Передаем сообщение статуса для редактирования
+            )
+
+            # Удаляем временное сообщение статуса обработки голоса
+            try:
+                await processing_voice_msg.delete()
+            except Exception as delete_error:
+                logger.warning(f"[Entry Edit] Не удалось удалить сообщение статуса обработки голоса: {delete_error}")
+
+            if not success:
+                await message.answer(f"{get_message('error_processing', language)}: {error_message}")
+                await state_manager.clear_state(state)
+                return # Завершаем обработчик
+            
+            new_text = recognized_text
+
+        elif message.content_type == ContentType.TEXT:
+            # Обработка текстового сообщения (старая логика)
+            new_text = message.text
+        else:
+            # На случай, если фильтр как-то пропустит неподдерживаемый тип
+            logger.warning(f"[Entry Edit] Получен неподдерживаемый тип контента: {message.content_type}")
+            await message.answer(get_message('invalid_input', language))
+            return
+        # --- КОНЕЦ НОВОГО БЛОКА ---
+
+        # --- Остальная логика обработчика (валидация, обновление записи, навигация) ---
         is_valid, error_code = validate_text_entry(new_text)
         if not is_valid:
             error_msg = get_message(error_code, language)
