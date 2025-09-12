@@ -43,6 +43,7 @@ class SettingsStates(StatesGroup):
     # Удаление аккаунта
     in_account_deletion_menu = State()
     waiting_for_deletion_confirmation = State()
+    waiting_for_deletion_confirmation_text = State()  # Новое состояние
     account_deletion_confirmed = State()
 
     def __str__(self):

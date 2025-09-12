@@ -358,7 +358,7 @@ def get_account_deletion_menu_keyboard(language: str, balance_info: str) -> Inli
         [
             InlineKeyboardButton(
                 text=get_button_text('btn_delete_account_and_funds', language),
-                callback_data="delete_account_confirm"
+                callback_data="confirm_account_deletion_final"
             )
         ],
         [
@@ -385,6 +385,18 @@ def get_account_deletion_confirmation_keyboard(language: str) -> InlineKeyboardM
                 callback_data="confirm_account_deletion_final"
             )
         ],
+        [
+            InlineKeyboardButton(
+                text=get_button_text('btn_cancel_deletion', language),
+                callback_data="delete_account_cancel"
+            )
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_account_deletion_confirmation_keyboard(language: str) -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения удаления аккаунта (только кнопка отмены)"""
+    buttons = [
         [
             InlineKeyboardButton(
                 text=get_button_text('btn_cancel_deletion', language),

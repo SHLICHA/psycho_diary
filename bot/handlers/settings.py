@@ -948,47 +948,67 @@ async def show_account_deletion_menu(callback: CallbackQuery, user, language: st
         logger.error(f"Ошибка при показе меню удаления аккаунта: {e}")
         await callback.answer(get_message('error_generic', language=language))
 
-@router.callback_query(F.data == "delete_account_confirm")
-async def confirm_account_deletion(callback: CallbackQuery, user, language: str, state: FSMContext):
-    """Подтверждение удаления аккаунта"""
+@router.callback_query(F.data == "confirm_account_deletion_final")
+async def confirm_account_deletion_final(callback: CallbackQuery, user, language: str, state: FSMContext):
+    """Финальное подтверждение удаления аккаунта - запрос текста подтверждения"""
     try:
         data = await state_manager.get_state_data(state)
         balance_warning = data.get('balance_warning', '')
         
         confirm_msg = get_message('confirm_account_deletion', language, balance_warning=balance_warning)
         
-        await state_manager.set_state(state, SettingsStates.waiting_for_deletion_confirmation)
+        # Меняем состояние на ожидание ввода текста подтверждения
+        await state_manager.set_state(state, SettingsStates.waiting_for_deletion_confirmation_text)
         await callback.message.edit_text(
             confirm_msg,
-            reply_markup=get_account_deletion_confirmation_keyboard(language)
+            reply_markup=get_account_deletion_confirmation_keyboard(language)  # Добавляем клавиатуру с кнопкой отмены
         )
         await callback.answer()
     except Exception as e:
-        logger.error(f"Ошибка при подтверждении удаления аккаунта: {e}")
+        logger.error(f"Ошибка при финальном подтверждении удаления аккаунта: {e}")
         await callback.answer(get_message('error_generic', language=language))
 
-@router.callback_query(F.data == "confirm_account_deletion_final")
-async def finalize_account_deletion(callback: CallbackQuery, user, language: str, state: FSMContext):
-    """Финализация удаления аккаунта"""
+# Добавим новый обработчик для текста подтверждения
+@router.message(SettingsStates.waiting_for_deletion_confirmation_text)
+async def process_account_deletion_confirmation_text(message: Message, user, language: str, state: FSMContext):
+    """Обработка ввода текста подтверждения удаления аккаунта"""
     try:
-        # Выполняем "обезличивание" аккаунта
+        confirmation_text = message.text.strip()
+        
+        # Проверяем правильность введенного текста
+        if language == 'ru':
+            expected_text = "УДАЛИТЬ МОЙ АККАУНТ"
+        else:
+            expected_text = "DELETE MY ACCOUNT"
+            
+        if confirmation_text != expected_text:
+            error_msg = "❌ Неверный текст подтверждения. Пожалуйста, введите точную фразу."
+            await message.answer(error_msg)
+            # Повторно отправляем запрос
+            data = await state_manager.get_state_data(state)
+            balance_warning = data.get('balance_warning', '')
+            confirm_msg = get_message('confirm_account_deletion', language, balance_warning=balance_warning)
+            await message.answer(confirm_msg)
+            return
+            
+        # Текст подтвержден, выполняем удаление
         success = await anonymize_user_account(user)
         
         if success:
             # Отправляем сообщение об успешном удалении
             success_msg = get_message('account_deletion_confirmed', language)
-            await callback.message.edit_text(success_msg)
+            await message.answer(success_msg)
             
             # Очищаем состояние
             await state_manager.clear_state(state)
         else:
             error_msg = get_message('account_deletion_error', language)
-            await callback.answer(error_msg, show_alert=True)
+            await message.answer(error_msg)
             
     except Exception as e:
-        logger.error(f"Ошибка при финализации удаления аккаунта: {e}")
+        logger.error(f"Ошибка при обработке текста подтверждения удаления аккаунта: {e}")
         error_msg = get_message('account_deletion_error', language)
-        await callback.answer(error_msg, show_alert=True)
+        await message.answer(error_msg)
 
 @router.callback_query(F.data == "delete_account_cancel")
 async def cancel_account_deletion(callback: CallbackQuery, user, language: str, state: FSMContext):
@@ -1027,7 +1047,6 @@ async def contact_support_for_refund(callback: CallbackQuery, user, language: st
         logger.error(f"Ошибка при переходе к контакту поддержки: {e}")
         await callback.answer(get_message('error_generic', language=language))
 
-# Асинхронная функция для "обезличивания" аккаунта
 async def anonymize_user_account(user):
     """
     "Обезличивание" аккаунта пользователя:
@@ -1038,58 +1057,58 @@ async def anonymize_user_account(user):
     """
     try:
         from django.utils import timezone
-        from asgiref.sync import sync_to_async
+        from diary.models import DiaryEntry, VoiceToText, KeyPoint, PsychoAnalysis, UserInsight, TherapyProgress, TherapyTask, TaskCompletion, TaskCompletionAnalysis, UserActivity, CombinedDiaryEntry, DailyAnalysis
         
         # 1. Удаление данных из моделей diary
         # Важно: удаление должно происходить в правильном порядке из-за внешних ключей
         
         # Удаление анализа выполнения заданий
-        await sync_to_async(TaskCompletionAnalysis.objects.filter(
+        await TaskCompletionAnalysis.objects.filter(
             completion__task__user=user
-        ).adelete)()
+        ).adelete()
         
         # Удаление выполнений заданий
-        await sync_to_async(TaskCompletion.objects.filter(
+        await TaskCompletion.objects.filter(
             task__user=user
-        ).adelete)()
+        ).adelete()
         
         # Удаление терапевтических заданий
-        await sync_to_async(TherapyTask.objects.filter(user=user).adelete)()
+        await TherapyTask.objects.filter(user=user).adelete()
         
         # Удаление прогресса терапии
-        await sync_to_async(TherapyProgress.objects.filter(user=user).adelete)()
+        await TherapyProgress.objects.filter(user=user).adelete()
         
         # Удаление инсайтов пользователя
-        await sync_to_async(UserInsight.objects.filter(user=user).adelete)()
+        await UserInsight.objects.filter(user=user).adelete()
         
         # Удаление глубоких анализов дней
-        await sync_to_async(DailyAnalysis.objects.filter(
+        await DailyAnalysis.objects.filter(
             combined_entry__user=user
-        ).adelete)()
+        ).adelete()
         
         # Удаление объединенных записей дней
-        await sync_to_async(CombinedDiaryEntry.objects.filter(user=user).adelete)()
+        await CombinedDiaryEntry.objects.filter(user=user).adelete()
         
         # Удаление психоанализов
-        await sync_to_async(PsychoAnalysis.objects.filter(
+        await PsychoAnalysis.objects.filter(
             entry__user=user
-        ).adelete)()
+        ).adelete()
         
         # Удаление ключевых моментов
-        await sync_to_async(KeyPoint.objects.filter(
+        await KeyPoint.objects.filter(
             entry__user=user
-        ).adelete)()
+        ).adelete()
         
         # Удаление результатов преобразования голоса в текст
-        await sync_to_async(VoiceToText.objects.filter(
+        await VoiceToText.objects.filter(
             entry__user=user
-        ).adelete)()
+        ).adelete()
         
         # Удаление активности пользователя
-        await sync_to_async(UserActivity.objects.filter(user=user).adelete)()
+        await UserActivity.objects.filter(user=user).adelete()
         
         # Удаление записей дневника
-        await sync_to_async(DiaryEntry.objects.filter(user=user).adelete)()
+        await DiaryEntry.objects.filter(user=user).adelete()
         
         # 2. Обнуление персональных данных в модели User
         user.first_name = ""
@@ -1123,11 +1142,11 @@ async def anonymize_user_account(user):
         user.deletion_status = 'anonymized'  # Устанавливаем статус обезличивания
         
         # 4. Сохранение изменений
-        await sync_to_async(user.save)()
+        await user.asave()  # Используем асинхронный save
         
         logger.info(f"Аккаунт пользователя {user.telegram_id} успешно обезличен")
         return True
         
     except Exception as e:
-        logger.error(f"Ошибка при обезличивании аккаунта пользователя {user.telegram_id}: {e}")
+        logger.error(f"Ошибка при обезличивании аккаунта пользователя {user.telegram_id}: {e}", exc_info=True)
         return False
