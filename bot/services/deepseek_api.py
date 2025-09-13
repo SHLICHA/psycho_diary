@@ -42,7 +42,7 @@ class DeepSeekAPIService:
             }
 
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, headers=headers, timeout=60) as response:
+                async with session.post(url, json=payload, headers=headers, timeout=80) as response:
                     if response.status == 200:
                         data = await response.json()
                         response_text = data['choices'][0]['message']['content']
