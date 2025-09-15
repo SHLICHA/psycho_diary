@@ -11,7 +11,7 @@ import re
 from typing import Dict, Any
 from prompts import get_prompt
 from core.settings import DEEPSEEK_API_KEY
-from bot.utils.api_utils import api_retry, handle_api_error
+from bot.utils.api_utils import api_retry, handle_api_error, retry_api_call
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,14 @@ class DeepSeekAPIService:
         if not DEEPSEEK_API_KEY:
             logger.warning("DEEPSEEK_API_KEY не настроен")
 
-    async def send_prompt_and_parse(self, prompt: str, language: str) -> dict:
+    async def send_prompt_and_parse(
+        self, 
+        prompt: str, 
+        language: str, 
+        max_retries: int = 3,      # <-- Новый параметр
+        base_delay: float = 1.0,   # <-- Новый параметр (базовая задержка)
+        timeout_per_attempt: int = 60 # <-- Новый параметр (таймаут на одну попытку)
+    ) -> dict:
         """
         Отправляет готовый промт в DeepSeek и возвращает распарсенный результат.
         """
@@ -396,6 +403,3 @@ async def punctuate_and_format_text(
         Dict[str, Any]: Результат форматирования
     """
     return await deepseek_api_service.punctuate_and_format_text(text, language)
-
-# ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
-

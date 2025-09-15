@@ -98,6 +98,7 @@ USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = 'static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles') 
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
@@ -112,7 +113,12 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'diary.tasks.scheduler_tasks.send_timezone_reminder',
         'schedule': crontab(minute=58, hour=13),
     },
+    'send-entry-reminders': {
+        'task': 'diary.tasks.reminder_tasks.send_entry_reminders',
+        'schedule': crontab(minute=0), # Запуск каждый час в :00
+    },
 }
+
 CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL')
 CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND')
 CELERY_ACCEPT_CONTENT = ['json']

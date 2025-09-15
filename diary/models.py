@@ -76,31 +76,16 @@ class DiaryEntry(models.Model):
         return f"Запись {self.user.username} от {self.created_at.strftime('%d.%m.%Y')}"
     
     @property
-    def localized_created_at(self) -> str:
-        """Локализованное время создания записи"""
-        try:
-            user_local_dt = self.user.get_local_datetime()
-            user_timezone_str = self.user.timezone if self.user else 'UTC'
-            if not user_timezone_str:
-                 user_timezone_str = 'UTC'
-            created_at_for_conversion = self.created_at
-            if created_at_for_conversion.tzinfo is None:
-                created_at_for_conversion = pytz.utc.localize(created_at_for_conversion)
-            user_tz = pytz.timezone(user_timezone_str)
-            localized_time = created_at_for_conversion.astimezone(user_tz)
-            return localized_time.strftime('%d.%m.%Y %H:%M')
-        except Exception as e:
-            logger.error(f"Ошибка при локализации времени для записи {self.id}: {e}")
-            if self.created_at.tzinfo:
-                return self.created_at.strftime('%d.%m.%Y %H:%M UTC')
-            else:
-                return pytz.utc.localize(self.created_at).strftime('%d.%m.%Y %H:%M UTC')
-
-    @property
     def entry_date(self) -> date:
         """Дата записи (без времени) с учетом часового пояса пользователя"""
         try:
-            user_timezone_str = self.user.timezone if self.user.timezone else 'UTC'
+            # Пытаемся получить timezone напрямую, если user уже загружен
+            # В асинхронном контексте это может вызвать ошибку, если user не загружен
+            # Поэтому обернем в try/except и используем sync_to_async как фолбэк в модели
+            # Но в handlers мы будем использовать aentry_date или select_related
+            user_timezone_str = self.user.timezone if hasattr(self.user, 'timezone') and self.user.timezone else 'UTC'
+            if not user_timezone_str:
+                user_timezone_str = 'UTC'
             user_tz = pytz.timezone(user_timezone_str)
             created_at = self.created_at
             if created_at.tzinfo is None:
@@ -108,18 +93,71 @@ class DiaryEntry(models.Model):
             localized_time = created_at.astimezone(user_tz)
             return localized_time.date()
         except Exception as e:
-            logger.error(f"Ошибка при получении даты записи {self.id}: {e}")
+            logger.error(f"Ошибка при получении даты записи {self.id} в синхронном свойстве: {e}")
+            # Фолбэк на UTC
             return self.created_at.date()
 
-    @sync_to_async
-    def aentry_date(self) -> date:
+    # Убедимся, что асинхронная версия работает корректно
+    async def aentry_date(self) -> date:
         """Асинхронная версия entry_date."""
-        return self.entry_date
+        try:
+            # Получаем пользователя асинхронно, если нужно
+            # Но лучше использовать select_related в запросах
+            user_obj = await sync_to_async(lambda: self.user)() if not hasattr(self, '_prefetched_user') else self.user
+            user_timezone_str = user_obj.timezone if user_obj.timezone else 'UTC'
+            if not user_timezone_str:
+                user_timezone_str = 'UTC'
+            user_tz = pytz.timezone(user_timezone_str)
+            created_at = self.created_at
+            if created_at.tzinfo is None:
+                created_at = pytz.utc.localize(created_at)
+            localized_time = created_at.astimezone(user_tz)
+            return localized_time.date()
+        except Exception as e:
+            logger.error(f"Ошибка при получении даты записи {self.id} в асинхронном свойстве: {e}")
+            # Фолбэк на UTC
+            return self.created_at.date()
 
-    @sync_to_async
-    def alocalized_created_at(self) -> str:
+    @property
+    def localized_created_at(self) -> str:
+        """Локализованное время создания записи"""
+        try:
+            # Аналогично для localized_created_at
+            user_timezone_str = self.user.timezone if hasattr(self.user, 'timezone') and self.user.timezone else 'UTC'
+            if not user_timezone_str:
+                user_timezone_str = 'UTC'
+            created_at_for_conversion = self.created_at
+            if created_at_for_conversion.tzinfo is None:
+                created_at_for_conversion = pytz.utc.localize(created_at_for_conversion)
+            user_tz = pytz.timezone(user_timezone_str)
+            localized_time = created_at_for_conversion.astimezone(user_tz)
+            return localized_time.strftime('%d.%m.%Y %H:%M')
+        except Exception as e:
+            logger.error(f"Ошибка при локализации времени для записи {self.id} в синхронном свойстве: {e}")
+            if self.created_at.tzinfo:
+                return self.created_at.strftime('%d.%m.%Y %H:%M UTC')
+            else:
+                return pytz.utc.localize(self.created_at).strftime('%d.%m.%Y %H:%M UTC')
+
+    async def alocalized_created_at(self) -> str:
         """Асинхронная версия localized_created_at."""
-        return self.localized_created_at
+        try:
+            user_obj = await sync_to_async(lambda: self.user)() if not hasattr(self, '_prefetched_user') else self.user
+            user_timezone_str = user_obj.timezone if user_obj.timezone else 'UTC'
+            if not user_timezone_str:
+                user_timezone_str = 'UTC'
+            created_at_for_conversion = self.created_at
+            if created_at_for_conversion.tzinfo is None:
+                created_at_for_conversion = pytz.utc.localize(created_at_for_conversion)
+            user_tz = pytz.timezone(user_timezone_str)
+            localized_time = created_at_for_conversion.astimezone(user_tz)
+            return localized_time.strftime('%d.%m.%Y %H:%M')
+        except Exception as e:
+            logger.error(f"Ошибка при локализации времени для записи {self.id} в асинхронном свойстве: {e}")
+            if self.created_at.tzinfo:
+                return self.created_at.strftime('%d.%m.%Y %H:%M UTC')
+            else:
+                return pytz.utc.localize(self.created_at).strftime('%d.%m.%Y %H:%M UTC')
 
     @property
     def combined_text(self) -> str:
@@ -148,70 +186,6 @@ class DiaryEntry(models.Model):
             return "\n\n---\n\n".join(texts)
         else:
             return self.text
-
-class VoiceToText(models.Model):
-    """Результат преобразования голоса в текст"""
-    entry = models.OneToOneField(
-        DiaryEntry, 
-        on_delete=models.CASCADE, 
-        verbose_name=_("Запись дневника")
-    )
-    original_duration = models.PositiveIntegerField(verbose_name=_("Длительность оригинала (сек)"))
-    processed_text = models.TextField(verbose_name=_("Обработанный текст"))
-    processing_time = models.FloatField(verbose_name=_("Время обработки (сек)"))
-    speechkit_response = models.JSONField(
-        default=dict, 
-        blank=True, 
-        verbose_name=_("Ответ Yandex SpeechKit")
-    )
-    api_response = models.JSONField(
-        default=dict, 
-        blank=True, 
-        verbose_name=_("Ответ API постобработки (DeepSeek)") 
-    )
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата создания"))
-
-    class Meta:
-        verbose_name = _("Голос в текст")
-        verbose_name_plural = _("Голос в текст")
-        db_table = "diary_voice_to_text"
-        indexes = [
-            models.Index(fields=['created_at']),
-            models.Index(fields=['entry', 'created_at']),
-        ]
-
-    def __str__(self):
-        return f"Распознавание для {self.entry}"
-
-class KeyPoint(models.Model):
-    """Ключевой момент из записи"""
-    
-    entry = models.ForeignKey(
-        DiaryEntry, 
-        on_delete=models.CASCADE, 
-        related_name='key_points',
-        verbose_name=_("Запись дневника")
-    )
-    text = models.TextField(verbose_name=_("Текст ключевого момента"))
-    type = models.CharField(
-        max_length=10, 
-        choices=KEYPOINT_TYPES,
-        verbose_name=_("Тип")
-    )
-    confidence = models.FloatField(default=1.0, verbose_name=_("Уверенность"))
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата создания"))
-
-    class Meta:
-        verbose_name = _("Ключевой момент")
-        verbose_name_plural = _("Ключевые моменты")
-        db_table = "diary_key_point"
-        indexes = [
-            models.Index(fields=['created_at']),
-            models.Index(fields=['entry', 'created_at']),
-        ]
-
-    def __str__(self):
-        return f"{self.get_type_display()}: {self.text[:50]}..."
 
 class PsychoAnalysis(models.Model):
     """Результат психоанализа записи"""
@@ -247,42 +221,6 @@ class PsychoAnalysis(models.Model):
 
     def __str__(self):
         return f"Анализ записи {self.entry.id} - {self.mood_score}/10"
-
-class UserInsight(models.Model):
-    """Инсайт пользователя"""
-    
-    user = models.ForeignKey(
-        User, 
-        on_delete=models.CASCADE, 
-        related_name='insights',
-        verbose_name=_("Пользователь")
-    )
-    text = models.TextField(verbose_name=_("Текст инсайта"))
-    weight = models.PositiveIntegerField(default=1, verbose_name=_("Вес"))
-    last_mentioned = models.DateTimeField(verbose_name=_("Последнее упоминание"))
-    category = models.CharField(
-        max_length=50, 
-        choices=INSIGHT_CATEGORIES,
-        verbose_name=_("Категория")
-    )
-    first_mentioned = models.DateTimeField(auto_now_add=True, verbose_name=_("Первое упоминание"))
-    source_entry = models.ForeignKey(
-        'DiaryEntry',
-        on_delete=models.CASCADE,
-        related_name='generated_insights',
-        verbose_name=_("Исходная запись дневника"),
-        help_text=_("Запись дневника, из которой был извлечен этот инсайт."),
-        null=True,
-        blank=True
-    )
-
-    class Meta:
-        verbose_name = _("Инсайт пользователя")
-        verbose_name_plural = _("Инсайты пользователя")
-        db_table = "diary_user_insight"
-
-    def __str__(self):
-        return f"{self.user.username}: {self.text[:50]}..."
 
 class TherapyProgress(models.Model):
     """Прогресс терапии пользователя"""

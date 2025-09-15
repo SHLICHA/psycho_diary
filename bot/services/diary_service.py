@@ -9,7 +9,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, date, time
 from django.db import transaction
 from django.db.models import F
-from diary.models import DiaryEntry, KeyPoint, PsychoAnalysis, VoiceToText, CombinedDiaryEntry, TaskCompletion, TherapyTask, UserInsight
+from diary.models import DiaryEntry, PsychoAnalysis, CombinedDiaryEntry, TaskCompletion, TherapyTask
 from diary.services.daily_state_service import (
     get_daily_state,
     get_or_create_daily_state,
@@ -118,7 +118,6 @@ class DiaryService:
                         'speechkit_response': speechkit_api_response or {},
                         'api_response': deepseek_api_response or {}
                     }
-                    VoiceToText.objects.create(**voice_to_text_data)
                     return diary_entry
             diary_entry = await _create_voice_entry_atomic()
             return diary_entry
@@ -587,8 +586,6 @@ class DiaryService:
                         return True
 
                     PsychoAnalysis.objects.filter(entry_id__in=entry_ids).delete()
-                    KeyPoint.objects.filter(entry_id__in=entry_ids).delete()
-                    VoiceToText.objects.filter(entry_id__in=entry_ids).delete()
                     task_completions = TaskCompletion.objects.filter(completion_text__in=[entry.text for entry in entries])
                     TherapyTask.objects.filter(related_entry_id__in=entry_ids).delete()
                     entries.delete()
@@ -600,54 +597,6 @@ class DiaryService:
         except Exception as e:
             logger.error(f"[Сервис] Ошибка при удалении записей за {target_date}: {e}")
             return False
-        
-    async def get_insights_for_entries(self, entry_ids: list) -> List[UserInsight]:
-        """
-        Асинхронно получает инсайты, связанные со списком ID записей.
-
-        Args:
-            entry_ids (list): Список ID записей DiaryEntry.
-
-        Returns:
-            List[UserInsight]: Список объектов UserInsight, отсортированных по весу и дате.
-        """
-        logger.debug(f"Получение инсайтов для записей: {entry_ids}")
-        insights = []
-        try:
-            # Используем асинхронный менеджер для итерации
-            async for insight in UserInsight.objects.filter(
-                source_entry_id__in=entry_ids
-            ).order_by('-weight', '-last_mentioned'):
-                insights.append(insight)
-            logger.debug(f"Получено {len(insights)} инсайтов.")
-        except Exception as e:
-            logger.error(f"Ошибка при получении инсайтов для записей {entry_ids}: {e}", exc_info=True)
-        return insights
-
-    async def get_keypoints_for_entries(self, entry_ids: list) -> List[KeyPoint]:
-        """
-        Асинхронно получает ключевые моменты, связанные со списком ID записей.
-
-        Args:
-            entry_ids (list): Список ID записей DiaryEntry.
-
-        Returns:
-            List[KeyPoint]: Список объектов KeyPoint, отсортированных по уверенности и дате.
-        """
-        logger.debug(f"Получение ключевых моментов для записей: {entry_ids}")
-        keypoints = []
-        try:
-            # Используем асинхронный менеджер для итерации
-            async for kp in KeyPoint.objects.filter(
-                entry_id__in=entry_ids
-            ).order_by('-confidence', '-created_at'):
-                keypoints.append(kp)
-            logger.debug(f"Получено {len(keypoints)} ключевых моментов.")
-        except Exception as e:
-            logger.error(f"Ошибка при получении ключевых моментов для записей {entry_ids}: {e}", exc_info=True)
-        return keypoints
-
-
 
 diary_service = DiaryService()
 
@@ -691,15 +640,7 @@ async def get_days_with_entries(user: User, year: int, month: int) -> set:
 async def delete_all_entries_for_day(user: User, target_date: date) -> bool:
     """Удобная асинхронная функция для удаления всех записей за день."""
     return await diary_service.delete_all_entries_for_day(user, target_date)
-
-async def get_insights_for_entries(entry_ids: list) -> List[UserInsight]:
-    """Удобная функция для получения инсайтов по списку ID записей."""
-    return await diary_service.get_insights_for_entries(entry_ids)
-
-async def get_keypoints_for_entries(entry_ids: list) -> List[KeyPoint]:
-    """Удобная функция для получения ключевых моментов по списку ID записей."""
-    return await diary_service.get_keypoints_for_entries(entry_ids)    
-
+  
 async def get_entry_date(entry: DiaryEntry) -> date:
         try:
             user = await entry.user.aget()

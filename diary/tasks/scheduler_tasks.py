@@ -8,16 +8,15 @@ from datetime import datetime, date, time, timedelta
 import pytz
 from celery import shared_task
 from django.utils import timezone
-from django.db.models import Max
 from aiogram import Bot
 from asgiref.sync import async_to_sync, sync_to_async
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.enums import ParseMode
 
 from users.models import User
-from diary.models import CombinedDiaryEntry, DailyAnalysis, DiaryEntry
+from diary.models import DailyAnalysis
 from core.settings import TELEGRAM_BOT_TOKEN
-from bot.utils.message_utils import edit_or_send_message, send_message_to_user
+from bot.utils.message_utils import send_message_to_user
 from messages import get_message, get_button_text
 
 logger = logging.getLogger(__name__)
@@ -50,10 +49,6 @@ def _is_analysis_time_reached(user: User, target_date: date) -> bool:
     preferred_analysis_time = user.preferred_analysis_time or time(2, 0) # Дефолт 02:00
 
     try:
-        # --- ИСПРАВЛЕНИЕ ЛОГИКИ ---
-        # Момент анализа для дня `target_date` наступает в
-        # `preferred_analysis_time` в дате `target_date + 1` по пользовательскому времени.
-        # Это момент, когда "день target_date закончился достаточно, чтобы запустить анализ".
         analysis_trigger_date_user_tz = target_date + timedelta(days=1)
         analysis_trigger_moment_user_tz_naive = datetime.combine(
             analysis_trigger_date_user_tz, 

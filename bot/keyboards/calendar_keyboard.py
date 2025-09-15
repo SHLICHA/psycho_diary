@@ -311,24 +311,31 @@ def get_delete_confirmation_keyboard(language: str, entry_id: int) -> InlineKeyb
         cancel_callback_data="cancel_delete_entry"
     )
 
-def get_delete_entry_confirmation_keyboard(entry_id: int, target_date, language: str) -> InlineKeyboardMarkup:
-    """Клавиатура подтверждения удаления конкретной записи (алиас)."""
-    iso_date_str = target_date.isoformat() if not isinstance(target_date, str) else target_date
+def get_delete_entry_confirmation_keyboard(language: str, entry_id: int, target_date: date) -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения удаления записи (алиас)."""
+    # Преобразуем дату в строку ISO для передачи в callback_data
+    if isinstance(target_date, date):
+        target_date_iso = target_date.isoformat() 
+    else:
+        # На случай, если target_date каким-то образом оказалась строкой или другим типом
+        logger.error(f"get_delete_entry_confirmation_keyboard: target_date не является объектом date: {type(target_date)}")
+        # Используем сегодняшнюю дату как фолбэк
+        target_date_iso = date.today().isoformat() 
     return get_confirmation_keyboard(
         language=language,
-        confirm_text_key='btn_confirm_delete_entry',
-        cancel_text_key='btn_cancel',
-        confirm_callback_data=f"confirm_delete_specific_entry:{entry_id}:{iso_date_str}",
-        cancel_callback_data=f"cancel_delete_specific_entry:{entry_id}:{iso_date_str}"
+        confirm_text_key='btn_confirm_delete', # <-- Правильный ключ для текста кнопки подтверждения
+        cancel_text_key='btn_cancel_delete',   # <-- Правильный ключ для текста кнопки отмены
+        confirm_callback_data=f"confirm_delete_specific_entry:{entry_id}:{target_date_iso}", # <-- Правильный callback_data
+        cancel_callback_data=f"cancel_delete_specific_entry:{entry_id}:{target_date_iso}"     # <-- Правильный callback_data
     )
 
 def get_entry_page_keyboard(
     entry_id: int,
     current_index: int,
     total_entries: int,
-    target_date: date,
+    target_date: date, # <-- Новый параметр
     language: str,
-    is_day_analyzed: bool # Новый параметр
+    is_day_analyzed: bool 
 ) -> InlineKeyboardMarkup:
     """
     Формирует клавиатуру для страницы просмотра записи с учетом статуса анализа дня.
@@ -372,23 +379,10 @@ def get_entry_page_keyboard(
         ),
         InlineKeyboardButton(
             text=get_button_text('btn_delete_entry', language),
-            callback_data=f"entry_delete_confirm:{entry_id}"
+            callback_data=f"entry_delete_confirm:{entry_id}:{target_date.isoformat()}" # <-- Передаем target_date.isoformat()
         )
     ]
     keyboard_buttons.append(actions_row_1)
-
-    # Кнопки инсайтов и ключевых моментов
-    '''insights_row = [
-        InlineKeyboardButton(
-            text=get_message('btn_view_insights', language), # Используем существующее сообщение
-            callback_data=f"view_day_insights:{target_date.year}:{target_date.month}:{target_date.day}"
-        ),
-        InlineKeyboardButton(
-            text=get_message('btn_view_key_points', language), # Используем существующее сообщение
-            callback_data=f"view_day_keypoints:{target_date.year}:{target_date.month}:{target_date.day}"
-        )
-    ]
-    keyboard_buttons.append(insights_row)'''
 
     # --- КНОПКА АНАЛИЗА ДНЯ ---
     if is_day_analyzed:

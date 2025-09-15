@@ -652,7 +652,6 @@ def get_prompt(key: str, language: str = 'ru', **kwargs) -> str:
     logger.debug(f"=== GET_PROMPT ===")
     logger.debug(f"Ключ: {key}")
     logger.debug(f"Язык: {language}")
-    logger.debug(f"Параметры: {list(kwargs.keys())}")
     
     if language not in PROMPTS:
         logger.warning(f"Неподдерживаемый язык: {language}, используем 'ru'")
@@ -676,7 +675,6 @@ def get_prompt(key: str, language: str = 'ru', **kwargs) -> str:
             }
             safe_user_profile.update({k: v for k, v in user_profile.items() if k != 'first_name'})
             kwargs['user_profile'] = safe_user_profile
-            logger.debug(f'{prompt_template.format(**kwargs)}')
             return prompt_template.format(**kwargs)
             
         else:

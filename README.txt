@@ -13,6 +13,7 @@ docker push shlicha/dairy_bot:v1 - отправить образ на DockerHub
 
 celery -A core worker --beat --loglevel=info - запуск celery
 sudo systemctl start redis-server - если redis не запущен
+docker-compose logs -f celery_worker - #запуск логов celery
 
 git add .
 git commit -m 'Название'

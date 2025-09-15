@@ -1,4 +1,4 @@
-# /home/shlicha/psycho_diary/app/Dockerfile
+# /home/shlicha/psycho_diary/Dockerfile
 FROM python:3.10-slim
 
 # Аргументы для сборки
@@ -14,7 +14,7 @@ RUN apt-get update \
         postgresql-client \
         gcc \
         libpq-dev \
-        ffmpeg \ 
+        ffmpeg \
         netcat-traditional \
     && rm -rf /var/lib/apt/lists/*
 
@@ -28,8 +28,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Копирование всего приложения
 COPY . /app/
 
-# Создание каталогов для статики и медиа (для Nginx)
+# Создание каталогов для статики и медиа (для Nginx, если понадобится)
 RUN mkdir -p /app/staticfiles && mkdir -p /app/media
 
-# Команда по умолчанию (будет переопределена в docker-compose)
-# CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+# Команда по умолчанию (ее нужно будет переопределить при запуске контейнера)
+# Например, для запуска бота: python manage.py runbot
+# Для запуска веб-сервера: python manage.py runserver 0.0.0.0:8000 или gunicorn
+CMD ["python", "manage.py", "--help"]
