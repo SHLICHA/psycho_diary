@@ -18,6 +18,7 @@ class User(AbstractUser):
         default='ru',
         verbose_name="Язык"
     )
+    has_agreed_to_terms = models.BooleanField(default=False, verbose_name="Согласие с условиями использования")
     timezone = models.CharField(max_length=50, default='UTC',verbose_name="Часовой пояс")
     last_entry = models.DateTimeField(null=True, blank=True, verbose_name="Последняя запись")
     awareness_level = models.PositiveIntegerField(default=1, verbose_name="Уровень осознанности")

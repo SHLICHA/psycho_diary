@@ -53,7 +53,7 @@ class DiaryEntryAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
         (_('Уточнения'), {
-            'fields': ('clarification_questions_asked',),
+            'fields': ('clarification_questions_asked','clarification_answers'),
             'classes': ('collapse',)
         }),
         (_('Связанные данные'), {

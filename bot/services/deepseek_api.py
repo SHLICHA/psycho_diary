@@ -25,87 +25,120 @@ class DeepSeekAPIService:
         self, 
         prompt: str, 
         language: str, 
-        max_retries: int = 3,      # <-- Новый параметр
-        base_delay: float = 1.0,   # <-- Новый параметр (базовая задержка)
-        timeout_per_attempt: int = 60 # <-- Новый параметр (таймаут на одну попытку)
+        max_retries: int = 3,      # <-- Используем параметр
+        base_delay: float = 1.5,   # <-- Используем параметр
+        timeout_per_attempt: int = 80 # <-- Используем параметр
     ) -> dict:
         """
         Отправляет готовый промт в DeepSeek и возвращает распарсенный результат.
+        Реализует механизм повторных попыток при ошибках.
         """
-        try:
-            if not DEEPSEEK_API_KEY:
-                return {'success': False, 'error': 'api_key_missing', 'result': {}}
+        logger.debug(f"[DeepSeek API] Начало send_prompt_and_parse. Попыток: {max_retries}, Базовая задержка: {base_delay}s, Таймаут: {timeout_per_attempt}s")
+        
+        last_exception = None
+        last_response_text = ""
 
-            url = "https://api.deepseek.com/v1/chat/completions"  # ← Пробелы убраны (в твоём коде есть, но это ошибка)
-            payload = {
-                "model": "deepseek-chat",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.3,
-                "max_tokens": 5000
-            }
-            headers = {
-                "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-                "Content-Type": "application/json"
-            }
+        for attempt in range(max_retries):
+            try:
+                if not DEEPSEEK_API_KEY:
+                    logger.warning("[DeepSeek API] DEEPSEEK_API_KEY не настроен")
+                    return {'success': False, 'error': 'api_key_missing', 'result': {}, 'raw_response': ''}
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, headers=headers, timeout=80) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        response_text = data['choices'][0]['message']['content']
-                        result = await self._parse_analysis_response(response_text, language)
-                        return {
-                            'success': True,
-                            'result': result,
-                            'raw_response': response_text
-                        }
-                    else:
-                        error_text = await response.text()
-                        return {
-                            'success': False,
-                            'error': f'status_{response.status}',
-                            'message': error_text,
-                            'result': {},
-                            'raw_response': error_text
-                        }
-        except asyncio.TimeoutError:
-            return {
-                'success': False,
-                'error': 'timeout',
-                'message': 'Превышено время ожидания',
-                'result': {}
-            }
-        except Exception as e:
-            logger.error(f"Ошибка при отправке промта: {e}")
-            return {
-                'success': False,
-                'error': 'request_failed',
-                'message': str(e),
-                'result': {},
-                'raw_response': ''
-            }
+                # Исправленный URL (убраны пробелы)
+                url = "https://api.deepseek.com/v1/chat/completions"
+                
+                payload = {
+                    "model": "deepseek-chat",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.3,
+                    "max_tokens": 5000
+                }
+                headers = {
+                    "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                    "Content-Type": "application/json"
+                }
+
+                # Используем таймаут для каждой попытки
+                timeout = aiohttp.ClientTimeout(total=timeout_per_attempt)
+                logger.debug(f"[DeepSeek API] Попытка {attempt + 1}/{max_retries} к {url}")
+
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.post(url, json=payload, headers=headers) as response:
+                        response_text = await response.text()
+                        logger.debug(f"[DeepSeek API] Попытка {attempt + 1} получила статус: {response.status}")
+                        
+                        if response.status == 200:
+                            data = await response.json()
+                            response_content = data['choices'][0]['message']['content']
+                            result = await self._parse_analysis_response(response_content, language)
+                            logger.debug(f"[DeepSeek API] Попытка {attempt + 1} успешна.")
+                            return {
+                                'success': True,
+                                'result': result,
+                                'raw_response': response_content
+                            }
+                        else:
+                            # Логируем не 200 ответ как ошибку, но не прекращаем retry
+                            logger.warning(f"[DeepSeek API] Попытка {attempt + 1} получила статус {response.status}. Ответ: {response_text[:200]}...")
+                            last_response_text = response_text # Сохраняем для последней ошибки
+                            # Не выходим из цикла, продолжаем retry
+
+            except asyncio.TimeoutError as te:
+                last_exception = te
+                logger.debug(f"[DeepSeek API] Попытка {attempt + 1} превысила таймаут ({timeout_per_attempt}s): {te}")
+                
+            except aiohttp.ClientError as ce: # Охватывает большинство сетевых ошибок aiohttp
+                last_exception = ce
+                logger.debug(f"[DeepSeek API] Попытка {attempt + 1} ошибка клиента aiohttp: {ce}")
+                
+            except Exception as e:
+                last_exception = e
+                logger.error(f"[DeepSeek API] Попытка {attempt + 1} неожиданная ошибка: {e}", exc_info=True)
+                # Для не сетевых ошибок, возможно, нет смысла retry, но для единообразия продолжаем
+            
+            # Если это не последняя попытка, делаем задержку
+            if attempt < max_retries - 1:
+                delay = base_delay * (attempt + 1) # Линейная задержка
+                logger.debug(f"[DeepSeek API] Ожидание {delay:.2f} секунд перед следующей попыткой...")
+                await asyncio.sleep(delay)
+            else:
+                logger.debug(f"[DeepSeek API] Все {max_retries} попыток исчерпаны.")
+
+        # Если цикл завершился без return, значит все попытки провалились
+        error_msg = "Превышено время ожидания" if isinstance(last_exception, asyncio.TimeoutError) else str(last_exception) if last_exception else f"Ошибка API: {last_response_text[:200]}..."
+        error_code = 'timeout' if isinstance(last_exception, asyncio.TimeoutError) else 'request_failed'
+        
+        logger.error(f"[DeepSeek API] send_prompt_and_parse завершился ошибкой после {max_retries} попыток: {error_msg}")
+        return {
+            'success': False,
+            'error': error_code,
+            'message': error_msg,
+            'result': {},
+            'raw_response': last_response_text if last_response_text else (str(last_exception) if last_exception else '')
+        }
+
 
     async def _parse_analysis_response(self, response_text: str, language: str) -> dict:
         """
         Парсит ответ от DeepSeek.
         """
-        logger.info(f"Парсинг ответа API, язык: {language}, длина: {len(response_text)}")
+        logger.debug(f"[DeepSeek API] Парсинг ответа API, язык: {language}, длина: {len(response_text)}")
         try:
             import json
             # Прямой парсинг
             result = json.loads(response_text)
             return result
         except json.JSONDecodeError:
-            logger.warning("Прямой парсинг JSON не удался. Ищем в Markdown-блоке...")
+            logger.warning("[DeepSeek API] Прямой парсинг JSON не удался. Ищем в Markdown-блоке...")
             try:
                 import re
                 json_match = re.search(r'```(?:json)?\s*({.*?})\s*```', response_text, re.DOTALL)
                 if json_match:
                     return json.loads(json_match.group(1))
                 else:
-                    logger.warning("JSON-блок не найден.")
+                    logger.warning("[DeepSeek API] JSON-блок не найден.")
             except Exception as e:
-                logger.error(f"Ошибка при поиске JSON в Markdown: {e}")
+                logger.error(f"[DeepSeek API] Ошибка при поиске JSON в Markdown: {e}")
             return {
                 'mood_score': 5,
                 'comment': 'Анализ записан' if language == 'ru' else 'Entry analyzed',
@@ -121,9 +154,9 @@ class DeepSeekAPIService:
         """
         Расстановка знаков препинания и форматирование текста через DeepSeek API.
         Теперь использует get_prompt из prompts.py.
+        Добавлена простая защита от таймаутов.
         """
-        logger.info(f"Расстановка знаков препинания через DeepSeek API, язык: {language}")
-        logger.info(f"Текст длиной: {len(text)} символов")
+        logger.debug(f"[DeepSeek API - Punctuation] Начало punctuate_and_format_text для текста длиной {len(text)} символов, язык: {language}")
 
         # Проверки
         if not text or len(text.strip()) < 1:
@@ -142,50 +175,87 @@ class DeepSeekAPIService:
                 language=language,
                 text=text
             )
-            logger.info(f"Промт для расстановки пунктуации сгенерирован (длина: {len(prompt)} символов)")
+            logger.debug(f"[DeepSeek API - Punctuation] Промт сгенерирован (длина: {len(prompt)} символов)")
         except Exception as e:
-            logger.error(f"Ошибка форматирования промпта 'punctuation': {e}")
+            logger.error(f"[DeepSeek API - Punctuation] Ошибка форматирования промпта 'punctuation': {e}")
             return self._make_error_result('prompt_generation_failed', f'Ошибка генерации промпта: {e}', text)
 
-        # === ОТПРАВКА В API ===
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    "https://api.deepseek.com/v1/chat/completions",
-                    json={
-                        "model": "deepseek-chat",
-                        "messages": [{"role": "user", "content": prompt}],
-                        "temperature": 0.3,
-                        "max_tokens": 5000
-                    },
-                    headers={
-                        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-                        "Content-Type": "application/json"
-                    },
-                    timeout=aiohttp.ClientTimeout(total=60)
-                ) as response:
-                    raw_response_text = await response.text()
-                    logger.info(f"Ответ от DeepSeek API: {response.status}")
+        # === ОТПРАВКА В API с простым retry ===
+        max_retries = 2 # Меньше попыток для этой операции
+        base_delay = 1.0
+        timeout_per_attempt = 80
+        
+        last_exception = None
+        last_response_text = ""
 
-                    if response.status == 200:
-                        result = await response.json()
-                        response_text = result['choices'][0]['message']['content']
-                        formatted_text = await self._extract_formatted_text(response_text, language)
-                        return self._make_success_result(formatted_text, raw_response_text, result)
-                    else:
-                        return self._make_error_result(f'deepseek_api_error_{response.status}', raw_response_text, text)
-        except asyncio.TimeoutError:
-            return self._make_error_result('timeout', 'Превышено время ожидания', text)
-        except Exception as e:
-            logger.error(f"Ошибка при запросе к DeepSeek API: {e}", exc_info=True)
-            return self._make_error_result('request_failed', str(e), text)
+        for attempt in range(max_retries):
+            try:
+                # Исправленный URL
+                url = "https://api.deepseek.com/v1/chat/completions"
+                
+                payload = {
+                    "model": "deepseek-chat",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.3,
+                    "max_tokens": 5000
+                }
+                headers = {
+                    "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                    "Content-Type": "application/json"
+                }
+
+                timeout = aiohttp.ClientTimeout(total=timeout_per_attempt)
+                logger.debug(f"[DeepSeek API - Punctuation] Попытка {attempt + 1}/{max_retries}")
+
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.post(url, json=payload, headers=headers) as response:
+                        raw_response_text = await response.text()
+                        logger.debug(f"[DeepSeek API - Punctuation] Попытка {attempt + 1} получила статус: {response.status}")
+
+                        if response.status == 200:
+                            result = await response.json()
+                            response_text = result['choices'][0]['message']['content']
+                            formatted_text = await self._extract_formatted_text(response_text, language)
+                            
+                            success_result = self._make_success_result(formatted_text, raw_response_text, result)
+                            logger.debug(f"[DeepSeek API - Punctuation] Попытка {attempt + 1} успешна.")
+                            return success_result
+                        else:
+                            logger.warning(f"[DeepSeek API - Punctuation] Попытка {attempt + 1} получила статус {response.status}. Ответ: {raw_response_text[:200]}...")
+                            last_response_text = raw_response_text
+
+            except asyncio.TimeoutError as te:
+                last_exception = te
+                logger.debug(f"[DeepSeek API - Punctuation] Попытка {attempt + 1} превысила таймаут ({timeout_per_attempt}s): {te}")
+                
+            except aiohttp.ClientError as ce:
+                last_exception = ce
+                logger.debug(f"[DeepSeek API - Punctuation] Попытка {attempt + 1} ошибка клиента aiohttp: {ce}")
+                
+            except Exception as e:
+                last_exception = e
+                logger.error(f"[DeepSeek API - Punctuation] Попытка {attempt + 1} неожиданная ошибка: {e}", exc_info=True)
+
+            if attempt < max_retries - 1:
+                delay = base_delay * (attempt + 1)
+                logger.debug(f"[DeepSeek API - Punctuation] Ожидание {delay:.2f} секунд перед следующей попыткой...")
+                await asyncio.sleep(delay)
+            else:
+                logger.debug(f"[DeepSeek API - Punctuation] Все {max_retries} попытки исчерпаны.")
+
+        # Если все попытки провалились
+        error_msg = "Превышено время ожидания" if isinstance(last_exception, asyncio.TimeoutError) else str(last_exception) if last_exception else f"Ошибка API: {last_response_text[:200]}..."
+        error_code = 'timeout' if isinstance(last_exception, asyncio.TimeoutError) else 'request_failed'
+        
+        logger.error(f"[DeepSeek API - Punctuation] punctuate_and_format_text завершился ошибкой после {max_retries} попыток: {error_msg}")
+        return self._make_error_result(error_code, error_msg, text)
     
     async def _extract_formatted_text(self, response_text: str, language: str) -> str:
         """
         Извлекает отформатированный текст из ответа DeepSeek.
         Удаляет префиксы и постфиксы.
         """
-        logger.info(f"Извлечение отформатированного текста, язык: {language}")
+        logger.debug(f"[DeepSeek API] Извлечение отформатированного текста, язык: {language}")
         formatted_text = response_text.strip()
 
         prefixes = [
@@ -267,7 +337,7 @@ class DeepSeekAPIService:
         """
         Определяет часовой пояс по названию города через DeepSeek API.
         """
-        logger.info(f"Определение часового пояса для города: {city_name}, язык: {language}")
+        logger.debug(f"[DeepSeek API - Timezone] Начало detect_timezone_by_city для города: {city_name}, язык: {language}")
 
         # Проверки
         if not city_name or len(city_name.strip()) < 1:
@@ -291,99 +361,126 @@ class DeepSeekAPIService:
                 language=language,
                 city_name=city_name
             )
-            logger.info(f"Промт для определения часового пояса сгенерирован (длина: {len(prompt)} символов)")
+            logger.debug(f"[DeepSeek API - Timezone] Промт сгенерирован (длина: {len(prompt)} символов)")
         except Exception as e:
-            logger.error(f"Ошибка форматирования промпта 'timezone_detection': {e}")
+            logger.error(f"[DeepSeek API - Timezone] Ошибка форматирования промпта 'timezone_detection': {e}")
             return {
                 'success': False,
                 'error': 'prompt_generation_failed',
                 'message': f'Ошибка генерации промпта: {e}'
             }
 
-        # === ОТПРАВКА В API ===
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    "https://api.deepseek.com/v1/chat/completions",
-                    json={
-                        "model": "deepseek-chat",
-                        "messages": [{"role": "user", "content": prompt}],
-                        "temperature": 0.1,
-                        "max_tokens": 1000
-                    },
-                    headers={
-                        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-                        "Content-Type": "application/json"
-                    },
-                    timeout=aiohttp.ClientTimeout(total=30)
-                ) as response:
-                    raw_response_text = await response.text()
-                    logger.info(f"Ответ от DeepSeek API: {response.status}")
+        # === ОТПРАВКА В API с retry (используем тот же механизм, что и в send_prompt_and_parse) ===
+        max_retries = 3
+        base_delay = 1.5
+        timeout_per_attempt = 30 # Меньше таймаут для этой операции
+        
+        last_exception = None
+        last_response_text = ""
 
-                    if response.status == 200:
-                        result = await response.json()
-                        response_text = result['choices'][0]['message']['content']
-                        
-                        # Попытка парсинга JSON из ответа
-                        try:
-                            import json
-                            import re
+        for attempt in range(max_retries):
+            try:
+                # Исправленный URL
+                url = "https://api.deepseek.com/v1/chat/completions"
+                
+                payload = {
+                    "model": "deepseek-chat",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.1,
+                    "max_tokens": 1000
+                }
+                headers = {
+                    "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                    "Content-Type": "application/json"
+                }
+
+                timeout = aiohttp.ClientTimeout(total=timeout_per_attempt)
+                logger.debug(f"[DeepSeek API - Timezone] Попытка {attempt + 1}/{max_retries}")
+
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.post(url, json=payload, headers=headers) as response:
+                        raw_response_text = await response.text()
+                        logger.debug(f"[DeepSeek API - Timezone] Попытка {attempt + 1} получила статус: {response.status}")
+
+                        if response.status == 200:
+                            result = await response.json()
+                            response_text = result['choices'][0]['message']['content']
                             
-                            # Ищем JSON в код блоке
-                            json_match = re.search(r'```(?:json)?\s*({.*?})\s*```', response_text, re.DOTALL)
-                            if json_match:
-                                json_text = json_match.group(1)
-                            else:
-                                # Прямая попытка парсинга
-                                json_text = response_text
-                            
-                            parsed_result = json.loads(json_text)
-                            
-                            # Проверяем структуру ответа
-                            if not isinstance(parsed_result, dict):
-                                raise ValueError("Ответ не является словарем")
+                            # Попытка парсинга JSON из ответа
+                            try:
+                                import json
+                                import re
                                 
-                            return {
-                                'success': True,
-                                'result': parsed_result,
-                                'raw_response': response_text
-                            }
-                        except json.JSONDecodeError as e:
-                            logger.error(f"Ошибка парсинга JSON из ответа API: {e}")
-                            return {
-                                'success': False,
-                                'error': 'json_parse_error',
-                                'message': 'Ошибка парсинга ответа от API',
-                                'raw_response': response_text
-                            }
-                        except Exception as e:
-                            logger.error(f"Ошибка обработки ответа API: {e}")
-                            return {
-                                'success': False,
-                                'error': 'response_processing_error',
-                                'message': f'Ошибка обработки ответа: {e}',
-                                'raw_response': response_text
-                            }
-                    else:
-                        return {
-                            'success': False,
-                            'error': f'deepseek_api_error_{response.status}',
-                            'message': f'Ошибка API: {response.status}',
-                            'raw_response': raw_response_text
-                        }
-        except asyncio.TimeoutError:
-            return {
-                'success': False,
-                'error': 'timeout',
-                'message': 'Превышено время ожидания'
-            }
-        except Exception as e:
-            logger.error(f"Ошибка при запросе к DeepSeek API: {e}", exc_info=True)
-            return {
-                'success': False,
-                'error': 'request_failed',
-                'message': str(e)
-            }
+                                # Ищем JSON в код блоке
+                                json_match = re.search(r'```(?:json)?\s*({.*?})\s*```', response_text, re.DOTALL)
+                                if json_match:
+                                    json_text = json_match.group(1)
+                                else:
+                                    # Прямая попытка парсинга
+                                    json_text = response_text
+                                
+                                parsed_result = json.loads(json_text)
+                                
+                                # Проверяем структуру ответа
+                                if not isinstance(parsed_result, dict):
+                                    raise ValueError("Ответ не является словарем")
+                                    
+                                logger.debug(f"[DeepSeek API - Timezone] Попытка {attempt + 1} успешна.")
+                                return {
+                                    'success': True,
+                                    'result': parsed_result,
+                                    'raw_response': response_text
+                                }
+                            except json.JSONDecodeError as e:
+                                logger.error(f"[DeepSeek API - Timezone] Ошибка парсинга JSON из ответа API: {e}")
+                                return {
+                                    'success': False,
+                                    'error': 'json_parse_error',
+                                    'message': 'Ошибка парсинга ответа от API',
+                                    'raw_response': response_text
+                                }
+                            except Exception as e:
+                                logger.error(f"[DeepSeek API - Timezone] Ошибка обработки ответа API: {e}")
+                                return {
+                                    'success': False,
+                                    'error': 'response_processing_error',
+                                    'message': f'Ошибка обработки ответа: {e}',
+                                    'raw_response': response_text
+                                }
+                        else:
+                            logger.warning(f"[DeepSeek API - Timezone] Попытка {attempt + 1} получила статус {response.status}. Ответ: {raw_response_text[:200]}...")
+                            last_response_text = raw_response_text
+
+            except asyncio.TimeoutError as te:
+                last_exception = te
+                logger.debug(f"[DeepSeek API - Timezone] Попытка {attempt + 1} превысила таймаут ({timeout_per_attempt}s): {te}")
+                
+            except aiohttp.ClientError as ce:
+                last_exception = ce
+                logger.debug(f"[DeepSeek API - Timezone] Попытка {attempt + 1} ошибка клиента aiohttp: {ce}")
+                
+            except Exception as e:
+                last_exception = e
+                logger.error(f"[DeepSeek API - Timezone] Попытка {attempt + 1} неожиданная ошибка: {e}", exc_info=True)
+
+            if attempt < max_retries - 1:
+                delay = base_delay * (attempt + 1)
+                logger.debug(f"[DeepSeek API - Timezone] Ожидание {delay:.2f} секунд перед следующей попыткой...")
+                await asyncio.sleep(delay)
+            else:
+                logger.debug(f"[DeepSeek API - Timezone] Все {max_retries} попытки исчерпаны.")
+
+        # Если все попытки провалились
+        error_msg = "Превышено время ожидания" if isinstance(last_exception, asyncio.TimeoutError) else str(last_exception) if last_exception else f"Ошибка API: {last_response_text[:200]}..."
+        error_code = 'timeout' if isinstance(last_exception, asyncio.TimeoutError) else 'request_failed'
+        
+        logger.error(f"[DeepSeek API - Timezone] detect_timezone_by_city завершился ошибкой после {max_retries} попыток: {error_msg}")
+        return {
+            'success': False,
+            'error': error_code,
+            'message': error_msg,
+            'raw_response': last_response_text if last_response_text else (str(last_exception) if last_exception else '')
+        }
 
 # Глобальный экземпляр сервиса DeepSeek API
 deepseek_api_service = DeepSeekAPIService()

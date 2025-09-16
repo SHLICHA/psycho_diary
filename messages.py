@@ -384,6 +384,56 @@ MESSAGES = {
 • Приоритетная поддержка
 
 💳 Подписка стоит 299₽/месяц''',
+
+        'onboarding_welcome': '👋 Добро пожаловать в бот для ведения психологического дневника!',
+        'onboarding_instruction': (
+            '📝 Этот бот поможет вам вести цифровой дневник и получать по нему автоматический психологический анализ от ИИ.\n\n'
+            'Основные шаги:\n'
+            '1️⃣ <b>Запись:</b> Делайте записи текстом или голосом.\n'
+            '2️⃣ <b>Анализ:</b> ИИ сразу анализирует вашу запись (настроение, инсайты).\n'
+            '3️⃣ <b>Задания:</b> На основе анализа ИИ может предложить персональные терапевтические задания.\n'
+            '4️⃣ <b>Рост:</b> Регулярное использование поможет лучше понимать себя и повышать психологическую осознанность.\n\n'
+            '⚙️ Вы можете настроить бот под себя: изменить язык, установить часовой пояс, включить/выключить автоматический анализ и многое другое в разделе "Настройки".'
+        ),
+        'onboarding_agreement': (
+            '⚠️ <b>Важно:</b>\n\n'
+            'Этот бот <b>не является</b> заменой консультации с профессиональным психологом или психотерапевтом.\n\n'
+            'Информация, которую вы предоставляете, анализируется ИИ. Результаты носят рекомендательный характер.\n\n'
+            'Если у вас есть серьезные психологические трудности, мы настоятельно рекомендуем обратиться за помощью к квалифицированному специалисту.\n\n'
+            'Вы можете в любой момент удалить все свои данные в настройках.'
+        ),
+        'onboarding_required': (
+            '🔒 Для продолжения работы с ботом необходимо ознакомиться и согласиться с условиями использования.\n\n'
+            'Пожалуйста, нажмите кнопку ниже, чтобы начать.'
+        ),
+        'access_denied': '🚫 Доступ ограничен. Пожалуйста, сначала ознакомьтесь и согласитесь с условиями использования.', # Для safe_answer_callback
+        'onboarding_thank_you': '✅ Спасибо за согласие! Теперь вы можете пользоваться всем функционалом бота.',
+        'onboarding_disagreed': (
+            '❌ Вы не согласились с условиями использования.\n\n'
+            'К сожалению, без согласия основной функционал бота недоступен.\n'
+            'Если вы передумаете, просто отправьте команду /start, чтобы попробовать снова.'
+        ),
+        # === Кнопки онбординга (Новые кнопки) ===
+        'btn_start_onboarding': '🚀 Начать',
+        'btn_next': '➡️ Далее',
+        'btn_agree': '✅ Я согласен',
+        'btn_disagree': '❌ Отказаться',
+        # === Сообщения анкетирования ===
+        'btn_fill_questionnaire': '📋 Заполнить анкету',
+        'onboarding_question_1': 'Как бы вы хотели, чтобы бот к вам обращался?',
+        'onboarding_question_2': 'С какой целью вы решили вести дневник?',
+        'onboarding_question_3': 'Какие 3 слова лучше всего описывают ваш характер?',
+        'onboarding_question_4': 'Что для вас наиболее важно в жизни?',
+        'onboarding_question_5': 'Чем вы любите заниматься в свободное время?',
+        'onboarding_question_6': 'Есть ли что-то, что часто сильно влияет на ваше настроение (в положительную или отрицательную сторону)?',
+        'onboarding_question_7': 'Что вы больше всего надеетесь получить от этого бота?',
+        'onboarding_thank_you_for_profile': 'Спасибо за ответы! Эта информация поможет боту лучше понимать вас.',
+        'onboarding_skip_questionnaire': 'Вы можете заполнить анкету позже в настройках.',
+        'questionnaire_reminder': '📋 Вы еще не заполнили анкету! Это поможет боту лучше понимать вас и давать более персонализированные рекомендации. Нажмите кнопку ниже, чтобы начать.',
+
+        # === Кнопки анкетирования ===
+        'btn_skip_questionnaire': 'Пропустить анкету',
+        'btn_submit_answers': 'Отправить ответы',
     },
     
     'en': {
@@ -761,6 +811,56 @@ Need more help? Contact your psychologist!''',
 • Priority support
 
 💳 Subscription costs $4.99/month''',
+
+        'onboarding_welcome': '👋 Welcome to the psychological diary bot!',
+        'onboarding_instruction': (
+            '📝 This bot helps you keep a digital diary and get automatic psychological analysis from AI.\n\n'
+            'Main steps:\n'
+            '1️⃣ <b>Entry:</b> Make entries by text or voice.\n'
+            '2️⃣ <b>Analysis:</b> AI instantly analyzes your entry (mood, insights).\n'
+            '3️⃣ <b>Tasks:</b> Based on the analysis, AI can offer personalized therapeutic tasks.\n'
+            '4️⃣ <b>Growth:</b> Regular use will help you understand yourself better and increase psychological mindfulness.\n\n'
+            '⚙️ You can customize the bot: change the language, set the timezone, enable/disable automatic analysis, and much more in the "Settings" section.'
+        ),
+        'onboarding_agreement': (
+            '⚠️ <b>Important:</b>\n\n'
+            'This bot is <b>not a substitute</b> for a consultation with a professional psychologist or psychotherapist.\n\n'
+            'The information you provide is analyzed by AI. The results are for informational purposes only.\n\n'
+            'If you have serious psychological difficulties, we strongly recommend that you seek help from a qualified specialist.\n\n'
+            'You can delete all your data at any time in the settings.'
+        ),
+        'onboarding_required': (
+            '🔒 To continue using the bot, you must read and agree to the terms of use.\n\n'
+            'Please click the button below to begin.'
+        ),
+        'access_denied': '🚫 Access is restricted. Please read and agree to the terms of use first.', # For safe_answer_callback
+        'onboarding_thank_you': '✅ Thank you for your agreement! You can now use all the bot\'s features.',
+        'onboarding_disagreed': (
+            '❌ You did not agree to the terms of use.\n\n'
+            'Unfortunately, without agreement, the main functionality of the bot is unavailable.\n'
+            'If you change your mind, just send the /start command to try again.'
+        ),
+        # === Onboarding Buttons (New Buttons) ===
+        'btn_start_onboarding': '🚀 Start',
+        'btn_next': '➡️ Next',
+        'btn_agree': '✅ I Agree',
+        'btn_disagree': '❌ Disagree',
+        # === Questionnaire Messages ===
+        'btn_fill_questionnaire': '📋 Fill Questionnaire',
+        'onboarding_question_1': 'What would you like the bot to call you?',
+        'onboarding_question_2': 'What is your purpose for keeping a diary?',
+        'onboarding_question_3': 'What 3 words best describe your personality?',
+        'onboarding_question_4': 'What is most important to you in life?',
+        'onboarding_question_5': 'What do you like to do in your free time?',
+        'onboarding_question_6': 'Is there something that often strongly affects your mood (positively or negatively)?',
+        'onboarding_question_7': 'What do you most hope to get out of this bot?',
+        'onboarding_thank_you_for_profile': 'Thank you for your answers! This information will help the bot understand you better.',
+        'onboarding_skip_questionnaire': 'You can fill out the questionnaire later in the settings.',
+        'questionnaire_reminder': '📋 You haven\'t filled out the questionnaire yet! This will help the bot understand you better and provide more personalized recommendations. Click the button below to start.',
+       
+        # === Questionnaire Buttons ===
+        'btn_skip_questionnaire': 'Skip Questionnaire',
+        'btn_submit_answers': 'Submit Answers',
     }
 }
 

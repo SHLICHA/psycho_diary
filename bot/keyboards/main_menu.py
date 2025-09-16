@@ -6,7 +6,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from messages import get_button_text
 
 
-def get_main_menu_keyboard(language: str) -> InlineKeyboardMarkup:
+def get_main_menu_keyboard(language: str, user=None) -> InlineKeyboardMarkup:
     """Клавиатура главного меню"""
     buttons = [
         [
@@ -46,6 +46,26 @@ def get_main_menu_keyboard(language: str) -> InlineKeyboardMarkup:
             )
         ]
     ]
+    if user and hasattr(user, 'has_agreed_to_terms') and user.has_agreed_to_terms:
+        # Определяем "заполненность" профиля.
+        # Проверим несколько ключевых полей, которые должны быть заполнены после анкеты.
+        # personality_traits и life_facts - хорошие кандидаты.
+        # Если они пусты или содержат только стандартные/минимальные данные, считаем анкету непройденной.
+        
+        # Простая проверка: если оба поля пусты, значит, анкета точно не пройдена.
+        # Более сложная логика может учитывать веса черт или количество фактов.
+        traits_filled = bool(user.personality_traits and isinstance(user.personality_traits, dict) and user.personality_traits)
+        facts_filled = bool(user.life_facts and isinstance(user.life_facts, list) and user.life_facts)
+
+        if not traits_filled and not facts_filled:
+            # Добавляем кнопку "Анкета" в начало меню
+            questionnaire_button_row = [
+                InlineKeyboardButton(
+                    text=get_button_text('btn_fill_questionnaire', language), # Новое сообщение
+                    callback_data="start_questionnaire_from_menu" # Новый callback
+                )
+            ]
+            buttons.insert(0, questionnaire_button_row) # Вставляем в начало   
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 # TODO Переделать по "В главное меню" и сделать общей для всех

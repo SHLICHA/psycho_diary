@@ -4,7 +4,7 @@ from .models import User, CityTimezone
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
-    list_display = ('username', 'telegram_id', 'language', 'timezone', 'awareness_level', 'is_premium', 'created_at', 'is_blocked')
+    list_display = ('username', 'telegram_id', 'language', 'timezone', 'awareness_level', 'is_premium', 'created_at', 'is_blocked', 'has_agreed_to_terms')
     list_filter = ('language', 'timezone', 'is_premium', 'notifications_enabled', 'auto_analysis_enabled')
     search_fields = ('username', 'telegram_id', 'first_name', 'last_name')
     readonly_fields = ('created_at', 'updated_at', 'last_entry', 'last_activity')
@@ -12,7 +12,7 @@ class UserAdmin(BaseUserAdmin):
     # Поля, отображаемые в форме редактирования пользователя
     fieldsets = (
         ('Основная информация', {
-            'fields': ('telegram_id', 'username', 'first_name', 'last_name', 'email', 'language', 'timezone', 'is_blocked')
+            'fields': ('telegram_id', 'username', 'first_name', 'last_name', 'email', 'language', 'timezone', 'is_blocked', 'has_agreed_to_terms')
         }),
         ('Даты и время', {
             'fields': ('date_of_birth', 'created_at', 'updated_at', 'last_entry', 'last_activity', 'preferred_analysis_time')
