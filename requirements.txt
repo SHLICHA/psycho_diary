@@ -26,6 +26,7 @@ factory_boy==3.3.3
 Faker==37.5.3
 freezegun==1.5.5
 frozenlist==1.7.0
+gunicorn==21.2.0
 idna==3.10
 iniconfig==2.1.0
 jmespath==1.0.1
