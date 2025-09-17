@@ -18,6 +18,7 @@ docker-compose logs -f celery_worker - #запуск логов celery
 git add .
 git commit -m 'Название'
 git push origin master #загрузить в GitHub
+git push --force # Принудительно отправить изменения на GitHub
 git pull origin master #обновить из GitHub
 
 python -m pytest tests/test_messages.py -v
