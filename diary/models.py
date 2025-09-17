@@ -70,6 +70,8 @@ class DiaryEntry(models.Model):
             models.Index(fields=['user', 'created_at']),
             models.Index(fields=['user', 'day_group']),
             models.Index(fields=['created_at']),
+            models.Index(fields=['is_processed']),
+            models.Index(fields=['user', 'is_processed']),
         ]
 
     def __str__(self):
@@ -79,10 +81,6 @@ class DiaryEntry(models.Model):
     def entry_date(self) -> date:
         """Дата записи (без времени) с учетом часового пояса пользователя"""
         try:
-            # Пытаемся получить timezone напрямую, если user уже загружен
-            # В асинхронном контексте это может вызвать ошибку, если user не загружен
-            # Поэтому обернем в try/except и используем sync_to_async как фолбэк в модели
-            # Но в handlers мы будем использовать aentry_date или select_related
             user_timezone_str = self.user.timezone if hasattr(self.user, 'timezone') and self.user.timezone else 'UTC'
             if not user_timezone_str:
                 user_timezone_str = 'UTC'
@@ -217,6 +215,7 @@ class PsychoAnalysis(models.Model):
             models.Index(fields=['created_at']),
             models.Index(fields=['entry', 'created_at']),
             models.Index(fields=['-created_at']),
+            models.Index(fields=['mood_score']),
         ]
 
     def __str__(self):
@@ -437,7 +436,12 @@ class CombinedDiaryEntry(models.Model):
         verbose_name_plural = _("Объединенные записи дней")
         db_table = "diary_combined_entry"
         unique_together = ['user', 'date']
-        ordering = ['-date']
+        ordering = ['-date'],
+        indexes = [
+            models.Index(fields=['date']),
+            models.Index(fields=['user', 'date']),
+            models.Index(fields=['is_analyzed']),
+        ]
 
     def __str__(self):
         return f"Объединенная запись {self.user.username} от {self.date}"
@@ -463,19 +467,21 @@ class CombinedDiaryEntry(models.Model):
     def update_mood_scores(self, new_score: int):
         """
         Обновляет список оценок и пересчитывает среднее.
-        
-        Args:
-            new_score: Новая оценка настроения (1-10).
         """
-        if not isinstance(new_score, int) or not (1 <= new_score <= 10):
-            logger.warning(f"Некорректная оценка {new_score} для CombinedDiaryEntry ID {self.id}")
-            return
-        self.daily_mood_scores.append(new_score)
-        if self.daily_mood_scores:
-            self.average_mood_score = sum(self.daily_mood_scores) / len(self.daily_mood_scores)
-        else:
-            self.average_mood_score = 0.0
-        self.save(update_fields=['daily_mood_scores', 'average_mood_score'])
+        try:
+            if not isinstance(new_score, int) or not (1 <= new_score <= 10):
+                logger.warning(f"Некорректная оценка {new_score}")
+                return
+            if not isinstance(self.daily_mood_scores, list):
+                self.daily_mood_scores = []
+            self.daily_mood_scores.append(new_score)
+            if self.daily_mood_scores:
+                self.average_mood_score = sum(self.daily_mood_scores) / len(self.daily_mood_scores)
+            else:
+                self.average_mood_score = 0.0
+            self.save(update_fields=['daily_mood_scores', 'average_mood_score'])
+        except Exception as e:
+            logger.error(f"Ошибка обновления оценок настроения: {e}")
 
     def reset_analysis_flag(self):
         """

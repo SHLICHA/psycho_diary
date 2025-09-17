@@ -33,6 +33,8 @@ from bot.utils.validation_utils import validate_incoming_message, validate_text_
 from bot.utils.state_manager import state_manager
 from bot.utils.message_utils import safe_edit_message_text, edit_or_send_message
 from bot.utils.callback_utils import safe_answer_callback
+from bot.utils.decorators import async_error_handler
+from bot.utils.rate_limiter import rate_limiter
 from bot.services.task_service import task_service
 from bot.services.diary_service import diary_service, update_daily_state, get_entry_date
 from bot.services.psycho_analysis_service import psycho_analysis_service
@@ -65,55 +67,49 @@ async def new_entry(callback: CallbackQuery, state: FSMContext, language: str):
         await safe_answer_callback(callback, get_message('error_generic', language))
 
 @router.message(DiaryStates.waiting_for_text_entry, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
+@async_error_handler('diary_handler')
 async def process_any_entry(message: Message, state: FSMContext, user, language: str):
     status_msg = None
+    if await rate_limiter.is_rate_limited(f'user_{user.telegram_id}_entries'):
+        await message.answer(get_message('rate_limit', language))
+        return
+    is_valid, error_code = validate_incoming_message(message)
+    if not is_valid:
+        await message.answer(get_message(error_code, language))
+        return
+    rate_limit_key = f"user_{user.telegram_id}_entries"
+    is_limited = await rate_limiter.is_rate_limited(rate_limit_key, limit=3, period=60)
+    if is_limited:
+        await message.answer(get_message('rate_limit', language))
+        return
     try:
-        is_valid, error_code = validate_incoming_message(message)
-        if not is_valid:
-            await message.answer(get_message(error_code, language))
-            return
-
         entry_text = ""
-        
         entry_datetime = message.date
         status_msg = await message.answer(get_message('processing', language))
-
-        # --- НАЧАЛО НОВОГО БЛОКА ОБРАБОТКИ ТЕКСТА/ГОЛОСА ---
         if message.content_type == ContentType.VOICE:
-            # Обработка голосового сообщения с помощью вспомогательной функции
             success, recognized_text, error_message = await process_voice_message(
                 message=message,
                 context_name="New Entry",
                 language=language,
-                status_msg=status_msg # Передаем сообщение статуса для редактирования
+                status_msg=status_msg
             )
-
             if not success:
                 await status_msg.edit_text(f"{get_message('error_processing', language)}: {error_message}")
-                return # Завершаем обработчик
-            
+                return
             entry_text = recognized_text
-
         elif message.content_type == ContentType.TEXT:
-            # Обработка текстового сообщения (старая логика)
             entry_text = message.text
         else:
-            # На случай, если фильтр как-то пропустит неподдерживаемый тип
             logger.warning(f"[New Entry] Получен неподдерживаемый тип контента: {message.content_type}")
             await message.answer(get_message('invalid_input', language))
-            await status_msg.delete() # Удаляем сообщение статуса, если оно было создано
+            await status_msg.delete()
             return
-        # --- КОНЕЦ НОВОГО БЛОКА ---
-
-        # --- Остальная логика обработчика (создание записи, анализ и т.д.) ---
-        # Создание записи теперь использует обработанный entry_text независимо от типа ввода
         diary_entry = await diary_service.create_text_entry(
             user=user,
-            text=entry_text, # Используем обработанный текст
+            text=entry_text,
             language=language,
             entry_datetime=entry_datetime
-        ) # Убираем условную логику для VOICE, так как entry_text уже содержит распознанный текст
-        
+        )       
         entry_date = await diary_entry.aentry_date()
         combined_entry, _ = await diary_service.get_or_update_daily_state_with_entries(user, diary_entry)
         all_entries_text = await diary_service.get_combined_entry_text(user, entry_date)
@@ -164,12 +160,8 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
             user=user
         )
     except Exception as e:
-        logger.error(f"Ошибка в process_any_entry: {e}", exc_info=True)
-        if status_msg:
-            try:
-                await safe_edit_message_text(status_msg, get_message('error_processing', language))
-            except Exception as edit_error:
-                logger.warning(f"Не удалось отредактировать сообщение об ошибке: {edit_error}")
+        logger.error(f"Ошибка обработки записи: {e}")
+        await message.answer(get_message('error_processing', language))
         await state_manager.clear_state(state)
 
 @router.message(DiaryStates.asking_clarifying_questions, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))

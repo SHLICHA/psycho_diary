@@ -115,12 +115,12 @@ CELERY_BEAT_SCHEDULE = {
     },
     'send-entry-reminders': {
         'task': 'diary.tasks.reminder_tasks.send_entry_reminders',
-        'schedule': crontab(minute=0), # Запуск каждый час в :00
+        'schedule': crontab(minute=0),
     },
 }
 
-CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL')
-CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND')
+CELERY_BROKER_URL = config('CELERY_BROKER_URL')
+CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND')
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
@@ -128,9 +128,21 @@ CELERY_TIMEZONE = 'UTC'
 
 # Custom User Model
 AUTH_USER_MODEL = 'users.User'
-YANDEX_SPEECHKIT_API_KEY = os.getenv('YANDEX_SPEECHKIT_API_KEY')
-DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY')
-TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+YANDEX_SPEECHKIT_API_KEY = config('YANDEX_SPEECHKIT_API_KEY')
+DEEPSEEK_API_KEY = config('DEEPSEEK_API_KEY')
+TELEGRAM_BOT_TOKEN = config('TELEGRAM_BOT_TOKEN')
+
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": CELERY_BROKER_URL,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "COMPRESSOR": "django_redis.compressors.zlib.ZlibCompressor",
+        }
+    }
+}
+
 # Logging configuration
 LOGGING = {
     'version': 1,

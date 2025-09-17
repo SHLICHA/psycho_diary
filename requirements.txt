@@ -20,12 +20,12 @@ click-plugins==1.1.1.2
 click-repl==0.3.0
 colorlog==6.7.0
 Django==4.2.7
+django-redis==6.0.0
 exceptiongroup==1.3.0
 factory_boy==3.3.3
 Faker==37.5.3
 freezegun==1.5.5
 frozenlist==1.7.0
-gunicorn==21.2.0
 idna==3.10
 iniconfig==2.1.0
 jmespath==1.0.1

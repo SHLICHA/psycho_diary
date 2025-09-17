@@ -9,6 +9,9 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, date, time
 from django.db import transaction
 from django.db.models import F
+from django.core.cache import cache
+
+from bot.utils.decorators import async_error_handler, database_retry 
 from diary.models import DiaryEntry, PsychoAnalysis, CombinedDiaryEntry, TaskCompletion, TherapyTask
 from diary.services.daily_state_service import (
     get_daily_state,
@@ -25,6 +28,8 @@ logger = logging.getLogger(__name__)
 class DiaryService:
     """Сервис для работы с записями дневника"""
 
+    @async_error_handler('diary_service')
+    @database_retry(max_retries=3)
     async def create_text_entry(
         self, 
         user: User, 
@@ -33,39 +38,36 @@ class DiaryService:
         entry_datetime: datetime = None
     ) -> DiaryEntry:
         """
-        Асинхронное создание текстовой записи.
-
-        Args:
-            user: Пользователь
-            text: Текст записи
-            language: Язык записи
-            entry_datetime: Дата и время создания записи
-
-        Returns:
-            DiaryEntry: Созданная запись
+        Асинхронное создание текстовой записи - ОПТИМИЗИРОВАНО
         """
         try:
+            # Используем один атомарный запрос вместо нескольких
             @sync_to_async
-            def _create_text_entry_atomic() -> DiaryEntry:
-                from django.db import transaction
+            def _create_entry():
                 with transaction.atomic():
-                    diary_entry = DiaryEntry(
+                    return DiaryEntry.objects.create(
                         user=user,
                         text=text,
                         language=language,
                         word_count=len(text.split()),
-                        is_processed=False
+                        is_processed=False,
+                        created_at=entry_datetime or datetime.now()
                     )
-                    if entry_datetime:
-                        diary_entry.created_at = entry_datetime
-                    diary_entry.save() 
-                    logger.info(f"Текстовая запись создана: Entry ID {diary_entry.id}")
-                    return diary_entry 
-            diary_entry = await _create_text_entry_atomic()
+            
+            diary_entry = await _create_entry()
+            logger.info(f"Текстовая запись создана: Entry ID {diary_entry.id}")
+            
+            # Инвалидируем кэш для этого пользователя и даты
+            entry_date = await diary_entry.aentry_date()
+            cache.delete_many([
+                f'user_{user.id}_entries_{entry_date}',
+                f'user_{user.id}_calendar_{entry_date.year}_{entry_date.month}'
+            ])
+            
             return diary_entry
+            
         except Exception as e:
-            logger.error(f"Ошибка при асинхронном создании текстовой записи для пользователя {user.telegram_id}: {e}", exc_info=True)
-
+            logger.error(f"Ошибка при создании текстовой записи: {e}")
             raise
 
     async def create_voice_entry(
@@ -322,60 +324,60 @@ class DiaryService:
         )
         return combined_entry, False
 
+    @async_error_handler('diary_service')
     async def get_user_entries_for_date(
         self, 
         user: User, 
-        target_date: date # Дата в терминах пользователя (т.е. какую дату он видит в календаре)
+        target_date: date
     ) -> List[DiaryEntry]:
         """
-        Асинхронное получение списка записей пользователя за конкретный день,
-        с учетом часового пояса пользователя.
-
-        Args:
-            user: Пользователь.
-            target_date: Целевая дата (в терминах пользователя).
-
-        Returns:
-            List[DiaryEntry]: Список записей за указанный день пользователя.
+        Асинхронное получение записей за дату - С КЭШИРОВАНИЕМ
         """
-        logger.info(f"[УНИФИЦИРОВАННЫЙ МЕТОД] Получение записей пользователя {user.telegram_id} за {target_date} (учитывая часовой пояс {user.timezone})")
+        cache_key = f'user_{user.id}_entries_{target_date}'
+        
+        # ИСПРАВЛЕНИЕ: правильное получение из кэша
+        cached_entries = cache.get(cache_key)
+        if cached_entries is not None:  # ← проверяем на None, а не просто if
+            logger.debug(f"Записи за {target_date} найдены в кэше")
+            return cached_entries
+        
         try:
-            user_timezone_str = user.timezone if user.timezone else 'UTC'
+            # Оптимизированный запрос с select_related
+            user_timezone_str = user.timezone or 'UTC'
+            user_tz = pytz.timezone(user_timezone_str)
             
-            # 1. Определяем начало и конец target_date в часовом поясе пользователя
-            @sync_to_async
-            def _get_utc_boundaries():
-                user_tz = pytz.timezone(user_timezone_str)
-                # Начало дня пользователя
-                start_of_day_user_tz = datetime.combine(target_date, time.min) # 00:00:00
-                start_of_day_user_tz = user_tz.localize(start_of_day_user_tz)
-                # Конец дня пользователя
-                end_of_day_user_tz = datetime.combine(target_date, time.max) # 23:59:59.999999
-                end_of_day_user_tz = user_tz.localize(end_of_day_user_tz)
-                
-                # Конвертируем в UTC для запроса к БД (created_at хранится в UTC)
-                start_of_day_utc = start_of_day_user_tz.astimezone(pytz.utc)
-                end_of_day_utc = end_of_day_user_tz.astimezone(pytz.utc)
-                
-                logger.debug(f"  Границы по UTC: {start_of_day_utc} - {end_of_day_utc}")
-                return start_of_day_utc, end_of_day_utc
-
-            start_of_day_utc, end_of_day_utc = await _get_utc_boundaries()
-
-            # 2. Запрашиваем записи
-            entries = []
-            async for entry in DiaryEntry.objects.filter(
-                user=user,
-                created_at__gte=start_of_day_utc,
-                created_at__lte=end_of_day_utc
-            ).order_by('created_at'):
-                entries.append(entry)
-                
-            logger.info(f"[УНИФИЦИРОВАННЫЙ МЕТОД] Найдено {len(entries)} записей.")
+            # Определяем границы дня в UTC
+            start_of_day_user_tz = user_tz.localize(
+                datetime.combine(target_date, time.min)
+            )
+            end_of_day_user_tz = user_tz.localize(
+                datetime.combine(target_date, time.max)
+            )
+            
+            start_of_day_utc = start_of_day_user_tz.astimezone(pytz.utc)
+            end_of_day_utc = end_of_day_user_tz.astimezone(pytz.utc)
+            
+            # Один запрос вместо множественных
+            entries = await sync_to_async(list)(
+                DiaryEntry.objects
+                .select_related('user')
+                .filter(
+                    user=user,
+                    created_at__gte=start_of_day_utc,
+                    created_at__lte=end_of_day_utc
+                )
+                .order_by('created_at')
+            )
+            
+            # Кэшируем результат на 5 минут
+            if entries:
+                cache.set(cache_key, entries, timeout=300)
+            logger.info(f"Найдено {len(entries)} записей за {target_date}")
+            
             return entries
             
         except Exception as e:
-            logger.error(f"Ошибка в унифицированном get_user_entries_for_date для пользователя {user.telegram_id}, дата {target_date}: {e}", exc_info=True)
+            logger.error(f"Ошибка при получении записей за дату: {e}")
             return []
 
     async def get_combined_entry_text(
@@ -466,33 +468,38 @@ class DiaryService:
             logger.error(f"Ошибка при асинхронном удалении записи {entry_id} для пользователя {user.telegram_id}: {e}", exc_info=True)
             return False
     
+    @async_error_handler('diary_service')
     async def get_days_with_entries(self, user: User, year: int, month: int) -> set:
         """
-        Асинхронное получение дней месяца, в которые есть записи у пользователя.
-
-        Args:
-            user: Пользователь.
-            year: Год.
-            month: Месяц.
-
-        Returns:
-            set: Множество дней (int) с записями.
+        Получение дней с записями - С КЭШИРОВАНИЕМ
         """
-        logger.info(f"Асинхронное получение дней с записями пользователя {user.telegram_id} за {month}.{year}")
+        cache_key = f'user_{user.id}_calendar_{year}_{month}'
+        
+        cached_days = cache.get(cache_key)
+        if cached_days:
+            return cached_days
         
         try:
-            days_with_entries = set()
-            async for day in DiaryEntry.objects.filter(
-                user=user,
-                created_at__year=year,
-                created_at__month=month
-            ).annotate(
-                day_of_month=F('created_at__day')
-            ).values_list('day_of_month', flat=True).distinct():
-                days_with_entries.add(day)
+            # Оптимизированный запрос с аннотацией
+            @sync_to_async
+            def _get_days():
+                return set(
+                    DiaryEntry.objects
+                    .filter(user=user, created_at__year=year, created_at__month=month)
+                    .annotate(day=F('created_at__day'))
+                    .values_list('day', flat=True)
+                    .distinct()
+                )
+            
+            days_with_entries = await _get_days()
+            
+            # Кэшируем на 1 час
+            cache.set(cache_key, days_with_entries, timeout=3600)
+            
             return days_with_entries
+            
         except Exception as e:
-            logger.error(f"Ошибка при асинхронном получении дней с записями для пользователя {user.telegram_id} за {month}.{year}: {e}", exc_info=True)
+            logger.error(f"Ошибка при получении дней с записями: {e}")
             return set()
 
     async def get_daily_state(self, user: User, target_date: date) -> Optional[CombinedDiaryEntry]:

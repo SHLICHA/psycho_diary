@@ -4,6 +4,7 @@
 
 import logging
 
+from asgiref.sync import sync_to_async
 from datetime import date
 from calendar import monthrange
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -459,25 +460,44 @@ def format_entry_text_for_editing(entry_text: str) -> str:
 
 async def get_days_with_entries_and_mood_async(user, year: int, month: int) -> dict:
     """
-    Асинхронное получение дней месяца, в которые есть записи,
-    и средней оценки настроения за эти дни.
-    
-    Returns:
-        dict: Словарь, где ключ - день месяца (int), 
-              значение - средняя оценка настроения (float) или None, если CombinedDiaryEntry отсутствует.
+    Асинхронное получение дней месяца с оценками настроения
     """
     logger.debug(f"Получение дней с записями и настроением для {year}-{month} пользователя {user.telegram_id}")
     days_data = {}
     try:
-        async for combined_entry in CombinedDiaryEntry.objects.filter(
-            user=user,
-            date__year=year,
-            date__month=month
-        ).select_related('user'):
-            day = combined_entry.date.day
-            if combined_entry.entry_count > 0:
-                days_data[day] = combined_entry.average_mood_score 
+        # Используем сырой SQL запрос для полного контроля
+        @sync_to_async
+        def get_mood_data_sync():
+            from django.db import connection
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT 
+                        EXTRACT(DAY FROM date) as day,
+                        average_mood_score
+                    FROM diary_combined_entry 
+                    WHERE user_id = %s 
+                    AND EXTRACT(YEAR FROM date) = %s 
+                    AND EXTRACT(MONTH FROM date) = %s
+                    AND entry_count > 0
+                    AND average_mood_score IS NOT NULL
+                    ORDER BY date
+                """, [user.id, year, month])
+                
+                return cursor.fetchall()
+        
+        mood_data = await get_mood_data_sync()
+        logger.debug(f"Найдено {len(mood_data)} записей с оценками настроения")
+        
+        for day, average_mood_score in mood_data:
+            day_int = int(day)
+            if average_mood_score is not None and average_mood_score > 0:
+                days_data[day_int] = float(average_mood_score)
+            else:
+                days_data[day_int] = None
+                
+        logger.debug(f"Данные настроения: {days_data}")
         return days_data
+        
     except Exception as e:
-        logger.error(f"Ошибка при асинхронном получении дней с записями и настроением: {e}")
+        logger.error(f"Ошибка при получении оценок настроения: {e}", exc_info=True)
         return {}

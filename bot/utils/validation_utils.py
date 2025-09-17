@@ -4,6 +4,7 @@
 
 import logging
 import re
+import html
 
 from typing import Optional, Tuple
 from aiogram.types import Message, ContentType
@@ -16,6 +17,77 @@ from core.constants import (
 )
 
 logger = logging.getLogger(__name__)
+
+class SecurityValidator:
+    """Класс для проверки безопасности входных данных"""
+    
+    @staticmethod
+    def sanitize_html(text: str) -> str:
+        """Экранирование HTML тегов"""
+        return html.escape(text)
+    
+    @staticmethod
+    def sanitize_sql(text: str) -> str:
+        """Базовая защита от SQL injection"""
+        # Удаляем опасные символы, но лучше использовать параметризованные запросы
+        return re.sub(r'[;\'"\\]', '', text)
+    
+    @staticmethod
+    def validate_telegram_id(user_id: int) -> bool:
+        """Валидация Telegram ID"""
+        return isinstance(user_id, int) and 1 <= user_id <= 2**63 - 1
+    
+    @staticmethod
+    def validate_timezone(timezone: str) -> bool:
+        """Валидация часового пояса"""
+        try:
+            import pytz
+            pytz.timezone(timezone)
+            return True
+        except:
+            return False
+
+def validate_and_sanitize_text(
+    text: str, 
+    max_length: int = 10000,
+    min_length: int = 10
+) -> Tuple[bool, Optional[str], Optional[str]]:
+    """
+    Валидация и санитизация текста
+    
+    Returns:
+        Tuple[bool, Optional[str], Optional[str]]: 
+        (is_valid, sanitized_text, error_code)
+    """
+    try:
+        # Проверка длины
+        if len(text) < min_length:
+            return False, None, 'text_too_short'
+        if len(text) > max_length:
+            return False, None, 'text_too_long'
+        
+        # Санитизация
+        sanitized = SecurityValidator.sanitize_html(text)
+        sanitized = SecurityValidator.sanitize_sql(sanitized)
+        
+        # Проверка на запрещенные паттерны
+        forbidden_patterns = [
+            r'<script.*?>',
+            r'javascript:',
+            r'onload=',
+            r'onerror=',
+            r'vbscript:',
+        ]
+        
+        for pattern in forbidden_patterns:
+            if re.search(pattern, sanitized, re.IGNORECASE):
+                return False, None, 'invalid_content'
+        
+        return True, sanitized, None
+        
+    except Exception as e:
+        logger.error(f"Ошибка при валидации текста: {e}")
+        return False, None, 'validation_error'
 
 def validate_text_entry(
     text: str,
