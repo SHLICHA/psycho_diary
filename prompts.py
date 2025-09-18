@@ -693,7 +693,6 @@ ONBOARDING_QUESTIONNAIRE_ANALYSIS_PROMPT = {
 ```json
 {{
   "user_profile_updates": {{
-    "first_name": "Александр",
     "personality_traits": {{
       "интроверт": 0.8,
       "рефлексивный": 0.9
@@ -782,7 +781,6 @@ RESPOND ONLY IN THE FOLLOWING JSON FORMAT, enclosed in triple backticks (```json
 ```json
 {{
   "user_profile_updates": {{
-    "first_name": "Alexander",
     "personality_traits": {{
       "introvert": 0.8,
       "reflective": 0.9
@@ -815,11 +813,11 @@ RESPOND ONLY IN THE FOLLOWING JSON FORMAT, enclosed in triple backticks (```json
 }
 
 WEEKLY_ANALYSIS_PROMPT = {
-    'ru': '''Ты — продвинутый психолог-аналитик ИИ, специализирующийся на анализе дневниковых записей. Твоя задача — провести глубокий еженедельный анализ данных пользователя и предоставить структурированный отчет.
+    'ru': '''Ты — продвинутый психолог-аналитик ИИ, специализирующийся на анализе дневниковых записей. Твоя задача — провести глубокий еженедельный анализ данных пользователя и предоставить структурированный отчет. Ты получишь полный профиль пользователя для контекста, но НЕ должен возвращать обновленный профиль в своем ответе. Это будет сделано на следующем этапе.
 
 ### 🔍 ВХОДНЫЕ ДАННЫЕ
 
-**Профиль пользователя:**
+**Профиль пользователя (для контекста):**
 Имя: {user_profile[first_name]}
 Уровень осознанности: {user_profile[awareness_level]}/10
 Премиум: {user_profile[is_premium]}
@@ -843,21 +841,14 @@ WEEKLY_ANALYSIS_PROMPT = {
 ### 🧠 ИНСТРУКЦИЯ
 
 1.  **Проанализируй предоставленные данные.**
-2.  **Сформируй `summary_text`** — краткое, но содержательное резюме недели на русском языке. (2-3 предложения)
+2.  **Сформулируй `summary_text`** — краткое, но содержательное резюме недели на русском языке. (2-3 предложения)
 3.  **Определи `progress_insights`**:
     *   `mood_trend`: Общий тренд настроения за неделю ("improving", "declining", "stable", "volatile").
     *   `key_insights`: Список (массив) из 2-4 ключевых психологических инсайтов, выявленных за неделю. Каждый инсайт — это объект `{{"text": "...", "significance": 0.0-1.0}}`.
     *   `notable_patterns`: Список (массив) из 1-2 заметных повторяющихся паттернов поведения, мышления или эмоций. Каждый паттерн — это объект `{{"pattern": "...", "frequency": N}}`.
     *   `progress_notes`: 1-2 предложения о наблюдаемом психологическом прогрессе или регрессе пользователя.
-4.  **Обнови `user_profile_updates`**:
-    *   **ВАЖНО:** Верни **весь** обновленный психологический профиль пользователя. Это означает, что ты должен переосмыслить и, при необходимости, изменить **все** поля профиля (`personality_traits`, `life_facts`, `hobbies`, `core_values`, `triggers`, `strengths`, `areas_for_growth`).
-    *   Для списков (`life_facts`, `hobbies` и т.д.):
-        *   Чтобы **добавить** элемент: просто включи его в список.
-        *   Чтобы **удалить** элемент: используй формат `{{"remove": "старый_факт"}}`.
-    *   Для `personality_traits` (словарь):
-        *   Предоставь обновленный словарь с актуальными чертами и их уровнем (например, `{{"рефлексивность": 0.85, "оптимизм": 0.7}}`).
-    *   Для `awareness_level_adjustment`:
-        *   Если уровень осознанности изменился, предоставь объект `{{"new_level": 7, "reasoning": "Причина изменения..."}}`.
+4.  **(Опционально) Предоставь `awareness_level_adjustment`**:
+    *   Если уровень осознанности изменился, предоставь объект `{{"new_level": 7, "reasoning": "Причина изменения..."}}`. Если уровень не изменился, не включай это поле в ответ.
 5.  **Подтверди или обнови `statistics`**:
     *   Проверь и при необходимости скорректируй предоставленную `week_statistics`. Убедись, что данные логичны и соответствуют анализу.
 6.  **Сформируй `comparison_with_previous`**:
@@ -866,8 +857,12 @@ WEEKLY_ANALYSIS_PROMPT = {
         *   `previous_week_start`: Дата начала предыдущей недели (в формате ISO).
         *   `mood_comparison`: 1 предложение о сравнении среднего настроения.
         *   `consistency_comparison`: 1 предложение о сравнении регулярности записей.
-        *   `profile_changes`: Список (массив) строк, описывающих ключевые изменения в психологическом профиле.
         *   `progress_comment`: 1-2 предложения об общей динамике прогресса по сравнению с прошлой неделей.
+
+### ⚠️ ВАЖНО
+
+- **НЕ ВОЗВРАЩАЙ `user_profile_updates`**. Это будет обработано отдельно.
+- Сконцентрируйся только на анализе недели и подготовке данных для отчета.
 
 ### 📤 ОТВЕТ В СТРОГОМ ФОРМАТЕ JSON
 
@@ -892,40 +887,9 @@ WEEKLY_ANALYSIS_PROMPT = {
     ],
     "progress_notes": "Пользователь демонстрирует рост осознанности и улучшение настроения."
   }},
-  "user_profile_updates": {{
-    "personality_traits": {{
-      "рефлексивность": 0.85,
-      "оптимизм": 0.75
-    }},
-    "life_facts": [
-      "Работаю в IT",
-      "Увлекаюсь фотографией",
-      {{"remove": "Переехал в новый город"}}
-    ],
-    "hobbies": [
-      "спорт",
-      {{"remove": "чтение художественной литературы"}}
-    ],
-    "core_values": [
-      "здоровье",
-      "саморазвитие"
-    ],
-    "triggers": [
-      "критика",
-      {{"remove": "шумные компании"}}
-    ],
-    "strengths": [
-      "настойчивость",
-      "аналитичность"
-    ],
-    "areas_for_growth": [
-      "управление стрессом",
-      {{"remove": "прокрастинация"}}
-    ],
-    "awareness_level_adjustment": {{
-      "new_level": 7,
-      "reasoning": "Регулярные записи и выполнение заданий показывают рост осознанности"
-    }}
+  "awareness_level_adjustment": {{
+    "new_level": 7,
+    "reasoning": "Регулярные записи и выполнение заданий показывают рост осознанности"
   }},
   "statistics": {{
     "total_entries": 7,
@@ -942,19 +906,15 @@ WEEKLY_ANALYSIS_PROMPT = {
     "previous_week_start": "2023-10-23",
     "mood_comparison": "Настроение в среднем улучшилось на 0.5 балла",
     "consistency_comparison": "Регулярность записей повысилась",
-    "profile_changes": [
-      "Добавлена новая ценность: 'здоровье'",
-      "Черта 'рефлексивность' стала более выраженной"
-    ],
     "progress_comment": "Наблюдается положительная динамика."
   }}
 }}
 ```''',
-    'en': '''You are an advanced psychological analyst AI specializing in diary entry analysis. Your task is to perform a deep weekly analysis of the user's data and provide a structured report.
+    'en': '''You are an advanced psychological analyst AI specializing in diary entry analysis. Your task is to perform a deep weekly analysis of the user's data and provide a structured report. You will receive the user's full profile for context, but you MUST NOT return an updated profile in your response. This will be handled in a subsequent step.
 
 ### 🔍 INPUT DATA
 
-**User Profile:**
+**User Profile (for context):**
 Name: {user_profile[first_name]}
 Awareness Level: {user_profile[awareness_level]}/10
 Premium: {user_profile[is_premium]}
@@ -984,15 +944,8 @@ Areas for Growth: {user_profile[areas_for_growth]}
     *   `key_insights`: A list (array) of 2-4 key psychological insights identified during the week. Each insight is an object `{{"text": "...", "significance": 0.0-1.0}}`.
     *   `notable_patterns`: A list (array) of 1-2 notable recurring patterns of behavior, thinking, or emotion. Each pattern is an object `{{"pattern": "...", "frequency": N}}`.
     *   `progress_notes`: 1-2 sentences on the observed psychological progress or regression of the user.
-4.  **Update `user_profile_updates`**:
-    *   **IMPORTANT:** Return the **entire** updated psychological user profile. This means you must re-evaluate and, if necessary, modify **all** profile fields (`personality_traits`, `life_facts`, `hobbies`, `core_values`, `triggers`, `strengths`, `areas_for_growth`).
-    *   For lists (`life_facts`, `hobbies`, etc.):
-        *   To **add** an item: simply include it in the list.
-        *   To **remove** an item: use the format `{{"remove": "old_fact"}}`.
-    *   For `personality_traits` (a dictionary):
-        *   Provide the updated dictionary with current traits and their levels (e.g., `{{"reflectiveness": 0.85, "optimism": 0.7}}`).
-    *   For `awareness_level_adjustment`:
-        *   If the awareness level has changed, provide an object `{{"new_level": 7, "reasoning": "Reason for the change..."}}`.
+4.  **(Optional) Provide `awareness_level_adjustment`**:
+    *   If the awareness level has changed, provide an object `{{"new_level": 7, "reasoning": "Reason for the change..."}}`. If the level has not changed, do not include this field in the response.
 5.  **Confirm or update `statistics`**:
     *   Check and correct the provided `week_statistics` if needed. Ensure the data is logical and matches the analysis.
 6.  **Formulate `comparison_with_previous`**:
@@ -1001,8 +954,12 @@ Areas for Growth: {user_profile[areas_for_growth]}
         *   `previous_week_start`: The start date of the previous week (in ISO format).
         *   `mood_comparison`: 1 sentence comparing the average mood.
         *   `consistency_comparison`: 1 sentence comparing the consistency of entries.
-        *   `profile_changes`: A list (array) of strings describing key changes in the psychological profile.
         *   `progress_comment`: 1-2 sentences on the overall progress dynamics compared to the previous week.
+
+### ⚠️ IMPORTANT
+
+- **DO NOT RETURN `user_profile_updates`**. This will be handled separately.
+- Focus solely on the weekly analysis and preparing data for the report.
 
 ### 📤 RESPONSE IN STRICT JSON FORMAT
 
@@ -1027,40 +984,9 @@ RESPOND ONLY IN THE FOLLOWING JSON FORMAT, enclosed in triple backticks (```json
     ],
     "progress_notes": "The user demonstrates increased awareness and improved mood."
   }},
-  "user_profile_updates": {{
-    "personality_traits": {{
-      "reflectiveness": 0.85,
-      "optimism": 0.75
-    }},
-    "life_facts": [
-      "I work in IT",
-      "I'm into photography",
-      {{"remove": "Moved to a new city"}}
-    ],
-    "hobbies": [
-      "sports",
-      {{"remove": "reading fiction"}}
-    ],
-    "core_values": [
-      "health",
-      "self-development"
-    ],
-    "triggers": [
-      "criticism",
-      {{"remove": "noisy crowds"}}
-    ],
-    "strengths": [
-      "persistence",
-      "analytical thinking"
-    ],
-    "areas_for_growth": [
-      "stress management",
-      {{"remove": "procrastination"}}
-    ],
-    "awareness_level_adjustment": {{
-      "new_level": 7,
-      "reasoning": "Regular entries and task completion show increased awareness"
-    }}
+  "awareness_level_adjustment": {{
+    "new_level": 7,
+    "reasoning": "Regular entries and task completion show increased awareness"
   }},
   "statistics": {{
     "total_entries": 7,
@@ -1077,16 +1003,248 @@ RESPOND ONLY IN THE FOLLOWING JSON FORMAT, enclosed in triple backticks (```json
     "previous_week_start": "2023-10-23",
     "mood_comparison": "Average mood improved by 0.5 points",
     "consistency_comparison": "Entry consistency increased",
-    "profile_changes": [
-      "Added new value: 'health'",
-      "Trait 'reflectiveness' became more pronounced"
-    ],
     "progress_comment": "Positive dynamics are observed."
   }}
 }}
 ```'''
 }
 
+USER_PROFILE_ANALYSIS_PROMPT = {
+    'ru': '''Ты — эксперт-психолог с глубоким пониманием человеческой личности. Твоя задача — на основе предоставленных данных создать или обновить глубокий психологический портрет пользователя. Ты получишь его текущий профиль, историю анализа недель и влияния ключевых заданий. Твоя цель — синтезировать эту информацию в целостное и точное описание личности.
+
+### 🔍 ВХОДНЫЕ ДАННЫЕ
+
+**Текущий психологический профиль пользователя (данные в формате JSON-строк):**
+Имя: {user_profile[first_name]}
+Уровень осознанности: {user_profile[awareness_level]}/10
+Премиум: {user_profile[is_premium]}
+
+**Текстовое описание личности (Текущее):**
+{user_profile[personality_description]}
+
+**Структурированные данные профиля (Текущие) - представлены как JSON-строки:**
+Черты характера (JSON): {user_profile[personality_traits]}
+Факты о жизни (JSON): {user_profile[life_facts]}
+Увлечения (JSON): {user_profile[hobbies]}
+Ключевые ценности (JSON): {user_profile[core_values]}
+Триггеры (JSON): {user_profile[triggers]}
+Сильные стороны (JSON): {user_profile[strengths]}
+Зоны роста (JSON): {user_profile[areas_for_growth]}
+Глубинные инсайты (JSON): {user_profile[personality_insights]}
+Привычки (JSON): {user_profile[habits]}
+Навыки (JSON): {user_profile[skills]}
+Стремления (JSON): {user_profile[aspirations]}
+
+**Анализы последних недель:**
+{recent_weekly_analyses}
+
+**Анализы влияния ключевых выполненных заданий:**
+{selected_task_completion_analyses}
+
+### 🧠 ИНСТРУКЦИЯ
+
+1.  **Проанализируй все предоставленные данные.**
+    *   Обрати особое внимание на динамику, тренды и повторяющиеся паттерны.
+    *   Сравни "Текущий профиль" с информацией из `recent_weekly_analyses` и `selected_task_completion_analyses`.
+2.  **Создай или обнови `personality_description`**:
+    *   Это должно быть **новое, цельное, человекочитаемое описание личности** пользователя на русском языке.
+    *   Объедини ключевые черты, ценности, сильные стороны, зоны роста, привычки, стремления и инсайты в связный рассказ.
+    *   Учитывай уровень осознанности.
+    *   Объем: 3-5 абзацев. Избегай списков и форматирования.
+3.  **Обнови все структурированные поля профиля**:
+    *   Пересмотри и при необходимости обнови **все** следующие поля:
+        *   `personality_traits` (dict): Только значимые черты (вес 0.1-1.0).
+        *   `life_facts` (list): Только проверенные и актуальные факты.
+        *   `hobbies` (list): Только реальные интересы/увлечения.
+        *   `core_values` (list): Фундаментальные ценности.
+        *   `triggers` (list): Только актуальные эмоциональные триггеры.
+        *   `strengths` (list): Только подтвержденные сильные стороны.
+        *   `areas_for_growth` (list): Только актуальные зоны развития.
+        *   `personality_insights` (dict): Глубинные инсайты (например, {{"коммуникация": "предпочитает письменную форме устной", "мотивация": "..."}}).
+        *   `habits` (list): Сформировавшиеся и наблюдаемые привычки.
+        *   `skills` (list): Наблюдаемые навыки (жизненные, коммуникативные, когнитивные и т.д.).
+        *   `aspirations` (list): Четко выраженные стремления и цели.
+    *   Для списков (`life_facts`, `hobbies` и т.д.):
+        *   Чтобы **добавить** элемент: просто включи его в список.
+        *   Чтобы **удалить** элемент: используй формат `{{"remove": "старый_факт"}}`.
+    *   Для `personality_traits` и `personality_insights` (словари):
+        *   Предоставь обновленный словарь с актуальными ключами и значениями.
+4.  **НЕ ВКЛЮЧАЙ `awareness_level`, `first_name`, `is_premium`** в свой ответ.
+
+### 📤 ОТВЕТ В СТРОГОМ ФОРМАТЕ JSON
+
+ОТВЕЧАЙ ТОЛЬКО В СЛЕДУЮЩЕМ ФОРМАТЕ JSON, заключенном в тройные обратные кавычки (```json ... ```).
+
+```json
+{{
+  "personality_description": "Новое, обобщенное текстовое описание личности пользователя, 3-5 абзацев, на русском языке. Без списков и форматирования.",
+  "personality_traits": {{
+    "рефлексивность": 0.85,
+    "оптимизм": 0.75
+  }},
+  "life_facts": [
+    "Работаю в IT",
+    "Увлекаюсь фотографией",
+    {{"remove": "Переехал в новый город"}}
+  ],
+  "hobbies": [
+    "спорт",
+    {{"remove": "чтение художественной литературы"}}
+  ],
+  "core_values": [
+    "здоровье",
+    "саморазвитие"
+  ],
+  "triggers": [
+    "критика",
+    {{"remove": "шумные компании"}}
+  ],
+  "strengths": [
+    "настойчивость",
+    "аналитичность"
+  ],
+  "areas_for_growth": [
+    "управление стрессом",
+    {{"remove": "прокрастинация"}}
+  ],
+  "personality_insights": {{
+    "мотивация": "Внутренняя, связана с самореализацией",
+    "стиль общения": "Предпочитает глубокие беседы"
+  }},
+  "habits": [
+    "утренняя зарядка",
+    "ведение дневника"
+  ],
+  "skills": [
+    "аналитическое мышление",
+    "самоанализ"
+  ],
+  "aspirations": [
+    "повысить эмоциональный интеллект",
+    "найти баланс работы и личной жизни"
+  ]
+}}
+```''',
+    'en': '''You are an expert psychologist with a deep understanding of human personality. Your task is to create or update a profound psychological portrait of the user based on the provided data. You will receive their current profile, a history of weekly analyses, and the impact of key completed tasks. Your goal is to synthesize this information into a coherent and accurate description of the personality.
+
+### 🔍 INPUT DATA
+
+**User's Current Psychological Profile (data as JSON strings):**
+Name: {user_profile[first_name]}
+Awareness Level: {user_profile[awareness_level]}/10
+Premium: {user_profile[is_premium]}
+
+**Personality Description (Current):**
+{user_profile[personality_description]}
+
+**Structured Profile Data (Current) - Provided as JSON strings:**
+Personality Traits (JSON): {user_profile[personality_traits]}
+Life Facts (JSON): {user_profile[life_facts]}
+Hobbies (JSON): {user_profile[hobbies]}
+Core Values (JSON): {user_profile[core_values]}
+Triggers (JSON): {user_profile[triggers]}
+Strengths (JSON): {user_profile[strengths]}
+Areas for Growth (JSON): {user_profile[areas_for_growth]}
+Deep Insights (JSON): {user_profile[personality_insights]}
+Habits (JSON): {user_profile[habits]}
+Skills (JSON): {user_profile[skills]}
+Aspirations (JSON): {user_profile[aspirations]}
+
+**Recent Weekly Analyses:**
+{recent_weekly_analyses}
+
+**Analyses of Key Completed Task Impacts:**
+{selected_task_completion_analyses}
+
+### 🧠 INSTRUCTIONS
+
+1.  **Analyze all provided data.**
+    *   Pay special attention to dynamics, trends, and recurring patterns.
+    *   Compare the "Current Profile" with information from `recent_weekly_analyses` and `selected_task_completion_analyses`.
+2.  **Create or update `personality_description`**:
+    *   This should be a **new, cohesive, human-readable description of the user's personality** in English.
+    *   Synthesize key traits, values, strengths, areas for growth, habits, aspirations, and insights into a coherent narrative.
+    *   Consider the awareness level.
+    *   Length: 3-5 paragraphs. Avoid lists and formatting.
+3.  **Update all structured profile fields**:
+    *   Re-evaluate and update **all** the following fields if necessary:
+        *   `personality_traits` (dict): Only significant traits (weight 0.1-1.0).
+        *   `life_facts` (list): Only verified and current facts.
+        *   `hobbies` (list): Only real interests/hobbies.
+        *   `core_values` (list): Fundamental values.
+        *   `triggers` (list): Only current emotional triggers.
+        *   `strengths` (list): Only confirmed strengths.
+        *   `areas_for_growth` (list): Only current areas for development.
+        *   `personality_insights` (dict): Deep insights (e.g., {{"communication": "prefers written over verbal", "motivation": "..."}}).
+        *   `habits` (list): Formed and observed habits.
+        *   `skills` (list): Observed skills (life, communication, cognitive, etc.).
+        *   `aspirations` (list): Clearly expressed aspirations and goals.
+    *   For lists (`life_facts`, `hobbies`, etc.):
+        *   To **add** an item: simply include it in the list.
+        *   To **remove** an item: use the format `{{"remove": "old_fact"}}`.
+    *   For `personality_traits` and `personality_insights` (dictionaries):
+        *   Provide an updated dictionary with current keys and values.
+4.  **DO NOT INCLUDE `awareness_level`, `first_name`, `is_premium`** in your response.
+
+### 📤 RESPONSE IN STRICT JSON FORMAT
+
+RESPOND ONLY IN THE FOLLOWING JSON FORMAT, enclosed in triple backticks (```json ... ```).
+
+```json
+{{
+  "personality_description": "New, comprehensive textual description of the user's personality, 3-5 paragraphs, in English. No lists or formatting.",
+  "personality_traits": {{
+    "reflectiveness": 0.85,
+    "optimism": 0.75
+  }},
+  "life_facts": [
+    "I work in IT",
+    "I'm into photography",
+    {{"remove": "Moved to a new city"}}
+  ],
+  "hobbies": [
+    "sports",
+    {{"remove": "reading fiction"}}
+  ],
+  "core_values": [
+    "health",
+    "self-development"
+  ],
+  "triggers": [
+    "criticism",
+    {{"remove": "noisy crowds"}}
+  ],
+  "strengths": [
+    "persistence",
+    "analytical thinking"
+  ],
+  "areas_for_growth": [
+    "stress management",
+    {{"remove": "procrastination"}}
+  ],
+  "personality_insights": {{
+    "motivation": "Intrinsic, linked to self-realization",
+    "communication_style": "Prefers deep conversations"
+  }},
+  "habits": [
+    "morning exercise",
+    "keeping a diary"
+  ],
+  "skills": [
+    "analytical thinking",
+    "self-analysis"
+  ],
+  "aspirations": [
+    "increase emotional intelligence",
+    "find work-life balance"
+  ]
+}}
+```'''
+}
+
+
+PROMPTS['ru']['user_profile_analysis'] = USER_PROFILE_ANALYSIS_PROMPT['ru']
+PROMPTS['en']['user_profile_analysis'] = USER_PROFILE_ANALYSIS_PROMPT['en']
 PROMPTS['ru']['weekly_analysis'] = WEEKLY_ANALYSIS_PROMPT['ru']
 PROMPTS['en']['weekly_analysis'] = WEEKLY_ANALYSIS_PROMPT['en']
 PROMPTS['ru']['onboarding_questionnaire_analysis'] = ONBOARDING_QUESTIONNAIRE_ANALYSIS_PROMPT['ru']

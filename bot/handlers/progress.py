@@ -10,7 +10,7 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from asgiref.sync import sync_to_async
 
-from diary.models import WeeklyAnalysis
+from diary.models import WeeklyAnalysis, DiaryEntry, TaskCompletion
 from messages import get_message, get_button_text
 from bot.keyboards import get_back_keyboard, get_weekly_navigation_keyboard, get_progress_keyboard_without_weekly, get_progress_keyboard_with_weekly
 from bot.utils.message_utils import safe_edit_message_text
@@ -31,6 +31,90 @@ async def _has_weekly_analyses(user) -> bool:
         logger.error(f"Ошибка при проверке наличия недельных анализов для пользователя {user.id}: {e}")
         return False
 
+def _get_progress_keyboard_with_weekly(language: str) -> InlineKeyboardMarkup:
+    """Клавиатура для прогресса с кнопкой недельного анализа."""
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                text=get_button_text('btn_weekly_progress', language),
+                callback_data="weekly_progress_list"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=get_button_text('btn_back', language),
+                callback_data="back" # Используем "back", как в get_back_keyboard
+            )
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def _get_progress_keyboard_without_weekly(language: str) -> InlineKeyboardMarkup:
+    """Клавиатура для прогресса без кнопки недельного анализа."""
+    # Можно использовать напрямую get_back_keyboard, если она подходит
+    # return get_back_keyboard(language) 
+    # Или создать свою, если нужна другая структура
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                text=get_button_text('btn_back', language),
+                callback_data="back"
+            )
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+# --- НОВАЯ Вспомогательная функция для подсчета статистики ---
+async def _get_user_statistics(user) -> dict:
+    """
+    Получает или вычисляет актуальную статистику пользователя.
+    """
+    logger.debug(f"[_get_user_statistics] Получение статистики для пользователя {user.id}")
+    stats = {
+        'entries_count': 0,
+        'tasks_completed': 0,
+        'streak_days': 0,
+        # 'streak_days_total': 0 # Если добавим поле в User
+    }
+    try:
+        # 1. Количество записей
+        @sync_to_async
+        def _count_entries():
+            return DiaryEntry.objects.filter(user=user).count()
+        stats['entries_count'] = await _count_entries()
+        logger.debug(f"[_get_user_statistics] Записей: {stats['entries_count']}")
+
+        # 2. Количество выполненных заданий
+        @sync_to_async
+        def _count_tasks():
+            return TaskCompletion.objects.filter(task__user=user).count()
+        stats['tasks_completed'] = await _count_tasks()
+        logger.debug(f"[_get_user_statistics] Заданий выполнено: {stats['tasks_completed']}")
+
+        # 3. Серия дней подряд (упрощенный подсчет: количество уникальных дней с записями)
+        # Для более точного расчета серии нужно учитывать календарные дни и пропуски.
+        # Это более сложная логика, которую можно реализовать позже.
+        # Пока считаем количество дней, в которые были записи.
+        @sync_to_async
+        def _count_active_days():
+            from django.db.models import Count
+            from django.db.models.functions import TruncDate
+            # Считаем уникальные даты создания записей
+            result = DiaryEntry.objects.filter(user=user).annotate(
+                entry_date=TruncDate('created_at')
+            ).values('entry_date').distinct().count()
+            return result
+        stats['streak_days'] = await _count_active_days()
+        logger.debug(f"[_get_user_statistics] Дней с записями (упр. серия): {stats['streak_days']}")
+
+        # 4. (Опционально) Если будет поле streak_days_total в User
+        # stats['streak_days_total'] = getattr(user, 'streak_days_total', 0)
+
+    except Exception as e:
+        logger.error(f"[_get_user_statistics] Ошибка при подсчете статистики для пользователя {user.id}: {e}")
+        # Возвращаем значения по умолчанию (0)
+    return stats
+
 async def _get_latest_weekly_analysis(user):
     """Получает последний недельный анализ пользователя."""
     try:
@@ -50,25 +134,21 @@ async def show_progress(callback: CallbackQuery, user, language: str):
     logger.info(f"[show_progress] Запрос от пользователя {user.id}")
     try:
         awareness_level_current = user.awareness_level
-        total_entries = 0
-        streak_days_current = 0
+        logger.debug(f"[show_progress] Текущий уровень осознанности: {awareness_level_current}")
 
-        # Получаем статистику из последнего анализа
-        latest_analysis = await _get_latest_weekly_analysis(user)
-        if latest_analysis:
-            stats = latest_analysis.statistics
-            if isinstance(stats, dict):
-                total_entries = stats.get('total_entries', total_entries)
-                streak_days_current = stats.get('streak_days_current', streak_days_current)
-            logger.debug(f"[show_progress] Статистика из анализа: записи={total_entries}, подряд={streak_days_current}")
+        # --- Получаем актуальную статистику ---
+        user_stats = await _get_user_statistics(user)
+        total_entries = user_stats['entries_count']
+        tasks_completed = user_stats['tasks_completed']
+        streak_days = user_stats['streak_days']
+        logger.debug(f"[show_progress] Статистика: записи={total_entries}, задания={tasks_completed}, серия={streak_days}")
 
-        # Формируем базовое сообщение
-        base_progress_msg = get_message('progress_title', language)
-        progress_msg = base_progress_msg.format(
+        # Формируем сообщение с актуальными данными
+        progress_msg = get_message('progress_title', language).format(
             awareness_level=awareness_level_current,
             entries_count=total_entries,
-            tasks_completed=0, # TODO: Реализовать подсчет
-            streak_days=streak_days_current
+            tasks_completed=tasks_completed,
+            streak_days=streak_days
         )
         logger.debug(f"[show_progress] Сообщение сформировано: {progress_msg[:50]}...")
 
@@ -93,13 +173,13 @@ async def show_progress(callback: CallbackQuery, user, language: str):
     except Exception as e:
         logger.error(f"[show_progress] Критическая ошибка: {e}", exc_info=True)
         error_msg = get_message('error_generic', language)
+        # Используем get_back_keyboard, как в исходном коде
         await safe_edit_message_text(
             message=callback.message,
             text=error_msg,
             reply_markup=get_back_keyboard(language)
         )
         await callback.answer()
-
 
 @router.callback_query(F.data == "weekly_progress_list")
 async def show_weekly_progress_list(callback: CallbackQuery, user, language: str):

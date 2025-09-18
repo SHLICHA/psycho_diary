@@ -1,5 +1,6 @@
 import pytz
 import logging
+import json
 
 from datetime import datetime
 from django.contrib.auth.models import AbstractUser
@@ -51,6 +52,11 @@ class User(AbstractUser):
     triggers = models.JSONField(default=list, blank=True, verbose_name="Триггеры")
     strengths = models.JSONField(default=list, blank=True, verbose_name="Сильные стороны")
     areas_for_growth = models.JSONField(default=list, blank=True, verbose_name="Зоны роста")
+    personality_insights = models.JSONField(default=dict, blank=True, verbose_name="Глубинные инсайты о личности")
+    habits = models.JSONField(default=list, blank=True, verbose_name="Привычки")
+    skills = models.JSONField(default=list, blank=True, verbose_name="Навыки")
+    aspirations = models.JSONField(default=list, blank=True, verbose_name="Стремления")
+    personality_description = models.TextField(blank=True, default="", verbose_name="Текстовое описание личности")
     date_of_birth = models.DateField(null=True, blank=True, verbose_name="Дата рождения")
     email = models.EmailField(blank=True, verbose_name="Email")
 
@@ -101,7 +107,67 @@ class User(AbstractUser):
     async def aget_local_datetime(self):
         """Асинхронная версия get_local_datetime."""
         return self.get_local_datetime()
+
+class UserProfileHistory(models.Model):
+    """
+    История изменений психологического профиля пользователя.
+    Хранит снимки профиля в определенные моменты времени.
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='profile_history', verbose_name="Пользователь")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания слепка")
     
+    # --- Структурированные данные профиля на момент создания слепка ---
+    awareness_level = models.PositiveIntegerField(verbose_name="Уровень осознанности")
+    personality_traits = models.JSONField(verbose_name="Черты характера")
+    life_facts = models.JSONField(verbose_name="Факты о жизни")
+    hobbies = models.JSONField(verbose_name="Увлечения")
+    core_values = models.JSONField(verbose_name="Ключевые ценности")
+    triggers = models.JSONField(verbose_name="Триггеры")
+    strengths = models.JSONField(verbose_name="Сильные стороны")
+    areas_for_growth = models.JSONField(verbose_name="Зоны роста")
+    personality_insights = models.JSONField(verbose_name="Глубинные инсайты о личности")
+    habits = models.JSONField(verbose_name="Привычки")
+    skills = models.JSONField(verbose_name="Навыки")
+    aspirations = models.JSONField(verbose_name="Стремления")
+    
+    # --- Текстовое описание личности на момент создания слепка ---
+    personality_description = models.TextField(verbose_name="Текстовое описание личности")
+    
+    # --- (Опционально) Ссылка на WeeklyAnalysis, послуживший основой для этого слепка ---
+    # weekly_analysis = models.ForeignKey('diary.WeeklyAnalysis', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Основа анализа (WeeklyAnalysis)")
+    
+    class Meta:
+        verbose_name = "История профиля пользователя"
+        verbose_name_plural = "Истории профилей пользователей"
+        db_table = "users_profile_history"
+        ordering = ['-created_at'] # Новейшие первыми
+
+    def __str__(self):
+        return f"Профиль {self.user.username} от {self.created_at.strftime('%Y-%m-%d %H:%M')}"
+
+    def save(self, *args, **kwargs):
+        """Проверка и корректное сохранение JSON-полей при необходимости."""
+        # Убедиться, что JSON-поля являются правильными типами (dict/list)
+        json_fields = [
+            'personality_traits', 'life_facts', 'hobbies', 'core_values',
+            'triggers', 'strengths', 'areas_for_growth', 'personality_insights',
+            'habits', 'skills', 'aspirations'
+        ]
+        for field_name in json_fields:
+            field_value = getattr(self, field_name)
+            if not isinstance(field_value, (dict, list)):
+                 # Пробуем десериализовать, если это строка
+                 if isinstance(field_value, str):
+                     try:
+                         setattr(self, field_name, json.loads(field_value))
+                     except json.JSONDecodeError:
+                         # Если не JSON, сохраняем как есть (или устанавливаем значение по умолчанию)
+                         setattr(self, field_name, {} if 'traits' in field_name or 'insights' in field_name else [])
+                 else:
+                     # Устанавливаем значение по умолчанию
+                     setattr(self, field_name, {} if 'traits' in field_name or 'insights' in field_name else [])
+        super().save(*args, **kwargs)
+
 class CityTimezone(models.Model):
     """
     Модель для хранения соответствия городов и часовых поясов

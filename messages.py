@@ -467,6 +467,10 @@ MESSAGES = {
 'btn_next_week': '⏭ След. неделя',
 'btn_prev_week': '⏮ Пред. неделя',
 'btn_weekly_progress': '📊 Прогресс по неделям', # Кнопка в основном меню "Прогресс"
+
+'btn_user_profile': '👤 Профиль',
+'btn_view_psychology_profile': '🧠 Психологический портрет',
+'error_generic': '❗ Произошла ошибка. Пожалуйста, попробуйте позже.',
     },
     'en': {
         # ===Greetings and main messages ===
@@ -925,6 +929,10 @@ Mood Trend: {mood_trend_display}
 'btn_next_week': '⏭ Next Week',
 'btn_prev_week': '⏮ Prev. Week',
 'btn_weekly_progress': '📊 Weekly Progress', # Кнопка в основном меню "Прогресс"
+
+'btn_user_profile': '👤 Profile',
+'btn_view_psychology_profile': '🧠 Psychological Portrait',
+'error_generic': '❗ An error occurred. Please try again later.',
     }
 }
 

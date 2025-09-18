@@ -35,6 +35,12 @@ def get_main_menu_keyboard(language: str, user=None) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
+                text=get_button_text('btn_user_profile', language),
+                callback_data="user_profile"
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 text=get_button_text('btn_settings', language),
                 callback_data="settings"
             )

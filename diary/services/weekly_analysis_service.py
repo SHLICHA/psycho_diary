@@ -1,4 +1,6 @@
 # /home/shlicha/psycho_diary/diary/services/weekly_analysis_service.py
+# (Весь файл, с учетом предыдущих исправлений и нового упрощения)
+
 """
 Сервис для выполнения еженедельного анализа пользователя.
 """
@@ -95,7 +97,12 @@ class WeeklyAnalysisService:
             logger.debug(f"[WeeklyAnalysisService] Промпт сформирован для {user.telegram_id} за неделю {week_start_date} (длина: {len(prompt)} символов)")
 
             # 5. Вызвать DeepSeek API
-            api_result = await deepseek_api_service.send_prompt_and_parse(prompt, language=user.language)
+            # Увеличиваем таймаут для недельного анализа, если нужно
+            api_result = await deepseek_api_service.send_prompt_and_parse(
+                prompt, 
+                language=user.language,
+                timeout_per_attempt=120 # 2 минуты на попытку
+            )
             logger.debug(f"[WeeklyAnalysisService] Ответ API от DeepSeek: success={api_result.get('success')}")
 
             # 6. Обработать результат API
@@ -103,46 +110,40 @@ class WeeklyAnalysisService:
                 error_msg = api_result.get('error', 'Неизвестная ошибка API')
                 logger.error(f"[WeeklyAnalysisService] Ошибка API при недельном анализе: {error_msg}")
                 
-                # Создаем WeeklyAnalysis с информацией об ошибке? Пока просто возвращаем ошибку.
+                # Создаем WeeklyAnalysis с информацией об ошибке
+                weekly_analysis = await self._create_or_update_weekly_analysis(
+                    user=user,
+                    week_start_date=week_start_date,
+                    parsed_result={}, # Пустой результат
+                    api_result=api_result, # Передаем ошибку
+                    context=context 
+                )
                 return {
                     "success": False,
                     "message": f"Ошибка при анализе недели: {error_msg}",
-                    "weekly_analysis": None,
+                    "weekly_analysis": weekly_analysis,
                     "error": error_msg
                 }
 
-            # 7. Парсинг результата и сохранение
+            # 7. Парсинг результата
             parsed_result = api_result.get('result', {})
             logger.debug(f"[WeeklyAnalysisService] Распарсенный результат от API: {parsed_result}")
             
             # 8. Создать/сохранить WeeklyAnalysis
+            # ВАЖНО: consolidated_user_profile теперь будет браться из parsed_result
+            # и храниться в WeeklyAnalysis как есть, для последующего использования
+            # другим сервисом.
             weekly_analysis = await self._create_or_update_weekly_analysis(
                 user=user,
                 week_start_date=week_start_date,
                 parsed_result=parsed_result,
                 api_result=api_result,
-                context=context # Передаем для consolidated_user_profile
+                context=context # Передаем для fallback значений, если ИИ не вернул полный профиль
             )
             logger.info(f"[WeeklyAnalysisService] WeeklyAnalysis (ID: {weekly_analysis.id}) создан для {user.telegram_id} за неделю {week_start_date}")
             
-            # 9. Обновить поля User на основе user_profile_updates из результата ИИ
-            user_profile_updates = parsed_result.get('user_profile_updates', {})
-            if user_profile_updates:
-                update_success = await self._update_user_profile(user, user_profile_updates)
-                if not update_success:
-                    logger.warning(f"[WeeklyAnalysisService] Не удалось обновить профиль пользователя {user.telegram_id} после анализа недели {week_start_date}.")
-                # Даже если обновление профиля не удалось, основной анализ считаем успешным
-            
-            # 10. (Опционально) Обновить awareness_level
-            awareness_adjustment = parsed_result.get('awareness_level_adjustment', {})
-            if awareness_adjustment and isinstance(awareness_adjustment, dict):
-                new_level = awareness_adjustment.get('new_level')
-                reasoning = awareness_adjustment.get('reasoning', '')
-                if new_level is not None and isinstance(new_level, int) and 1 <= new_level <= 10:
-                    old_level = user.awareness_level
-                    user.awareness_level = new_level
-                    await sync_to_async(user.save)(update_fields=['awareness_level'])
-                    logger.info(f"[WeeklyAnalysisService] Уровень осознанности пользователя {user.telegram_id} обновлен с {old_level} до {new_level}. Причина: {reasoning}")
+            # 9. УДАЛЕНО: Обновление полей User и awareness_level здесь.
+            # Это будет сделано другим сервисом (UserProfileAnalysisService).
 
             return {
                 "success": True,
@@ -154,12 +155,34 @@ class WeeklyAnalysisService:
         except Exception as e:
             logger.error(f"[WeeklyAnalysisService] Критическая ошибка при еженедельном анализе для пользователя {user.telegram_id}: {e}", exc_info=True)
             
-            # Попытка создать запись об ошибке в WeeklyAnalysis?
-            # Пока просто возвращаем ошибку
+            # Попытка создать запись об ошибке в WeeklyAnalysis
+            try:
+                 # Создаем минимальный контекст для ошибки
+                 context = {
+                    'user_profile': {
+                        'username': user.username or f"user_{user.telegram_id}",
+                        'first_name': user.first_name or "",
+                        'awareness_level': user.awareness_level,
+                    },
+                    'daily_analyses': [],
+                    'previous_weekly_analysis': None,
+                    'week_statistics': {}
+                 }
+                 weekly_analysis = await self._create_or_update_weekly_analysis(
+                    user=user,
+                    week_start_date=week_start_date if 'week_start_date' in locals() else date.today(), # fallback
+                    parsed_result={}, 
+                    api_result={"error": "critical_exception", "message": str(e)},
+                    context=context
+                 )
+            except Exception as inner_e:
+                 logger.error(f"[WeeklyAnalysisService] Не удалось создать запись об ошибке в WeeklyAnalysis: {inner_e}")
+                 weekly_analysis = None
+
             return {
                 "success": False,
                 "message": "Критическая ошибка при анализе недели.",
-                "weekly_analysis": None,
+                "weekly_analysis": weekly_analysis,
                 "error": str(e)
             }
 
@@ -191,7 +214,6 @@ class WeeklyAnalysisService:
         }
 
         # --- 1. Профиль пользователя ---
-        # Передаем расширенный профиль, как в full_day_analysis_service
         extended_user_profile = {
             'username': user.username or f"user_{user.telegram_id}",
             'first_name': user.first_name or "",
@@ -204,7 +226,6 @@ class WeeklyAnalysisService:
             "triggers": user.triggers,
             "strengths": user.strengths,
             "areas_for_growth": user.areas_for_growth,
-            # Не передаем telegram_id и другие чувствительные данные
         }
         context['user_profile'] = extended_user_profile
 
@@ -220,97 +241,128 @@ class WeeklyAnalysisService:
         total_word_count = 0
 
         while current_date <= week_end_date:
-             try:
-                 # combined_entry = await daily_state_service.get_daily_state(user, current_date)
-                 # Асинхронный вариант может быть медленнее из-за множества запросов
-                 # Лучше один запрос с фильтрацией
-                 @sync_to_async
-                 def _get_combined_entries_sync():
-                     return list(CombinedDiaryEntry.objects.filter(
-                         user=user, date=current_date
-                     ).select_related('daily_analysis'))
-                 
-                 combined_entries = await _get_combined_entries_sync()
-                 
-                 if combined_entries:
-                     combined_entry = combined_entries[0]
-                     total_entries += combined_entry.entry_count
-                     total_word_count += len(combined_entry.text.split())
-                     total_mood_scores.extend(combined_entry.daily_mood_scores)
+            logger.debug(f"[WeeklyAnalysisService] Обрабатываем дату: {current_date}")
+            try:
+                # --- Получение CombinedDiaryEntry ---
+                @sync_to_async
+                def _get_combined_entry_sync():
+                    try:
+                        return CombinedDiaryEntry.objects.select_related('daily_analysis').get(
+                            user=user, date=current_date
+                        )
+                    except CombinedDiaryEntry.DoesNotExist:
+                        return None
 
-                     if hasattr(combined_entry, 'daily_analysis'):
-                         da = combined_entry.daily_analysis
-                         da_data = {
-                             "date": combined_entry.date.isoformat(),
-                             "mood_trend": da.mood_trend,
-                             "key_themes": da.key_themes,
-                             "emotional_patterns": da.emotional_patterns,
-                             "insights": da.insights,
-                             "overall_analysis_text": da.overall_analysis_text,
-                             "average_mood_score": combined_entry.average_mood_score
-                         }
-                         daily_analyses_data.append(da_data)
+                combined_entry = await _get_combined_entry_sync()
 
-                         # Собираем уникальные темы и эмоции
-                         for theme_dict in da.key_themes:
-                             if isinstance(theme_dict, dict) and 'theme' in theme_dict:
-                                 unique_themes.add(theme_dict['theme'])
-                             elif isinstance(theme_dict, dict) and 'text' in theme_dict: # Альтернативный ключ
-                                 unique_themes.add(theme_dict['text'][:50]) # Берем часть текста
-                         
-                         for pattern_dict in da.emotional_patterns:
-                             if isinstance(pattern_dict, dict) and 'emotion' in pattern_dict:
-                                 unique_emotions.add(pattern_dict['emotion'])
-                             elif isinstance(pattern_dict, str):
-                                 unique_emotions.add(pattern_dict)
+                if combined_entry:
+                    logger.debug(f"[WeeklyAnalysisService] Найден CombinedDiaryEntry ID {combined_entry.id} за {current_date}")
+                    total_entries += combined_entry.entry_count
+                    total_word_count += len(combined_entry.text.split()) if combined_entry.text else 0
+                    if isinstance(combined_entry.daily_mood_scores, list):
+                        total_mood_scores.extend(combined_entry.daily_mood_scores)
+                    else:
+                        logger.warning(f"[WeeklyAnalysisService] daily_mood_scores для {current_date} не является списком: {type(combined_entry.daily_mood_scores)}")
 
-                 # Считаем задачи за день
-                 @sync_to_async
-                 def _get_tasks_sync():
-                     return list(TherapyTask.objects.filter(
-                         user=user, assigned_at__date=current_date
-                     ))
-                 
-                 @sync_to_async
-                 def _get_completed_tasks_sync():
-                     return list(TaskCompletion.objects.filter(
-                         task__user=user, created_at__date=current_date
-                     ))
-                 
-                 day_tasks = await _get_tasks_sync()
-                 day_completed_tasks = await _get_completed_tasks_sync()
-                 
-                 tasks_assigned += len(day_tasks)
-                 tasks_completed += len(day_completed_tasks)
+                    # --- Получение и обработка DailyAnalysis ---
+                    if hasattr(combined_entry, 'daily_analysis') and combined_entry.daily_analysis:
+                        da = combined_entry.daily_analysis
+                        logger.debug(f"[WeeklyAnalysisService] Найден DailyAnalysis ID {da.id} для CombinedDiaryEntry ID {combined_entry.id}")
+                        
+                        # --- Сбор данных для daily_analyses_data ---
+                        da_data = {
+                            "date": combined_entry.date.isoformat(),
+                            "mood_trend": getattr(da, 'mood_trend', 'unknown'),
+                            "key_themes": list(da.key_themes) if isinstance(da.key_themes, (list, tuple)) else [],
+                            "emotional_patterns": list(da.emotional_patterns) if isinstance(da.emotional_patterns, (list, tuple)) else [],
+                            "insights": list(da.insights) if isinstance(da.insights, (list, tuple)) else [],
+                            "overall_analysis_text": getattr(da, 'overall_analysis_text', ''),
+                            "average_mood_score": getattr(combined_entry, 'average_mood_score', 0.0)
+                        }
+                        daily_analyses_data.append(da_data)
+                        logger.debug(f"[WeeklyAnalysisService] Данные DailyAnalysis за {current_date} добавлены.")
 
-             except Exception as e:
-                 logger.error(f"[WeeklyAnalysisService] Ошибка при сборе данных за {current_date}: {e}")
-             current_date += timedelta(days=1)
+                        # --- Сбор уникальных тем (key_themes) с обработкой ошибок ---
+                        key_themes_raw = getattr(da, 'key_themes', [])
+                        if isinstance(key_themes_raw, list):
+                            for theme_item in key_themes_raw:
+                                try:
+                                    hash(theme_item)
+                                    if isinstance(theme_item, str):
+                                        unique_themes.add(theme_item[:50])
+                                except TypeError:
+                                    if isinstance(theme_item, dict):
+                                        theme_text = theme_item.get('theme') or theme_item.get('text')
+                                        if isinstance(theme_text, str):
+                                            unique_themes.add(theme_text[:50])
+                                    else:
+                                        logger.debug(f"[WeeklyAnalysisService] Неподходящий тип элемента в key_themes: {type(theme_item)}. Пропущен.")
+                        else:
+                            logger.warning(f"[WeeklyAnalysisService] key_themes для {current_date} не является списком: {type(key_themes_raw)}")
+
+                        # --- Сбор уникальных эмоций (emotional_patterns) с обработкой ошибок ---
+                        emotional_patterns_raw = getattr(da, 'emotional_patterns', [])
+                        if isinstance(emotional_patterns_raw, list):
+                            for pattern_item in emotional_patterns_raw:
+                                try:
+                                    hash(pattern_item)
+                                    if isinstance(pattern_item, str):
+                                        unique_emotions.add(pattern_item)
+                                except TypeError:
+                                    if isinstance(pattern_item, dict):
+                                        emotion_text = pattern_item.get('emotion')
+                                        if isinstance(emotion_text, str):
+                                            unique_emotions.add(emotion_text)
+                                    else:
+                                        logger.debug(f"[WeeklyAnalysisService] Неподходящий тип элемента в emotional_patterns: {type(pattern_item)}. Пропущен.")
+                        else:
+                            logger.warning(f"[WeeklyAnalysisService] emotional_patterns для {current_date} не является списком: {type(emotional_patterns_raw)}")
+
+                    else:
+                        logger.debug(f"[WeeklyAnalysisService] DailyAnalysis для CombinedDiaryEntry ID {combined_entry.id} за {current_date} не найден.")
+
+                else:
+                    logger.debug(f"[WeeklyAnalysisService] CombinedDiaryEntry за {current_date} не найден.")
+
+                # --- Счетчики задач ---
+                @sync_to_async
+                def _get_tasks_sync():
+                    return TherapyTask.objects.filter(user=user, assigned_at__date=current_date).count()
+
+                @sync_to_async
+                def _get_completed_tasks_sync():
+                    return TaskCompletion.objects.filter(
+                        task__user=user, created_at__date=current_date
+                    ).count()
+
+                day_tasks_count = await _get_tasks_sync()
+                day_completed_tasks_count = await _get_completed_tasks_sync()
+
+                tasks_assigned += day_tasks_count
+                tasks_completed += day_completed_tasks_count
+                logger.debug(f"[WeeklyAnalysisService] Задачи за {current_date}: назначено {day_tasks_count}, выполнено {day_completed_tasks_count}")
+
+            except Exception as e:
+                logger.error(f"[WeeklyAnalysisService] Критическая ошибка при сборе данных за {current_date}: {e}", exc_info=True)
+            
+            current_date += timedelta(days=1)
 
         context['daily_analyses'] = daily_analyses_data
         if daily_analyses_data:
             context['has_data'] = True
 
         # --- 3. Предыдущий WeeklyAnalysis ---
-        # Определяем начало предыдущей недели
         previous_week_start = week_start_date - timedelta(weeks=1)
         previous_analysis = await self._get_weekly_analysis_for_week(user, previous_week_start)
         if previous_analysis:
-            # Передаем только нужные поля или весь объект?
-            # Для простоты передадим основные поля как словарь
             context['previous_weekly_analysis'] = {
                 "week_start_date": previous_analysis.week_start_date.isoformat(),
                 "summary_text": previous_analysis.summary_text,
-                # Можно добавить другие поля, если они нужны в промпте
-                # "progress_insights": previous_analysis.progress_insights,
-                # "consolidated_user_profile": previous_analysis.consolidated_user_profile,
             }
         else:
              logger.debug(f"[WeeklyAnalysisService] Предыдущий анализ недели для {user.telegram_id} не найден.")
 
         # --- 4. Статистика недели ---
-        # Рассчитываем серию дней подряд (простая оценка)
-        # Для точности лучше хранить это в User или отдельно, но для MVP сделаем тут
         streak_days_current = 0
         temp_date = week_end_date
         while temp_date >= week_start_date:
@@ -321,19 +373,14 @@ class WeeklyAnalysisService:
             if has_entry:
                 streak_days_current += 1
             else:
-                break # Серия прервана
+                break
             temp_date -= timedelta(days=1)
 
-        # Получаем общий streak_days_total из User или оцениваем (упрощенно)
-        # streak_days_total = user.??? # Нет такого поля. Можно добавить в User позже.
-        # Пока используем streak_days_current как приближение или добавим в User позже.
-        
         avg_mood_score = sum(total_mood_scores) / len(total_mood_scores) if total_mood_scores else 0.0
 
         context['week_statistics'] = {
             "total_entries": total_entries,
             "streak_days_current": streak_days_current,
-            # "streak_days_total": streak_days_total, # Пока нет
             "avg_mood_score": round(avg_mood_score, 2),
             "tasks_assigned": tasks_assigned,
             "tasks_completed": tasks_completed,
@@ -341,12 +388,6 @@ class WeeklyAnalysisService:
             "unique_emotions_count": len(unique_emotions),
             "word_count_total": total_word_count
         }
-        
-        # Попробуем обновить streak_days_total в User (если нужно)
-        # Это можно сделать отдельно или здесь. Пока оставим комментарий.
-        # if streak_days_current > (user.streak_days_total if hasattr(user, 'streak_days_total') else 0):
-        #     user.streak_days_total = streak_days_current
-        #     await user.asave(update_fields=['streak_days_total']) # Если добавим поле
 
         logger.debug(f"[WeeklyAnalysisService] Контекст собран для недели {week_start_date} - {week_end_date}")
         return context
@@ -354,8 +395,6 @@ class WeeklyAnalysisService:
     async def _get_weekly_analysis_for_week(self, user: User, week_start_date: date) -> Optional[WeeklyAnalysis]:
         """Получает анализ недели для конкретной даты начала недели."""
         try:
-            # return await WeeklyAnalysis.objects.aget(user=user, week_start_date=week_start_date)
-            # Синхронный вариант для совместимости
             @sync_to_async
             def _get_sync():
                 try:
@@ -373,7 +412,7 @@ class WeeklyAnalysisService:
         week_start_date: date,
         parsed_result: Dict[str, Any], 
         api_result: Dict[str, Any],
-        context: Dict[str, Any] # Для consolidated_user_profile
+        context: Dict[str, Any] # Для fallback значений
     ) -> WeeklyAnalysis:
         """
         Создает объект WeeklyAnalysis на основе результата анализа.
@@ -390,7 +429,7 @@ class WeeklyAnalysisService:
         """
         logger.debug(f"[WeeklyAnalysisService] Создание WeeklyAnalysis для пользователя {user.telegram_id}, неделя {week_start_date}")
 
-        # Извлекаем данные
+        # Извлекаем данные из результата ИИ
         summary_text = parsed_result.get('summary_text', 'Анализ недели завершен.')
         
         progress_insights = parsed_result.get('progress_insights', {})
@@ -398,48 +437,20 @@ class WeeklyAnalysisService:
             logger.warning("[WeeklyAnalysisService] progress_insights не является словарем.")
             progress_insights = {}
 
-        # consolidated_user_profile из контекста или из результата?
-        # Лучше взять обновленный профиль из результата ИИ и смержить с текущим
-        # Но для простоты возьмем из контекста и обновим поля из user_profile_updates позже
-        # Или возьмем из результата ИИ напрямую, если он содержит полный профиль
-        # В промпте мы просим обновить весь профиль, значит ИИ должен вернуть обновленный
-        consolidated_user_profile_from_ai = parsed_result.get('user_profile_updates', {})
-        # Но это только обновления. Нужно применить их к текущему профилю.
-        # Лучше взять текущий профиль и применить обновления.
-        current_profile = context.get('user_profile', {})
-        consolidated_user_profile = current_profile.copy() # База
+        # consolidated_user_profile теперь используется иначе.
+        # Мы можем сохранить awareness_level_adjustment или оставить пустым.
+        # Для простоты, сохраним awareness_level_adjustment, если он есть.
+        awareness_level_adjustment = parsed_result.get('awareness_level_adjustment', {})
+        consolidated_user_profile_to_save = {}
+        if isinstance(awareness_level_adjustment, dict) and awareness_level_adjustment:
+            # Можно сохранить только рекомендацию или новый уровень
+            # consolidated_user_profile_to_save['awareness_level_adjustment'] = awareness_level_adjustment
+            # Или просто новый уровень, если он есть
+            new_level = awareness_level_adjustment.get('new_level')
+            if new_level is not None:
+                 consolidated_user_profile_to_save['awareness_level'] = new_level
+                 # reasoning можно сохранить отдельно в progress_insights или не сохранять
         
-        # Применяем обновления от ИИ
-        for key, value in consolidated_user_profile_from_ai.items():
-            if key in ['personality_traits', 'life_facts', 'hobbies', 'core_values', 'triggers', 'strengths', 'areas_for_growth']:
-                if key == 'personality_traits' and isinstance(value, dict):
-                    consolidated_user_profile[key] = value
-                elif isinstance(value, list):
-                    # Логика добавления/удаления для списков
-                    current_list = consolidated_user_profile.get(key, [])
-                    if not isinstance(current_list, list):
-                        current_list = []
-                    new_set = set(item for item in current_list if isinstance(item, str))
-                    items_to_add = set()
-                    items_to_remove = set()
-                    for item in value:
-                        if isinstance(item, str):
-                            items_to_add.add(item)
-                        elif isinstance(item, dict) and 'remove' in item:
-                            item_to_remove = item['remove']
-                            if isinstance(item_to_remove, str):
-                                items_to_remove.add(item_to_remove)
-                    new_set = new_set - items_to_remove
-                    new_set.update(items_to_add)
-                    consolidated_user_profile[key] = list(new_set)
-                # awareness_level_adjustment обрабатывается отдельно
-            elif key == 'awareness_level_adjustment':
-                # Уже обработано
-                pass
-            else:
-                # Другие поля, если есть
-                consolidated_user_profile[key] = value
-
         statistics = parsed_result.get('statistics', context.get('week_statistics', {}))
         if not isinstance(statistics, dict):
             logger.warning("[WeeklyAnalysisService] statistics не является словарем.")
@@ -458,7 +469,9 @@ class WeeklyAnalysisService:
                     week_start_date=week_start_date,
                     summary_text=summary_text,
                     progress_insights=progress_insights,
-                    consolidated_user_profile=consolidated_user_profile,
+                    # consolidated_user_profile теперь хранит только то, что нужно для последующего этапа
+                    # или зарезервировано. Сейчас сохраняем потенциальное изменение awareness_level.
+                    consolidated_user_profile=consolidated_user_profile_to_save, 
                     statistics=statistics,
                     comparison_with_previous=comparison_with_previous,
                     api_response=api_result
@@ -467,115 +480,6 @@ class WeeklyAnalysisService:
                  logger.info(f"[SYNC] WeeklyAnalysis ID {weekly_analysis.id} создан.")
                  return weekly_analysis
         return await _create_sync()
-
-    async def _update_user_profile(self, user: User, profile_updates: Dict[str, Any]) -> bool:
-        """
-        Обновляет поля профиля пользователя на основе данных от ИИ.
-        Логика взята из FullDayAnalysisService, но адаптирована под недельный анализ.
-
-        Args:
-            user: Объект пользователя.
-            profile_updates: Словарь обновлений из ответа ИИ (user_profile_updates).
-
-        Returns:
-            bool: True, если обновление прошло успешно, иначе False.
-        """
-        logger.info(f"[WeeklyAnalysisService] Обновление профиля пользователя {user.telegram_id} на основе данных ИИ (недельный анализ).")
-        logger.debug(f"[WeeklyAnalysisService] Полученные обновления: {profile_updates}")
-
-        if not profile_updates or not isinstance(profile_updates, dict):
-            logger.info("[WeeklyAnalysisService] Нет данных для обновления профиля пользователя (недельный).")
-            return True # Не ошибка, просто нет данных
-
-        fields_updated = []
-
-        try:
-            # --- Обработка personality_traits (словарь {trait: weight}) ---
-            new_traits_dict = profile_updates.get('personality_traits')
-            if new_traits_dict is not None and isinstance(new_traits_dict, dict):
-                # Убедимся, что текущее значение - словарь
-                if not isinstance(user.personality_traits, dict):
-                    logger.warning("[WeeklyAnalysisService] user.personality_traits не является словарем. Переинициализируем.")
-                    user.personality_traits = {}
-                
-                # Обновляем словарь traits
-                for trait, weight in new_traits_dict.items():
-                    if isinstance(trait, str) and isinstance(weight, (int, float)):
-                        user.personality_traits[trait] = weight
-                        logger.debug(f"[WeeklyAnalysisService] Обновлен/добавлен personality_trait '{trait}': {weight}")
-                    else:
-                       logger.warning(f"[WeeklyAnalysisService] Некорректный элемент в personality_traits: {trait}: {weight}")
-                
-                fields_updated.append('personality_traits')
-            elif new_traits_dict is not None:
-                 logger.warning(f"[WeeklyAnalysisService] Некорректный формат для personality_traits: {type(new_traits_dict)}. Ожидается словарь.")
-
-            # --- Обработка списков (life_facts, hobbies, core_values, triggers, strengths, areas_for_growth) ---
-            list_field_names = ['life_facts', 'hobbies', 'core_values', 'triggers', 'strengths', 'areas_for_growth']
-            for field_name in list_field_names:
-                updates_for_field = profile_updates.get(field_name)
-                if updates_for_field is None:
-                    continue # Поле не передано, пропускаем
-
-                if not isinstance(updates_for_field, list):
-                    logger.warning(f"[WeeklyAnalysisService] Некорректный формат для {field_name}: {type(updates_for_field)}. Ожидается список.")
-                    continue
-
-                # Получаем текущее значение поля у пользователя
-                current_user_list = getattr(user, field_name, [])
-                if not isinstance(current_user_list, list):
-                    logger.warning(f"[WeeklyAnalysisService] Текущее значение {field_name} у пользователя не является списком. Перезаписываем.")
-                    current_user_list = []
-                
-                current_user_set = set(item for item in current_user_list if isinstance(item, str))
-                items_to_add = set()
-                items_to_remove = set()
-
-                for item in updates_for_field:
-                    if isinstance(item, str):
-                        items_to_add.add(item)
-                    elif isinstance(item, dict) and 'remove' in item:
-                        item_to_remove = item['remove']
-                        if isinstance(item_to_remove, str):
-                            items_to_remove.add(item_to_remove)
-                        else:
-                            logger.warning(f"[WeeklyAnalysisService] Некорректный формат 'remove' в {field_name}: {item_to_remove}")
-                    else:
-                        logger.warning(f"[WeeklyAnalysisService] Некорректный элемент в {field_name}: {item}")
-
-                # Удаляем
-                if items_to_remove:
-                    new_set = current_user_set - items_to_remove
-                    if len(new_set) != len(current_user_set):
-                        current_user_set = new_set
-                        logger.debug(f"[WeeklyAnalysisService] Удалены из {field_name}: {items_to_remove}")
-                
-                # Добавляем (избегая дубликатов)
-                if items_to_add:
-                    actually_added = items_to_add - current_user_set
-                    if actually_added:
-                        current_user_set.update(actually_added)
-                        logger.debug(f"[WeeklyAnalysisService] Добавлены в {field_name}: {actually_added}")
-                
-                # Сохраняем обратно в поле пользователя, если было изменение
-                final_list = list(current_user_set)
-                if set(final_list) != set(current_user_list):
-                    setattr(user, field_name, final_list)
-                    fields_updated.append(field_name)
-
-            # --- Сохранение изменений ---
-            if fields_updated:
-                logger.info(f"[WeeklyAnalysisService] Обновлены поля профиля пользователя {user.telegram_id}: {fields_updated}")
-                await sync_to_async(user.save)(update_fields=fields_updated)
-                logger.debug(f"[WeeklyAnalysisService] Изменения профиля пользователя {user.telegram_id} сохранены.")
-            else:
-                logger.debug(f"[WeeklyAnalysisService] Нет изменений для сохранения в профиле пользователя {user.telegram_id}.")
-
-            return True
-
-        except Exception as e:
-            logger.error(f"[WeeklyAnalysisService] Ошибка при обновлении профиля пользователя {user.telegram_id}: {e}", exc_info=True)
-            return False
 
 
 # Глобальный экземпляр сервиса

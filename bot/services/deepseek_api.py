@@ -27,7 +27,7 @@ class DeepSeekAPIService:
         language: str, 
         max_retries: int = 3,      # <-- Используем параметр
         base_delay: float = 1.5,   # <-- Используем параметр
-        timeout_per_attempt: int = 80 # <-- Используем параметр
+        timeout_per_attempt: int = 90 # <-- Используем параметр
     ) -> dict:
         """
         Отправляет готовый промт в DeepSeek и возвращает распарсенный результат.

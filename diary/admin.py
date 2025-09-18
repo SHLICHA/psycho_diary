@@ -753,7 +753,7 @@ class TaskCompletionAnalysisAdmin(admin.ModelAdmin):
 
 @admin.register(WeeklyAnalysis)
 class WeeklyAnalysisAdmin(admin.ModelAdmin):
-    list_display = ('user', 'week_start_date', 'created_at')
+    list_display = ('id', 'user', 'week_start_date', 'created_at')
     list_filter = ('week_start_date', 'created_at', 'user')
     search_fields = ('user__username', 'user__telegram_id', 'summary_text')
     readonly_fields = ('created_at', 'api_response')
