@@ -117,6 +117,11 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'diary.tasks.reminder_tasks.send_entry_reminders',
         'schedule': crontab(minute=0),
     },
+    'schedule-weekly-analyses': {
+        'task': 'diary.tasks.schedule_weekly_analyses_task',
+        'schedule': crontab(minute=0), # Запускать каждый час в 00 минут
+        # 'schedule': 3600.0, # Альтернатива: каждые 3600 секунд (1 час)
+    },
 }
 
 CELERY_BROKER_URL = config('CELERY_BROKER_URL')

@@ -434,8 +434,40 @@ MESSAGES = {
         # === Кнопки анкетирования ===
         'btn_skip_questionnaire': 'Пропустить анкету',
         'btn_submit_answers': 'Отправить ответы',
+        
+       # === Анализ недели === 
+'weekly_analysis_title': '''📈 <b>Анализ недели</b>
+Неделя: {week_start_date} - {week_end_date}
+Уровень осознанности: {awareness_level}/10
+''',
+'weekly_analysis_summary': '''🧠 <b>Резюме недели:</b>
+{summary_text}
+''',
+'weekly_analysis_progress': '''📊 <b>Прогресс:</b>
+Тренд настроения: {mood_trend_display}
+{progress_notes}
+''',
+'weekly_analysis_stats': '''📈 <b>Статистика:</b>
+• Записей: {total_entries}
+• Дней подряд (на неделе): {streak_days_current}
+• Среднее настроение: {avg_mood_score}
+• Заданий назначено: {tasks_assigned}
+• Заданий выполнено: {tasks_completed}
+''',
+'weekly_analysis_no_data': '📭 Нет данных для отображения за эту неделю.',
+'weekly_analysis_not_found': 'Анализ за эту неделю еще не выполнен.',
+'weekly_analysis_comparison': '''⚖️ <b>Сравнение с предыдущей неделей:</b>
+{progress_comment}
+''',
+'weekly_analysis_comparison_mood': 'Настроение: {mood_comparison}',
+'weekly_analysis_comparison_consistency': 'Регулярность: {consistency_comparison}',
+
+# Новые кнопки
+'btn_weekly_details': '🔬 Анализ недели',
+'btn_next_week': '⏭ След. неделя',
+'btn_prev_week': '⏮ Пред. неделя',
+'btn_weekly_progress': '📊 Прогресс по неделям', # Кнопка в основном меню "Прогресс"
     },
-    
     'en': {
         # ===Greetings and main messages ===
         'welcome': '''🧠 <b>Hi! This is your psychological diary.</b>
@@ -861,6 +893,38 @@ Need more help? Contact your psychologist!''',
         # === Questionnaire Buttons ===
         'btn_skip_questionnaire': 'Skip Questionnaire',
         'btn_submit_answers': 'Submit Answers',
+
+'weekly_analysis_title': '''📈 <b>Weekly Analysis</b>
+Week: {week_start_date} - {week_end_date}
+Awareness Level: {awareness_level}/10
+''',
+'weekly_analysis_summary': '''🧠 <b>Week Summary:</b>
+{summary_text}
+''',
+'weekly_analysis_progress': '''📊 <b>Progress:</b>
+Mood Trend: {mood_trend_display}
+{progress_notes}
+''',
+'weekly_analysis_stats': '''📈 <b>Statistics:</b>
+• Entries: {total_entries}
+• Streak Days (this week): {streak_days_current}
+• Avg. Mood Score: {avg_mood_score}
+• Tasks Assigned: {tasks_assigned}
+• Tasks Completed: {tasks_completed}
+''',
+'weekly_analysis_no_data': '📭 No data to display for this week.',
+'weekly_analysis_not_found': 'Analysis for this week has not been performed yet.',
+'weekly_analysis_comparison': '''⚖️ <b>Comparison with Previous Week:</b>
+{progress_comment}
+''',
+'weekly_analysis_comparison_mood': 'Mood: {mood_comparison}',
+'weekly_analysis_comparison_consistency': 'Consistency: {consistency_comparison}',
+
+# Новые кнопки
+'btn_weekly_details': '🔬 Weekly Analysis',
+'btn_next_week': '⏭ Next Week',
+'btn_prev_week': '⏮ Prev. Week',
+'btn_weekly_progress': '📊 Weekly Progress', # Кнопка в основном меню "Прогресс"
     }
 }
 

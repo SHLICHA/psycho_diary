@@ -73,6 +73,14 @@ from .onboarding_keyboards import (
     get_submit_answers_keyboard
 )
 
+# Клавиатуры прогресса
+from .progress_keyboards import (
+    get_weekly_analysis_keyboard,
+    get_progress_keyboard_without_weekly,
+    get_weekly_navigation_keyboard,
+    get_progress_keyboard_with_weekly
+)
+
 __all__ = [
     # Основные клавиатуры
     'get_main_menu_keyboard',
@@ -130,5 +138,11 @@ __all__ = [
     'get_instruction_keyboard',
     'get_agreement_keyboard',
     'get_skip_questionnaire_keyboard',
-    'get_submit_answers_keyboard'
+    'get_submit_answers_keyboard',
+
+    # Клавиатуры прогресса
+    'get_weekly_analysis_keyboard',
+    'get_progress_keyboard_without_weekly',
+    'get_weekly_navigation_keyboard',
+    'get_progress_keyboard_with_weekly'
 ]

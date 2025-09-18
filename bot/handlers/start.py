@@ -54,6 +54,7 @@ async def cmd_start(message: Message, user, language: str, state: FSMContext): #
 @router.callback_query(F.data == "main_menu")
 async def back_to_main_menu(callback: CallbackQuery, language: str):
     """Возврат в главное меню"""
+    logger.info("Обработчик main_menu вызван!")
     try:
         main_menu_msg = get_message('main_menu', language)
         await safe_edit_message_text(

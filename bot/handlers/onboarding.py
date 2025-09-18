@@ -18,7 +18,8 @@ from bot.keyboards import (
     get_agreement_keyboard,
     get_start_onboarding_keyboard,
     get_skip_questionnaire_keyboard,
-    get_submit_answers_keyboard
+    get_submit_answers_keyboard,
+    get_main_menu_keyboard
 )
 from bot.utils.message_utils import safe_edit_message_text
 from bot.utils.callback_utils import safe_answer_callback
@@ -223,7 +224,6 @@ async def skip_questionnaire(callback: CallbackQuery, state: FSMContext, user, l
         await safe_answer_callback(callback, "")
         
         # Переходим в главное меню
-        from bot.keyboards.main_menu import get_main_menu_keyboard
         welcome_back_msg = get_message('welcome_back', language, username=user.first_name or "Пользователь")
         await callback.message.answer(welcome_back_msg, reply_markup=get_main_menu_keyboard(language))
         

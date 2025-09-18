@@ -751,7 +751,29 @@ class TaskCompletionAnalysisAdmin(admin.ModelAdmin):
     get_user.short_description = 'Пользователь'
     get_user.admin_order_field = 'completion__task__user__username'
 
-    # Опционально: добавить фильтры по пользователю или заданию через методы
-    # def get_queryset(self, request):
-    #     qs = super().get_queryset(request)
-    #     return qs.select_related('completion__task__user', 'completion__task')
+@admin.register(WeeklyAnalysis)
+class WeeklyAnalysisAdmin(admin.ModelAdmin):
+    list_display = ('user', 'week_start_date', 'created_at')
+    list_filter = ('week_start_date', 'created_at', 'user')
+    search_fields = ('user__username', 'user__telegram_id', 'summary_text')
+    readonly_fields = ('created_at', 'api_response')
+    # Можно добавить поля для отображения в списке или фильтрации по ним
+    # raw_id_fields = ('user',) # Если пользователей много, удобнее использовать raw_id_fields
+
+    fieldsets = (
+        (None, {
+            'fields': ('user', 'week_start_date', 'summary_text')
+        }),
+        ('Инсайты и Прогресс', {
+            'fields': ('progress_insights', 'comparison_with_previous'),
+            'classes': ('collapse',), # Сворачиваем для компактности
+        }),
+        ('Профиль и Статистика', {
+            'fields': ('consolidated_user_profile', 'statistics'),
+            'classes': ('collapse',),
+        }),
+        ('Техническая информация', {
+            'fields': ('api_response', 'created_at'),
+            'classes': ('collapse',),
+        }),
+    )

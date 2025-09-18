@@ -6,3 +6,7 @@ from diary.tasks.scheduler_tasks import (
 from diary.tasks.reminder_tasks import (
     send_entry_reminders
 )
+from diary.tasks.weekly_analisys_tasks import (
+    perform_weekly_analysis_for_user_task,
+    schedule_weekly_analyses_task
+)
