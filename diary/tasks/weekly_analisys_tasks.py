@@ -13,7 +13,6 @@ from asgiref.sync import sync_to_async, async_to_sync
 
 from users.models import User
 from diary.services.weekly_analysis_service import weekly_analysis_service
-# Импортируем новый сервис
 from diary.services.user_profile_analysis_service import user_profile_analysis_service
 
 logger = logging.getLogger(__name__)
@@ -23,6 +22,7 @@ def perform_weekly_analysis_for_user_task(self, user_id: int) -> dict:
     """
     Celery задача для выполнения еженедельного анализа и последующего анализа профиля для одного пользователя.
     """
+    
     logger.info(f"[Celery Task] Запуск еженедельного анализа и анализа профиля для пользователя ID {user_id}")
     try:
         # Получаем пользователя синхронно
@@ -43,13 +43,6 @@ def perform_weekly_analysis_for_user_task(self, user_id: int) -> dict:
                 logger.debug(f"[Celery Task] -> Создан WeeklyAnalysis ID: {weekly_result['weekly_analysis'].id}")
         else:
             logger.warning(f"[Celery Task] -> Ошибка в еженедельном анализе для пользователя {user_id}: {weekly_result.get('message', 'Unknown error')}")
-            # Можно решить, продолжать ли анализ профиля в случае ошибки еженедельного анализа
-            # Например, продолжать, если ошибка "уже существует"
-            # if weekly_result.get('error') != 'already_exists':
-            #     return {'status': 'failed', 'step': 'weekly_analysis', 'reason': weekly_result.get('error'), 'message': weekly_result.get('message'), 'user_id': user_id}
-
-        # --- 2. Выполняем анализ профиля пользователя ---
-        # Это делается независимо от результата еженедельного анализа
         logger.info(f"[Celery Task] -> Выполнение анализа профиля пользователя {user_id}...")
         perform_profile_sync = async_to_sync(user_profile_analysis_service.perform_user_profile_analysis)
         profile_result = perform_profile_sync(user)
@@ -92,7 +85,6 @@ def perform_weekly_analysis_for_user_task(self, user_id: int) -> dict:
                 'error': str(e), 
                 'user_id': user_id
             }
-
 
 @shared_task(bind=True)
 def schedule_weekly_analyses_task(self) -> dict:
