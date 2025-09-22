@@ -118,7 +118,7 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': crontab(minute=0),
     },
     'schedule-weekly-analyses': {
-        'task': 'diary.tasks.schedule_weekly_analyses_task',
+        'task': 'diary.tasks.weekly_analisys_tasks.schedule_weekly_analyses_task',
         'schedule': crontab(minute=0), # Запускать каждый час в 00 минут
         # 'schedule': 3600.0, # Альтернатива: каждые 3600 секунд (1 час)
     },

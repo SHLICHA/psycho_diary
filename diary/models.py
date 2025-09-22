@@ -442,7 +442,7 @@ class CombinedDiaryEntry(models.Model):
         verbose_name_plural = _("Объединенные записи дней")
         db_table = "diary_combined_entry"
         unique_together = ['user', 'date']
-        ordering = ['-date'],
+        ordering = ['-date']
         indexes = [
             models.Index(fields=['date']),
             models.Index(fields=['user', 'date']),
