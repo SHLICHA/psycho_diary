@@ -521,7 +521,7 @@ class CombinedDiaryEntryAdmin(admin.ModelAdmin):
     
     fieldsets = (
         (None, {
-            'fields': ('user_link', 'date', 'entry_count')
+            'fields': ('user_link', 'date', 'entry_count', 'next_entry_prompt')
         }),
         (_('Текст и анализ'), {
             'fields': ('text_full', 'is_analyzed', 'ai_state_data_display', 'analysis_result_display')
@@ -777,3 +777,77 @@ class WeeklyAnalysisAdmin(admin.ModelAdmin):
             'classes': ('collapse',),
         }),
     )
+
+@admin.register(NextEntryPrompt)
+class NextEntryPromptAdmin(admin.ModelAdmin):
+    """
+    Админка для модели NextEntryPrompt.
+    """
+    list_display = (
+        'id',
+        'user',
+        'target_date',
+        'is_used',
+        'used_at',
+        'created_at',
+        'get_prompt_preview' # Добавим предпросмотр текста
+    )
+    list_filter = (
+        'is_used',
+        'created_at',
+        'target_date',
+        ('user', admin.RelatedOnlyFieldListFilter), # Удобный фильтр по пользователю
+    )
+    search_fields = (
+        'user__username',
+        'user__telegram_id',
+        'prompt_text',
+    )
+    readonly_fields = (
+        'id',
+        'created_at',
+        'used_at',
+        'get_prompt_full' # Полный текст будет только для просмотра
+    )
+    date_hierarchy = 'target_date' # Навигация по датам
+
+    # Оптимизация запросов к БД
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.select_related('user') # Предзагрузка данных пользователя
+
+    # Метод для предпросмотра текста подсказки в списке
+    @admin.display(description="Текст подсказки (превью)")
+    def get_prompt_preview(self, obj):
+        if obj.prompt_text:
+            # Возвращаем первые 100 символов
+            return obj.prompt_text[:100] + "..." if len(obj.prompt_text) > 100 else obj.prompt_text
+        return "-"
+
+    # Метод для отображения полного текста в форме редактирования
+    @admin.display(description="Полный текст подсказки")
+    def get_prompt_full(self, obj):
+        if obj.prompt_text:
+            # Используем <pre> для сохранения форматирования
+            return f"<pre>{obj.prompt_text}</pre>"
+        return "-"
+    get_prompt_full.allow_tags = True # Разрешить HTML (в Django 3.2+ используйте format_html)
+
+    # Действия админки
+    actions = ['mark_as_used', 'mark_as_unused']
+
+    @admin.action(description="Пометить выбранные как использованные")
+    def mark_as_used(self, request, queryset):
+        updated_count = queryset.update(is_used=True)
+        self.message_user(
+            request,
+            f"Успешно помечено как использованные: {updated_count} подсказок."
+        )
+
+    @admin.action(description="Пометить выбранные как НЕ использованные")
+    def mark_as_unused(self, request, queryset):
+        updated_count = queryset.update(is_used=False, used_at=None)
+        self.message_user(
+            request,
+            f"Успешно помечено как НЕ использованные: {updated_count} подсказок."
+        )

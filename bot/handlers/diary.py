@@ -13,7 +13,7 @@ from aiogram.fsm.context import FSMContext
 from datetime import date, timedelta
 
 from messages import get_message, get_button_text
-from diary.models import CombinedDiaryEntry, DiaryEntry, DailyAnalysis, TherapyTask, PsychoAnalysis
+from diary.models import CombinedDiaryEntry, DiaryEntry, DailyAnalysis, TherapyTask, PsychoAnalysis, NextEntryPrompt
 from diary.services import daily_state_service
 from bot.states.diary_states import DiaryStates
 from bot.keyboards import (
@@ -50,12 +50,39 @@ logger = logging.getLogger(__name__)
 # ==================== ОСНОВНЫЕ HANDLERS ДНЕВНИКА ====================
 
 @router.callback_query(F.data == "new_entry")
-async def new_entry(callback: CallbackQuery, state: FSMContext, language: str):
+async def new_entry(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Создание новой записи - предложение ввести текст или голосовое сообщение"""
     logger.debug(f"Запрос на создание новой записи от пользователя {callback.from_user.id}")
     try:
         await state_manager.set_state(state, DiaryStates.waiting_for_text_entry)
-        entry_msg = get_message('ask_entry', language)
+        
+        # --- ПОЛУЧЕНИЕ ПЕРСОНАЛИЗИРОВАННОЙ ПОДСКАЗКИ ИЗ НОВОЙ МОДЕЛИ ---
+        personalized_prompt_text = None
+        try:
+            # 1. Получаем последнюю непросмотренную подсказку из новой модели
+            latest_prompt_obj = await NextEntryPrompt.aget_latest_unused_prompt(user)
+            
+            if latest_prompt_obj:
+                personalized_prompt_text = latest_prompt_obj.prompt_text.strip()
+                # 2. Помечаем подсказку как использованную
+                await sync_to_async(latest_prompt_obj.mark_as_used)()
+                logger.info(f"[new_entry] Использована подсказка из NextEntryPrompt ID {latest_prompt_obj.id} для пользователя {user.telegram_id}")
+            else:
+                logger.debug(f"[new_entry] Непросмотренных подсказок для пользователя {user.telegram_id} не найдено.")
+        except Exception as prompt_retrieval_error:
+            logger.warning(f"[new_entry] Ошибка при поиске/получении подсказки из NextEntryPrompt для пользователя {user.telegram_id}: {prompt_retrieval_error}", exc_info=True)
+            # Не прерываем основной поток
+        # --- КОНЕЦ ЛОГИКИ НОВОЙ МОДЕЛИ ---
+
+        # --- ОПРЕДЕЛЕНИЕ ТЕКСТА СООБЩЕНИЯ ---
+        if personalized_prompt_text and personalized_prompt_text: # Проверяем, что текст не пустой
+            entry_msg = personalized_prompt_text
+            logger.info(f"[new_entry] Использована персонализированная подсказка для пользователя {user.telegram_id}")
+        else:
+            entry_msg = get_message('ask_entry', language)
+            logger.debug(f"[new_entry] Использована стандартная подсказка для пользователя {user.telegram_id}")
+
+        # --- ОТПРАВКА СООБЩЕНИЯ ---
         await safe_edit_message_text(
             message=callback.message,
             text=entry_msg,
@@ -63,7 +90,7 @@ async def new_entry(callback: CallbackQuery, state: FSMContext, language: str):
         )
         await safe_answer_callback(callback, "")
     except Exception as e:
-        logger.error(f"Ошибка при предложении создания записи: {e}")
+        logger.error(f"Ошибка при предложении создания записи для пользователя {user.id}: {e}", exc_info=True)
         await safe_answer_callback(callback, get_message('error_generic', language))
 
 @router.message(DiaryStates.waiting_for_text_entry, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))

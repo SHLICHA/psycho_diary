@@ -5,7 +5,7 @@
 
 import logging
 import json
-from datetime import date
+from datetime import date, timedelta
 from typing import Dict, Any, List, Optional
 from asgiref.sync import sync_to_async
 from django.db import transaction
@@ -13,6 +13,7 @@ from django.db import transaction
 from users.models import User
 from diary.models import CombinedDiaryEntry, DiaryEntry, PsychoAnalysis, TherapyTask, TaskCompletion, DailyAnalysis
 from diary.services.daily_state_service import daily_state_service
+from diary.services.prompt_generation_service import prompt_generation_service
 from bot.services.diary_service import diary_service
 from bot.services.deepseek_api import deepseek_api_service
 from prompts import get_prompt
@@ -138,11 +139,32 @@ class FullDayAnalysisService:
             combined_entry.is_analyzed = True
             await combined_entry.asave(update_fields=['is_analyzed'])
             logger.debug(f"[FullDayAnalysisService] CombinedDiaryEntry (ID: {combined_entry.id}) помечен как проанализированный.")
-
+            # --- Генерация подсказки для ПЕРВОЙ записи СЛЕДУЮЩЕГО дня ---
+            try:
+                # Используем daily_analysis, который был создан/обновлен выше
+                # daily_analysis_obj = await sync_to_async(lambda: daily_analysis)() # <-- Старая, неправильная строка
+                
+                # Определяем дату для следующей записи (следующий день)
+                next_day = target_date + timedelta(days=1)
+                
+                # Асинхронно вызываем сервис генерации подсказки
+                # Передаем daily_analysis напрямую, так как он уже существует
+                prompt_gen_success = await prompt_generation_service.generate_and_save_next_entry_prompt_for_first_entry(
+                    user=user,
+                    target_date=next_day,
+                    previous_daily_analysis=daily_analysis # <-- Передаем правильный объект
+                )
+                if prompt_gen_success:
+                    logger.info(f"[FullDayAnalysisService] Подсказка для первой записи {next_day} успешно поставлена в очередь/сгенерирована.")
+                else:
+                    logger.warning(f"[FullDayAnalysisService] Не удалось поставить в очередь/сгенерировать подсказку для первой записи {next_day}.")
+            except Exception as prompt_integration_error:
+                logger.error(f"[FullDayAnalysisService] Ошибка интеграции с PromptGenerationService для первой записи: {prompt_integration_error}", exc_info=True)
+ 
             return {
                 "success": True,
                 "message": "Полный анализ дня успешно завершен.",
-                "daily_analysis": daily_analysis,
+                "daily_analysis": daily_analysis, # daily_analysis уже определен выше
                 "error": None
             }
 

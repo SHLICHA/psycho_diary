@@ -13,6 +13,7 @@ from django.core.cache import cache
 
 from bot.utils.decorators import async_error_handler, database_retry 
 from diary.models import DiaryEntry, PsychoAnalysis, CombinedDiaryEntry, TaskCompletion, TherapyTask
+from diary.services.prompt_generation_service import prompt_generation_service
 from diary.services.daily_state_service import (
     get_daily_state,
     get_or_create_daily_state,
@@ -322,6 +323,21 @@ class DiaryService:
         await self.update_daily_state_text_and_count(
             combined_entry, combined_text, len(entries)
         )
+                # --- Генерация подсказки для СЛЕДУЮЩЕЙ записи в тот же день ---
+        try:
+            # Асинхронно вызываем сервис генерации подсказки
+            prompt_gen_success = await prompt_generation_service.generate_and_save_next_entry_prompt_for_subsequent_entry(
+                user=user,
+                target_date=entry_date,
+                combined_entry=combined_entry # combined_entry уже обновлен
+            )
+            if prompt_gen_success:
+                logger.info(f"[DiaryService] Подсказка для следующей записи {entry_date} успешно поставлена в очередь/сгенерирована.")
+            else:
+                logger.warning(f"[DiaryService] Не удалось поставить в очередь/сгенерировать подсказку для следующей записи {entry_date}.")
+        except Exception as prompt_integration_error:
+            logger.error(f"[DiaryService] Ошибка интеграции с PromptGenerationService для последующей записи {entry_date}: {prompt_integration_error}", exc_info=True)
+        # ==================== КОНЕЦ НОВОЙ ИНТЕГРАЦИИ ====================
         return combined_entry, False
 
     @async_error_handler('diary_service')

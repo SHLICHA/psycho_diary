@@ -619,3 +619,64 @@ class WeeklyAnalysis(models.Model):
 
     def __str__(self):
         return f"Анализ недели {self.week_start_date} для {self.user.username}"
+    
+class NextEntryPrompt(models.Model):
+    """
+    Модель для хранения персонализированных подсказок для следующей записи пользователя.
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='next_entry_prompts', verbose_name="Пользователь")
+    target_date = models.DateField(verbose_name="Дата, для которой предназначена подсказка")
+    prompt_text = models.TextField(verbose_name="Текст подсказки")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
+    # Поле для отслеживания использования
+    is_used = models.BooleanField(default=False, verbose_name="Использовано")
+    used_at = models.DateTimeField(null=True, blank=True, verbose_name="Дата использования")
+
+    class Meta:
+        verbose_name = "Подсказка для следующей записи"
+        verbose_name_plural = "Подсказки для следующих записей"
+        db_table = "diary_next_entry_prompt"
+        # Уникальность: одна подсказка на пользователя на дату
+        unique_together = ['user', 'target_date']
+        # Индекс для быстрого поиска последней непросмотренной подсказки
+        indexes = [
+            models.Index(fields=['user', 'is_used', '-created_at']),
+            models.Index(fields=['user', 'target_date']),
+        ]
+        ordering = ['-created_at'] # Новейшие первыми
+
+    def __str__(self):
+        return f"Подсказка для {self.user.username} на {self.target_date} (Использована: {self.is_used})"
+
+    def mark_as_used(self):
+        """Помечает подсказку как использованную."""
+        from django.utils import timezone
+        if not self.is_used:
+            self.is_used = True
+            self.used_at = timezone.now()
+            # Сохраняем только измененные поля
+            self.save(update_fields=['is_used', 'used_at'])
+            logger.debug(f"Подсказка ID {self.id} для пользователя {self.user.telegram_id} помечена как использованная.")
+
+    @classmethod
+    async def aget_latest_unused_prompt(cls, user):
+        """
+        Асинхронно получает последнюю непросмотренную подсказку для пользователя.
+        """
+        from asgiref.sync import sync_to_async
+        try:
+            # Используем sync_to_async для вызова ORM
+            @sync_to_async
+            def _get_prompt_sync():
+                return cls.objects.filter(user=user, is_used=False).order_by('-created_at').first()
+            
+            prompt = await _get_prompt_sync()
+            if prompt:
+                logger.debug(f"Найдена непросмотренная подсказка ID {prompt.id} для пользователя {user.telegram_id}")
+                return prompt
+            else:
+                logger.debug(f"Непросмотренных подсказок для пользователя {user.telegram_id} не найдено.")
+                return None
+        except Exception as e:
+            logger.error(f"Ошибка при асинхронном поиске последней непросмотренной подсказки для пользователя {user.telegram_id}: {e}")
+            return None
