@@ -9,7 +9,7 @@ import aiohttp
 import re
 
 from typing import Dict, Any
-from prompts import get_prompt
+from prompts.get_prompt import get_prompt
 from core.settings import DEEPSEEK_API_KEY
 from bot.utils.api_utils import api_retry, handle_api_error, retry_api_call
 
@@ -25,9 +25,9 @@ class DeepSeekAPIService:
         self, 
         prompt: str, 
         language: str, 
-        max_retries: int = 3,      # <-- Используем параметр
-        base_delay: float = 1.5,   # <-- Используем параметр
-        timeout_per_attempt: int = 90 # <-- Используем параметр
+        max_retries: int = 3,
+        base_delay: float = 1.5,
+        timeout_per_attempt: int = 90 
     ) -> dict:
         """
         Отправляет готовый промт в DeepSeek и возвращает распарсенный результат.

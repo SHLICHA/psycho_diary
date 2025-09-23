@@ -16,7 +16,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from users.models import User, UserProfileHistory
 from diary.models import WeeklyAnalysis, TaskCompletionAnalysis
 from bot.services.deepseek_api import deepseek_api_service
-from prompts import get_prompt
+from prompts.get_prompt import get_prompt
 
 logger = logging.getLogger(__name__)
 

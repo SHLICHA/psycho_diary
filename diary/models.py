@@ -430,12 +430,6 @@ class CombinedDiaryEntry(models.Model):
         verbose_name=_("Средняя оценка настроения за день"),
         help_text=_("Среднее арифметическое всех mood_score записей за день.")
     )
-    next_entry_prompt = models.TextField(
-        blank=True,
-        default="",
-        verbose_name=_("Подсказка для следующей записи"),
-        help_text=_("Персонализированная подсказка, сгенерированная ИИ или системой для следующей записи в этот день.")
-    )
 
     class Meta:
         verbose_name = _("Объединенная запись дня")

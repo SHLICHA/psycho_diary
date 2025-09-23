@@ -521,7 +521,7 @@ class CombinedDiaryEntryAdmin(admin.ModelAdmin):
     
     fieldsets = (
         (None, {
-            'fields': ('user_link', 'date', 'entry_count', 'next_entry_prompt')
+            'fields': ('user_link', 'date', 'entry_count')
         }),
         (_('Текст и анализ'), {
             'fields': ('text_full', 'is_analyzed', 'ai_state_data_display', 'analysis_result_display')

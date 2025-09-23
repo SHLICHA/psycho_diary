@@ -12,7 +12,7 @@ from django.db.models import Q
 from asgiref.sync import sync_to_async
 from aiogram.types import Message
 
-from prompts import get_prompt
+from prompts.get_prompt import get_prompt
 from diary.services.daily_state_service import daily_state_service
 from diary.models import DiaryEntry, TherapyTask, TaskCompletion, TaskCompletionAnalysis
 from users.models import User

@@ -14,6 +14,7 @@ from datetime import date, timedelta
 
 from messages import get_message, get_button_text
 from diary.models import CombinedDiaryEntry, DiaryEntry, DailyAnalysis, TherapyTask, PsychoAnalysis, NextEntryPrompt
+from diary.services.smart_prompt_manager import smart_prompt_manager
 from diary.services import daily_state_service
 from bot.states.diary_states import DiaryStates
 from bot.keyboards import (
@@ -41,7 +42,7 @@ from bot.services.psycho_analysis_service import psycho_analysis_service
 from bot.services.yandex_speechkit import yandex_speechkit_service
 from bot.services.yandex_object_storage import yandex_storage_service
 from bot.services.deepseek_api import deepseek_api_service
-from prompts import get_prompt
+from prompts.get_prompt import get_prompt
 from users.models import User
 
 router = Router()
@@ -50,48 +51,46 @@ logger = logging.getLogger(__name__)
 # ==================== ОСНОВНЫЕ HANDLERS ДНЕВНИКА ====================
 
 @router.callback_query(F.data == "new_entry")
-async def new_entry(callback: CallbackQuery, state: FSMContext, user, language: str):
-    """Создание новой записи - предложение ввести текст или голосовое сообщение"""
-    logger.debug(f"Запрос на создание новой записи от пользователя {callback.from_user.id}")
+async def new_entry_simple(callback: CallbackQuery, state: FSMContext, user, language: str):
+    """
+    ПРОСТАЯ ВЕРСИЯ - создание новой записи с умной подсказкой
+    Вся сложность спрятана в SmartPromptManager
+    """
+    logger.info(f"[NEW_ENTRY_SIMPLE] Запрос на создание записи от {user.telegram_id}")
+    
     try:
+        # 1. Устанавливаем состояние ожидания текста
         await state_manager.set_state(state, DiaryStates.waiting_for_text_entry)
         
-        # --- ПОЛУЧЕНИЕ ПЕРСОНАЛИЗИРОВАННОЙ ПОДСКАЗКИ ИЗ НОВОЙ МОДЕЛИ ---
-        personalized_prompt_text = None
-        try:
-            # 1. Получаем последнюю непросмотренную подсказку из новой модели
-            latest_prompt_obj = await NextEntryPrompt.aget_latest_unused_prompt(user)
-            
-            if latest_prompt_obj:
-                personalized_prompt_text = latest_prompt_obj.prompt_text.strip()
-                # 2. Помечаем подсказку как использованную
-                await sync_to_async(latest_prompt_obj.mark_as_used)()
-                logger.info(f"[new_entry] Использована подсказка из NextEntryPrompt ID {latest_prompt_obj.id} для пользователя {user.telegram_id}")
-            else:
-                logger.debug(f"[new_entry] Непросмотренных подсказок для пользователя {user.telegram_id} не найдено.")
-        except Exception as prompt_retrieval_error:
-            logger.warning(f"[new_entry] Ошибка при поиске/получении подсказки из NextEntryPrompt для пользователя {user.telegram_id}: {prompt_retrieval_error}", exc_info=True)
-            # Не прерываем основной поток
-        # --- КОНЕЦ ЛОГИКИ НОВОЙ МОДЕЛИ ---
-
-        # --- ОПРЕДЕЛЕНИЕ ТЕКСТА СООБЩЕНИЯ ---
-        if personalized_prompt_text and personalized_prompt_text: # Проверяем, что текст не пустой
-            entry_msg = personalized_prompt_text
-            logger.info(f"[new_entry] Использована персонализированная подсказка для пользователя {user.telegram_id}")
-        else:
-            entry_msg = get_message('ask_entry', language)
-            logger.debug(f"[new_entry] Использована стандартная подсказка для пользователя {user.telegram_id}")
-
-        # --- ОТПРАВКА СООБЩЕНИЯ ---
+        # 2. Получаем подсказку из умного менеджера (ВСЯ логика внутри)
+        prompt_text = await smart_prompt_manager.get_prompt_for_user(user, language)
+        
+        # 3. Показываем подсказку пользователю
         await safe_edit_message_text(
             message=callback.message,
-            text=entry_msg,
+            text=prompt_text,
             reply_markup=get_cancel_keyboard(language)
         )
+        
+        # 4. Подтверждаем callback
         await safe_answer_callback(callback, "")
+        
+        logger.info(f"[NEW_ENTRY_SIMPLE] Подсказка показана пользователю {user.telegram_id}")
+        
     except Exception as e:
-        logger.error(f"Ошибка при предложении создания записи для пользователя {user.id}: {e}", exc_info=True)
-        await safe_answer_callback(callback, get_message('error_generic', language))
+        logger.error(f"[NEW_ENTRY_SIMPLE] Ошибка при создании записи для {user.telegram_id}: {e}", exc_info=True)
+        
+        # Fallback на старую логику в случае ошибки
+        try:
+            await safe_edit_message_text(
+                message=callback.message,
+                text=get_message('ask_entry', language),
+                reply_markup=get_cancel_keyboard(language)
+            )
+            await safe_answer_callback(callback, "")
+        except Exception as fallback_error:
+            logger.error(f"[NEW_ENTRY_SIMPLE] Fallback также failed: {fallback_error}")
+            await safe_answer_callback(callback, get_message('error_generic', language))
 
 @router.message(DiaryStates.waiting_for_text_entry, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
 @async_error_handler('diary_handler')
@@ -136,7 +135,12 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
             text=entry_text,
             language=language,
             entry_datetime=entry_datetime
-        )       
+        )
+        try:
+            await smart_prompt_manager.on_entry_saved(user, diary_entry, language)
+            logger.info(f"[PROCESS_ENTRY] Менеджер уведомлен о сохраненной записи {diary_entry.id}")
+        except Exception as prompt_error:
+            logger.error(f"[PROCESS_ENTRY] Ошибка уведомления менеджера: {prompt_error}")
         entry_date = await diary_entry.aentry_date()
         combined_entry, _ = await diary_service.get_or_update_daily_state_with_entries(user, diary_entry)
         all_entries_text = await diary_service.get_combined_entry_text(user, entry_date)
@@ -1193,7 +1197,7 @@ async def _run_full_analysis_and_notify(
     user: User, 
     target_date: date, 
     chat_id: int, 
-    status_message_id: int, # Теперь это ID сообщения статуса
+    status_message_id: int,
     language: str,
     year: int,
     month: int,
@@ -1202,45 +1206,29 @@ async def _run_full_analysis_and_notify(
     """
     Фоновая задача для выполнения полного анализа и уведомления пользователя.
     """
-    from diary.services.full_day_analysis_service import full_day_analysis_service # Импорт внутри
-    
+    from diary.services.full_day_analysis_service import full_day_analysis_service
     try:
         logger.info(f"[_run_full_analysis_and_notify] Начало фоновой задачи анализа дня {target_date} для пользователя {user.telegram_id}")
-        
-        # 1. Выполняем длительный анализ
         analysis_result = await full_day_analysis_service.perform_full_day_analysis(user, target_date)
-        
-        # 2. Получаем бота
         from bot.main import bot as global_bot 
-        
         if not global_bot:
             raise RuntimeError("Глобальный экземпляр бота не найден")
-            
         if analysis_result["success"]:
             success_msg = analysis_result["message"]
             logger.info(f"[_run_full_analysis_and_notify] Анализ дня {target_date} для {user.telegram_id} успешен: {success_msg}")
-            
-            # --- ВАШ ВАРИАНТ: Отредактировать сообщение "Обработка..." на результат ---
-            # Сначала получим данные для отображения
             daily_analysis = analysis_result.get("daily_analysis")
-            analysis_summary_text = get_message('analysis_recalculated', language) # Используем существующее сообщение
-            
+            analysis_summary_text = get_message('analysis_recalculated', language)
             if daily_analysis:
-                # Можно сделать более подробное резюме
                 mood_trend_display = dict(DailyAnalysis._meta.get_field('mood_trend').choices).get(daily_analysis.mood_trend, daily_analysis.mood_trend)
                 analysis_summary_text += f"\n\n📊 Тренд настроения: {mood_trend_display}"
                 if daily_analysis.key_themes:
-                    themes_text = ", ".join([t['theme'] for t in daily_analysis.key_themes[:3]]) # Первые 3 темы
+                    themes_text = ", ".join([t['theme'] for t in daily_analysis.key_themes[:3]])
                     analysis_summary_text += f"\n🏷 Ключевые темы: {themes_text}"
-                # ... добавить другие поля при необходимости ...
-            
-            # --- Отредактируем сообщение "Обработка..." ---
             try:
                 await global_bot.edit_message_text(
                     chat_id=chat_id,
                     message_id=status_message_id,
                     text=analysis_summary_text,
-                    # Можно добавить кнопку "Просмотреть анализ"
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                         InlineKeyboardButton(
                             text="🔬 Просмотреть анализ",
@@ -1251,17 +1239,10 @@ async def _run_full_analysis_and_notify(
                 logger.debug(f"[_run_full_analysis_and_notify] Сообщение обработки отредактировано для пользователя {user.telegram_id}")
             except Exception as edit_error:
                 logger.warning(f"[_run_full_analysis_and_notify] Не удалось отредактировать сообщение обработки: {edit_error}. Отправляем новое.")
-                # Если не удалось отредактировать, отправляем новое сообщение
                 await global_bot.send_message(chat_id=chat_id, text=analysis_summary_text)
-            
-            # --- Альтернатива: Всегда отправлять новое сообщение ---
-            # await global_bot.send_message(chat_id=chat_id, text=analysis_summary_text)
-
         else:
             error_msg = analysis_result["message"]
             logger.error(f"[_run_full_analysis_and_notify] Ошибка анализа дня {target_date} для {user.telegram_id}: {error_msg}")
-            
-            # --- Отредактируем сообщение "Обработка..." на сообщение об ошибке ---
             try:
                 await global_bot.edit_message_text(
                     chat_id=chat_id,
@@ -1271,22 +1252,18 @@ async def _run_full_analysis_and_notify(
                 logger.debug(f"[_run_full_analysis_and_notify] Сообщение об ошибке отправлено пользователю {user.telegram_id}")
             except Exception as edit_error:
                 logger.warning(f"[_run_full_analysis_and_notify] Не удалось отредактировать сообщение об ошибке: {edit_error}. Отправляем новое.")
-                # Если не удалось отредактировать, отправляем новое сообщение
                 await global_bot.send_message(
                     chat_id=chat_id, 
                     text=f"{get_message('error_processing', language)}: {error_msg}"
                 )
-
     except Exception as e:
         logger.error(f"[_run_full_analysis_and_notify] Критическая ошибка в фоновой задаче для пользователя {user.telegram_id}: {e}", exc_info=True)
         try:
             from bot.main import bot as global_bot
             if global_bot:
-                # Отправляем сообщение об ошибке в фоновой задаче
                 await global_bot.send_message(
                     chat_id=chat_id, 
                     text=get_message('error_generic', language)
                 )
         except Exception as send_error:
              logger.error(f"[_run_full_analysis_and_notify] Не удалось отправить сообщение об ошибке в фоновой задаче: {send_error}")
-

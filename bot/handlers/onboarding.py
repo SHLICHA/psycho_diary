@@ -24,7 +24,7 @@ from bot.keyboards import (
 from bot.utils.message_utils import safe_edit_message_text
 from bot.utils.callback_utils import safe_answer_callback
 from bot.utils.state_manager import state_manager
-from prompts import get_prompt
+from prompts.get_prompt import get_prompt
 
 router = Router()
 logger = logging.getLogger(__name__)

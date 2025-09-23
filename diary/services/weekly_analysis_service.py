@@ -21,7 +21,7 @@ from diary.models import (
 )
 from diary.services.daily_state_service import daily_state_service
 from bot.services.deepseek_api import deepseek_api_service
-from prompts import get_prompt
+from prompts.get_prompt import get_prompt
 from messages import get_message
 
 logger = logging.getLogger(__name__)
