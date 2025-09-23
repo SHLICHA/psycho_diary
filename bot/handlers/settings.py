@@ -9,7 +9,7 @@ import logging
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
-from datetime import datetime
+from datetime import datetime, timezone
 from messages import get_message
 from bot.states.settings_states import SettingsStates
 from bot.keyboards import (
@@ -26,6 +26,7 @@ from bot.keyboards import (
     get_account_deletion_confirmation_keyboard,
     get_account_deletion_menu_keyboard
     )
+from bot.services import deepseek_api_service
 from bot.utils.state_manager import state_manager
 from diary.models import *
 from users.models import CityTimezone
@@ -226,8 +227,6 @@ async def process_city_input(message: Message, state: FSMContext, user, language
     """Обработка ввода города для определения часового пояса"""
     try:
         city_name = message.text.strip()
-        
-        # Проверка на команды выхода
         if city_name.lower() in ['назад', 'back', '/start', '/menu']:
             await state_manager.clear_state(state)
             settings_msg = get_message('settings_menu', language=language)
@@ -236,23 +235,17 @@ async def process_city_input(message: Message, state: FSMContext, user, language
                 reply_markup=get_settings_keyboard(user, language)
             )
             return
-        
-        # Проверка на пустой ввод
         if not city_name:
             error_msg = "Пожалуйста, введите название города"
             await message.answer(error_msg)
             return
-        
-        # Проверка в кэше
         try:
             city_tz = await CityTimezone.objects.aget(city_name__iexact=city_name)
-            # Найдено в кэше
             timezone_data = {
                 'timezone': city_tz.timezone,
                 'city': city_tz.city_name,
                 'country': city_tz.country
             }
-            
             confirmation_msg = f"🏙 Найден часовой пояс для города <b>{city_tz.city_name}</b>, <b>{city_tz.country}</b>:\n\n🕒 <code>{city_tz.timezone}</code>"
             reply_markup = get_city_timezone_confirmation_keyboard(language, timezone_data)
             await message.answer(
@@ -262,32 +255,22 @@ async def process_city_input(message: Message, state: FSMContext, user, language
             await state_manager.set_state(state, SettingsStates.waiting_for_timezone_confirmation, timezone_data=timezone_data)
             return
         except CityTimezone.DoesNotExist:
-            # Не найдено в кэше, обращаемся к API
             pass
-        
-        # Обращение к API для определения часового пояса
         await message.answer("⏳ Ищу часовой пояс для указанного города...")
-        
-        from bot.services.deepseek_api import deepseek_api_service
         result = await deepseek_api_service.detect_timezone_by_city(city_name, language)
-        
         if not result['success']:
             error_msg = result.get('message', 'Ошибка при определении часового пояса')
             await message.answer(f"❌ {error_msg}")
             city_msg = "🏙 <b>Введите название вашего города</b>\nНапример: Москва, Санкт-Петербург, Новосибирск"
             await message.answer(city_msg, reply_markup=get_back_keyboard(language))
             return
-        
         api_result = result['result']
-        
         if not api_result.get('success', False):
             error_msg = api_result.get('error', 'Город не найден')
             await message.answer(f"❌ {error_msg}")
             city_msg = "🏙 <b>Введите название вашего города</b>\nНапример: Москва, Санкт-Петербург, Новосибирск"
             await message.answer(city_msg, reply_markup=get_back_keyboard(language))
             return
-        
-        # Проверяем, есть ли несколько вариантов
         if api_result.get('multiple', False):
             options = api_result.get('options', [])
             if options:
@@ -303,19 +286,14 @@ async def process_city_input(message: Message, state: FSMContext, user, language
                 city_msg = "🏙 <b>Введите название вашего города</b>\nНапример: Москва, Санкт-Петербург, Новосибирск"
                 await message.answer(city_msg, reply_markup=get_back_keyboard(language))
                 return
-        
-        # Один вариант
         timezone_str = api_result.get('timezone')
         city = api_result.get('city', city_name)
         country = api_result.get('country', 'Неизвестно')
-        
         if not timezone_str:
             await message.answer("❌ Не удалось определить часовой пояс")
             city_msg = "🏙 <b>Введите название вашего города</b>\nНапример: Москва, Санкт-Петербург, Новосибирск"
             await message.answer(city_msg, reply_markup=get_back_keyboard(language))
             return
-        
-        # Проверка валидности часового пояса
         try:
             pytz.timezone(timezone_str)
         except pytz.UnknownTimeZoneError:
@@ -323,13 +301,11 @@ async def process_city_input(message: Message, state: FSMContext, user, language
             city_msg = "🏙 <b>Введите название вашего города</b>\nНапример: Москва, Санкт-Петербург, Новосибирск"
             await message.answer(city_msg, reply_markup=get_back_keyboard(language))
             return
-        
         timezone_data = {
             'timezone': timezone_str,
             'city': city,
             'country': country
         }
-        
         confirmation_msg = f"🏙 Найден часовой пояс для города <b>{city}</b>, <b>{country}</b>:\n\n🕒 <code>{timezone_str}</code>"
         reply_markup = get_city_timezone_confirmation_keyboard(language, timezone_data)
         await message.answer(
@@ -337,7 +313,6 @@ async def process_city_input(message: Message, state: FSMContext, user, language
             reply_markup=reply_markup
         )
         await state_manager.set_state(state, SettingsStates.waiting_for_timezone_confirmation, timezone_data=timezone_data)
-        
     except Exception as e:
         logger.error(f"Ошибка при обработке ввода города: {e}", exc_info=True)
         await message.answer(get_message('error_generic', language=language))
@@ -348,25 +323,17 @@ async def select_timezone_from_options(callback: CallbackQuery, state: FSMContex
     """Выбор часового пояса из предложенных вариантов"""
     try:
         timezone_str = callback.data.split(":", 1)[1]
-        
-        # Проверка валидности часового пояса
         try:
             pytz.timezone(timezone_str)
         except pytz.UnknownTimeZoneError:
             await callback.answer("❌ Неверный часовой пояс", show_alert=True)
             return
-        
-        # Установка часового пояса
         user.timezone = timezone_str
         await user.asave(update_fields=['timezone'])
-        
-        # Сохранение в кэш
         try:
-            # Здесь можно добавить логику сохранения в кэш, если нужно
             pass
         except Exception as e:
             logger.warning(f"Не удалось сохранить в кэш: {e}")
-        
         success_msg = get_message('timezone_changed', language, timezone=timezone_str)
         settings_msg = get_message('settings_menu', language=language)
         reply_markup = get_settings_keyboard(user, language)
@@ -376,7 +343,6 @@ async def select_timezone_from_options(callback: CallbackQuery, state: FSMContex
         )
         await callback.answer(success_msg)
         await state_manager.clear_state(state)
-        
     except Exception as e:
         logger.error(f"Ошибка при выборе часового пояса: {e}")
         await callback.answer(get_message('error_generic', language=language), show_alert=True)
@@ -390,24 +356,17 @@ async def confirm_timezone_by_city(callback: CallbackQuery, state: FSMContext, u
         
         if not timezone_data:
             await callback.answer("❌ Данные не найдены", show_alert=True)
-            return
-        
+            return 
         timezone_str = timezone_data['timezone']
         city = timezone_data.get('city', '')
         country = timezone_data.get('country', '')
-        
-        # Проверка валидности часового пояса
         try:
             pytz.timezone(timezone_str)
         except pytz.UnknownTimeZoneError:
             await callback.answer("❌ Неверный часовой пояс", show_alert=True)
             return
-        
-        # Установка часового пояса
         user.timezone = timezone_str
         await user.asave(update_fields=['timezone'])
-        
-        # Сохранение в кэш
         try:
             await CityTimezone.objects.acreate(
                 city_name=city,
@@ -416,7 +375,6 @@ async def confirm_timezone_by_city(callback: CallbackQuery, state: FSMContext, u
             )
         except Exception as e:
             logger.warning(f"Не удалось сохранить в кэш: {e}")
-        
         success_msg = get_message('timezone_changed', language, timezone=timezone_str)
         settings_msg = get_message('settings_menu', language=language)
         reply_markup = get_settings_keyboard(user, language)
@@ -426,7 +384,6 @@ async def confirm_timezone_by_city(callback: CallbackQuery, state: FSMContext, u
         )
         await callback.answer(success_msg)
         await state_manager.clear_state(state)
-        
     except Exception as e:
         logger.error(f"Ошибка при подтверждении часового пояса: {e}")
         await callback.answer(get_message('error_generic', language=language), show_alert=True)
@@ -540,20 +497,15 @@ async def change_analysis_time(callback: CallbackQuery, user, language: str):
 async def set_analysis_time(callback: CallbackQuery, user, language: str):
     """Установка времени автоанализа"""
     try:
-        time_str = callback.data.split(":", 1)[1]  # Получаем "HH:MM"
-        
-        # Проверка формата времени
+        time_str = callback.data.split(":", 1)[1]
         try:
             from datetime import datetime
             new_time = datetime.strptime(time_str, '%H:%M').time()
         except ValueError:
             await callback.answer("❌ Неверный формат времени", show_alert=True)
             return
-        
-        # Установка нового времени
         user.preferred_analysis_time = new_time
         await user.asave(update_fields=['preferred_analysis_time'])
-        
         success_msg = get_message('analysis_time_changed', language, time=time_str)
         settings_msg = get_message('settings_menu', language=language)
         reply_markup = get_settings_keyboard(user, language)
@@ -570,7 +522,6 @@ async def set_analysis_time(callback: CallbackQuery, user, language: str):
 async def show_edit_profile_menu(callback: CallbackQuery, user, language: str):
     """Показ меню редактирования профиля"""
     try:
-        # Формируем текст профиля
         profile_data = {
             'first_name': user.first_name or 'Не указано',
             'email': user.email or 'Не указан',
@@ -578,7 +529,6 @@ async def show_edit_profile_menu(callback: CallbackQuery, user, language: str):
             'hobbies': ', '.join(user.hobbies) if user.hobbies else 'Не указаны',
             'life_facts': ', '.join(user.life_facts) if user.life_facts else 'Не указаны'
         }
-        
         profile_msg = get_message('profile_menu', language, **profile_data)
         
         reply_markup = get_edit_profile_keyboard(language)
@@ -591,7 +541,6 @@ async def show_edit_profile_menu(callback: CallbackQuery, user, language: str):
         logger.error(f"Ошибка при показе меню редактирования профиля: {e}")
         await callback.answer(get_message('error_generic', language=language))
 
-# Обработчики для перехода к редактированию конкретных полей
 @router.callback_query(F.data == "edit_profile_name")
 async def edit_profile_name(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование имени"""
@@ -678,37 +627,25 @@ async def edit_profile_life_facts(callback: CallbackQuery, state: FSMContext, us
         logger.error(f"Ошибка при запросе новых фактов о жизни: {e}")
         await callback.answer(get_message('error_generic', language=language))
 
-# Обработчики для получения и сохранения введенных данных
 @router.message(SettingsStates.waiting_for_name_input)
 async def process_name_input(message: Message, state: FSMContext, user, language: str):
     """Обработка ввода нового имени"""
     try:
         new_name = message.text.strip()
-        
-        # Проверка на команды выхода
         if new_name.lower() in ['назад', 'back', '/start', '/menu']:
             await state_manager.clear_state(state)
-            # Возвращаем к меню редактирования профиля
             await show_edit_profile_menu_callback(message, user, language)
             return
-        
-        # Проверка на пустой ввод
         if not new_name:
             error_msg = get_message('invalid_input', language)
             await message.answer(error_msg)
             return
-        
-        # Обновление имени
         user.first_name = new_name
         await user.asave(update_fields=['first_name'])
-        
         success_msg = get_message('profile_updated', language)
         await message.answer(success_msg)
-        
-        # Возвращаем к меню редактирования профиля
         await show_edit_profile_menu_callback(message, user, language)
         await state_manager.clear_state(state)
-        
     except Exception as e:
         logger.error(f"Ошибка при обработке ввода нового имени: {e}")
         error_msg = get_message('error_generic', language)
@@ -720,38 +657,25 @@ async def process_email_input(message: Message, state: FSMContext, user, languag
     """Обработка ввода нового email"""
     try:
         new_email = message.text.strip()
-        
-        # Проверка на команды выхода
         if new_email.lower() in ['назад', 'back', '/start', '/menu']:
             await state_manager.clear_state(state)
-            # Возвращаем к меню редактирования профиля
             await show_edit_profile_menu_callback(message, user, language)
             return
-        
-        # Проверка на пустой ввод
         if not new_email:
             error_msg = get_message('invalid_input', language)
             await message.answer(error_msg)
             return
-        
-        # Валидация email
         email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
         if not re.match(email_pattern, new_email):
             error_msg = get_message('invalid_email_format', language)
             await message.answer(error_msg)
             return
-        
-        # Обновление email
         user.email = new_email
         await user.asave(update_fields=['email'])
-        
         success_msg = get_message('profile_updated', language)
         await message.answer(success_msg)
-        
-        # Возвращаем к меню редактирования профиля
         await show_edit_profile_menu_callback(message, user, language)
         await state_manager.clear_state(state)
-        
     except Exception as e:
         logger.error(f"Ошибка при обработке ввода нового email: {e}")
         error_msg = get_message('error_generic', language)
@@ -763,24 +687,16 @@ async def process_dob_input(message: Message, state: FSMContext, user, language:
     """Обработка ввода новой даты рождения"""
     try:
         dob_text = message.text.strip()
-        
-        # Проверка на команды выхода
         if dob_text.lower() in ['назад', 'back', '/start', '/menu']:
             await state_manager.clear_state(state)
-            # Возвращаем к меню редактирования профиля
             await show_edit_profile_menu_callback(message, user, language)
             return
-        
-        # Проверка на пустой ввод
         if not dob_text:
             error_msg = get_message('invalid_input', language)
             await message.answer(error_msg)
             return
-        
-        # Попытка парсинга даты
         try:
             new_dob = datetime.strptime(dob_text, '%d.%m.%Y').date()
-            # Проверка, что дата не в будущем
             if new_dob > datetime.now().date():
                 error_msg = get_message('invalid_date_future', language)
                 await message.answer(error_msg)
@@ -789,15 +705,10 @@ async def process_dob_input(message: Message, state: FSMContext, user, language:
             error_msg = get_message('invalid_date_format', language)
             await message.answer(error_msg)
             return
-        
-        # Обновление даты рождения
         user.date_of_birth = new_dob
         await user.asave(update_fields=['date_of_birth'])
-        
         success_msg = get_message('profile_updated', language)
         await message.answer(success_msg)
-        
-        # Возвращаем к меню редактирования профиля
         await show_edit_profile_menu_callback(message, user, language)
         await state_manager.clear_state(state)
         
@@ -812,31 +723,20 @@ async def process_hobbies_input(message: Message, state: FSMContext, user, langu
     """Обработка ввода новых увлечений"""
     try:
         hobbies_text = message.text.strip()
-        
-        # Проверка на команды выхода
         if hobbies_text.lower() in ['назад', 'back', '/start', '/menu']:
             await state_manager.clear_state(state)
-            # Возвращаем к меню редактирования профиля
             await show_edit_profile_menu_callback(message, user, language)
             return
-        
-        # Парсинг увлечений
         if hobbies_text:
             new_hobbies = [hobby.strip() for hobby in hobbies_text.split(',') if hobby.strip()]
         else:
             new_hobbies = []
-        
-        # Обновление увлечений
         user.hobbies = new_hobbies
         await user.asave(update_fields=['hobbies'])
-        
         success_msg = get_message('profile_updated', language)
         await message.answer(success_msg)
-        
-        # Возвращаем к меню редактирования профиля
         await show_edit_profile_menu_callback(message, user, language)
         await state_manager.clear_state(state)
-        
     except Exception as e:
         logger.error(f"Ошибка при обработке ввода новых увлечений: {e}")
         error_msg = get_message('error_generic', language)
@@ -848,42 +748,29 @@ async def process_life_facts_input(message: Message, state: FSMContext, user, la
     """Обработка ввода новых фактов о жизни"""
     try:
         facts_text = message.text.strip()
-        
-        # Проверка на команды выхода
         if facts_text.lower() in ['назад', 'back', '/start', '/menu']:
             await state_manager.clear_state(state)
-            # Возвращаем к меню редактирования профиля
             await show_edit_profile_menu_callback(message, user, language)
             return
-        
-        # Парсинг фактов
         if facts_text:
             new_facts = [fact.strip() for fact in facts_text.split(',') if fact.strip()]
         else:
             new_facts = []
-        
-        # Обновление фактов
         user.life_facts = new_facts
         await user.asave(update_fields=['life_facts'])
-        
         success_msg = get_message('profile_updated', language)
         await message.answer(success_msg)
-        
-        # Возвращаем к меню редактирования профиля
         await show_edit_profile_menu_callback(message, user, language)
         await state_manager.clear_state(state)
-        
     except Exception as e:
         logger.error(f"Ошибка при обработке ввода новых фактов о жизни: {e}")
         error_msg = get_message('error_generic', language)
         await message.answer(error_msg)
         await state_manager.clear_state(state)
 
-# Вспомогательная функция для возврата к меню редактирования профиля
 async def show_edit_profile_menu_callback(message_or_callback, user, language: str):
     """Показ меню редактирования профиля (callback)"""
     try:
-        # Формируем текст профиля
         profile_data = {
             'first_name': user.first_name or 'Не указано',
             'email': user.email or 'Не указан',
@@ -891,12 +778,8 @@ async def show_edit_profile_menu_callback(message_or_callback, user, language: s
             'hobbies': ', '.join(user.hobbies) if user.hobbies else 'Не указаны',
             'life_facts': ', '.join(user.life_facts) if user.life_facts else 'Не указаны'
         }
-        
         profile_msg = get_message('profile_menu', language, **profile_data)
-        
         reply_markup = get_edit_profile_keyboard(language)
-        
-        # Определяем, является ли message_or_callback Message или CallbackQuery
         if isinstance(message_or_callback, Message):
             await message_or_callback.answer(
                 profile_msg,
@@ -920,10 +803,7 @@ async def show_edit_profile_menu_callback(message_or_callback, user, language: s
 async def show_account_deletion_menu(callback: CallbackQuery, user, language: str, state: FSMContext):
     """Показ меню удаления аккаунта"""
     try:
-        # Проверим баланс пользователя (пока просто заглушка, так как модель Payments еще не создана)
-        # В будущем здесь будет логика получения баланса
-        balance = 0  # Заглушка
-        
+        balance = 0
         if balance > 0:
             balance_info = get_message('account_balance_info_positive', language, balance=balance)
             balance_warning = get_message('balance_warning_positive', language, balance=balance)
@@ -933,12 +813,9 @@ async def show_account_deletion_menu(callback: CallbackQuery, user, language: st
         else:
             balance_info = get_message('account_balance_info_negative', language, balance=abs(balance))
             balance_warning = get_message('balance_warning_zero_or_negative', language)
-        
         menu_msg = get_message('account_deletion_menu', language, balance_info=balance_info)
-        
         await state_manager.set_state(state, SettingsStates.in_account_deletion_menu)
         await state_manager.update_state_data(state, balance_warning=balance_warning)
-        
         await callback.message.edit_text(
             menu_msg,
             reply_markup=get_account_deletion_menu_keyboard(language, balance_info)
@@ -954,57 +831,42 @@ async def confirm_account_deletion_final(callback: CallbackQuery, user, language
     try:
         data = await state_manager.get_state_data(state)
         balance_warning = data.get('balance_warning', '')
-        
         confirm_msg = get_message('confirm_account_deletion', language, balance_warning=balance_warning)
-        
-        # Меняем состояние на ожидание ввода текста подтверждения
         await state_manager.set_state(state, SettingsStates.waiting_for_deletion_confirmation_text)
         await callback.message.edit_text(
             confirm_msg,
-            reply_markup=get_account_deletion_confirmation_keyboard(language)  # Добавляем клавиатуру с кнопкой отмены
+            reply_markup=get_account_deletion_confirmation_keyboard(language)
         )
         await callback.answer()
     except Exception as e:
         logger.error(f"Ошибка при финальном подтверждении удаления аккаунта: {e}")
         await callback.answer(get_message('error_generic', language=language))
 
-# Добавим новый обработчик для текста подтверждения
 @router.message(SettingsStates.waiting_for_deletion_confirmation_text)
 async def process_account_deletion_confirmation_text(message: Message, user, language: str, state: FSMContext):
     """Обработка ввода текста подтверждения удаления аккаунта"""
     try:
         confirmation_text = message.text.strip()
-        
-        # Проверяем правильность введенного текста
         if language == 'ru':
             expected_text = "УДАЛИТЬ МОЙ АККАУНТ"
         else:
             expected_text = "DELETE MY ACCOUNT"
-            
         if confirmation_text != expected_text:
             error_msg = "❌ Неверный текст подтверждения. Пожалуйста, введите точную фразу."
             await message.answer(error_msg)
-            # Повторно отправляем запрос
             data = await state_manager.get_state_data(state)
             balance_warning = data.get('balance_warning', '')
             confirm_msg = get_message('confirm_account_deletion', language, balance_warning=balance_warning)
             await message.answer(confirm_msg)
             return
-            
-        # Текст подтвержден, выполняем удаление
         success = await anonymize_user_account(user)
-        
         if success:
-            # Отправляем сообщение об успешном удалении
             success_msg = get_message('account_deletion_confirmed', language)
             await message.answer(success_msg)
-            
-            # Очищаем состояние
             await state_manager.clear_state(state)
         else:
             error_msg = get_message('account_deletion_error', language)
             await message.answer(error_msg)
-            
     except Exception as e:
         logger.error(f"Ошибка при обработке текста подтверждения удаления аккаунта: {e}")
         error_msg = get_message('account_deletion_error', language)
@@ -1016,15 +878,11 @@ async def cancel_account_deletion(callback: CallbackQuery, user, language: str, 
     try:
         cancel_msg = get_message('account_deletion_cancelled', language)
         await callback.message.edit_text(cancel_msg)
-        
-        # Возвращаемся в меню настроек
         settings_msg = get_message('settings_menu', language=language)
         await callback.message.edit_text(
             settings_msg,
             reply_markup=get_settings_keyboard(user, language)
         )
-        
-        # Очищаем состояние
         await state_manager.clear_state(state)
         await callback.answer()
     except Exception as e:
@@ -1035,12 +893,8 @@ async def cancel_account_deletion(callback: CallbackQuery, user, language: str, 
 async def contact_support_for_refund(callback: CallbackQuery, user, language: str, state: FSMContext):
     """Связаться с поддержкой для возврата средств"""
     try:
-        # Здесь можно отправить сообщение с контактами поддержки
-        # или перенаправить пользователя в чат поддержки
         support_msg = "📞 Пожалуйста, свяжитесь с нашей службой поддержки по адресу: support@yourdomain.com"
         await callback.message.edit_text(support_msg)
-        
-        # Очищаем состояние
         await state_manager.clear_state(state)
         await callback.answer()
     except Exception as e:
@@ -1056,75 +910,37 @@ async def anonymize_user_account(user):
     - Отключение уведомлений
     """
     try:
-        from django.utils import timezone
-        from diary.models import DiaryEntry, VoiceToText, KeyPoint, PsychoAnalysis, UserInsight, TherapyProgress, TherapyTask, TaskCompletion, TaskCompletionAnalysis, UserActivity, CombinedDiaryEntry, DailyAnalysis
-        
-        # 1. Удаление данных из моделей diary
-        # Важно: удаление должно происходить в правильном порядке из-за внешних ключей
-        
-        # Удаление анализа выполнения заданий
         await TaskCompletionAnalysis.objects.filter(
             completion__task__user=user
         ).adelete()
-        
-        # Удаление выполнений заданий
         await TaskCompletion.objects.filter(
             task__user=user
         ).adelete()
-        
-        # Удаление терапевтических заданий
         await TherapyTask.objects.filter(user=user).adelete()
-        
-        # Удаление прогресса терапии
         await TherapyProgress.objects.filter(user=user).adelete()
-        
-        # Удаление инсайтов пользователя
-        await UserInsight.objects.filter(user=user).adelete()
-        
-        # Удаление глубоких анализов дней
         await DailyAnalysis.objects.filter(
             combined_entry__user=user
         ).adelete()
-        
-        # Удаление объединенных записей дней
         await CombinedDiaryEntry.objects.filter(user=user).adelete()
-        
-        # Удаление психоанализов
         await PsychoAnalysis.objects.filter(
             entry__user=user
         ).adelete()
-        
-        # Удаление ключевых моментов
-        await KeyPoint.objects.filter(
-            entry__user=user
-        ).adelete()
-        
-        # Удаление результатов преобразования голоса в текст
-        await VoiceToText.objects.filter(
-            entry__user=user
-        ).adelete()
-        
-        # Удаление активности пользователя
         await UserActivity.objects.filter(user=user).adelete()
-        
-        # Удаление записей дневника
         await DiaryEntry.objects.filter(user=user).adelete()
-        
-        # 2. Обнуление персональных данных в модели User
         user.first_name = ""
         user.last_name = ""
         user.email = ""
         user.username = f"deleted_user_{user.telegram_id}"
-        user.language = "ru"  # или оставить как есть
+        user.language = "ru" 
         user.timezone = "UTC"
         user.last_entry = None
         user.awareness_level = 1
         user.is_premium = False
         user.last_activity = None
         user.preferred_analysis_time = "02:00"
-        user.current_calendar_year = 2025  # или установить текущий год
-        user.current_calendar_month = 1  # или установить текущий месяц
-        user.notifications_enabled = False  # Отключаем уведомления
+        user.current_calendar_year = 2025 
+        user.current_calendar_month = 1
+        user.notifications_enabled = False
         user.auto_analysis_enabled = False
         user.max_ai_tasks_per_day = 1
         user.personality_traits = {}
@@ -1135,18 +951,12 @@ async def anonymize_user_account(user):
         user.strengths = []
         user.areas_for_growth = []
         user.date_of_birth = None
-        
-        # 3. Установка флагов удаления
         user.deleted_at = timezone.now()
-        user.is_blocked = True  # Помечаем как заблокированный
-        user.deletion_status = 'anonymized'  # Устанавливаем статус обезличивания
-        
-        # 4. Сохранение изменений
-        await user.asave()  # Используем асинхронный save
-        
+        user.is_blocked = True 
+        user.deletion_status = 'anonymized'
+        await user.asave()
         logger.info(f"Аккаунт пользователя {user.telegram_id} успешно обезличен")
         return True
-        
     except Exception as e:
         logger.error(f"Ошибка при обезличивании аккаунта пользователя {user.telegram_id}: {e}", exc_info=True)
         return False

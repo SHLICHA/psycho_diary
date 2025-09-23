@@ -10,15 +10,12 @@ from aiogram.fsm.context import FSMContext
 from asgiref.sync import sync_to_async
 
 from messages import get_message
-from users.models import User
-from bot.services.deepseek_api import deepseek_api_service
+from bot.services import deepseek_api_service
 from bot.states.onboarding_states import OnboardingStates
 from bot.keyboards import (
     get_instruction_keyboard,
     get_agreement_keyboard,
-    get_start_onboarding_keyboard,
     get_skip_questionnaire_keyboard,
-    get_submit_answers_keyboard,
     get_main_menu_keyboard
 )
 from bot.utils.message_utils import safe_edit_message_text

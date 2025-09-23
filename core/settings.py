@@ -90,17 +90,14 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-# Internationalization
 LANGUAGE_CODE = 'ru'
 TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
-# Static files (CSS, JavaScript, Images)
 STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles') 
 
-# Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
@@ -119,8 +116,7 @@ CELERY_BEAT_SCHEDULE = {
     },
     'schedule-weekly-analyses': {
         'task': 'diary.tasks.weekly_analisys_tasks.schedule_weekly_analyses_task',
-        'schedule': crontab(minute=0), # Запускать каждый час в 00 минут
-        # 'schedule': 3600.0, # Альтернатива: каждые 3600 секунд (1 час)
+        'schedule': crontab(minute=0),
     },
 }
 
@@ -131,7 +127,6 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
 
-# Custom User Model
 AUTH_USER_MODEL = 'users.User'
 YANDEX_SPEECHKIT_API_KEY = config('YANDEX_SPEECHKIT_API_KEY')
 DEEPSEEK_API_KEY = config('DEEPSEEK_API_KEY')
@@ -148,7 +143,6 @@ CACHES = {
     }
 }
 
-# Logging configuration
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,

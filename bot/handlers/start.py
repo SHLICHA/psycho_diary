@@ -21,24 +21,17 @@ router = Router()
 logger = logging.getLogger(__name__)
 
 @router.message(Command("start"))
-async def cmd_start(message: Message, user, language: str, state: FSMContext): # Добавлен state
+async def cmd_start(message: Message, user, language: str, state: FSMContext):
     """Обработчик команды /start"""
     try:
-        # --- НОВАЯ ЛОГИКА: Проверка согласия ---
         if not getattr(user, 'has_agreed_to_terms', False):
             logger.info(f"Пользователь {user.telegram_id} еще не дал согласие. Запуск онбординга.")
-            
-            # Отправляем приветствие
             welcome_msg = get_message('onboarding_welcome', language)
             await message.answer(welcome_msg)
-            
-            # Отправляем инструкцию и устанавливаем состояние
             instruction_msg = get_message('onboarding_instruction', language)
-            await state.set_state(OnboardingStates.showing_instruction) # Устанавливаем состояние
-            await message.answer(instruction_msg, reply_markup=get_instruction_keyboard(language))
-            
+            await state.set_state(OnboardingStates.showing_instruction)
+            await message.answer(instruction_msg, reply_markup=get_instruction_keyboard(language))         
         else:
-            # Пользователь дал согласие, показываем обычное меню
             if user.first_name:
                 welcome_msg = get_message('welcome_back', language, username=user.first_name)
             else:

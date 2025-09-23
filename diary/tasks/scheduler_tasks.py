@@ -15,6 +15,8 @@ from aiogram.enums import ParseMode
 
 from users.models import User
 from diary.models import DailyAnalysis
+from diary.services.smart_prompt_manager import smart_prompt_manager
+from bot.services.diary_service import diary_service
 from core.settings import TELEGRAM_BOT_TOKEN
 from bot.utils.message_utils import send_message_to_user
 from messages import get_message, get_button_text
@@ -103,6 +105,21 @@ def schedule_daily_analyses(self):
                 # diary_service.get_user_entries_for_date уже учитывает часовой пояс
                 entries_yesterday = async_to_sync(diary_service.get_user_entries_for_date)(user, yesterday_date_user_tz)
                 if not entries_yesterday:
+                    try:
+                        logger.info(f"  -> Генерация подсказки для пользователя {user.telegram_id} (записей нет)")
+                        # Вычисляем дату для подсказки (на завтра)
+                        prompt_target_date = yesterday_date_user_tz + timedelta(days=1)
+                        
+                        # Создаем асинхронную корутину для вызова нашей функции
+                        async def _call_generate_prompt():
+                            await _generate_prompt_for_user_no_entries(user, prompt_target_date, user.language)
+                        
+                        # Выполняем асинхронную корутину синхронно внутри задачи Celery
+                        async_to_sync(_call_generate_prompt)()
+                        
+                        logger.info(f"  -> Подсказка для пользователя {user.telegram_id} на {prompt_target_date} сгенерирована (записей нет)")
+                    except Exception as prompt_error:
+                        logger.error(f"  -> Ошибка генерации подсказки для пользователя {user.telegram_id} (записей нет): {prompt_error}", exc_info=True)
                     logger.debug(f"  Записей за {yesterday_date_user_tz} не найдено для пользователя {user.telegram_id}. Пропуск.")
                     continue
 
@@ -312,3 +329,63 @@ async def _send_timezone_reminder_async():
                 logger.info("Сессия бота закрыта")
             except Exception as close_error:
                 logger.error(f"Ошибка при закрытии сессии бота: {close_error}")
+
+
+async def _generate_prompt_for_user_no_entries(user: User, target_date: date, language: str):
+    """
+    Генерирует подсказку для пользователя на заданную дату в сценарии "нет записей".
+    Использует smart_prompt_manager для вызова API и сохранения результата.
+    """
+    logger.info(f"[_generate_prompt_for_user_no_entries] Начало генерации подсказки для {user.telegram_id} на {target_date} (нет записей)")
+    try:
+        # 1. Получаем контекст: дни с последней записью
+        days_since_last_entry = await smart_prompt_manager._get_days_since_last_entry(user)
+        logger.debug(f"[_generate_prompt_for_user_no_entries] Days since last entry: {days_since_last_entry}")
+
+        # 2. Формируем контекст анализа для промпта
+        analysis_context = "Записей за предыдущий день не найдено. Это может быть хорошей возможностью для рефлексии или начала нового дня."
+
+        # 3. Получаем профиль пользователя (асинхронно)
+        user_profile = await user.aget_profile_data()
+        first_name = user_profile.get('first_name', 'Пользователь')
+        awareness_level = user_profile.get('awareness_level', 1)
+        logger.debug(f"[_generate_prompt_for_user_no_entries] User profile: first_name={first_name}, awareness_level={awareness_level}")
+
+        # 4. Вызываем AI через smart_prompt_manager._call_ai_prompt_generation
+        # (Это внутренний метод, но мы используем его через импорт)
+        prompt_text = await smart_prompt_manager._call_ai_prompt_generation(
+            user=user,
+            analysis_context=analysis_context,
+            days_since_last=days_since_last_entry,
+            language=language
+        )
+        logger.debug(f"[_generate_prompt_for_user_no_entries] AI prompt generated: {prompt_text is not None}")
+
+        # 5. Определяем дату, на которую будет сгенерирована подсказка (на завтра)
+        prompt_target_date = target_date + timedelta(days=1)
+
+        # 6. Если AI вернул подсказку, сохраняем её
+        if prompt_text:
+            logger.info(f"[_generate_prompt_for_user_no_entries] AI сгенерировал подсказку для {user.telegram_id}")
+            # Сохраняем через smart_prompt_manager._save_prompt с force_overwrite=True
+            # чтобы гарантировать обновление, если подсказка уже существовала
+            await smart_prompt_manager._save_prompt(user, prompt_target_date, prompt_text, force_overwrite=True)
+        else:
+            # 7. Если AI не вернул подсказку, используем fallback из smart_prompt_manager
+            logger.warning(f"[_generate_prompt_for_user_no_entries] AI не вернул подсказку для {user.telegram_id}, используем fallback")
+            # Вызываем _prepare_first_prompt_tomorrow из smart_prompt_manager
+            # для генерации стандартной подсказки на завтра
+            await smart_prompt_manager._prepare_first_prompt_tomorrow(user, language)
+            # _prepare_first_prompt_tomorrow внутри вызывает _save_prompt на завтрашнюю дату
+
+        logger.info(f"[_generate_prompt_for_user_no_entries] Подсказка для {user.telegram_id} на {prompt_target_date} успешно обработана")
+
+    except Exception as e:
+        logger.error(f"[_generate_prompt_for_user_no_entries] Ошибка генерации подсказки для {user.telegram_id}: {e}", exc_info=True)
+        # В случае ошибки, пытаемся использовать fallback
+        try:
+            # Также на завтрашнюю дату
+            await smart_prompt_manager._prepare_first_prompt_tomorrow(user, language)
+            logger.info(f"[_generate_prompt_for_user_no_entries] Fallback подсказка создана для {user.telegram_id}")
+        except Exception as fallback_error:
+            logger.error(f"[_generate_prompt_for_user_no_entries] Ошибка создания fallback подсказки для {user.telegram_id}: {fallback_error}")

@@ -18,19 +18,14 @@ from bot.keyboards import (
     get_back_keyboard,
     get_task_history_main_keyboard,
     get_task_history_list_keyboard,
-    get_task_history_detail_keyboard,
     get_task_main_menu_keyboard
     )
 from bot.utils.audio_utils import process_voice_message
 from bot.utils.state_manager import state_manager
 from bot.utils.message_utils import safe_edit_message_text
 from bot.utils.callback_utils import safe_answer_callback
-from bot.services.task_service import task_service
-from bot.services.yandex_object_storage import yandex_storage_service
-from bot.services.yandex_speechkit import yandex_speechkit_service
-from bot.services.deepseek_api import deepseek_api_service
+from bot.services import task_service
 from diary.models import TherapyTask, TaskCompletion, TaskCompletionAnalysis
-from core.constants import TEXT_MESSAGE_MAX_LENGTH
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -182,22 +177,15 @@ async def start_task_completion(callback: CallbackQuery, state: FSMContext, user
 async def process_task_completion(message: Message, state: FSMContext, user, language: str):
     """Обработка выполнения задания (текст или голос)"""
     try:
-        # --- НАЧАЛО НОВОГО БЛОКА ОБРАБОТКИ ТЕКСТА/ГОЛОСА ---
         completion_text = ""
-
         if message.content_type == ContentType.VOICE:
-            # Обработка голосового сообщения с помощью вспомогательной функции
-            # Создаем временное сообщение статуса "Обработка" для process_voice_message
             processing_voice_msg = await message.answer(get_message('processing', language))
-            
             success, recognized_text, error_message = await process_voice_message(
                 message=message,
                 context_name="Task Completion",
                 language=language,
-                status_msg=processing_voice_msg # Передаем сообщение статуса для редактирования
+                status_msg=processing_voice_msg
             )
-
-            # Удаляем временное сообщение статуса обработки голоса
             try:
                 await processing_voice_msg.delete()
             except Exception as delete_error:
@@ -205,32 +193,19 @@ async def process_task_completion(message: Message, state: FSMContext, user, lan
 
             if not success:
                 await message.answer(f"{get_message('error_processing', language)}: {error_message}")
-                return # Не очищаем состояние, чтобы пользователь мог повторить
-            
+                return
             completion_text = recognized_text
-
         elif message.content_type == ContentType.TEXT:
-            # Обработка текстового сообщения (старая логика)
             completion_text = message.text
         else:
-            # На случай, если фильтр как-то пропустит неподдерживаемый тип
             logger.warning(f"[Task Completion] Получен неподдерживаемый тип контента: {message.content_type}")
             await message.answer(get_message('invalid_input', language))
             return
-        # --- КОНЕЦ НОВОГО БЛОКА ---
-
-        # --- Остальная логика обработчика (валидация, сохранение состояния) ---
         if len(completion_text.strip()) < 1:
             error_msg = get_message('invalid_input', language)
             await message.answer(error_msg)
             logger.warning("Получено пустое выполнение задания")
             return
-        # Убираем ограничение TEXT_MESSAGE_MAX_LENGTH, так как оно не определено в коде
-        # if len(completion_text) > TEXT_MESSAGE_MAX_LENGTH:
-        #     error_msg = get_message('text_too_long', language)
-        #     await message.answer(error_msg)
-        #     logger.warning(f"Текст выполнения слишком длинный: {len(completion_text)} символов")
-        #     return
         await state_manager.update_state_data(state, completion_text=completion_text)
         await state_manager.set_state(state, TaskStates.describing_feelings)
         feelings_msg = get_message('ask_feelings_description', language)
@@ -247,55 +222,34 @@ async def process_feelings_description(message: Message, state: FSMContext, user
     """Обработка описания ощущений при выполнении задания (текст или голос)"""
     status_message = None
     try:
-        # --- НАЧАЛО НОВОГО БЛОКА ОБРАБОТКИ ТЕКСТА/ГОЛОСА ---
         feelings_text = ""
-
         if message.content_type == ContentType.VOICE:
-            # Обработка голосового сообщения с помощью вспомогательной функции
-            # Создаем временное сообщение статуса "Обработка" для process_voice_message
             processing_voice_msg = await message.answer(get_message('processing', language))
-            
             success, recognized_text, error_message = await process_voice_message(
                 message=message,
                 context_name="Feelings Description",
                 language=language,
-                status_msg=processing_voice_msg # Передаем сообщение статуса для редактирования
+                status_msg=processing_voice_msg
             )
-
-            # Удаляем временное сообщение статуса обработки голоса
             try:
                 await processing_voice_msg.delete()
             except Exception as delete_error:
                 logger.warning(f"[Feelings Description] Не удалось удалить сообщение статуса обработки голоса: {delete_error}")
-
             if not success:
                 await message.answer(f"{get_message('error_processing', language)}: {error_message}")
-                return # Не очищаем состояние, чтобы пользователь мог повторить
-            
+                return
             feelings_text = recognized_text
-
         elif message.content_type == ContentType.TEXT:
-            # Обработка текстового сообщения (старая логика)
             feelings_text = message.text
         else:
-            # На случай, если фильтр как-то пропустит неподдерживаемый тип
             logger.warning(f"[Feelings Description] Получен неподдерживаемый тип контента: {message.content_type}")
             await message.answer(get_message('invalid_input', language))
             return
-        # --- КОНЕЦ НОВОГО БЛОКА ---
-
-        # --- Остальная логика обработчика (валидация, обработка задания) ---
         if len(feelings_text.strip()) < 1:
             error_msg = get_message('invalid_input', language)
             await message.answer(error_msg)
             logger.warning("Получено пустое описание ощущений")
             return
-        # Убираем ограничение TEXT_MESSAGE_MAX_LENGTH, так как оно не определено в коде
-        # if len(feelings_text) > TEXT_MESSAGE_MAX_LENGTH:
-        #     error_msg = get_message('text_too_long', language)
-        #     await message.answer(error_msg)
-        #     logger.warning(f"Текст ощущений слишком длинный: {len(feelings_text)} символов")
-        #     return
         processing_msg = get_message('task_processing', language)
         status_message = await message.answer(processing_msg)
         state_data = await state_manager.get_state_data(state)
@@ -328,7 +282,7 @@ async def process_feelings_description(message: Message, state: FSMContext, user
             await message.answer(get_message('error_processing', language))
         except:
             try:
-                if status_message: # Проверяем, существует ли status_message
+                if status_message:
                     await status_message.edit_text(get_message('error_processing', language))
             except:
                 pass
@@ -436,8 +390,6 @@ async def show_task_history_main(callback: CallbackQuery, state: FSMContext, use
         completed_tasks = await task_service.get_user_completed_tasks(user, limit=100)
         skipped_tasks = await task_service.get_user_skipped_tasks(user, limit=100)
         all_history_tasks = completed_tasks + skipped_tasks
-        def get_sort_key(task):
-            return task.completed_at
         all_history_tasks.sort(key=lambda t: (t.completed_at or t.assigned_at), reverse=True) 
         if not all_history_tasks:
             no_history_msg = get_message('task_history_empty', language)

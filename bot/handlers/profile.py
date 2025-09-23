@@ -11,7 +11,7 @@ from asgiref.sync import sync_to_async
 
 from messages import get_message, get_button_text
 from bot.keyboards import get_back_keyboard
-from users.models import UserProfileHistory # Импортируем для истории
+from users.models import UserProfileHistory
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -43,7 +43,6 @@ async def _format_json_field_as_text(data, max_items: int = 10) -> str:
                 lines.append("... (и другие)")
                 break
             if isinstance(item, dict):
-                # Для словарей в списке (например, personality_insights) попробуем извлечь ключ-значение
                 if len(item) == 1:
                     k, v = next(iter(item.items()))
                     lines.append(f"• {k}: {v}")
@@ -79,8 +78,6 @@ def _get_profile_keyboard(language: str, show_psychology_button: bool = False) -
 async def show_user_profile(callback: CallbackQuery, user, language: str):
     """Показ основного профиля пользователя."""
     try:
-        # Определяем, заполнен ли психологический профиль
-        # Проверим хотя бы одно из ключевых полей
         has_psychological_data = bool(
             (user.personality_traits and isinstance(user.personality_traits, dict) and user.personality_traits) or
             (user.life_facts and isinstance(user.life_facts, list) and user.life_facts) or
@@ -101,18 +98,15 @@ async def show_user_profile(callback: CallbackQuery, user, language: str):
 📅 <b>Дата регистрации:</b> {user.created_at.strftime('%d.%m.%Y') if user.created_at else 'Не указана'}
 📝 <b>Последняя запись:</b> {user.last_entry.strftime('%d.%m.%Y %H:%M') if user.last_entry else 'Нет записей'}
 """
-        # Добавляем информацию о последнем анализе профиля, если есть
         try:
             @sync_to_async
             def _get_last_profile_history_sync():
                 return UserProfileHistory.objects.filter(user=user).order_by('-created_at').first()
-            
             last_profile_history = await _get_last_profile_history_sync()
             if last_profile_history:
                 profile_msg += f"\n🕒 <b>Последний анализ профиля:</b> {last_profile_history.created_at.strftime('%d.%m.%Y %H:%M')}\n"
         except Exception as e:
             logger.debug(f"Не удалось получить дату последнего анализа профиля: {e}")
-
         await callback.message.edit_text(
             profile_msg,
             reply_markup=_get_profile_keyboard(language, show_psychology_button=has_psychological_data)
@@ -125,27 +119,20 @@ async def show_user_profile(callback: CallbackQuery, user, language: str):
 @router.callback_query(F.data == "view_psychology_profile")
 async def show_psychology_profile(callback: CallbackQuery, user, language: str):
     """Показ психологического профиля пользователя (только текстовое описание)."""
-    MAX_DESC_LENGTH = 3500 # Максимальная длина описания
-    MAX_TOTAL_LENGTH = 3580 # Максимальная длина всего сообщения с заголовком
+    MAX_DESC_LENGTH = 3500
+    MAX_TOTAL_LENGTH = 3580
     
     try:
         psychology_msg = "🧠 <b>Ваш психологический портрет</b>\n\n"
-        
         if user.personality_description:
             desc = user.personality_description.strip()
             if len(desc) > MAX_DESC_LENGTH:
-                desc = desc[:MAX_DESC_LENGTH] + "\n\n<i>...(описание сокращено)...</i>"
-            
+                desc = desc[:MAX_DESC_LENGTH] + "\n\n<i>...(описание сокращено)...</i>" 
             psychology_msg += desc
         else:
             psychology_msg += "Еще не сформировано. Продолжайте вести дневник, и ИИ постепенно создаст ваш психологический портрет."
-
-        # Финальная проверка длины всего сообщения
         if len(psychology_msg) > MAX_TOTAL_LENGTH:
-             # Если даже сокращенное описание слишком длинное, обрезаем его сильнее
              psychology_msg = psychology_msg[:MAX_TOTAL_LENGTH] + "\n\n<i>...(сообщение обрезано)...</i>"
-
-        # Клавиатура с кнопкой "Назад к профилю" и "В главное меню"
         back_buttons = [
             [
                 InlineKeyboardButton(
@@ -155,17 +142,14 @@ async def show_psychology_profile(callback: CallbackQuery, user, language: str):
             ]
         ]
         keyboard = InlineKeyboardMarkup(inline_keyboard=back_buttons)
-
         await callback.message.edit_text(
             psychology_msg,
             reply_markup=keyboard,
             parse_mode="HTML"
         )
         await callback.answer()
-        
     except Exception as e:
         logger.error(f"Ошибка при показе психологического профиля: {e}", exc_info=True)
         error_msg = get_message('error_generic', language=language)
-        # Отправляем короткое сообщение об ошибке
         await callback.message.edit_text(error_msg, reply_markup=get_back_keyboard(language))
         await callback.answer(error_msg, show_alert=True)
