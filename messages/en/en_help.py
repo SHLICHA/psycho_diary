@@ -1,5 +1,28 @@
 HELP_MESSAGES_EN = {
         'en': {
+         'help_text': '''❓ <b>Diary help</b>
+
+📝 <b>How to keep entries:</b>
+• Send text or voice message
+• Describe your day honestly and in detail
+• Bot will analyze your entry
+
+🎯 <b>Tasks:</b>
+• Complete personal tasks
+• Mark completion in bot
+• Get personal feedback
+
+📊 <b>Progress:</b>
+• Track your growth
+• Analyze dynamics
+• Develop awareness
+
+⚙️ <b>Settings:</b>
+• Choose convenient language
+• Set up notifications
+• Manage privacy
+
+Need more help? Contact your psychologist!''',
         'help_main_text': '''❓ <b>Help with the diary</b>
 
 Welcome to the help section! Here you will find answers to frequently asked questions and useful tips.

@@ -39,7 +39,6 @@ async def show_help(event, language: str = 'ru'):
         elif isinstance(event, Message):
             await event.answer("Ошибка при показе помощи")
 
-#TODO сообщения для en. Объединить?
 @router.callback_query(F.data == "help_faq")
 async def show_faq(callback: CallbackQuery, language: str = 'ru'):
     try:
@@ -53,7 +52,6 @@ async def show_faq(callback: CallbackQuery, language: str = 'ru'):
         logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ FAQ: {e}", exc_info=True)
         await callback.answer("Ошибка при показе FAQ")
 
-#TODO сообщения для en. Объединить?
 @router.callback_query(F.data == "help_how_to_start")
 async def show_how_to_start(callback: CallbackQuery, language: str = 'ru'):
     try:
@@ -67,7 +65,6 @@ async def show_how_to_start(callback: CallbackQuery, language: str = 'ru'):
         logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ ПОМОЩИ ПО НАЧАЛУ РАБОТЫ: {e}", exc_info=True)
         await callback.answer("Ошибка при показе помощи по началу работы")
 
-#TODO сообщения для en. Объединить?
 @router.callback_query(F.data == "help_writing_entries")
 async def show_writing_entries_help(callback: CallbackQuery, language: str = 'ru'):
     try:
@@ -81,7 +78,6 @@ async def show_writing_entries_help(callback: CallbackQuery, language: str = 'ru
         logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ ПОМОЩИ ПО НАПИСАНИЮ ЗАПИСЕЙ: {e}", exc_info=True)
         await callback.answer("Ошибка при показе помощи по написанию записей")
 
-#TODO сообщения для en. Объединить?
 @router.callback_query(F.data == "help_tasks")
 async def show_tasks_help(callback: CallbackQuery, language: str = 'ru'):
     try:
@@ -95,7 +91,6 @@ async def show_tasks_help(callback: CallbackQuery, language: str = 'ru'):
         logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ ПОМОЩИ ПО ЗАДАНИЯМ: {e}", exc_info=True)
         await callback.answer("Ошибка при показе помощи по заданиям")
 
-#TODO сообщения для en. Объединить?
 @router.callback_query(F.data == "help_privacy")
 async def show_privacy_help(callback: CallbackQuery, language: str = 'ru'):
     """Помощь по приватности"""
@@ -110,7 +105,6 @@ async def show_privacy_help(callback: CallbackQuery, language: str = 'ru'):
         logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ ПОМОЩИ ПО ПРИВАТНОСТИ: {e}", exc_info=True)
         await callback.answer("Ошибка при показе помощи по приватности")
 
-#TODO сообщения для en. Объединить? Нужен?
 @router.callback_query(F.data == "help_contact")
 async def show_contact_help(callback: CallbackQuery, language: str = 'ru'):
     """Контактная помощь"""

@@ -179,7 +179,7 @@ async def show_premium(callback: CallbackQuery, user, language: str):
 async def premium_subscribe(callback: CallbackQuery, user, language: str):
     """Подписка на премиум"""
     try:
-        subscribe_msg = "💳 Для подписки на премиум функции свяжитесь с администратором"
+        subscribe_msg = "💳 Ждет доработки"
         await callback.message.edit_text(
             subscribe_msg,
             reply_markup=get_back_keyboard(language)
@@ -210,7 +210,7 @@ async def change_timezone(callback: CallbackQuery, user, language: str):
 async def enter_city_for_timezone(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Ввод города для определения часового пояса"""
     try:
-        city_msg = "🏙 <b>Введите название вашего города</b>\nНапример: Москва, Санкт-Петербург, Новосибирск"
+        city_msg = get_message(key='enter_city', language=language)
         reply_markup = get_back_keyboard(language)
         await callback.message.edit_text(
             city_msg,
@@ -236,7 +236,7 @@ async def process_city_input(message: Message, state: FSMContext, user, language
             )
             return
         if not city_name:
-            error_msg = "Пожалуйста, введите название города"
+            error_msg = get_message(key='please_enter_city', language=language)
             await message.answer(error_msg)
             return
         try:
@@ -246,7 +246,13 @@ async def process_city_input(message: Message, state: FSMContext, user, language
                 'city': city_tz.city_name,
                 'country': city_tz.country
             }
-            confirmation_msg = f"🏙 Найден часовой пояс для города <b>{city_tz.city_name}</b>, <b>{city_tz.country}</b>:\n\n🕒 <code>{city_tz.timezone}</code>"
+            confirmation_msg = get_message(
+                key='timezone_found',
+                language=language,
+                city_name=city_tz.city_name,
+                country=city_tz.country,
+                timezone=city_tz.timezone
+            )
             reply_markup = get_city_timezone_confirmation_keyboard(language, timezone_data)
             await message.answer(
                 confirmation_msg,
@@ -256,25 +262,25 @@ async def process_city_input(message: Message, state: FSMContext, user, language
             return
         except CityTimezone.DoesNotExist:
             pass
-        await message.answer("⏳ Ищу часовой пояс для указанного города...")
+        await message.answer(get_message('searching_timezone', language))
         result = await deepseek_api_service.detect_timezone_by_city(city_name, language)
         if not result['success']:
-            error_msg = result.get('message', 'Ошибка при определении часового пояса')
+            error_msg = result.get('message', get_message('timezone_error', language))
             await message.answer(f"❌ {error_msg}")
-            city_msg = "🏙 <b>Введите название вашего города</b>\nНапример: Москва, Санкт-Петербург, Новосибирск"
+            city_msg = get_message(key='please_enter_city', language=language)
             await message.answer(city_msg, reply_markup=get_back_keyboard(language))
             return
         api_result = result['result']
         if not api_result.get('success', False):
-            error_msg = api_result.get('error', 'Город не найден')
+            error_msg = api_result.get('error', get_message(key='city_not_found', language=language))
             await message.answer(f"❌ {error_msg}")
-            city_msg = "🏙 <b>Введите название вашего города</b>\nНапример: Москва, Санкт-Петербург, Новосибирск"
+            city_msg = get_message(key='please_enter_city', language=language)
             await message.answer(city_msg, reply_markup=get_back_keyboard(language))
             return
         if api_result.get('multiple', False):
             options = api_result.get('options', [])
             if options:
-                selection_msg = "🏙 Найдено несколько вариантов. Выберите правильный:"
+                selection_msg = get_message(key='multiple_cities_found', language=language)
                 reply_markup = get_multiple_city_timezones_keyboard(language, options)
                 await message.answer(
                     selection_msg,
@@ -282,23 +288,23 @@ async def process_city_input(message: Message, state: FSMContext, user, language
                 )
                 return
             else:
-                await message.answer("❌ Не удалось получить варианты выбора")
-                city_msg = "🏙 <b>Введите название вашего города</b>\nНапример: Москва, Санкт-Петербург, Новосибирск"
+                await message.answer(get_message(key='selection_failed', language=language))
+                city_msg = get_message(key='enter_city', language=language)
                 await message.answer(city_msg, reply_markup=get_back_keyboard(language))
                 return
         timezone_str = api_result.get('timezone')
         city = api_result.get('city', city_name)
         country = api_result.get('country', 'Неизвестно')
         if not timezone_str:
-            await message.answer("❌ Не удалось определить часовой пояс")
-            city_msg = "🏙 <b>Введите название вашего города</b>\nНапример: Москва, Санкт-Петербург, Новосибирск"
+            await message.answer(get_message(key='timezone_detection_failed', language=language))
+            city_msg = get_message(key='enter_city', language=language)
             await message.answer(city_msg, reply_markup=get_back_keyboard(language))
             return
         try:
             pytz.timezone(timezone_str)
         except pytz.UnknownTimeZoneError:
-            await message.answer("❌ Определен неверный часовой пояс")
-            city_msg = "🏙 <b>Введите название вашего города</b>\nНапример: Москва, Санкт-Петербург, Новосибирск"
+            await message.answer(get_message(key='invalid_timezone', language=language))
+            city_msg = get_message(key='enter_city', language=language)
             await message.answer(city_msg, reply_markup=get_back_keyboard(language))
             return
         timezone_data = {
@@ -306,7 +312,13 @@ async def process_city_input(message: Message, state: FSMContext, user, language
             'city': city,
             'country': country
         }
-        confirmation_msg = f"🏙 Найден часовой пояс для города <b>{city}</b>, <b>{country}</b>:\n\n🕒 <code>{timezone_str}</code>"
+        confirmation_msg = get_message(
+                key='timezone_found',
+                language=language,
+                city_name=city,
+                country=country,
+                timezone=timezone_str
+            )
         reply_markup = get_city_timezone_confirmation_keyboard(language, timezone_data)
         await message.answer(
             confirmation_msg,
@@ -326,7 +338,7 @@ async def select_timezone_from_options(callback: CallbackQuery, state: FSMContex
         try:
             pytz.timezone(timezone_str)
         except pytz.UnknownTimeZoneError:
-            await callback.answer("❌ Неверный часовой пояс", show_alert=True)
+            await callback.answer(get_message('wrong_timezone', language=language), show_alert=True)
             return
         user.timezone = timezone_str
         await user.asave(update_fields=['timezone'])
@@ -355,7 +367,7 @@ async def confirm_timezone_by_city(callback: CallbackQuery, state: FSMContext, u
         timezone_data = data.get('timezone_data')
         
         if not timezone_data:
-            await callback.answer("❌ Данные не найдены", show_alert=True)
+            await callback.answer(get_message('data_not_found', language=language), show_alert=True)
             return 
         timezone_str = timezone_data['timezone']
         city = timezone_data.get('city', '')
@@ -363,7 +375,7 @@ async def confirm_timezone_by_city(callback: CallbackQuery, state: FSMContext, u
         try:
             pytz.timezone(timezone_str)
         except pytz.UnknownTimeZoneError:
-            await callback.answer("❌ Неверный часовой пояс", show_alert=True)
+            await callback.answer(get_message('wrong_timezone', language=language), show_alert=True)
             return
         user.timezone = timezone_str
         await user.asave(update_fields=['timezone'])
@@ -399,7 +411,6 @@ async def select_timezone_from_list(callback: CallbackQuery, user, language: str
             reply_markup=reply_markup
         )
         await callback.answer()
-        logger.info("Показан список популярных часовых поясов")
     except Exception as e:
         logger.error(f"Ошибка при показе списка часовых поясов: {e}")
         await callback.answer(get_message('error_generic', language=language))
@@ -431,58 +442,12 @@ async def set_timezone(callback: CallbackQuery, user, language: str):
         logger.error(f"Ошибка при установке часового пояса: {e}")
         await callback.answer(get_message('error_generic', language=language), show_alert=True)
 
-@router.message(SettingsStates.waiting_for_timezone_input)
-async def process_timezone_input(message: Message, state: FSMContext, user, language: str):
-    """Обработка ручного ввода часового пояса"""
-    try:
-        input_text = message.text.strip()
-        if input_text.lower() in ['назад', 'back', '/start', '/menu']:
-            await state_manager.clear_state(state)
-            settings_msg = get_message('settings_menu', language=language)
-            await message.answer(
-                settings_msg,
-                reply_markup=get_settings_keyboard(user, language)
-            )
-            return
-        if not re.match(r"^[a-zA-Z]+/[a-zA-Z_]+$", input_text):
-            logger.warning(f"Неверный формат часового пояса: {input_text}")
-            error_msg = get_message('error_invalid_timezone', language)
-            await message.answer(error_msg)
-            timezone_msg = get_message('ask_enter_custom_timezone', language, current_timezone=user.timezone)
-            await message.answer(timezone_msg, reply_markup=get_back_keyboard(language))
-            return
-        try:
-            tz_obj = pytz.timezone(input_text)
-            canonical_tz_name = str(tz_obj)
-            user.timezone = canonical_tz_name
-            await user.asave(update_fields=['timezone'])
-            await state_manager.clear_state(state)
-            success_msg = get_message('timezone_changed', language, timezone=canonical_tz_name)
-            await message.answer(success_msg)
-            settings_msg = get_message('settings_menu', language=language)
-            await message.answer(
-                settings_msg,
-                reply_markup=get_settings_keyboard(user, language)
-            )      
-        except pytz.UnknownTimeZoneError:
-            logger.error(f"Неизвестный введенный часовой пояс: {input_text}")
-            error_msg = get_message('error_unknown_timezone', language)
-            await message.answer(error_msg)
-            timezone_msg = get_message('ask_enter_custom_timezone', language, current_timezone=user.timezone)
-            await message.answer(timezone_msg, reply_markup=get_back_keyboard(language))
-            return
-    except Exception as e:
-        logger.error(f"Ошибка при обработке ручного ввода часового пояса: {e}")
-        await message.answer(get_message('error_generic', language=language))
-        await state_manager.clear_state(state)
-
 @router.callback_query(F.data == "settings_change_analysis_time")
 async def change_analysis_time(callback: CallbackQuery, user, language: str):
     """Изменение времени автоанализа"""
     try:
         current_time = user.preferred_analysis_time.strftime('%H:%M') if user.preferred_analysis_time else '02:00'
         time_msg = get_message('ask_analysis_time', language, current_time=current_time)
-        
         reply_markup = get_analysis_time_selection_keyboard(language, current_time)
         await callback.message.edit_text(
             time_msg,
@@ -499,7 +464,6 @@ async def set_analysis_time(callback: CallbackQuery, user, language: str):
     try:
         time_str = callback.data.split(":", 1)[1]
         try:
-            from datetime import datetime
             new_time = datetime.strptime(time_str, '%H:%M').time()
         except ValueError:
             await callback.answer("❌ Неверный формат времени", show_alert=True)
@@ -530,7 +494,6 @@ async def show_edit_profile_menu(callback: CallbackQuery, user, language: str):
             'life_facts': ', '.join(user.life_facts) if user.life_facts else 'Не указаны'
         }
         profile_msg = get_message('profile_menu', language, **profile_data)
-        
         reply_markup = get_edit_profile_keyboard(language)
         await callback.message.edit_text(
             profile_msg,
@@ -597,7 +560,10 @@ async def edit_profile_hobbies(callback: CallbackQuery, state: FSMContext, user,
         await state_manager.set_state(state, SettingsStates.waiting_for_hobbies_input)
         ask_msg = get_message('ask_new_hobbies', language)
         if current_hobbies:
-            ask_msg += f"\n\n<i>Текущие увлечения:</i> <code>{current_hobbies}</code>"
+            ask_msg += get_message(
+                key='current_hobbies',
+                language=language,
+                current_hobbies=current_hobbies)
         reply_markup = get_back_keyboard(language)
         await callback.message.edit_text(
             ask_msg,
@@ -616,7 +582,11 @@ async def edit_profile_life_facts(callback: CallbackQuery, state: FSMContext, us
         await state_manager.set_state(state, SettingsStates.waiting_for_life_facts_input)
         ask_msg = get_message('ask_new_life_facts', language)
         if current_facts:
-            ask_msg += f"\n\n<i>Текущие факты:</i> <code>{current_facts}</code>"
+            ask_msg += get_message(
+                key='current_facts',
+                language=language,
+                current_facts=current_facts
+            )
         reply_markup = get_back_keyboard(language)
         await callback.message.edit_text(
             ask_msg,
@@ -711,7 +681,6 @@ async def process_dob_input(message: Message, state: FSMContext, user, language:
         await message.answer(success_msg)
         await show_edit_profile_menu_callback(message, user, language)
         await state_manager.clear_state(state)
-        
     except Exception as e:
         logger.error(f"Ошибка при обработке ввода новой даты рождения: {e}")
         error_msg = get_message('error_generic', language)
@@ -847,12 +816,9 @@ async def process_account_deletion_confirmation_text(message: Message, user, lan
     """Обработка ввода текста подтверждения удаления аккаунта"""
     try:
         confirmation_text = message.text.strip()
-        if language == 'ru':
-            expected_text = "УДАЛИТЬ МОЙ АККАУНТ"
-        else:
-            expected_text = "DELETE MY ACCOUNT"
+        expected_text = get_message('delete_account_btn', language)
         if confirmation_text != expected_text:
-            error_msg = "❌ Неверный текст подтверждения. Пожалуйста, введите точную фразу."
+            error_msg = get_message('invalid_confirmation_text', language)
             await message.answer(error_msg)
             data = await state_manager.get_state_data(state)
             balance_warning = data.get('balance_warning', '')
@@ -893,7 +859,8 @@ async def cancel_account_deletion(callback: CallbackQuery, user, language: str, 
 async def contact_support_for_refund(callback: CallbackQuery, user, language: str, state: FSMContext):
     """Связаться с поддержкой для возврата средств"""
     try:
-        support_msg = "📞 Пожалуйста, свяжитесь с нашей службой поддержки по адресу: support@yourdomain.com"
+        # TODO
+        support_msg = "📞 Дработка"
         await callback.message.edit_text(support_msg)
         await state_manager.clear_state(state)
         await callback.answer()

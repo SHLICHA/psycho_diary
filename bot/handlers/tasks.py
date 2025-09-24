@@ -190,7 +190,6 @@ async def process_task_completion(message: Message, state: FSMContext, user, lan
                 await processing_voice_msg.delete()
             except Exception as delete_error:
                 logger.warning(f"[Task Completion] Не удалось удалить сообщение статуса обработки голоса: {delete_error}")
-
             if not success:
                 await message.answer(f"{get_message('error_processing', language)}: {error_message}")
                 return
@@ -296,7 +295,6 @@ async def skip_task(callback: CallbackQuery, state: FSMContext, user, language: 
         if success:
             task_skipped_msg = get_message('task_skipped', language)
             await safe_answer_callback(callback, task_skipped_msg, show_alert=True)
-            logger.info(f"Задание {task_id} пропущено пользователем {user.telegram_id}. Обновление списка активных заданий.")
             active_tasks = await task_service.get_user_active_tasks(user)
             if not active_tasks:
                 no_task_msg = get_message('task_no_active', language)
@@ -336,7 +334,6 @@ async def delete_task(callback: CallbackQuery, user, language: str):
     """Удаление задания"""
     try:
         task_id = int(callback.data.split(":")[1])
-        logger.info(f"Удаление задания ID: {task_id}")
         confirm_msg = get_message('confirm_delete_task', language)
         await callback.message.edit_text(
             confirm_msg,
@@ -559,7 +556,7 @@ async def view_detailed_task_analysis(callback: CallbackQuery, user, language: s
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
 #=========================ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ=====================================
-
+# TODO
 async def _format_task_history_detail(task: TherapyTask, language: str, state: FSMContext) -> str: 
     """
     Форматирует текстовое сообщение с деталями задания из истории.

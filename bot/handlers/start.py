@@ -25,7 +25,6 @@ async def cmd_start(message: Message, user, language: str, state: FSMContext):
     """Обработчик команды /start"""
     try:
         if not getattr(user, 'has_agreed_to_terms', False):
-            logger.info(f"Пользователь {user.telegram_id} еще не дал согласие. Запуск онбординга.")
             welcome_msg = get_message('onboarding_welcome', language)
             await message.answer(welcome_msg)
             instruction_msg = get_message('onboarding_instruction', language)
@@ -47,7 +46,6 @@ async def cmd_start(message: Message, user, language: str, state: FSMContext):
 @router.callback_query(F.data == "main_menu")
 async def back_to_main_menu(callback: CallbackQuery, language: str):
     """Возврат в главное меню"""
-    logger.info("Обработчик main_menu вызван!")
     try:
         main_menu_msg = get_message('main_menu', language)
         await safe_edit_message_text(

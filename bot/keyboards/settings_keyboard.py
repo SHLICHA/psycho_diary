@@ -180,8 +180,6 @@ def get_multiple_city_timezones_keyboard(language: str, options: list) -> Inline
                 callback_data=f"select_timezone:{timezone_str}"
             )
         ])
-    
-    # Кнопка "Назад"
     buttons.append([
         InlineKeyboardButton(
             text=get_button_text('btn_back', language),

@@ -164,8 +164,7 @@ async def open_month_selector(callback: CallbackQuery, user, language: str):
             text=month_msg,
             reply_markup=get_month_selection_keyboard(year, current_month, language)
         )
-        await safe_answer_callback(callback, "")
-        logger.info("Показан выбор месяцев")  
+        await safe_answer_callback(callback, "") 
     except Exception as e:
         logger.error(f"Ошибка при открытии селектора месяцев: {e}")
         await safe_answer_callback(callback, get_message('error_generic', language))

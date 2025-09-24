@@ -40,9 +40,8 @@ from bot.services import (
     psycho_analysis_service,
     task_service,
     deepseek_api_service,
-    get_entry_date
 )
-from prompts.get_prompt import get_prompt
+from prompts import get_prompt
 from users.models import User
 
 router = Router()
