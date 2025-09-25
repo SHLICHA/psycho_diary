@@ -62,7 +62,8 @@ MESSAGES = {
 
 'data_not_found': '''❌ Данные не найдены''',
 'no_comment': '''Нет комментария''',
-'no_recommendation': '''Нет рекомендации'''
+'no_recommendation': '''Нет рекомендации''',
+'session_expired': '''⏰ Время сессии истекло (1 час). Сессия автоматически завершена.\nИспользуйте /start для начала новой сессии.'''
     },
     'en': {
         # === Mood scores ===
@@ -122,7 +123,8 @@ MESSAGES = {
 
 'data_not_found': '''❌ Data not found''',
 'no_comment': '''No comment''',
-'no_recommendation': '''No recommendation'''
+'no_recommendation': '''No recommendation''',
+'session_expired': '''⏰ Session time expired (1 hour). Session automatically completed.\nUse /start to begin a new session.'''
     }
 }
 

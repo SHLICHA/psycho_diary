@@ -4,12 +4,15 @@ Handlers для работы с дневником
 
 import asyncio
 import logging
+import pytz
 
 from asgiref.sync import sync_to_async
 from aiogram import Router, F
+from aiogram.filters import StateFilter
 from aiogram.types import Message, CallbackQuery, ContentType, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
-from datetime import date
+from datetime import date, timedelta
+from django.utils import timezone
 
 from messages import get_message, get_button_text
 from diary.models import CombinedDiaryEntry, DiaryEntry, DailyAnalysis, TherapyTask, PsychoAnalysis
@@ -25,7 +28,8 @@ from bot.keyboards import (
     get_smart_calendar_keyboard,
     get_delete_entry_confirmation_keyboard,
     get_calendar_back_keyboard,
-    get_entry_page_keyboard
+    get_entry_page_keyboard,
+    get_skip_clarification_keyboard
     )
 from bot.utils.api_utils import format_api_error_for_analysis
 from bot.utils.audio_utils import process_voice_message
@@ -229,7 +233,11 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
         for i, q in enumerate(clarification_questions):
             clarification_answers_dict[q] = answers_list[i] if i < len(answers_list) else "[Ответ не получен]"
         diary_entry.clarification_answers = clarification_answers_dict
-        await sync_to_async(diary_entry.save)(update_fields=['clarification_answers'])
+        await sync_to_async(diary_entry.save)(update_fields=[
+            'clarification_answers',
+            'clarification_reminder_due_at',
+            'clarification_force_process_at'
+        ])
         user_profile = await user.aget_profile_data()
         first_name = user_profile.get('first_name', 'Пользователь')
         awareness_level = user_profile['awareness_level']
@@ -850,6 +858,95 @@ async def cancel_delete_specific_entry(callback: CallbackQuery, user, language: 
          logger.error(f"Ошибка при отмене удаления записи {entry_id}: {e}", exc_info=True)
          await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
+@router.callback_query(F.data == "skip_clarification", StateFilter(DiaryStates.asking_clarifying_questions))
+async def skip_clarification_callback(callback: CallbackQuery, state: FSMContext, user, language: str):
+    """
+    Обработчик кнопки 'Пропустить' при уточняющих вопросах.
+    Имитирует получение пустых ответов и вызывает логику анализа.
+    """
+    logger.info(f"Пользователь {user.telegram_id} нажал 'Пропустить' для уточняющих вопросов.")
+    try:
+        state_data = await state_manager.get_state_data(state)
+        entry_id = state_data.get('clarifying_entry_id')
+        clarification_questions = state_data.get('clarification_questions', [])
+
+        if not entry_id:
+            logger.error("ID записи не найден в FSM при нажатии 'Пропустить'")
+            # ИСПОЛЬЗУЕМ safe_answer_callback
+            await safe_answer_callback(callback, get_message('error_generic', language))
+            await state_manager.clear_state(state)
+            return
+
+        try:
+            diary_entry = await DiaryEntry.objects.aget(id=entry_id, user=user)
+        except DiaryEntry.DoesNotExist:
+            # ИСПОЛЬЗУЕМ safe_answer_callback
+            await safe_answer_callback(callback, get_message('error_generic', language))
+            await state_manager.clear_state(state)
+            return
+
+        # Создаем "пустые" ответы
+        clarification_answers_dict = {q: "[Ответ не получен]" for q in clarification_questions}
+
+        # Обновляем запись, сбрасывая поля уточнений
+        diary_entry.clarification_answers = clarification_answers_dict
+        await sync_to_async(diary_entry.save)(update_fields=[
+            'clarification_answers',
+            'clarification_reminder_due_at', # Сбрасываем, так как анализ запускается
+            'clarification_force_process_at' # Сбрасываем, так как анализ запускается
+        ])
+
+        # --- ОТВЕТИТЬ НА CALLBACK КАК МОЖНО РАНЬШЕ ---
+        # ИСПОЛЬЗУЕМ safe_answer_callback для безопасного ответа
+        await safe_answer_callback(callback) # Просто отвечаем, чтобы снять статус ожидания у Telegram
+        # --- КОНЕЦ ОТВЕТА НА CALLBACK ---
+
+        # Теперь выполним "тяжелые" операции
+        user_profile = await user.aget_profile_data()
+        first_name = user_profile.get('first_name', 'Пользователь')
+        awareness_level = user_profile['awareness_level']
+
+        logger.debug(f'Профиль пользователя для анализа после пропуска: {user_profile}')
+
+        prompt = get_prompt(
+            key='clarification_analysis',
+            language=language,
+            original_text=diary_entry.text,
+            clarification_questions="\n".join(clarification_questions),
+            clarification_answers="\n".join([f"{q}: {a}" for q, a in clarification_answers_dict.items()]),
+            first_name=first_name,
+            awareness_level=awareness_level,
+        )
+
+        # Отправляем промпт к ИИ
+        # ИСПРАВЛЕНО: используем callback.bot.send_message вместо callback.message.answer
+        status_message = await callback.bot.send_message(chat_id=callback.message.chat.id, text=get_message('processing', language))
+        analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
+
+        # Обрабатываем результат (так же, как и при обычном ответе)
+        await _process_analysis_result(
+            entry=diary_entry,
+            analysis_result=analysis_result,
+            status_msg=status_message, # ИСПРАВЛЕНО: передаем status_message
+            language=language,
+            state=state,
+            user=user
+        )
+        # state_manager.clear_state вызывается внутри _process_analysis_result
+
+    except Exception as e:
+        logger.error(f"Ошибка при обработке кнопки 'Пропустить': {e}", exc_info=True)
+        try:
+            # Попробуем отправить сообщение об ошибке, но не в контексте callback.answer
+            # Лучше отправить его отдельно, не через status_message
+            # ИСПРАВЛЕНО: используем callback.bot.send_message
+            await callback.bot.send_message(chat_id=callback.message.chat.id, text=get_message('error_processing', language))
+        except Exception as send_error:
+            logger.error(f"Ошибка при отправке сообщения об ошибке пользователю: {send_error}")
+        # ИСПРАВЛЕНО: убедимся, что состояние очищается даже в случае ошибки
+        # ИСПОЛЬЗУЕМ safe_answer_callback, если еще не ответили, но тут уже поздно, и state.clear сработает
+        await state_manager.clear_state(state)
+
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
 
 async def _process_analysis_result(
@@ -877,7 +974,26 @@ async def _process_analysis_result(
             clarification_questions = result_data.get('clarification_questions', [])
             if needs_clarification and clarification_questions:
                 entry.clarification_questions_asked = clarification_questions
-                await sync_to_async(lambda: entry.save(update_fields=['clarification_questions_asked']))()
+                now_utc = timezone.now()
+                entry.clarification_asked_at = now_utc # Установить время запроса уточнений (в UTC)
+
+                # Вычислить время напоминания и принудительной обработки в UTC
+                # Просто прибавляем 15 и 30 минут к текущему UTC времени
+                entry.clarification_reminder_due_at = now_utc + timedelta(minutes=15)
+                entry.clarification_force_process_at = now_utc + timedelta(minutes=30)
+
+                # Обнуляем поля, связанные с напоминаниями и принудительной обработкой, если они были
+                entry.last_reminder_sent_at = None
+                entry.analysis_processed_at = None
+
+                await sync_to_async(lambda: entry.save(update_fields=[
+                    'clarification_questions_asked',
+                    'clarification_asked_at',
+                    'clarification_reminder_due_at', # Добавлено
+                    'clarification_force_process_at', # Добавлено
+                    'last_reminder_sent_at', # Добавлено
+                    'analysis_processed_at' # Добавлено
+                ]))()
                 await state_manager.update_state_data(
                     state,
                     clarifying_entry_id=entry.id,
@@ -887,7 +1003,7 @@ async def _process_analysis_result(
                 questions_text = "\n".join([f"{i+1}. {q}" for i, q in enumerate(clarification_questions)])
                 await status_msg.edit_text(
                     f"{get_message('clarification_needed', language)}\n{questions_text}",
-                    reply_markup=get_cancel_keyboard(language)
+                    reply_markup=get_skip_clarification_keyboard(language) # Заменяем get_cancel_keyboard
                 )
                 return
         await psycho_analysis_service.create_or_update_analysis(
@@ -925,17 +1041,20 @@ async def _process_analysis_result(
                     task = await _create_task_from_suggested_data(user, suggested_task, entry.entry_date, entry)
                     if task:
                         preview = task.description[:150] + "..." if len(task.description) > 150 else task.description
-                        task_info = f"\n📌 <b>Новое задание от ИИ:</b>\n<b>{task.title}</b>\n{preview}"
+                        task_info = get_message(
+                            key='new_ai_task', 
+                            language=language,
+                            title=task.title,
+                            preview=preview)
                         reply_markup = get_task_pagination_keyboard(task.id, 0, 1, language)
-                    else:
-                         logger.debug(f"Задание от ИИ не было создано для пользователя {user.telegram_id} (возможно, превышен общий лимит активных заданий).")
                 except Exception as task_creation_error:
                     logger.error(f"Ошибка при создании задания от ИИ для пользователя {user.telegram_id}: {task_creation_error}")
             else:
                 logger.debug(f"Задание от ИИ для пользователя {user.telegram_id} не создано: превышен дневной лимит ({user.max_ai_tasks_per_day}).")
         final_text = get_message('entry_saved', language, score=mood_score, mood=get_message(f'mood_{mood_score}', language), comment=comment, recommendation=recommendation) + task_info
         await status_msg.edit_text(final_text, reply_markup=reply_markup)
-        await state_manager.clear_state(state)
+        if state:
+            await state_manager.clear_state(state)
     except Exception as e:
         logger.error(f"Ошибка в _process_analysis_result: {e}", exc_info=True)
         if status_msg:

@@ -39,7 +39,7 @@ class DiaryEntryAdmin(admin.ModelAdmin):
     
     fieldsets = (
         (None, {
-            'fields': ('user', 'text', 'language', 'word_count')
+            'fields': ('user', 'text', 'language', 'word_count', 'clarification_asked_at', 'last_reminder_sent_at', 'analysis_processed_at', 'clarification_reminder_due_at', 'clarification_force_process_at')
         }),
         (_('Даты и время'), {
             'fields': ('created_at', 'updated_at', 'entry_date', 'localized_created_at'),

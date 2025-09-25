@@ -60,6 +60,37 @@ class DiaryEntry(models.Model):
         verbose_name=_("Родительская запись"),
         help_text=_("Ссылка на основную запись дня")
     )
+    clarification_asked_at = models.DateTimeField(
+        null=True, 
+        blank=True, 
+        verbose_name=_("Время запроса уточнений"),
+        help_text=_("Время, когда ИИ запросил уточнения для этой записи.")
+    )
+    clarification_reminder_due_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Время, когда нужно отправить напоминание"),
+        help_text=_("Предвычисленное время (в UTC) для отправки напоминания о неотвеченных уточнениях, с учетом часового пояса пользователя.")
+    )
+    clarification_force_process_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Время, когда нужно принудительно завершить анализ"),
+        help_text=_("Предвычисленное время (в UTC) для принудительной обработки записи, с учетом часового пояса пользователя.")
+    )
+    last_reminder_sent_at = models.DateTimeField(
+        null=True, 
+        blank=True, 
+        verbose_name=_("Время последнего напоминания"),
+        help_text=_("Время, когда было отправлено последнее напоминание о необходимости ответить на уточнения.")
+    )
+    analysis_processed_at = models.DateTimeField(
+        null=True, 
+        blank=True, 
+        verbose_name=_("Время принудительной обработки анализа"),
+        help_text=_("Время, когда был принудительно завершен анализ (например, из-за отсутствия ответов на уточнения).")
+    )
+
 
     class Meta:
         verbose_name = _("Запись дневника")

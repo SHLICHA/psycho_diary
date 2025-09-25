@@ -118,6 +118,14 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'diary.tasks.weekly_analisys_tasks.schedule_weekly_analyses_task',
         'schedule': crontab(minute=0),
     },
+    'check-clarification-reminders': {
+        'task': 'diary.tasks.reminder_ask_questions.check_clarification_reminders',
+        'schedule': 300.0, # 300 секунд = 5 минут
+    },
+    'force-process-clarifications': { # Добавьте эту задачу
+        'task': 'diary.tasks.reminder_ask_questions.force_process_clarifications', # Убедитесь в правильном пути
+        'schedule': 300.0, # 5 минут, или 600 (10 мин), или 1800 (30 мин) - зависит от того, как часто вы хотите проверять
+    },
 }
 
 CELERY_BROKER_URL = config('CELERY_BROKER_URL')

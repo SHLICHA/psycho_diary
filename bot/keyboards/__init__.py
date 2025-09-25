@@ -23,7 +23,8 @@ from .calendar_keyboard import (
     format_entry_text_for_editing,
     get_delete_confirmation_keyboard,
     get_delete_entry_confirmation_keyboard,
-    get_entry_page_keyboard
+    get_entry_page_keyboard,
+    get_skip_clarification_keyboard
 )
 
 # Универсальные клавиатуры

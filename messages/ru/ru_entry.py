@@ -36,5 +36,9 @@ ENTRY_MESSAGES_RU = {
         'btn_cancel_delete': '❌ Нет, отмена',
         'btn_confirm_delete_entry': '✅ Да, удалить запись',
         'btn_confirm_delete_day': "✅ Да, удалить день",
+        'btn_skip_clarification': '➡️ Пропустить вопросы',
+        'reminder_clarification': '📝 Ты не ответил(а) на уточняющие вопросы, отправленные ранее. Пожалуйста, ответь, чтобы получить более точный анализ.',
+        'new_ai_task': '''\n📌 <b>Новое задание:</b>\n<b>{title}</b>\n{preview}''',
+
         }
 }

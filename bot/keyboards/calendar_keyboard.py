@@ -423,6 +423,13 @@ def get_back_to_edit_day_keyboard(target_date: date, language: str) -> InlineKey
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+def get_skip_clarification_keyboard(language: str) -> InlineKeyboardMarkup:
+    """Клавиатура с кнопкой 'Пропустить уточнения'"""
+    button_text = get_button_text('btn_skip_clarification', language) # Добавим ключ сообщения
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=button_text, callback_data="skip_clarification")]
+    ])
+
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
 
 def format_entry_text_for_editing(entry_text: str) -> str:
