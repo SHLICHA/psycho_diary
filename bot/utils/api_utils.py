@@ -24,31 +24,25 @@ def api_retry(max_attempts: int = 3, delay: float = 1.0):
             logger.info(f"Начало retry механизма для функции {func.__name__}")
             logger.info(f"Максимальное количество попыток: {max_attempts}")
             logger.info(f"Задержка между попытками: {delay} секунд")
-            
             last_exception = None
-            
             for attempt in range(max_attempts):
                 try:
                     logger.info(f"Попытка {attempt + 1}/{max_attempts}")
                     result = await func(*args, **kwargs)
                     logger.info(f"Функция {func.__name__} выполнена успешно на попытке {attempt + 1}")
                     return result
-                    
                 except Exception as e:
                     last_exception = e
                     logger.warning(f"Попытка {attempt + 1} не удалась: {e}")
-                    
                     if attempt < max_attempts - 1:
                         logger.info(f"Ожидание {delay} секунд перед следующей попыткой...")
                         await asyncio.sleep(delay)
                     else:
                         logger.error(f"Все {max_attempts} попыток неудачны")
                         raise last_exception
-            
             if last_exception:
                 logger.error(f"Retry механизм исчерпан для функции {func.__name__}")
-                raise last_exception
-                
+                raise last_exception     
         return wrapper
     return decorator
 
@@ -64,13 +58,10 @@ def handle_api_error(func: Callable[..., Awaitable[Any]]):
     """
     @wraps(func)
     async def wrapper(*args, **kwargs) -> Any:
-        logger.info(f"Начало обработки ошибок API для функции {func.__name__}")
-        
         try:
             result = await func(*args, **kwargs)
             logger.info(f"Функция {func.__name__} выполнена успешно")
-            return result
-            
+            return result   
         except asyncio.TimeoutError as timeout_error:
             logger.error(f"Таймаут API вызова в функции {func.__name__}: {timeout_error}")
             return {
@@ -78,8 +69,7 @@ def handle_api_error(func: Callable[..., Awaitable[Any]]):
                 'error': 'timeout',
                 'message': 'Превышено время ожидания ответа от API',
                 'result': None
-            }
-            
+            }  
         except ConnectionError as connection_error:
             logger.error(f"Ошибка подключения к API в функции {func.__name__}: {connection_error}")
             return {
@@ -88,7 +78,6 @@ def handle_api_error(func: Callable[..., Awaitable[Any]]):
                 'message': 'Ошибка подключения к API',
                 'result': None
             }
-            
         except ValueError as value_error:
             logger.error(f"Ошибка значения в API вызове функции {func.__name__}: {value_error}")
             return {
@@ -97,7 +86,6 @@ def handle_api_error(func: Callable[..., Awaitable[Any]]):
                 'message': 'Ошибка в данных API вызова',
                 'result': None
             }
-            
         except Exception as general_error:
             logger.error(f"Общая ошибка API вызова в функции {func.__name__}: {general_error}")
             return {
@@ -106,7 +94,6 @@ def handle_api_error(func: Callable[..., Awaitable[Any]]):
                 'message': 'Произошла ошибка при вызове API',
                 'result': None
             }
-    
     return wrapper
 
 class APIError(Exception):
@@ -148,11 +135,8 @@ async def safe_api_call(
     Returns:
         Any: Результат вызова API функции или None в случае ошибки.
     """
-    logger.info(f"Безопасный вызов API функции {api_func.__name__}")
-    
     try:
         result = await api_func(*args, **kwargs)
-        logger.info(f"API функция {api_func.__name__} выполнена успешно")
         return result
     except asyncio.TimeoutError as timeout_error:
         logger.error(f"Таймаут API вызова в функции {api_func.__name__}: {timeout_error}")
@@ -216,46 +200,31 @@ async def retry_api_call(
     for attempt in range(max_attempts):
         try:
             logger.info(f"Попытка {attempt + 1}/{max_attempts}")
-            # === ИСПОЛЬЗУЕМ safe_api_call ДЛЯ КАЖДОЙ ПОПЫТКИ ===
             result = await safe_api_call(api_func, *args, **kwargs)
-            
-            # Проверяем, является ли результат ошибкой от safe_api_call
-            # safe_api_call возвращает словарь с 'success': False в случае ошибки
             if isinstance(result, dict) and result.get('success') is False:
-                last_result = result # Сохраняем последний результат ошибки
+                last_result = result
                 logger.warning(f"Попытка {attempt + 1} завершилась ошибкой API: {result.get('error')} - {result.get('message')}")
-                
                 if attempt < max_attempts - 1:
                     logger.info(f"Ожидание {delay} секунд перед следующей попыткой...")
                     await asyncio.sleep(delay)
                 else:
                     logger.error(f"Все {max_attempts} попыток неудачны. Возвращается последняя ошибка.")
-                    # Возвращаем последнюю ошибку от safe_api_call
                     return last_result 
             else:
-                # Успешный результат (не словарь ошибки)
                 logger.info(f"API функция {api_func.__name__} выполнена успешно на попытке {attempt + 1}")
                 return result
-                
-        except Exception as e: # На случай непредвиденных ошибок вне safe_api_call
+        except Exception as e:
             last_result = e
             logger.warning(f"Попытка {attempt + 1} не удалась с неожиданной ошибкой: {e}")
-            
             if attempt < max_attempts - 1:
-                logger.info(f"Ожидание {delay} секунд перед следующей попыткой...")
                 await asyncio.sleep(delay)
             else:
                 logger.error(f"Все {max_attempts} попыток неудачны из-за неожиданных ошибок.")
-                # Перевыбрасываем последнее исключение
                 raise last_result
-            
-    # Этот return теоретически недостижим, но оставим для полноты
     if last_result:
         logger.error(f"Retry механизм исчерпан для API функции {api_func.__name__}")
         raise last_result if isinstance(last_result, Exception) else Exception(f"Retry failed, last result: {last_result}")
 
-
-# Удобные функции для использования
 def get_api_error_message(error_code: str, language: str = 'ru') -> str:
     """
     Получение сообщения об ошибке API по коду
@@ -267,8 +236,6 @@ def get_api_error_message(error_code: str, language: str = 'ru') -> str:
     Returns:
         str: Сообщение об ошибке
     """
-    logger.info(f"Получение сообщения об ошибке API: {error_code}")
-    
     error_messages_ru = {
         'timeout': 'Превышено время ожидания ответа от API',
         'connection_error': 'Ошибка подключения к API',
@@ -284,7 +251,6 @@ def get_api_error_message(error_code: str, language: str = 'ru') -> str:
         'server_error': 'Ошибка сервера API',
         'service_unavailable': 'Сервис API недоступен'
     }
-    
     error_messages_en = {
         'timeout': 'API response timeout exceeded',
         'connection_error': 'API connection error',
@@ -300,10 +266,8 @@ def get_api_error_message(error_code: str, language: str = 'ru') -> str:
         'server_error': 'API server error',
         'service_unavailable': 'API service unavailable'
     }
-    
     error_messages = error_messages_ru if language == 'ru' else error_messages_en
     error_message = error_messages.get(error_code, error_messages['unknown'])
-    
     logger.info(f"Сообщение об ошибке получено: {error_message}")
     return error_message
 
@@ -346,13 +310,12 @@ def format_api_error_for_analysis(
         if success:
             logger.warning("Функция format_api_error_for_analysis вызвана для успешного результата.")
             return (
-                "Анализ записан", # comment
-                "Продолжайте вести дневник", # recommendation
-                "Текст проанализирован.", # analysis_text
-                "Предупреждение: format_api_error_for_analysis вызван для успешного результата" # log_message
+                "Анализ записан",
+                "Продолжайте вести дневник",
+                "Текст проанализирован.",
+                "Предупреждение: format_api_error_for_analysis вызван для успешного результата"
             )
         error_type = analysis_result.get('error', 'unknown')
-        error_message = get_api_error_message(error_type, language) 
         error_messages_ru = {
             'timeout': 'Превышено время ожидания ответа от API',
             'connection_error': 'Ошибка подключения к API',

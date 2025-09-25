@@ -27,9 +27,6 @@ async def safe_answer_callback(
     Returns:
         bool: Успешность ответа.
     """
-    logger.info(f"Безопасный ответ на callback запрос от пользователя {callback.from_user.id}")
-    logger.debug(f"Текст ответа: {text[:50] if text else 'None'}...")
-    logger.debug(f"Show alert: {show_alert}, Cache time: {cache_time}")
     from bot.utils.message_utils import safe_telegram_call
     success, _, _ = await safe_telegram_call(
         callback.answer,
@@ -53,11 +50,7 @@ async def extract_callback_data_parts(
         
     Returns:
         list: Список частей callback_data
-    """
-    logger.info(f"Извлечение частей callback_data от пользователя {callback.from_user.id}")
-    logger.info(f"Callback data: {callback.data}")
-    logger.info(f"Разделитель: {separator}")
-    
+    """ 
     try:
         if callback.data:
             parts = callback.data.split(separator)
@@ -66,7 +59,6 @@ async def extract_callback_data_parts(
         else:
             logger.warning("Callback data отсутствует")
             return []
-            
     except Exception as e:
         logger.error(f"Ошибка при извлечении частей callback_data: {e}")
         return []
@@ -121,13 +113,9 @@ async def parse_callback_data_with_types(
     Returns:
         Dict[str, Any]: Словарь с преобразованными частями
     """
-    logger.info(f"Парсинг callback_data с преобразованием типов от пользователя {callback.from_user.id}")
-    logger.info(f"Карта типов: {types_map}")
-    
     try:
         parts = await extract_callback_data_parts(callback, separator)
         parsed_data = {}
-        
         for index, target_type in types_map.items():
             if 0 <= index < len(parts):
                 try:
@@ -136,7 +124,7 @@ async def parse_callback_data_with_types(
                     logger.info(f"Часть {index} преобразована в {target_type.__name__}: {value}")
                 except (ValueError, TypeError) as convert_error:
                     logger.error(f"Ошибка преобразования части {index} в {target_type.__name__}: {convert_error}")
-                    parsed_data[f'part_{index}'] = parts[index]  # Оставляем как строку
+                    parsed_data[f'part_{index}'] = parts[index]
             else:
                 logger.warning(f"Индекс {index} выходит за пределы callback_data")
                 parsed_data[f'part_{index}'] = None
@@ -165,16 +153,11 @@ def validate_callback_data_format(
         
     Returns:
         bool: Валидность формата
-    """
-    logger.info(f"Валидация формата callback_data длиной {len(callback_data)} символов")
-    logger.info(f"Ожидаемое количество частей: {expected_parts}")
-    
+    """  
     try:
         parts = callback_data.split(separator)
         is_valid = len(parts) == expected_parts
-        logger.info(f"Формат callback_data {'валиден' if is_valid else 'не валиден'}")
-        return is_valid
-        
+        return is_valid 
     except Exception as e:
         logger.error(f"Ошибка при валидации формата callback_data: {e}")
         return False
@@ -193,13 +176,9 @@ def sanitize_callback_data(
     Returns:
         str: Санитизированные данные callback
     """
-    logger.info(f"Санитизация callback_data длиной {len(callback_data)} символов")
-    logger.info(f"Максимальная длина: {max_length}")
-    
     try:
         if len(callback_data) > max_length:
             sanitized_data = callback_data[:max_length]
-            logger.info(f"Callback_data санитизированы до {len(sanitized_data)} символов")
             return sanitized_data
         else:
             logger.info("Callback_data не требуют санитизации")
@@ -221,6 +200,5 @@ def is_message_not_modified_error(exception: Exception) -> bool:
     """
     if isinstance(exception, TelegramBadRequest):
         error_message = str(exception).lower()
-        # Проверяем несколько возможных формулировок
         return "message is not modified" in error_message or "message was not modified" in error_message
     return False

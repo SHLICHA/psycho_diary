@@ -140,6 +140,7 @@ SETTINGS_MESSAGES_RU = {
         'current_hobbies': '''\n\n<i>Текущие увлечения:</i> <code>{current_hobbies}</code>''',
         'current_facts': '''\n\n<i>Текущие факты:</i> <code>{current_facts}</code>''',
         'delete_account_btn': '''УДАЛИТЬ МОЙ АККАУНТ''',
-        'invalid_confirmation_text': '''❌ Неверный текст подтверждения. Пожалуйста, введите точную фразу.'''
+        'invalid_confirmation_text': '''❌ Неверный текст подтверждения. Пожалуйста, введите точную фразу.''',
+        'btn_subscribe': '''💳 Подписаться'''
     }
 }

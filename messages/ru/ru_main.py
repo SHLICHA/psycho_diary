@@ -26,7 +26,7 @@ MAIN_MESSAGES_RU = {
         'btn_progress': '📊 Прогресс',
         'btn_settings': '⚙️ Настройки',
         'btn_help': '❓ Помощь',
-        'btn_back': '🔙 Назад',
+        'btn_back': '''🔙 В главное меню''',
         'btn_cancel': '❌ Отмена'
     }
 }

@@ -38,12 +38,8 @@ def get_weekly_analysis_keyboard(language: str, week_start_date: date) -> Inline
     """
     Создает клавиатуру для просмотра недельного анализа с кнопками навигации.
     """
-    # Вычисляем даты для кнопок "следующая" и "предыдущая" неделя
-    # Предыдущая неделя (раньше)
     prev_week_start = week_start_date - timedelta(weeks=1)
-    # Следующая неделя (позже)
     next_week_start = week_start_date + timedelta(weeks=1)
-    
     keyboard = [
         [
             InlineKeyboardButton(

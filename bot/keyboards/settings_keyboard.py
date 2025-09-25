@@ -109,7 +109,7 @@ def get_premium_keyboard(language: str) -> InlineKeyboardMarkup:
     buttons = [
         [
             InlineKeyboardButton(
-                text="💳 Подписаться",
+                text=get_button_text('btn_subscribe', language),
                 callback_data="premium_subscribe"
             )
         ],
@@ -133,7 +133,7 @@ def get_timezone_selection_method_keyboard(language: str, current_timezone: str)
         ],
         [
             InlineKeyboardButton(
-                text=get_message('btn_enter_city', language), # Используем get_message
+                text=get_message('btn_enter_city', language),
                 callback_data="timezone_enter_city"
             )
         ],
@@ -151,7 +151,7 @@ def get_city_timezone_confirmation_keyboard(language: str, timezone_data: dict) 
     buttons = [
         [
             InlineKeyboardButton(
-                text="✅ Подтвердить",
+                text=get_button_text('btn_confirm_changes', language),
                 callback_data=f"confirm_timezone:{timezone_data['timezone']}"
             )
         ],
@@ -193,12 +193,6 @@ def get_multiple_city_timezones_keyboard(language: str, options: list) -> Inline
 def get_common_timezones_keyboard(language: str, current_timezone: str) -> InlineKeyboardMarkup:
     """Клавиатура с популярными часовыми поясами"""
     timezone_buttons = [
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_timezone_utc', language),
-                callback_data="set_timezone:UTC"
-            )
-        ],
         [
             InlineKeyboardButton(
                 text=get_button_text('btn_timezone_moscow', language),
@@ -283,29 +277,22 @@ def get_common_timezones_keyboard(language: str, current_timezone: str) -> Inlin
 def get_analysis_time_selection_keyboard(language: str, current_time: str) -> InlineKeyboardMarkup:
     """Клавиатура выбора времени автоанализа (24 часа, 2 столбца)"""
     buttons = []
-    
-    # Создаем 24 кнопки времени (00:00 до 23:00)
     for hour in range(24):
         time_str = f"{hour:02d}:00"
         button = InlineKeyboardButton(
-            text=time_str, # Отображаем время напрямую
+            text=time_str,
             callback_data=f"set_analysis_time:{time_str}"
         )
-        
-        # Добавляем кнопку в последнюю строку или создаем новую строку
-        if not buttons or len(buttons[-1]) >= 2: # 2 кнопки в строке
+        if not buttons or len(buttons[-1]) >= 2:
             buttons.append([button])
         else:
             buttons[-1].append(button)
-    
-    # Добавляем кнопку "Назад" в отдельную строку
     buttons.append([
         InlineKeyboardButton(
             text=get_button_text('btn_back', language),
             callback_data="settings"
         )
     ])
-    
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_edit_profile_keyboard(language: str) -> InlineKeyboardMarkup:

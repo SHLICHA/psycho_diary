@@ -19,7 +19,6 @@ class StateManager:
             await context.set_state(state)
             if data:
                 await context.update_data(**data)
-            logger.info(f"State set to {state.state}")
         except Exception as e:
             logger.error(f"Error setting state {state.state}: {e}")
     
@@ -28,7 +27,6 @@ class StateManager:
         """Получение данных состояния"""
         try:
             data = await context.get_data()
-            logger.debug(f"Retrieved state data: {data}")
             return data
         except Exception as e:
             logger.error(f"Error getting state data: {e}")
@@ -39,7 +37,6 @@ class StateManager:
         """Обновление данных состояния"""
         try:
             await context.update_data(**data)
-            logger.debug(f"Updated state data with: {data}")
         except Exception as e:
             logger.error(f"Error updating state data: {e}")
     
@@ -48,7 +45,6 @@ class StateManager:
         """Очистка состояния"""
         try:
             await context.clear()
-            logger.info("State cleared")
         except Exception as e:
             logger.error(f"Error clearing state: {e}")
     
@@ -57,7 +53,6 @@ class StateManager:
         """Получение текущего состояния"""
         try:
             state = await context.get_state()
-            logger.debug(f"Current state: {state}")
             return state
         except Exception as e:
             logger.error(f"Error getting current state: {e}")

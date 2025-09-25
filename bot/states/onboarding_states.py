@@ -17,4 +17,3 @@ class OnboardingStates(StatesGroup):
     
     # Этап анкетирования
     collecting_profile_data = State()
-    # waiting_for_profile_field_X_input = State() # Для каждого поля анкеты

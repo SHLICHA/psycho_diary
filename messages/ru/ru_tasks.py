@@ -104,5 +104,30 @@ TASKS_MESSAGES_RU = {
 📊 <b>Оценка выполнения:</b> {score}/10 - {mood}
 💭 <b>Комментарий:</b> {comment}
 🎯 <b>Рекомендация:</b> {recommendation}''',
+
+        'task_history_detail': '''📝 <b>Задание: {title}</b>
+🕒 <b>Назначено:</b> {assigned_at}
+{completed_at}
+📊 <b>Статус:</b> {status}
+⭐ <b>Приоритет:</b> {priority}
+
+<b>Описание:</b>
+{description}
+
+<b>Выполнение:</b>
+{completion_text}
+
+<b>Ощущения:</b>
+{feelings_text}''',
+        
+        'completion_not_found': 'Выполнение не найдено',
+        'feelings_not_found': 'Ощущения не найдены',
+        'completion_text_missing': 'Текст выполнения отсутствует',
+        'feelings_text_missing': 'Описание ощущений отсутствует',
+        'completion_load_error': 'Ошибка при загрузке выполнения',
+        'feelings_load_error': 'Ошибка при загрузке ощущений',
+        'error_loading_task_details': 'Ошибка при загрузке деталей задания',
+        'task_completed_at': '''✅ <b>Завершено:</b> {completed_at}''',
+        'no_effect_description': '''Нет описания эффекта'''
     }
 }

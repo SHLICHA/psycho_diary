@@ -34,40 +34,29 @@ async def edit_or_send_message(
     Returns:
         Message: Отправленное или отредактированное сообщение
     """
-    logger.info(f"Редактирование или отправка сообщения в чат {chat_id}")
-    logger.info(f"Длина текста: {len(text)} символов")
-    
     try:
         if message_to_edit:
-            # Проверяем, отличается ли новый текст от текущего
             if message_to_edit.text != text:
-                logger.info("Текст отличается, редактируем сообщение")
                 edited_message = await message_to_edit.edit_text(
                     text=text,
                     reply_markup=reply_markup
                 )
-                logger.info(f"Сообщение отредактировано, message_id: {edited_message.message_id}")
                 return edited_message
             else:
-                logger.info("Текст не изменился, обновляем только клавиатуру")
                 try:
                     edited_message = await message_to_edit.edit_reply_markup(
                         reply_markup=reply_markup
                     )
-                    logger.info("Клавиатура обновлена")
                     return edited_message
                 except Exception as keyboard_error:
                     logger.warning(f"Не удалось обновить клавиатуру: {keyboard_error}")
-                    # Если не удалось обновить клавиатуру, отправляем новое сообщение
                     new_message = await bot.send_message(
                         chat_id=chat_id,
                         text=text,
                         reply_markup=reply_markup
                     )
-                    logger.info(f"Новое сообщение отправлено, message_id: {new_message.message_id}")
                     return new_message
         else:
-            logger.info("Нет сообщения для редактирования, отправляем новое")
             new_message = await bot.send_message(
                 chat_id=chat_id,
                 text=text,
@@ -75,17 +64,14 @@ async def edit_or_send_message(
             )
             logger.info(f"Новое сообщение отправлено, message_id: {new_message.message_id}")
             return new_message
-            
     except Exception as e:
         logger.error(f"Ошибка при редактировании/отправке сообщения: {e}")
-        # В случае ошибки отправляем новое сообщение
         try:
             new_message = await bot.send_message(
                 chat_id=chat_id,
                 text=text,
                 reply_markup=reply_markup
             )
-            logger.info(f"Резервное сообщение отправлено, message_id: {new_message.message_id}")
             return new_message
         except Exception as fallback_error:
             logger.error(f"Ошибка при резервной отправке сообщения: {fallback_error}")
@@ -108,7 +94,6 @@ async def safe_edit_message_text(
         bool: Успешность редактирования (True, даже если ничего не изменилось).
     """
     text_changed = (message.text != text)
-    
     if text_changed:
         success, _, _ = await safe_telegram_call(
             message.edit_text, 
@@ -137,7 +122,6 @@ async def safe_edit_message_text(
                  return success_full_edit
         except Exception as general_error:
             logger.error(f"Общая ошибка при попытке обновить клавиатуру: {general_error}")
-            # В случае любой ошибки при обновлении клавиатуры, редактируем всё сообщение
             success_fallback, _, _ = await safe_telegram_call(
                 message.edit_text,
                 text=text,
@@ -250,12 +234,9 @@ async def safe_telegram_call(
 
     except Exception as e:
         if is_message_not_modified_error(e):
-            logger.info(f"Операция '{operation_name}' не выполнена, так как сообщение не изменилось. Это не ошибка.")
-            # Возвращаем True, так как это не критическая ошибка
             return True, None, e 
         else:
             logger.error(f"Ошибка при выполнении операции '{operation_name}': {e}")
-            # Возвращаем False для критических ошибок
             return False, None, e
 
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
@@ -339,57 +320,36 @@ async def send_message_to_user(
         bool: True если сообщение отправлено успешно, False в противном случае
     """
     try:
-        # Проверяем, не заблокирован ли пользователь
         if user.is_blocked:
-            logger.info(f"Пользователь {user.telegram_id} заблокирован, сообщение не отправляется")
             return False
-            
-        # Отправляем сообщение
         await bot.send_message(
             chat_id=user.telegram_id,
             text=text,
             reply_markup=reply_markup,
             disable_notification=disable_notification
         )
-        
-        # Если пользователь был заблокирован, но сообщение отправилось,
-        # сбрасываем флаг блокировки
         if user.is_blocked:
             user.is_blocked = False
             await user.asave(update_fields=['is_blocked'])
             logger.info(f"Пользователь {user.telegram_id} разблокировал бота")
-            
-        logger.info(f"Сообщение успешно отправлено пользователю {user.telegram_id}")
-        return True
-        
+        return True  
     except TelegramBadRequest as e:
-        # Обрабатываем специфичные ошибки
         error_message = str(e).lower()
-        
-        # Пользователь заблокировал бота
         if "chat not found" in error_message or "bot was blocked" in error_message:
-            if not user.is_blocked: # Обновляем только если флаг не установлен
+            if not user.is_blocked:
                 user.is_blocked = True
                 await user.asave(update_fields=['is_blocked'])
                 logger.info(f"Пользователь {user.telegram_id} заблокировал бота")
             return False
-            
-        # Чат недоступен по другим причинам
         elif "chat unavailable" in error_message:
             logger.warning(f"Чат пользователя {user.telegram_id} недоступен: {e}")
             return False
-            
-        # Другие ошибки BadRequest
         else:
             logger.error(f"TelegramBadRequest при отправке сообщения пользователю {user.telegram_id}: {e}")
             return False
-            
     except TelegramAPIError as e:
-        # Другие ошибки Telegram API
         logger.error(f"TelegramAPIError при отправке сообщения пользователю {user.telegram_id}: {e}")
         return False
-        
     except Exception as e:
-        # Другие непредвиденные ошибки
         logger.error(f"Неизвестная ошибка при отправке сообщения пользователю {user.telegram_id}: {e}")
         return False

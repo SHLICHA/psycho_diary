@@ -1,26 +1,19 @@
-# /home/shlicha/psycho_diary/bot/middlewares/user_middleware.py
 """
 Middleware для регистрации пользователей и контроля доступа (онбординг)
 """
 import logging
 from typing import Any, Awaitable, Callable, Dict, Set
 from aiogram import BaseMiddleware
-from aiogram.fsm.context import FSMContext
 from aiogram.types import TelegramObject, Message, CallbackQuery
-from aiogram.enums import ContentType
-# Импортируем FSMContext для потенциального использования в будущем, если понадобится
-# from aiogram.fsm.context import FSMContext 
+
 
 from messages import get_message
 from bot.keyboards.onboarding_keyboards import get_start_onboarding_keyboard
+from bot.utils.callback_utils import safe_answer_callback
 from users.models import User
-# Импортируем состояния онбординга (создадим их позже)
-# from bot.states.onboarding_states import OnboardingStates
 
 logger = logging.getLogger(__name__)
 
-# Определим список команд и коллбэков, которые разрешены без согласия
-# Это позволит пользователю взаимодействовать с онбордингом
 ALLOWED_DURING_ONBOARDING_PREFIXES: Set[str] = {
     "start",
     "onboarding_",
@@ -42,19 +35,12 @@ class UserMiddleware(BaseMiddleware):
             user_obj = await self._get_or_create_user(event)
             if user_obj:
                 data['user'] = user_obj
-                
-                # --- НОВАЯ ЛОГИКА КОНТРОЛЯ ДОСТУПА ---
-                # Проверяем, дал ли пользователь согласие
                 if not getattr(user_obj, 'has_agreed_to_terms', False):
-                    # Если согласие не дано, проверяем, разрешено ли действие
                     is_allowed = await self._is_action_allowed_during_onboarding(event)
                     if not is_allowed:
-                        # Если действие не разрешено, перенаправляем на онбординг или показываем сообщение
                         logger.info(f"Пользователь {user_obj.telegram_id} еще не дал согласие. Действие заблокировано.")
                         await self._handle_blocked_action(event, data)
-                        return # Прерываем обработку
-                        
-                # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
+                        return
             else:
                 logger.warning("Пользователь не был создан/загружен")
                 
@@ -63,9 +49,6 @@ class UserMiddleware(BaseMiddleware):
         
     async def _get_or_create_user(self, event: TelegramObject) -> User:
         """Получение или создание пользователя (без изменений)"""
-        # ... (существующий код метода _get_or_create_user без изменений) ...
-        # Для краткости не повторяю, предполагается, что он остается как есть
-        # ВАЖНО: Убедиться, что поле has_agreed_to_terms корректно загружается
         try:
             if isinstance(event, Message):
                 telegram_id = event.from_user.id
@@ -84,9 +67,7 @@ class UserMiddleware(BaseMiddleware):
             else:
                 logger.warning("Неизвестный тип события для определения пользователя")
                 return None
-
             try:
-                # ВАЖНО: Убедиться, что поле has_agreed_to_terms загружается
                 user = await User.objects.aget(telegram_id=telegram_id)
                 updated_fields = []
                 if user.username != username:
@@ -115,7 +96,6 @@ class UserMiddleware(BaseMiddleware):
                     last_name=last_name,
                     language=language,
                     timezone=timezone_to_set,
-                    # has_agreed_to_terms по умолчанию False
                 )
                 logger.info(f"Новый пользователь создан: {user.username} ({user.telegram_id}) с языком {language} и часовым поясом {timezone_to_set} (по умолчанию)")
                 return user
@@ -125,7 +105,6 @@ class UserMiddleware(BaseMiddleware):
     
     def _detect_language(self, event: TelegramObject) -> str:
         """Определение языка пользователя (без изменений)"""
-        # ... (существующий код метода _detect_language без изменений) ...
         try:
             if isinstance(event, Message):
                 lang_code = event.from_user.language_code
@@ -139,27 +118,24 @@ class UserMiddleware(BaseMiddleware):
                 detected_lang = lang_code[:2]
                 return detected_lang
             else:
-                return 'ru'  # язык по умолчанию
+                return 'ru'
         except Exception as e:
             logger.error(f"Ошибка при определении языка: {e}")
             return 'ru'
 
     def _detect_timezone_from_user_data(self, user_data) -> str:
         """Попытка определения часового пояса пользователя из данных Telegram. (без изменений)"""
-        # ... (существующий код метода _detect_timezone_from_user_data без изменений) ...
         try:
             if hasattr(user_data, 'timezone') and user_data.timezone:
-                logger.debug(f"Часовой пояс (timezone) из Telegram: {user_data.timezone}")
                 import pytz
                 try:
-                    pytz.timezone(user_data.timezone) # Пробуем создать объект пояса для валидации
+                    pytz.timezone(user_data.timezone)
                     return user_data.timezone
                 except pytz.UnknownTimeZoneError:
                     logger.warning(f"Невалидный идентификатор часового пояса из Telegram: {user_data.timezone}. Используется UTC.")
                     return 'UTC'
             elif hasattr(user_data, 'utc_offset') and user_data.utc_offset is not None:
                 utc_offset = user_data.utc_offset
-                logger.debug(f"UTC offset из Telegram: {utc_offset} секунд")
                 total_hours = utc_offset // 3600
                 if total_hours == 0:
                     return 'UTC'
@@ -168,10 +144,8 @@ class UserMiddleware(BaseMiddleware):
                     return tz_name
                 else:
                     tz_name = f'UTC{total_hours}'
-                    logger.info(f"Автоматически определён часовой пояс: {tz_name}")
                     return tz_name
             else:
-                logger.debug("Информация о часовом поясе недоступна в данных пользователя Telegram.")
                 return 'UTC'
         except Exception as e:
             logger.error(f"Ошибка при попытке автоматического определения часового пояса: {e}")
@@ -181,28 +155,15 @@ class UserMiddleware(BaseMiddleware):
         """
         Проверяет, разрешено ли действие пользователю без согласия.
         """
-        # 1. Проверка команды /start
         if isinstance(event, Message) and event.text and event.text.startswith('/'):
-            command = event.text[1:].split()[0] # Получаем часть после '/'
-            # if command in ALLOWED_DURING_ONBOARDING: # Старый способ
-            if command == "start": # Разрешаем только /start
-                logger.debug(f"Команда '{command}' разрешена без согласия.")
+            command = event.text[1:].split()[0]
+            if command == "start":
                 return True
-                
-        # 2. Проверка callback_data (для кнопок)
         if isinstance(event, CallbackQuery):
             callback_data = event.data
             if callback_data:
-                # Проверим, начинается ли callback_data с префиксов, связанных с онбордингом
-                # if any(callback_data.startswith(prefix) for prefix in onboarding_prefixes): # Старый способ
                 if any(callback_data.startswith(prefix) for prefix in ALLOWED_DURING_ONBOARDING_PREFIXES):
-                    logger.debug(f"Callback '{callback_data}' разрешен без согласия.")
                     return True
-                # Также разрешим /start через callback (если кнопка "Начать" ведет на это)
-                # if callback_data == "start": # Уже покрыто префиксом
-                #     return True
-                    
-        # 3. Если ничего не подошло, действие запрещено
         logger.debug("Действие не разрешено без согласия.")
         return False
 
@@ -210,47 +171,29 @@ class UserMiddleware(BaseMiddleware):
         """
         Обрабатывает ситуацию, когда действие пользователя заблокировано из-за отсутствия согласия.
         """
-        from messages import get_message
-        from bot.keyboards.onboarding_keyboards import get_start_onboarding_keyboard # Убедимся, что импортирован
-        
-        # Получаем объект пользователя и язык из data
         user = data.get('user')
-        language = data.get('language', 'ru') # Предполагаем, что язык уже определен в data или получаем его из user
+        language = data.get('language', 'ru')
         if user and not language:
             language = user.language or 'ru'
-        
         if not user:
             logger.error("Невозможно обработать заблокированное действие: пользователь не найден в data.")
             return
-
-        blocked_message = get_message('onboarding_required', language) # Новое сообщение в messages.py
-        
+        blocked_message = get_message('onboarding_required', language)
         try:
             if isinstance(event, Message):
-                # Отправляем сообщение в чат
                 bot = data.get('bot') 
                 if bot:
-                    keyboard = get_start_onboarding_keyboard(language) # Создадим эту клавиатуру позже
+                    keyboard = get_start_onboarding_keyboard(language)
                     await bot.send_message(chat_id=event.chat.id, text=blocked_message, reply_markup=keyboard)
                 else:
                     logger.warning("Бот не найден в data для отправки сообщения о блокировке.")
-                    
             elif isinstance(event, CallbackQuery):
-                # Редактируем сообщение или отправляем новое
-                from bot.utils.callback_utils import safe_answer_callback
-                # from bot.utils.message_utils import safe_edit_message_text # Не всегда уместно редактировать
-                
-                # Сначала отвечаем на callback, чтобы он не "завис"
-                await safe_answer_callback(event, get_message('access_denied', language), show_alert=True) # Новое сообщение
-                
-                # Затем отправляем новое сообщение с предложением начать онбординг
+                await safe_answer_callback(event, get_message('access_denied', language), show_alert=True)
                 bot = data.get('bot')
                 if bot:
                     keyboard = get_start_onboarding_keyboard(language)
-                    # Отправляем в тот же чат, откуда пришел callback
                     await bot.send_message(chat_id=event.message.chat.id, text=blocked_message, reply_markup=keyboard)
                 else:
                     logger.warning("Бот не найден в data для отправки сообщения о блокировке через callback.")
-                    
         except Exception as e:
             logger.error(f"Ошибка при обработке заблокированного действия для пользователя {user.telegram_id}: {e}")

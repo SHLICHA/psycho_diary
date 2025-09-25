@@ -29,7 +29,6 @@ class SecurityValidator:
     @staticmethod
     def sanitize_sql(text: str) -> str:
         """Базовая защита от SQL injection"""
-        # Удаляем опасные символы, но лучше использовать параметризованные запросы
         return re.sub(r'[;\'"\\]', '', text)
     
     @staticmethod
@@ -82,9 +81,7 @@ def validate_and_sanitize_text(
         for pattern in forbidden_patterns:
             if re.search(pattern, sanitized, re.IGNORECASE):
                 return False, None, 'invalid_content'
-        
         return True, sanitized, None
-        
     except Exception as e:
         logger.error(f"Ошибка при валидации текста: {e}")
         return False, None, 'validation_error'

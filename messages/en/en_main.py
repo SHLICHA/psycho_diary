@@ -30,7 +30,7 @@ Choose an action:''',
         'btn_progress': '📊 Progress',
         'btn_settings': '⚙️ Settings',
         'btn_help': '❓ Help',
-        'btn_back': '🔙 Back',
+        'btn_back': '''🔙 To Main Menu''',
         'btn_cancel': '❌ Cancel',
     }
 }

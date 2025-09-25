@@ -539,68 +539,12 @@ class WeeklyAnalysis(models.Model):
     Используется для отображения прогресса и как контекст для следующего анализа.
     """
     user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name=_("Пользователь"), related_name='weekly_analyses')
-    week_start_date = models.DateField(verbose_name=_("Дата начала недели (Понедельник)")) # Календарная неделя
-
-    # --- Основной анализ от ИИ ---
+    week_start_date = models.DateField(verbose_name=_("Дата начала недели (Понедельник)"))
     summary_text = models.TextField(verbose_name=_("Краткое резюме недели от ИИ"))
-    
-    # --- Структурированные данные от ИИ ---
     progress_insights = models.JSONField(default=dict, blank=True, verbose_name=_("Ключевые инсайты и выводы по прогрессу"))
-    # Пример содержимого progress_insights:
-    # {
-    #   "mood_trend": "improving", // или "declining", "stable", "volatile"
-    #   "key_insights": [
-    #     {"text": "Стало больше упоминаний позитивных событий", "significance": 0.8},
-    #     {"text": "Уменьшилась частота упоминаний тревоги", "significance": 0.7}
-    #   ],
-    #   "notable_patterns": [
-    #     {"pattern": "лучшее настроение после занятий спортом", "frequency": 3}
-    #   ],
-    #   "progress_notes": "Пользователь демонстрирует рост осознанности и улучшение настроения."
-    # }
-
     consolidated_user_profile = models.JSONField(default=dict, blank=True, verbose_name=_("Обновленный/обобщенный психологический профиль"))
-    # Это копия (или результат агрегации) полей User после недельного анализа.
-    # Может быть полезна для сравнения с предыдущими неделями или для "восстановления" профиля.
-    # {
-    #   "personality_traits": {...},
-    #   "life_facts": [...],
-    #   "hobbies": [...],
-    #   "core_values": [...],
-    #   "triggers": [...],
-    #   "strengths": [...],
-    #   "areas_for_growth": [...],
-    #   "awareness_level": 7
-    # }
-
     statistics = models.JSONField(default=dict, blank=True, verbose_name=_("Агрегированная статистика недели"))
-    # Числовые и количественные данные недели
-    # {
-    #   "total_entries": 7,
-    #   "streak_days_current": 7, // Дней подряд в эту неделю
-    #   "streak_days_total": 25,  // Общий счетчик
-    #   "avg_mood_score": 7.2,
-    #   "tasks_assigned": 2,
-    #   "tasks_completed": 1,
-    #   "unique_themes_count": 5,
-    #   "unique_emotions_count": 8,
-    #   "word_count_total": 1500
-    # }
-
     comparison_with_previous = models.JSONField(default=dict, blank=True, verbose_name=_("Сравнение с предыдущей неделей"))
-    # Выводы ИИ о сравнении с предыдущей неделей (если она была)
-    # {
-    #   "previous_week_start": "2023-10-23",
-    #   "mood_comparison": "Настроение в среднем улучшилось на 0.5 балла",
-    #   "consistency_comparison": "Регулярность записей повысилась",
-    #   "profile_changes": [
-    #     "Добавлена новая ценность: 'здоровье'",
-    #     "Черта 'рефлексивность' стала более выраженной"
-    #   ],
-    #   "progress_comment": "Наблюдается положительная динамика."
-    # }
-
-    # --- Технические поля ---
     api_response = models.JSONField(default=dict, blank=True, verbose_name=_("Полный ответ API DeepSeek"))
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата создания"))
 
@@ -608,8 +552,8 @@ class WeeklyAnalysis(models.Model):
         verbose_name = _("Еженедельный анализ")
         verbose_name_plural = _("Еженедельные анализы")
         db_table = "diary_weekly_analysis"
-        unique_together = ['user', 'week_start_date'] # У пользователя одна аналитика на неделю
-        ordering = ['-week_start_date'] # Новейшие первыми
+        unique_together = ['user', 'week_start_date']
+        ordering = ['-week_start_date']
 
     def __str__(self):
         return f"Анализ недели {self.week_start_date} для {self.user.username}"
@@ -622,7 +566,6 @@ class NextEntryPrompt(models.Model):
     target_date = models.DateField(verbose_name="Дата, для которой предназначена подсказка")
     prompt_text = models.TextField(verbose_name="Текст подсказки")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
-    # Поле для отслеживания использования
     is_used = models.BooleanField(default=False, verbose_name="Использовано")
     used_at = models.DateTimeField(null=True, blank=True, verbose_name="Дата использования")
 
@@ -630,14 +573,12 @@ class NextEntryPrompt(models.Model):
         verbose_name = "Подсказка для следующей записи"
         verbose_name_plural = "Подсказки для следующих записей"
         db_table = "diary_next_entry_prompt"
-        # Уникальность: одна подсказка на пользователя на дату
         unique_together = ['user', 'target_date']
-        # Индекс для быстрого поиска последней непросмотренной подсказки
         indexes = [
             models.Index(fields=['user', 'is_used', '-created_at']),
             models.Index(fields=['user', 'target_date']),
         ]
-        ordering = ['-created_at'] # Новейшие первыми
+        ordering = ['-created_at']
 
     def __str__(self):
         return f"Подсказка для {self.user.username} на {self.target_date} (Использована: {self.is_used})"
@@ -648,7 +589,6 @@ class NextEntryPrompt(models.Model):
         if not self.is_used:
             self.is_used = True
             self.used_at = timezone.now()
-            # Сохраняем только измененные поля
             self.save(update_fields=['is_used', 'used_at'])
             logger.debug(f"Подсказка ID {self.id} для пользователя {self.user.telegram_id} помечена как использованная.")
 
@@ -659,11 +599,9 @@ class NextEntryPrompt(models.Model):
         """
         from asgiref.sync import sync_to_async
         try:
-            # Используем sync_to_async для вызова ORM
             @sync_to_async
             def _get_prompt_sync():
                 return cls.objects.filter(user=user, is_used=False).order_by('-created_at').first()
-            
             prompt = await _get_prompt_sync()
             if prompt:
                 logger.debug(f"Найдена непросмотренная подсказка ID {prompt.id} для пользователя {user.telegram_id}")

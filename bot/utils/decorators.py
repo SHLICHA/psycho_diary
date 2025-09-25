@@ -21,11 +21,8 @@ def async_error_handler(logger_name: str = None):
         @wraps(func)
         async def wrapper(*args, **kwargs) -> Any:
             func_logger = logging.getLogger(logger_name) if logger_name else logger
-            
             try:
-                func_logger.debug(f"Выполнение функции: {func.__name__}")
                 result = await func(*args, **kwargs)
-                func_logger.debug(f"Функция {func.__name__} выполнена успешно")
                 return result
                 
             except asyncio.TimeoutError as e:
@@ -35,7 +32,6 @@ def async_error_handler(logger_name: str = None):
                     'error': 'timeout',
                     'message': 'Превышено время ожидания'
                 }
-                
             except Exception as e:
                 func_logger.error(
                     f"Ошибка в функции {func.__name__}: {e}", 
@@ -58,7 +54,6 @@ def database_retry(max_retries: int = 3, delay: float = 0.1):
         @wraps(func)
         async def wrapper(*args, **kwargs) -> Any:
             last_exception = None
-            
             for attempt in range(max_retries):
                 try:
                     return await func(*args, **kwargs)
@@ -68,7 +63,6 @@ def database_retry(max_retries: int = 3, delay: float = 0.1):
                         f"Попытка {attempt + 1}/{max_retries} не удалась "
                         f"в функции {func.__name__}: {e}"
                     )
-                    
                     if attempt < max_retries - 1:
                         await asyncio.sleep(delay * (attempt + 1))
                     else:
@@ -77,8 +71,6 @@ def database_retry(max_retries: int = 3, delay: float = 0.1):
                             f"в функции {func.__name__}"
                         )
                         raise last_exception
-            
-            raise last_exception  # Для полноты
-            
+            raise last_exception 
         return wrapper
     return decorator

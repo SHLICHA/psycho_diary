@@ -1,6 +1,7 @@
 ARCHIVE_MESSAGES_EN = {
     'en': {
         'archive_empty': '📭 You don\'t have any diary entries yet.',
+        'select_year': '''📅 Select year: {year}''',
         'archive_select_year': '📅 Select year:',
         'archive_select_month': '📅 Select month {year}:',
         'archive_select_day': '📅 Select day {month}.{year}:',
@@ -13,5 +14,7 @@ ARCHIVE_MESSAGES_EN = {
 
 📊 <b>Score:</b> {score}/10 - {mood}
 💭 <b>Analysis:</b> {analysis}''',
+'entries_archive': '''📅 Entries Archive''',
+'btn_day_analysis': '''🔬 Day Analysis'''
         }
 }

@@ -105,5 +105,30 @@ Tell me what you felt while completing:
 - What emotions did you experience?
 - What did you enjoy?
 - What was difficult?''',
+
+        'task_history_detail': '''📝 <b>Task: {title}</b>
+🕒 <b>Assigned:</b> {assigned_at}
+{completed_at}
+📊 <b>Status:</b> {status}
+⭐ <b>Priority:</b> {priority}
+
+<b>Description:</b>
+{description}
+
+<b>Completion:</b>
+{completion_text}
+
+<b>Feelings:</b>
+{feelings_text}''',
+        
+        'completion_not_found': 'Completion not found',
+        'feelings_not_found': 'Feelings not found',
+        'completion_text_missing': 'Completion text missing',
+        'feelings_text_missing': 'Feelings description missing',
+        'completion_load_error': 'Error loading completion',
+        'feelings_load_error': 'Error loading feelings',
+        'error_loading_task_details': 'Error loading task details',
+        'task_completed_at': '''✅ <b>Completed:</b> {completed_at}''',
+        'no_effect_description': '''No effect description'''
     }
 }

@@ -25,8 +25,8 @@ MESSAGES = {
         'edit_entries_header': '📝 Редактирование записей за {date}',
         'ask_entry_edit_with_text': '📝 <b>Отредактируйте свою запись:</b>\n\n<i>Текущий текст:</i>\n<code>{old_text}</code>\n\n<i>Отправьте новый текст записи:</i>',
         'entry_updated_success': '✅ <b>Запись обновлена!</b>\n\nДля получения нового анализа нажмите "Подтвердить" в меню редактирования дня.',
-        'confirm_delete_entry_yes': 'Да, удалить',
-        'confirm_delete_entry_no': 'Нет, отмена',
+        'confirm_delete_entry_yes': '✅ Да, удалить',
+        'confirm_delete_entry_no': '❌ Нет, отмена',
         'entry_deleted_success': '🗑 Запись удалена.',
         'day_analysis_confirmed': '🔄 Анализ запущен. Результат будет доступен в архиве.',
         'back_without_analysis_warning': 'Новый анализ дня произведен не будет. Вы всегда можете вернуться и подтвердить изменения.',
@@ -60,7 +60,9 @@ MESSAGES = {
 
 💳 Подписка стоит 299₽/месяц''',
 
-'data_not_found': '''❌ Данные не найдены'''
+'data_not_found': '''❌ Данные не найдены''',
+'no_comment': '''Нет комментария''',
+'no_recommendation': '''Нет рекомендации'''
     },
     'en': {
         # === Mood scores ===
@@ -118,7 +120,9 @@ MESSAGES = {
 
 💳 Subscription costs $4.99/month''',
 
-'data_not_found': '''❌ Data not found'''
+'data_not_found': '''❌ Data not found''',
+'no_comment': '''No comment''',
+'no_recommendation': '''No recommendation'''
     }
 }
 

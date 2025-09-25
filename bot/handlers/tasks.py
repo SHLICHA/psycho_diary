@@ -556,35 +556,40 @@ async def view_detailed_task_analysis(callback: CallbackQuery, user, language: s
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
 #=========================ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ=====================================
-# TODO
 async def _format_task_history_detail(task: TherapyTask, language: str, state: FSMContext) -> str: 
     """
     Форматирует текстовое сообщение с деталями задания из истории.
     """
     try:
-        detail_msg = f"📝 <b>Задание: {task.title}</b>\n"
-        detail_msg += f"🕒 <b>Назначено:</b> {task.assigned_at.strftime('%d.%m.%Y %H:%M')}\n"
+        assigned_at = task.assigned_at.strftime('%d.%m.%Y %H:%M')
+        status = task.get_status_display()
+        priority = task.priority
+        completed_at = ""
         if task.completed_at:
-             detail_msg += f"✅ <b>Завершено:</b> {task.completed_at.strftime('%d.%m.%Y %H:%M')}\n"
-        detail_msg += f"📊 <b>Статус:</b> {task.get_status_display()}\n"
-        detail_msg += f"⭐ <b>Приоритет:</b> {task.priority}\n\n"      
-        detail_msg += f"<b>Описание:</b>\n{task.description}\n\n"
-        completion_text = "Выполнение не найдено"
-        feelings_text = "Ощущения не найдены"
+            completed_at = get_message('task_completed_at', language, 
+                                     completed_at=task.completed_at.strftime('%d.%m.%Y %H:%M'))
+        completion_text = get_message('completion_not_found', language)
+        feelings_text = get_message('feelings_not_found', language)
         try:
             completion = await TaskCompletion.objects.aget(task=task)
             if completion:
-                completion_text = completion.completion_text or "Текст выполнения отсутствует"
-                feelings_text = completion.feelings_text or "Описание ощущений отсутствует"
+                completion_text = completion.completion_text or get_message('completion_text_missing', language)
+                feelings_text = completion.feelings_text or get_message('feelings_text_missing', language)
         except TaskCompletion.DoesNotExist:
             logger.debug(f"Выполнение для задания {task.id} не найдено.")
         except Exception as completion_access_error:
             logger.error(f"Ошибка при доступе к выполнению задания {task.id}: {completion_access_error}")
-            completion_text = "Ошибка при загрузке выполнения"
-            feelings_text = "Ошибка при загрузке ощущений" 
-        detail_msg += f"<b>Выполнение:</b>\n{completion_text}\n\n"
-        detail_msg += f"<b>Ощущения:</b>\n{feelings_text}\n"
-        return detail_msg
+            completion_text = get_message('completion_load_error', language)
+            feelings_text = get_message('feelings_load_error', language)
+        return get_message('task_history_detail', language,
+                         title=task.title,
+                         assigned_at=assigned_at,
+                         completed_at=completed_at,
+                         status=status,
+                         priority=priority,
+                         description=task.description,
+                         completion_text=completion_text,
+                         feelings_text=feelings_text)       
     except Exception as e:
         logger.error(f"Ошибка при форматировании деталей задания {task.id}: {e}")
         return get_message('error_loading_task_details', language)

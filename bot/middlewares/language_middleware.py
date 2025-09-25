@@ -50,7 +50,7 @@ class LanguageMiddleware(BaseMiddleware):
                 detected_lang = lang_code[:2]
                 return detected_lang
             else:
-                return 'ru'  # язык по умолчанию
+                return 'ru'
         except Exception as e:
             logger.error(f"Ошибка при определении языка из Telegram: {e}")
             return 'ru'

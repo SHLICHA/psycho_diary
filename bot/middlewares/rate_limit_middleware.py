@@ -22,9 +22,7 @@ class RateLimitMiddleware(BaseMiddleware):
         handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
         event: TelegramObject,
         data: Dict[str, Any]
-    ) -> Any:
-        logger.info("Вызов RateLimitMiddleware")
-        
+    ) -> Any:  
         if isinstance(event, Message):
             user = data.get('user')
             language = data.get('language', 'ru')
@@ -53,8 +51,8 @@ class RateLimitMiddleware(BaseMiddleware):
             return is_limited
         except Exception as e:
             logger.error(f"Ошибка при проверке лимита запросов: {e}")
-            return False  # В случае ошибки не блокируем пользователя
-    
+            return False
+        
     async def _record_request(self, telegram_id: int):
         """
         Запись запроса в историю

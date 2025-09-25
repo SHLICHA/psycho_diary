@@ -138,6 +138,7 @@ Thank you for using our service.''',
         'current_hobbies': '''\n\n<i>Current hobbies:</i> <code>{current_hobbies}</code>''',
         'current_facts': '''\n\n<i>Current facts:</i> <code>{current_facts}</code>''',
         'delete_account_btn': '''DELETE MY ACCOUNT''',
-        'invalid_confirmation_text': '''❌ Invalid confirmation text. Please enter the exact phrase.'''
+        'invalid_confirmation_text': '''❌ Invalid confirmation text. Please enter the exact phrase.''',
+        'btn_subscribe': '''💳 Subscribe'''
     }
 }

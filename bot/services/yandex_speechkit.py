@@ -11,7 +11,6 @@ logger = logging.getLogger(__name__)
 class YandexSpeechKitService:
     """Сервис для работы с Yandex SpeechKit"""
 
-    # Порог длительности в секундах для выбора метода
     DURATION_THRESHOLD_SECONDS = 25
 
     def __init__(self):
@@ -24,7 +23,7 @@ class YandexSpeechKitService:
     async def recognize_voice_auto(
         self,
         voice_data: bytes,
-        duration: int, # или Union[int, str] если хотим принимать и строки
+        duration: int,
         language: str = 'ru-RU',
         audio_format: str = 'oggopus'
     ) -> Dict[str, Any]:
@@ -40,7 +39,6 @@ class YandexSpeechKitService:
         Returns:
             Dict[str, Any]: Результат распознавания
         """
-        # Явное приведение duration к int для избежания TypeError
         try:
             duration_int = int(duration)
         except (ValueError, TypeError) as e:
@@ -49,14 +47,6 @@ class YandexSpeechKitService:
             
         if duration_int > self.DURATION_THRESHOLD_SECONDS:
             logger.info(f"Используется Long Running Recognition для аудио длительностью {duration_int} секунд")
-            # Для Long Running Recognition используем параметры по умолчанию
-            # Сначала нужно загрузить файл в Object Storage
-            # Это будет сделано в вызывающем коде, передав URI
-            # Здесь мы просто вызываем recognize_long_voice напрямую
-            # Но для этого нужно сначала загрузить файл и получить URI
-            # Поэтому логика будет в process_any_entry
-            # Пока что используем стандартный метод с увеличенными таймаутами
-            # TODO: Реализовать логику с Object Storage
             return await self.recognize_voice(voice_data, language, audio_format)
         else:
             logger.info(f"Используется стандартное распознавание для аудио длительностью {duration_int} секунд")
@@ -80,7 +70,6 @@ class YandexSpeechKitService:
         Returns:
             Dict[str, Any]: Результат распознавания
         """
-        # --- Валидация входных данных ---
         if not voice_data or len(voice_data) < 1024:
             logger.error("Голосовые данные слишком маленькие или пустые")
             return {
@@ -89,8 +78,6 @@ class YandexSpeechKitService:
                 'message': 'Голосовые данные слишком маленькие или пустые',
                 'result': ''
             }
-        # Увеличиваем лимит для потенциально более длинных сообщений
-        # Ориентировочно 10 МБ
         if len(voice_data) > 10 * 1024 * 1024: 
             logger.error("Голосовые данные слишком большие")
             return {
@@ -107,39 +94,27 @@ class YandexSpeechKitService:
                 'message': 'API ключ Yandex SpeechKit не настроен',
                 'result': ''
             }
-
-        # --- Подготовка параметров запроса ---
         params = {
             'lang': language,
             'format': audio_format,
         }
-        # Для oggopus стандартная частота 48000 Гц
         if audio_format == 'oggopus':
             params['sampleRateHertz'] = 48000
-            
-        # URL стандартного метода распознавания
         url = "https://stt.api.cloud.yandex.net/speech/v1/stt:recognize"
-
         try:
             async with aiohttp.ClientSession() as session:
-                # --- Выполнение запроса ---
-                # Увеличиваем таймаут для потенциально более длинных аудио
                 async with session.post(
                     url,
                     headers={
                         "Authorization": f"Api-Key {YANDEX_SPEECHKIT_API_KEY}",
-                        # Для oggopus Content-Type должен быть 'audio/ogg'
                         "Content-Type": "audio/ogg" if audio_format == 'oggopus' else "audio/mpeg" if audio_format == 'mp3' else "application/octet-stream"
                     },
                     params=params,
                     data=voice_data,
-                    # Увеличиваем таймаут до 60 секунд
                     timeout=aiohttp.ClientTimeout(total=60) 
                 ) as response:
                     raw_response_text = await response.text()
-                    
                     if response.status == 200:
-                        # --- Обработка успешного ответа ---
                         result = await response.json()
                         recognized_text = result.get("result", "")
                         return {
@@ -153,16 +128,14 @@ class YandexSpeechKitService:
                             'raw_response': raw_response_text
                         }
                     else:
-                        # --- Обработка ошибки от API ---
                         logger.error(f"SpeechKit error: {response.status} - {raw_response_text}")
                         return {
                             'success': False,
                             'error': f'speechkit_error_{response.status}',
-                            'message': f'Ошибка Yandex SpeechKit: {response.status} - {raw_response_text[:200]}', # Ограничиваем длину сообщения об ошибке
+                            'message': f'Ошибка Yandex SpeechKit: {response.status} - {raw_response_text[:200]}',
                             'result': '',
                             'raw_response': raw_response_text
                         }
-        # --- Обработка сетевых и других исключений ---
         except asyncio.TimeoutError:
             logger.warning("SpeechKit timeout")
             return {
@@ -184,7 +157,7 @@ class YandexSpeechKitService:
 
     async def recognize_long_voice(
         self,
-        audio_uri: str, # URI файла в Object Storage
+        audio_uri: str,
         language: str = 'ru-RU',
         audio_format: str = 'oggopus',
         model: str = 'general',
@@ -212,7 +185,6 @@ class YandexSpeechKitService:
                 'message': 'URI аудиофайла не предоставлен',
                 'result': ''
             }
-        
         if not YANDEX_SPEECHKIT_API_KEY:
             logger.error("SpeechKit API key not configured")
             return {
@@ -221,14 +193,11 @@ class YandexSpeechKitService:
                 'message': 'API ключ Yandex SpeechKit не настроен',
                 'result': ''
             }
-        
-        # Определяем формат аудио для API
         audio_encoding_map = {
             'oggopus': 'OGG_OPUS',
             'mp3': 'MP3',
             'linear16': 'LINEAR16_PCM'
         }
-        
         if audio_format not in audio_encoding_map:
             logger.error(f"Неподдерживаемый формат аудио: {audio_format}")
             return {
@@ -237,8 +206,6 @@ class YandexSpeechKitService:
                 'message': f'Неподдерживаемый формат аудио: {audio_format}',
                 'result': ''
             }
-        
-        # Подготавливаем конфигурацию для запроса
         config = {
             "specification": {
                 "languageCode": language,
@@ -247,16 +214,11 @@ class YandexSpeechKitService:
                 "sampleRateHertz": sample_rate
             }
         }
-        
-        # Для LINEAR16_PCM нужно указать количество каналов
         if audio_format == 'linear16':
             config["specification"]["audioChannelCount"] = 1
-        
         url = "https://transcribe.api.cloud.yandex.net/speech/stt/v2/longRunningRecognize"
-        
         try:
             async with aiohttp.ClientSession() as session:
-                # Сначала отправляем запрос на распознавание
                 async with session.post(
                     url,
                     headers={
@@ -266,7 +228,7 @@ class YandexSpeechKitService:
                     json={
                         "config": config,
                         "audio": {
-                            "uri": audio_uri # Передаем URI файла
+                            "uri": audio_uri
                         }
                     },
                     timeout=aiohttp.ClientTimeout(total=30)
@@ -281,10 +243,8 @@ class YandexSpeechKitService:
                             'result': '',
                             'raw_response': raw_response_text
                         }
-                    
                     operation_result = await response.json()
                     operation_id = operation_result.get("id")
-                    
                     if not operation_id:
                         logger.error("Не удалось получить ID операции распознавания")
                         return {
@@ -294,17 +254,13 @@ class YandexSpeechKitService:
                             'result': '',
                             'raw_response': json.dumps(operation_result)
                         }
-                    
-                    logger.info(f"Long recognition operation started with ID: {operation_id}")
-                    # Возвращаем operation_id для дальнейшего опроса
                     return {
                         'success': True,
                         'operation_id': operation_id,
                         'message': 'Операция распознавания начата',
                         'result': '',
                         'raw_response': json.dumps(operation_result)
-                    }
-                    
+                    }    
         except asyncio.TimeoutError:
             logger.warning("SpeechKit long recognition init timeout")
             return {
@@ -343,9 +299,7 @@ class YandexSpeechKitService:
                 'message': 'Не предоставлен ID операции для опроса',
                 'result': ''
             }
-
         url = f"https://operation.api.cloud.yandex.net/operations/{operation_id}"
-        
         for attempt in range(max_attempts):
             try:
                 async with aiohttp.ClientSession() as session:
@@ -359,56 +313,40 @@ class YandexSpeechKitService:
                         if response.status != 200:
                             raw_response_text = await response.text()
                             logger.error(f"SpeechKit operation status error (attempt {attempt+1}): {response.status} - {raw_response_text}")
-                            # Не прекращаем опрос при ошибке статуса, продолжаем ждать
                             await asyncio.sleep(5)
                             continue
-                        
                         operation_data = await response.json()
-                        
-                        # Проверяем, завершена ли операция
                         if operation_data.get("done", False):
-                            # Операция завершена, проверяем результат
                             if "response" in operation_data:
-                                # Успешное завершение
                                 response_data = operation_data["response"]
                                 chunks = response_data.get("chunks", [])
-                                
-                                # Собираем текст из всех чанков
                                 full_text = ""
                                 total_confidence = 0.0
                                 word_count = 0
-                                
                                 for chunk in chunks:
                                     alternatives = chunk.get("alternatives", [])
                                     if alternatives:
-                                        # Берем первый альтернативный вариант (самый вероятный)
                                         best_alternative = alternatives[0]
                                         chunk_text = best_alternative.get("text", "").strip()
                                         chunk_confidence = best_alternative.get("confidence", 0.0)
-                                        
                                         if full_text and chunk_text:
                                             full_text += " "
                                         full_text += chunk_text
-                                        
                                         total_confidence += chunk_confidence
-                                        # Подсчитываем слова в чанке
                                         word_count += len(chunk_text.split()) if chunk_text else 0
-                                
                                 avg_confidence = total_confidence / len(chunks) if chunks else 0.0
-                                
                                 logger.info(f"Long recognition completed successfully. Operation ID: {operation_id}")
                                 return {
                                     'success': True,
                                     'error': None,
                                     'message': 'Голос успешно распознан',
                                     'result': full_text,
-                                    'processing_time': None,  # Время обработки не возвращается в этом API
+                                    'processing_time': None,
                                     'word_count': word_count,
                                     'confidence': avg_confidence,
                                     'raw_response': json.dumps(operation_data)
                                 }
                             elif "error" in operation_data:
-                                # Ошибка в процессе выполнения
                                 error_data = operation_data["error"]
                                 error_message = error_data.get("message", "Неизвестная ошибка")
                                 error_code = error_data.get("code", "UNKNOWN")
@@ -429,17 +367,10 @@ class YandexSpeechKitService:
                                     'result': '',
                                     'raw_response': json.dumps(operation_data)
                                 }
-                        
-                        # Операция еще не завершена, ждем
-                        logger.debug(f"Operation {operation_id} is still running (attempt {attempt+1}/{max_attempts})")
-                        await asyncio.sleep(5)  # Ждем 5 секунд перед следующим опросом
-                        
+                        await asyncio.sleep(5)            
             except Exception as e:
                 logger.error(f"Ошибка при опросе статуса операции {operation_id} (attempt {attempt+1}): {e}", exc_info=True)
-                # Не прекращаем опрос при сетевой ошибке, продолжаем ждать
                 await asyncio.sleep(5)
-        
-        # Превышено максимальное количество попыток
         logger.warning(f"Превышено максимальное количество попыток ожидания результата операции {operation_id}")
         return {
             'success': False,
@@ -448,14 +379,12 @@ class YandexSpeechKitService:
             'result': '',
             'raw_response': '{"error": "max_attempts_exceeded"}'
         }
-
-# Глобальный экземпляр сервиса
+    
 yandex_speechkit_service = YandexSpeechKitService()
 
-# Удобные функции для использования
 async def recognize_voice_auto(
     voice_data: bytes,
-    duration: int, # или Union[int, str]
+    duration: int,
     language: str = 'ru-RU',
     audio_format: str = 'oggopus'
 ) -> Dict[str, Any]:
@@ -464,11 +393,7 @@ async def recognize_voice_auto(
     """
     return await yandex_speechkit_service.recognize_voice_auto(voice_data, duration, language, audio_format)
 
-async def recognize_voice(
-    voice_data: bytes, 
-    language: str = 'ru-RU',
-    audio_format: str = 'oggopus'
-) -> Dict[str, Any]:
+async def recognize_voice(voice_data: bytes, language: str = 'ru-RU', audio_format: str = 'oggopus') -> Dict[str, Any]:
     """
     Удобная функция для распознавания голоса (короткие аудио).
     """

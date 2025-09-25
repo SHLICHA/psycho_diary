@@ -12,7 +12,7 @@ from django.db.models import F
 from django.core.cache import cache
 
 from bot.utils.decorators import async_error_handler, database_retry 
-from diary.models import DiaryEntry, PsychoAnalysis, CombinedDiaryEntry, TaskCompletion, TherapyTask
+from diary.models import DiaryEntry, PsychoAnalysis, CombinedDiaryEntry, TherapyTask
 from diary.services.daily_state_service import (
     get_daily_state,
     get_or_create_daily_state,
@@ -41,7 +41,6 @@ class DiaryService:
         Асинхронное создание текстовой записи - ОПТИМИЗИРОВАНО
         """
         try:
-            # Используем один атомарный запрос вместо нескольких
             @sync_to_async
             def _create_entry():
                 with transaction.atomic():
@@ -53,78 +52,16 @@ class DiaryService:
                         is_processed=False,
                         created_at=entry_datetime or datetime.now()
                     )
-            
             diary_entry = await _create_entry()
             logger.info(f"Текстовая запись создана: Entry ID {diary_entry.id}")
-            
-            # Инвалидируем кэш для этого пользователя и даты
             entry_date = await diary_entry.aentry_date()
             cache.delete_many([
                 f'user_{user.id}_entries_{entry_date}',
                 f'user_{user.id}_calendar_{entry_date.year}_{entry_date.month}'
             ])
-            
             return diary_entry
-            
         except Exception as e:
             logger.error(f"Ошибка при создании текстовой записи: {e}")
-            raise
-
-    async def create_voice_entry(
-        self, 
-        user: User, 
-        voice_file_id: str, 
-        duration: int, 
-        recognized_text: str,
-        language: str = 'ru',
-        entry_datetime: datetime = None,
-        speechkit_api_response: Optional[Dict[str, Any]] = None,
-        deepseek_api_response: Optional[Dict[str, Any]] = None
-    ) -> DiaryEntry:
-        """
-        Асинхронное создание голосовой записи.
-
-        Args:
-            user: Пользователь
-            voice_file_id: ID голосового файла в Telegram
-            duration: Длительность голосового сообщения (сек)
-            recognized_text: Распознанный текст
-            language: Язык записи
-            entry_datetime: Дата и время создания записи
-            speechkit_api_response: Ответ API Yandex SpeechKit (для сохранения)
-            deepseek_api_response: Результат обработки DeepSeek (для сохранения)
-
-        Returns:
-            DiaryEntry: Созданная запись
-        """
-        try:
-            @sync_to_async
-            def _create_voice_entry_atomic() -> DiaryEntry:
-                from django.db import transaction
-                with transaction.atomic():
-                    diary_entry = DiaryEntry(
-                        user=user,
-                        text=recognized_text,
-                        language=language,
-                        word_count=len(recognized_text.split()),
-                        is_processed=False
-                    )
-                    if entry_datetime:
-                        diary_entry.created_at = entry_datetime
-                    diary_entry.save()
-                    voice_to_text_data = {
-                        'entry': diary_entry,
-                        'original_duration': duration,
-                        'processed_text': recognized_text,
-                        'processing_time': 0.0,
-                        'speechkit_response': speechkit_api_response or {},
-                        'api_response': deepseek_api_response or {}
-                    }
-                    return diary_entry
-            diary_entry = await _create_voice_entry_atomic()
-            return diary_entry
-        except Exception as e:
-            logger.error(f"Ошибка при асинхронном создании голосовой записи для пользователя {user.telegram_id}: {e}", exc_info=True)
             raise
     
     async def update_entry_text(self, entry_id: int, user: User, new_text: str) -> bool:
@@ -139,17 +76,15 @@ class DiaryService:
         Returns:
             bool: True, если успешно, иначе False.
         """
-        logger.info(f"Асинхронное обновление текста записи {entry_id} для пользователя {user.telegram_id}")
         try:
             try:
-                entry = await DiaryEntry.objects.select_related('user').aget(id=entry_id, user=user) # Асинхронно
+                entry = await DiaryEntry.objects.select_related('user').aget(id=entry_id, user=user)
             except DiaryEntry.DoesNotExist:
                 logger.warning(f"[Сервис] Запись {entry_id} не найдена или не принадлежит пользователю {user.telegram_id}")
                 return False
-            target_date = entry.entry_date # Сохраняем дату до изменений
+            target_date = entry.entry_date
             @sync_to_async
             def _update_entry_and_related():
-                from django.db import transaction
                 with transaction.atomic():
                     entry.text = new_text
                     entry.word_count = len(new_text.split())
@@ -158,18 +93,14 @@ class DiaryService:
                     entry.is_processed = False
                     entry.processing_error = ""
                     entry.save(update_fields=['text', 'word_count', 'is_processed', 'processing_error'])
-                    logger.debug(f"Запись {entry_id} обновлена в БД.")
                     return True
-            
             await _update_entry_and_related()
             @sync_to_async
             def _update_or_create_combined_entry():
-                from django.db import transaction
                 with transaction.atomic():
                     try:
                         combined_entry = CombinedDiaryEntry.objects.select_for_update().get(user=user, date=target_date) 
                         all_entries_for_day = list(DiaryEntry.objects.filter(user=user, created_at__date=target_date).order_by('created_at'))
-                        
                         if not all_entries_for_day:
                              logger.error(f"[Сервис] Критическая ошибка: Запись {entry_id} существует, но записей за день {target_date} нет!")
                              texts = [entry.text]
@@ -183,7 +114,6 @@ class DiaryService:
                                  ai_state_data='',
                                  is_analyzed=False,
                              )
-                             logger.info(f"Создан новый CombinedDiaryEntry {combined_entry.id} после критической ошибки.")
                         else:
                              texts = [e.text for e in all_entries_for_day]
                              new_combined_text = "\n\n---\n\n".join(texts)
@@ -192,11 +122,8 @@ class DiaryService:
                              combined_entry.entry_count = new_entry_count
                              combined_entry.reset_analysis_flag()
                              combined_entry.save(update_fields=['text', 'entry_count', 'is_analyzed'])
-                             logger.info(f"CombinedDiaryEntry ID {combined_entry.id} обновлен (text, entry_count, is_analyzed).")
-                        
                     except CombinedDiaryEntry.DoesNotExist:
                         all_entries_for_day = list(DiaryEntry.objects.filter(user=user, created_at__date=target_date).order_by('created_at'))
-                        
                         if not all_entries_for_day:
                             logger.warning(f"[Сервис] CombinedDiaryEntry и записи за день {target_date} не найдены при обновлении. Создаем новый CombinedDiaryEntry с текущей записью.")
                             texts = [entry.text] 
@@ -213,7 +140,6 @@ class DiaryService:
                             ai_state_data='',
                             is_analyzed=False,
                         )
-                        logger.info(f"Создан новый CombinedDiaryEntry {combined_entry.id} для даты {target_date}.")
                     return True
             await _update_or_create_combined_entry()
             return True
@@ -244,57 +170,42 @@ class DiaryService:
         """
         try:
             try:
-                entry = await DiaryEntry.objects.select_related('user').aget(id=entry_id, user=user) # Асинхронно
+                entry = await DiaryEntry.objects.select_related('user').aget(id=entry_id, user=user)
             except DiaryEntry.DoesNotExist:
                 logger.warning(f"Запись {entry_id} не найдена или не принадлежит пользователю {user.telegram_id}")
                 return False
-
             entry_date = entry.entry_date
             @sync_to_async
             def _delete_related_and_entry():
-                from django.db import transaction
                 with transaction.atomic():
                     if hasattr(entry, 'analysis'):
                         entry.analysis.delete()
-                        logger.debug("Связанный PsychoAnalysis удален.")
                     entry.key_points.all().delete() 
-                    
                     if hasattr(entry, 'voicetotext'):
-                        entry.voicetotext.delete()
-                        logger.debug("Связанный VoiceToText удален.")                
+                        entry.voicetotext.delete()             
                     TherapyTask.objects.filter(related_entry=entry).delete()
                     entry.delete() 
-            
             await _delete_related_and_entry()
             try:
                 combined_entry = await CombinedDiaryEntry.objects.aget(user=user, date=entry_date)
-                
                 @sync_to_async
                 def _get_remaining_entries():
                     return list(DiaryEntry.objects.filter(user=user, created_at__date=entry_date).order_by('created_at'))
-                
                 remaining_entries = await _get_remaining_entries()
-                
                 if remaining_entries:
                     texts = [e.text for e in remaining_entries]
                     new_combined_text = "\n\n---\n\n".join(texts)
                     new_entry_count = len(remaining_entries)
                     combined_entry.text = new_combined_text
                     combined_entry.entry_count = new_entry_count
-                    combined_entry.reset_analysis_flag() # is_analyzed = False
-                    # combined_entry.save(update_fields=['text', 'entry_count', 'is_analyzed']) # Синхронно
-                    await combined_entry.asave(update_fields=['text', 'entry_count', 'is_analyzed']) # Асинхронно
+                    combined_entry.reset_analysis_flag()
+                    await combined_entry.asave(update_fields=['text', 'entry_count', 'is_analyzed'])
                     logger.info(f"CombinedDiaryEntry ID {combined_entry.id} обновлен (text, entry_count, is_analyzed).")
                 else:
-                    # combined_entry.delete() # Синхронно
-                    await combined_entry.adelete() # Асинхронно
-                    logger.info(f"CombinedDiaryEntry для {entry_date} удален, так как записей больше нет.")
-                    
+                    await combined_entry.adelete()                 
             except CombinedDiaryEntry.DoesNotExist:
                 logger.warning(f"CombinedDiaryEntry для {entry_date} не найден при удалении записи {entry_id}. Возможно, он уже был удален.")
-
             return True
-            
         except Exception as e:
             logger.error(f"Ошибка в асинхронном удалении записи {entry_id} и обновлении CombinedDiaryEntry: {e}", exc_info=True)
             return False
@@ -310,13 +221,9 @@ class DiaryService:
         """
         entry_date = diary_entry.entry_date
         combined_entry = await self.get_daily_state(user, entry_date)
-
         if combined_entry is None:
-            # Первая запись дня
             combined_entry = await self.create_daily_state_from_entry(diary_entry)
             return combined_entry, True
-
-        # Не первая запись — обновляем текст и счётчик
         entries = await self.get_user_entries_for_date(user, entry_date)
         combined_text = await self.get_combined_entry_text(user, entry_date, entries_list=entries)
         await self.update_daily_state_text_and_count(
@@ -334,30 +241,20 @@ class DiaryService:
         Асинхронное получение записей за дату - С КЭШИРОВАНИЕМ
         """
         cache_key = f'user_{user.id}_entries_{target_date}'
-        
-        # ИСПРАВЛЕНИЕ: правильное получение из кэша
         cached_entries = cache.get(cache_key)
-        if cached_entries is not None:  # ← проверяем на None, а не просто if
-            logger.debug(f"Записи за {target_date} найдены в кэше")
+        if cached_entries is not None:
             return cached_entries
-        
         try:
-            # Оптимизированный запрос с select_related
             user_timezone_str = user.timezone or 'UTC'
             user_tz = pytz.timezone(user_timezone_str)
-            
-            # Определяем границы дня в UTC
             start_of_day_user_tz = user_tz.localize(
                 datetime.combine(target_date, time.min)
             )
             end_of_day_user_tz = user_tz.localize(
                 datetime.combine(target_date, time.max)
             )
-            
             start_of_day_utc = start_of_day_user_tz.astimezone(pytz.utc)
             end_of_day_utc = end_of_day_user_tz.astimezone(pytz.utc)
-            
-            # Один запрос вместо множественных
             entries = await sync_to_async(list)(
                 DiaryEntry.objects
                 .select_related('user')
@@ -368,14 +265,10 @@ class DiaryService:
                 )
                 .order_by('created_at')
             )
-            
-            # Кэшируем результат на 5 минут
             if entries:
                 cache.set(cache_key, entries, timeout=300)
             logger.info(f"Найдено {len(entries)} записей за {target_date}")
-            
             return entries
-            
         except Exception as e:
             logger.error(f"Ошибка при получении записей за дату: {e}")
             return []
@@ -384,7 +277,7 @@ class DiaryService:
         self, 
         user: User, 
         target_date: date, 
-        entries_list: Optional[List[DiaryEntry]] = None  # Новый опциональный параметр
+        entries_list: Optional[List[DiaryEntry]] = None
     ) -> str:
         """
         Асинхронное получение объединенного текста всех записей пользователя за конкретную дату,
@@ -400,26 +293,15 @@ class DiaryService:
             str: Объединенный текст всех записей дня. Пустая строка, если записей нет или произошла ошибка.
         """
         try:
-            # === ОПТИМИЗАЦИЯ ===
-            # Если список записей уже предоставлен, используем его.
-            # Иначе - делаем запрос к БД.
             if entries_list is not None:
-                logger.debug(f"[ОПТИМИЗАЦИЯ] Использование предоставленного списка записей ({len(entries_list)} шт.) для get_combined_entry_text.")
                 entries = entries_list
             else:
-                logger.debug(f"[ОПТИМИЗАЦИЯ] Выполнение запроса к БД для получения записей за {target_date} в get_combined_entry_text.")
-                # Используем унифицированный метод, который учитывает часовой пояс
                 entries = await self.get_user_entries_for_date(user, target_date) 
-            
             if not entries:
-                logger.info(f"Записи за {target_date} для пользователя {user.telegram_id} не найдены (в т.ч. с учетом часового пояса).")
                 return ""
-            
-            # Объединяем текст
             texts = [entry.text for entry in entries]
             combined_text = "\n\n---\n\n".join(texts)
             return combined_text
-        
         except Exception as e:
             logger.error(f"Ошибка при асинхронном получении объединенного текста за {target_date} для пользователя {user.telegram_id} (с учетом часового пояса): {e}", exc_info=True)
             return ""
@@ -443,25 +325,14 @@ class DiaryService:
                 return True 
             @sync_to_async
             def _delete_entry_atomic():
-                from django.db import transaction
                 with transaction.atomic():
                     if hasattr(entry, 'analysis'):
                         try:
                             entry.analysis.delete() 
-                            logger.debug(f"Связанный PsychoAnalysis для записи {entry_id} удален.")
                         except Exception as analysis_delete_error:
                             logger.warning(f"Ошибка при удалении связанного PsychoAnalysis для записи {entry_id}: {analysis_delete_error}")
-                    entry.key_points.all().delete()
-                    logger.debug(f"Связанные KeyPoint для записи {entry_id} удалены.")
-                    try:
-                        if hasattr(entry, 'voicetotext'):
-                             entry.voicetotext.delete()
-                             logger.debug(f"Связанный VoiceToText для записи {entry_id} удален.")
-                    except Exception as voice_delete_error:
-                        logger.debug(f"Связанный VoiceToText для записи {entry_id} не найден или ошибка при удалении: {voice_delete_error}")
                     entry.delete()
                     logger.info(f"Запись дневника {entry_id} успешно удалена для пользователя {user.telegram_id}.")
-
             await _delete_entry_atomic()
             return True
         except Exception as e:
@@ -474,13 +345,11 @@ class DiaryService:
         Получение дней с записями - С КЭШИРОВАНИЕМ
         """
         cache_key = f'user_{user.id}_calendar_{year}_{month}'
-        
         cached_days = cache.get(cache_key)
         if cached_days:
             return cached_days
         
         try:
-            # Оптимизированный запрос с аннотацией
             @sync_to_async
             def _get_days():
                 return set(
@@ -490,14 +359,9 @@ class DiaryService:
                     .values_list('day', flat=True)
                     .distinct()
                 )
-            
             days_with_entries = await _get_days()
-            
-            # Кэшируем на 1 час
             cache.set(cache_key, days_with_entries, timeout=3600)
-            
             return days_with_entries
-            
         except Exception as e:
             logger.error(f"Ошибка при получении дней с записями: {e}")
             return set()
@@ -591,9 +455,7 @@ class DiaryService:
                     if not entry_ids:
                         CombinedDiaryEntry.objects.filter(user=user, date=target_date).delete()
                         return True
-
                     PsychoAnalysis.objects.filter(entry_id__in=entry_ids).delete()
-                    task_completions = TaskCompletion.objects.filter(completion_text__in=[entry.text for entry in entries])
                     TherapyTask.objects.filter(related_entry_id__in=entry_ids).delete()
                     entries.delete()
                     CombinedDiaryEntry.objects.filter(user=user, date=target_date).delete()
@@ -665,6 +527,5 @@ def get_user_entries_for_date_sync(user: User, target_date: date) -> List[DiaryE
     """
     Синхронная удобная функция для получения записей за дату.
     """
-    # Предполагаем, что есть sync_to_async, импортированный в diary_service
     from asgiref.sync import async_to_sync
     return async_to_sync(diary_service.get_user_entries_for_date)(user, target_date)

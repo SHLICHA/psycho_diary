@@ -55,19 +55,16 @@ def get_main_menu_keyboard(language: str, user=None) -> InlineKeyboardMarkup:
     if user and hasattr(user, 'has_agreed_to_terms') and user.has_agreed_to_terms:
         traits_filled = bool(user.personality_traits and isinstance(user.personality_traits, dict) and user.personality_traits)
         facts_filled = bool(user.life_facts and isinstance(user.life_facts, list) and user.life_facts)
-
         if not traits_filled and not facts_filled:
-            # Добавляем кнопку "Анкета" в начало меню
             questionnaire_button_row = [
                 InlineKeyboardButton(
-                    text=get_button_text('btn_fill_questionnaire', language), # Новое сообщение
-                    callback_data="start_questionnaire_from_menu" # Новый callback
+                    text=get_button_text('btn_fill_questionnaire', language),
+                    callback_data="start_questionnaire_from_menu"
                 )
             ]
-            buttons.insert(0, questionnaire_button_row) # Вставляем в начало   
+            buttons.insert(0, questionnaire_button_row)
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# TODO Переделать по "В главное меню" и сделать общей для всех
 def get_back_keyboard(language: str) -> InlineKeyboardMarkup:
     """Клавиатура с кнопкой "Назад"""
     buttons = [

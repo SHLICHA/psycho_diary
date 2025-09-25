@@ -10,7 +10,6 @@ from calendar import monthrange
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from core.constants import MONTH_NAMES_RU, MONTH_NAMES_EN, MONTH_NAMES_SHORT_RU, MONTH_NAMES_SHORT_EN
-from diary.models import CombinedDiaryEntry
 from messages import get_button_text, get_message
 
 logger = logging.getLogger(__name__)
@@ -56,7 +55,6 @@ async def get_month_calendar_with_navigation(user, year: int, month: int, curren
     buttons.append(weekday_buttons)
     try:
         days_data = await get_days_with_entries_and_mood_async(user, year, month)
-        logger.debug(f"Данные дней для календаря: {days_data}")
     except Exception as e:
         logger.error(f"Ошибка при асинхронном получении дней с настроением: {e}")
         days_data = {}
@@ -102,7 +100,7 @@ async def get_month_calendar_with_navigation(user, year: int, month: int, curren
         buttons.append(day_buttons)
     year_button = [
         InlineKeyboardButton(
-            text=f"📅 Выбрать год: {year}",
+            text=get_message(key='select_year', language=language, year=year),
             callback_data=f"calendar_open_year_selector:{year}"
         )
     ]
@@ -120,7 +118,7 @@ def get_year_selection_keyboard(current_year: int, language: str) -> InlineKeybo
     buttons = []
     buttons.append([
         InlineKeyboardButton(
-            text="📅 Выбор года",
+            text=get_message('archive_select_year', language),
             callback_data="calendar_empty"
         )
     ])
@@ -153,7 +151,7 @@ def get_month_selection_keyboard(year: int, current_month: int, language: str) -
     buttons = []
     buttons.append([
         InlineKeyboardButton(
-            text=f"📅 Выбор месяца {year}",
+            text=get_message('archive_select_month', language, year=year),
             callback_data="calendar_empty"
         )
     ])
@@ -180,13 +178,12 @@ def get_month_selection_keyboard(year: int, current_month: int, language: str) -
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# TODO нужена ли функция?
 def get_basic_calendar_keyboard(user, language: str) -> InlineKeyboardMarkup:
     """Базовый календарь на случай ошибок"""
     buttons = []
     buttons.append([
         InlineKeyboardButton(
-            text="📅 Архив записей",
+            text=get_message('entries_archive', language),
             callback_data="calendar_empty"
         )
     ])
@@ -314,27 +311,24 @@ def get_delete_confirmation_keyboard(language: str, entry_id: int) -> InlineKeyb
 
 def get_delete_entry_confirmation_keyboard(language: str, entry_id: int, target_date: date) -> InlineKeyboardMarkup:
     """Клавиатура подтверждения удаления записи (алиас)."""
-    # Преобразуем дату в строку ISO для передачи в callback_data
     if isinstance(target_date, date):
         target_date_iso = target_date.isoformat() 
     else:
-        # На случай, если target_date каким-то образом оказалась строкой или другим типом
         logger.error(f"get_delete_entry_confirmation_keyboard: target_date не является объектом date: {type(target_date)}")
-        # Используем сегодняшнюю дату как фолбэк
         target_date_iso = date.today().isoformat() 
     return get_confirmation_keyboard(
         language=language,
-        confirm_text_key='btn_confirm_delete', # <-- Правильный ключ для текста кнопки подтверждения
-        cancel_text_key='btn_cancel_delete',   # <-- Правильный ключ для текста кнопки отмены
-        confirm_callback_data=f"confirm_delete_specific_entry:{entry_id}:{target_date_iso}", # <-- Правильный callback_data
-        cancel_callback_data=f"cancel_delete_specific_entry:{entry_id}:{target_date_iso}"     # <-- Правильный callback_data
+        confirm_text_key='btn_confirm_delete',
+        cancel_text_key='btn_cancel_delete',
+        confirm_callback_data=f"confirm_delete_specific_entry:{entry_id}:{target_date_iso}",
+        cancel_callback_data=f"cancel_delete_specific_entry:{entry_id}:{target_date_iso}"
     )
 
 def get_entry_page_keyboard(
     entry_id: int,
     current_index: int,
     total_entries: int,
-    target_date: date, # <-- Новый параметр
+    target_date: date,
     language: str,
     is_day_analyzed: bool 
 ) -> InlineKeyboardMarkup:
@@ -353,8 +347,6 @@ def get_entry_page_keyboard(
         InlineKeyboardMarkup: Сформированная клавиатура.
     """
     keyboard_buttons = []
-
-    # Кнопки пагинации (если больше одной записи)
     if total_entries > 1:
         pagination_row = [
             InlineKeyboardButton(
@@ -363,7 +355,7 @@ def get_entry_page_keyboard(
             ),
             InlineKeyboardButton(
                 text=f"{current_index + 1}/{total_entries}",
-                callback_data="entry_empty" # Или другая заглушка
+                callback_data="entry_empty"
             ),
             InlineKeyboardButton(
                 text="▶️",
@@ -371,8 +363,6 @@ def get_entry_page_keyboard(
             )
         ]
         keyboard_buttons.append(pagination_row)
-
-    # Кнопки действий с записью
     actions_row_1 = [
         InlineKeyboardButton(
             text=get_button_text('btn_edit_entry', language),
@@ -380,43 +370,33 @@ def get_entry_page_keyboard(
         ),
         InlineKeyboardButton(
             text=get_button_text('btn_delete_entry', language),
-            callback_data=f"entry_delete_confirm:{entry_id}:{target_date.isoformat()}" # <-- Передаем target_date.isoformat()
+            callback_data=f"entry_delete_confirm:{entry_id}:{target_date.isoformat()}"
         )
     ]
     keyboard_buttons.append(actions_row_1)
-
-    # --- КНОПКА АНАЛИЗА ДНЯ ---
     if is_day_analyzed:
-        # Если день проанализирован, показываем кнопку "Анализ дня"
         analysis_day_button = InlineKeyboardButton(
-            text="🔬 Анализ дня", # Или get_message('btn_view_day_analysis', language) если добавите
-            callback_data=f"view_full_day_analysis:{target_date.year}:{target_date.month}:{target_date.day}" # Новый callback
+            text=get_button_text('btn_day_analysis', language),
+            callback_data=f"view_full_day_analysis:{target_date.year}:{target_date.month}:{target_date.day}"
         )
     else:
-        # Если день НЕ проанализирован, показываем кнопку "Пересчитать анализ дня"
         analysis_day_button = InlineKeyboardButton(
             text=get_button_text('btn_reanalyze_entry', language),
             callback_data=f"reanalyze_day:{target_date.year}:{target_date.month}:{target_date.day}"
         )
-    
-    keyboard_buttons.append([analysis_day_button]) # Добавляем кнопку в отдельный ряд
-
-    # Кнопка удаления всего дня
+    keyboard_buttons.append([analysis_day_button])
     keyboard_buttons.append([
         InlineKeyboardButton(
             text=get_button_text('btn_delete_all_entries', language),
             callback_data=f"delete_entire_day:{target_date.year}-{target_date.month}-{target_date.day}"
         )
     ])
-
-    # Кнопка "Назад к дню" (календарю)
     keyboard_buttons.append([
         InlineKeyboardButton(
             text=get_button_text('btn_back_to_day', language),
             callback_data=f"calendar_return_to_month:{target_date.year}:{target_date.month}"
         )
     ])
-
     return InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
 
 def get_back_to_edit_day_keyboard(target_date: date, language: str) -> InlineKeyboardMarkup:
@@ -445,7 +425,6 @@ def get_back_to_edit_day_keyboard(target_date: date, language: str) -> InlineKey
 
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
 
-# TODO Разметка для копирования
 def format_entry_text_for_editing(entry_text: str) -> str:
     """
     Форматирует текст записи для удобного редактирования (например, в блоке кода).
@@ -465,7 +444,6 @@ async def get_days_with_entries_and_mood_async(user, year: int, month: int) -> d
     logger.debug(f"Получение дней с записями и настроением для {year}-{month} пользователя {user.telegram_id}")
     days_data = {}
     try:
-        # Используем сырой SQL запрос для полного контроля
         @sync_to_async
         def get_mood_data_sync():
             from django.db import connection
@@ -484,20 +462,15 @@ async def get_days_with_entries_and_mood_async(user, year: int, month: int) -> d
                 """, [user.id, year, month])
                 
                 return cursor.fetchall()
-        
         mood_data = await get_mood_data_sync()
-        logger.debug(f"Найдено {len(mood_data)} записей с оценками настроения")
-        
         for day, average_mood_score in mood_data:
             day_int = int(day)
             if average_mood_score is not None and average_mood_score > 0:
                 days_data[day_int] = float(average_mood_score)
             else:
                 days_data[day_int] = None
-                
         logger.debug(f"Данные настроения: {days_data}")
         return days_data
-        
     except Exception as e:
         logger.error(f"Ошибка при получении оценок настроения: {e}", exc_info=True)
         return {}
