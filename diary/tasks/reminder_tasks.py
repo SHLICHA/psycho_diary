@@ -14,6 +14,7 @@ from aiogram.enums import ParseMode
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from bot.utils.message_utils import send_message_to_user
+from diary.models import TherapyTask
 from users.models import User
 from messages import get_message, get_button_text
 from core.settings import TELEGRAM_BOT_TOKEN
@@ -99,6 +100,21 @@ def send_entry_reminders():
     return asyncio.run(_send_entry_reminders_async())
 
 
+@sync_to_async
+def get_uncompleted_tasks_count_for_user_today(user):
+    """
+    Подсчитывает количество ВСЕХ незавершенных задач для пользователя (статус != 'completed').
+    """
+    try:
+        count = TherapyTask.objects.filter(
+            user=user,
+            status__ne='completed'
+        ).count()
+        return count
+    except Exception as e:
+        logger.error(f"Ошибка при подсчете ВСЕХ незавершенных задач пользователя {user.telegram_id}: {e}", exc_info=True)
+        return 0
+
 async def _send_entry_reminders_async():
     """
     Асинхронная корутина для отправки напоминаний о записи в дневник.
@@ -109,9 +125,8 @@ async def _send_entry_reminders_async():
         logger.info(f"Найдено {len(users)} активных пользователей с включенными уведомлениями")
         success_count = 0
         error_count = 0
-        sent_entry_reminder_count = 0 # Счетчик напоминаний о записи
-        sent_questionnaire_reminder_count = 0 # Счетчик напоминаний об анкете
-        
+        sent_entry_reminder_count = 0
+        sent_questionnaire_reminder_count = 0
         bot = Bot(token=TELEGRAM_BOT_TOKEN, parse_mode=ParseMode.HTML)
         for user in users:
             try:
@@ -126,32 +141,22 @@ async def _send_entry_reminders_async():
                 user_local_date = user_local_time.date()
                 
                 language = await get_user_language(user)
-                
-                # --- НОВАЯ ЛОГИКА: Проверка и отправка напоминания об анкете ---
-                # Отправляем напоминание об анкете в 19:00 по местному времени пользователя
                 if current_user_hour == 19: 
                     if await needs_questionnaire_reminder(user):
                         logger.info(f"Пользователь {user.telegram_id} еще не прошел анкету. Отправляем напоминание.")
-                        
-                        # Текст напоминания об анкете
                         questionnaire_reminder_text = get_message('questionnaire_reminder', language)
-                        
-                        # Клавиатура с кнопкой запуска анкеты
                         questionnaire_keyboard = InlineKeyboardMarkup(inline_keyboard=[[
                             InlineKeyboardButton(
                                 text=get_button_text('btn_fill_questionnaire', language),
-                                callback_data="start_questionnaire_from_menu" # Используем тот же callback
+                                callback_data="start_questionnaire_from_menu"
                             )
                         ]])
-                        
-                        # Отправляем напоминание об анкете
                         success = await send_message_to_user(
                             bot=bot,
                             user=user,
                             text=questionnaire_reminder_text,
                             reply_markup=questionnaire_keyboard
                         )
-                        
                         if success:
                             sent_questionnaire_reminder_count += 1
                             success_count += 1
@@ -159,29 +164,41 @@ async def _send_entry_reminders_async():
                         else:
                             error_count += 1
                             logger.info(f"Не удалось отправить напоминание об анкете пользователю {user.telegram_id}")
-                        # Продолжаем цикл, не отправляя напоминание о записи в это же время
                         continue 
-                # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
-                
-                # --- СУЩЕСТВУЮЩАЯ ЛОГИКА: Напоминание о записи в 21:00 ---
                 if current_user_hour == 21: 
                     has_entries_today = await has_entries_for_user_on_date(user, user_local_date)
                     if has_entries_today:
                         logger.info(f"Пользователь {user.telegram_id} уже сделал запись сегодня ({user_local_date}). Напоминание о записи не отправляется.")
                         continue
-                    
-                    # Текст напоминания о записи
+                    uncompleted_tasks_count = await get_uncompleted_tasks_count_for_user_today(user)
+                    if uncompleted_tasks_count > 0:
+                        if language == 'ru':
+                            if uncompleted_tasks_count == 1:
+                                task_text = f"\n\n🎯 У тебя {uncompleted_tasks_count} незавершенная задача."
+                            elif 2 <= uncompleted_tasks_count % 10 <= 4 and (uncompleted_tasks_count < 10 or uncompleted_tasks_count > 20):
+                                task_text = f"\n\n🎯 У тебя {uncompleted_tasks_count} незавершенные задачи."
+                            else:
+                                task_text = f"\n\n🎯 У тебя {uncompleted_tasks_count} незавершенных задач."
+                        else:
+                            task_text = f"\n\n🎯 You have {uncompleted_tasks_count} uncompleted task{'s' if uncompleted_tasks_count != 1 else ''}."
+                    else:
+                        task_text = ""
                     try:
-                        entry_reminder_text = get_message('reminder_entry', language)
+                        # --- ИЗМЕНЕНИЕ: Передаем task_text в get_message ---
+                        entry_reminder_text = get_message('reminder_entry', language, task_text=task_text)
+                        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
                     except Exception as msg_error:
                         logger.warning(f"Не удалось получить сообщение 'reminder_entry' для пользователя {user.telegram_id}: {msg_error}")
-                        entry_reminder_text = (
+                        # --- ИЗМЕНЕНИЕ: Формируем фолбэк с учетом task_text ---
+                        base_text = (
                             "📝 <b>Не забудь сделать запись в дневник сегодня!</b>\n\n"
                             "Поделись своими мыслями и чувствами, чтобы лучше понимать себя."
                         ) if language == 'ru' else (
                             "📝 <b>Don't forget to make a diary entry today!</b>\n\n"
                             "Share your thoughts and feelings to better understand yourself."
                         )
+                        entry_reminder_text = base_text + task_text # Добавляем task_text к фолбэку
+                        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
                     
                     # Клавиатура для напоминания о записи
                     entry_keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -192,7 +209,7 @@ async def _send_entry_reminders_async():
                             )
                         ]
                     ])
-                    
+    
                     # Отправляем напоминание о записи
                     success = await send_message_to_user(
                         bot=bot,
@@ -234,3 +251,4 @@ async def _send_entry_reminders_async():
                 logger.info("Сессия бота для напоминаний закрыта")
             except Exception as close_error:
                 logger.error(f"Ошибка при закрытии сессии бота: {close_error}")
+

@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # Импорты handlers
 from bot.handlers import all_routers
-
+from bot.utils.state_manager import state_manager 
 # Импорты middleware
 from bot.middlewares.user_middleware import UserMiddleware
 from bot.middlewares.language_middleware import LanguageMiddleware
@@ -87,6 +87,9 @@ async def main():
     
     logger.info("Все handlers зарегистрированы")
     logger.info("Bot инициализирован успешно")
+
+    state_manager.set_bot(bot)
+    logger.info("Bot instance передан в state_manager")    
     
     try:
         logger.info("Запуск polling...")

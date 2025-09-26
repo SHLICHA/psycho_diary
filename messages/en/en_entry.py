@@ -40,6 +40,7 @@ ENTRY_MESSAGES_EN = {
         'btn_confirm_delete_day': "✅ Yes, delete the day",
         'btn_skip_clarification': '➡️ Skip questions',
         'reminder_clarification': '📝 You did not respond to the clarifying questions sent earlier. Please reply to get a more accurate analysis.',
+        'reminder_entry': '📝 <b>Don\'t forget to make a diary entry today!</b>\n\nShare your thoughts and feelings to better understand yourself.{task_text}',
         'new_ai_task': '''\n📌 <b>New task:</b>\n<b>{title}</b>\n{preview}'''
         }
 }

@@ -3,9 +3,9 @@
 """
 
 import logging
-from typing import Optional, Union, Callable, Any, Awaitable
+from typing import Optional, Callable, Any, Awaitable
 from aiogram import Bot
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message
 from aiogram.exceptions import TelegramBadRequest, TelegramAPIError
 
 from bot.utils.callback_utils import is_message_not_modified_error 
@@ -62,7 +62,6 @@ async def edit_or_send_message(
                 text=text,
                 reply_markup=reply_markup
             )
-            logger.info(f"Новое сообщение отправлено, message_id: {new_message.message_id}")
             return new_message
     except Exception as e:
         logger.error(f"Ошибка при редактировании/отправке сообщения: {e}")
@@ -227,9 +226,7 @@ async def safe_telegram_call(
             не включая "message is not modified".
     """
     try:
-        logger.debug(f"Выполнение операции: {operation_name}")
         result = await operation(*args, **kwargs)
-        logger.debug(f"Операция '{operation_name}' выполнена успешно.")
         return True, result, None
 
     except Exception as e:
@@ -258,7 +255,6 @@ def truncate_text(text: str, max_length: int = 1000) -> str:
             logger.info(f"Текст обрезан до {len(truncated_text)} символов")
             return truncated_text
         else:
-            logger.info("Текст не требует обрезки")
             return text
     except Exception as e:
         logger.error(f"Ошибка при обрезке текста: {e}")
@@ -293,7 +289,6 @@ def escape_html(text: str) -> str:
     """
     try:
         escaped_text = text.replace("&", "&amp;").replace("<", "<").replace(">", ">")
-        logger.info("HTML символы экранированы")
         return escaped_text
     except Exception as e:
         logger.error(f"Ошибка при экранировании HTML символов: {e}")

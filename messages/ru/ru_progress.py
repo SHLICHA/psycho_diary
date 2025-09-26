@@ -1,13 +1,7 @@
 PROGRESS_MESSAGES_RU = {
     'ru': {
-        'progress_title': '''📊 <b>Твой прогресс</b>
-
-📈 <b>Уровень осознанности:</b> {awareness_level}/10
-📝 <b>Всего записей:</b> {entries_count}
-🎯 <b>Выполнено заданий:</b> {tasks_completed}
-📅 <b>Дней подряд:</b> {streak_days}''',
-        
-        'progress_detailed': '''📊 <b>Подробная статистика</b>
+    'progress_title': '🎯 <b>Твой прогресс</b>\n\n🧠 Уровень осознанности: {awareness_level}/10\n📝 Записей: {entries_count}\n✅ Заданий: {tasks_completed}/{tasks_assigned} ({tasks_completion_percentage:.1f}%)\n🔥 Дней подряд: {streak_days}',
+    'progress_detailed': '''📊 <b>Подробная статистика</b>
 
 📉 <b>Динамика настроения:</b>
 {mood_chart}

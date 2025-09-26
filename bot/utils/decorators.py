@@ -3,7 +3,6 @@
 """
 
 import logging
-import functools
 import asyncio
 from typing import Any, Callable, Awaitable
 from functools import wraps

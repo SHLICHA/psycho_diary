@@ -129,6 +129,10 @@ Tell me what you felt while completing:
         'feelings_load_error': 'Error loading feelings',
         'error_loading_task_details': 'Error loading task details',
         'task_completed_at': '''✅ <b>Completed:</b> {completed_at}''',
-        'no_effect_description': '''No effect description'''
+        'no_effect_description': '''No effect description''',
+        'task_summary': '{task_count} uncompleted tasks.',
+        'task_summary_single': '1 uncompleted task.',
+        'task_summary_other': '{task_count} uncompleted tasks.', # Для английского это часто работает для > 1
+        'task_summary_zero': '',
     }
 }

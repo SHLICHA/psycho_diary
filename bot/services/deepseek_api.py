@@ -9,7 +9,7 @@ import json
 import re
 
 from typing import Dict, Any
-from prompts.get_prompt import get_prompt
+from prompts import get_prompt
 from core.settings import DEEPSEEK_API_KEY
 
 logger = logging.getLogger(__name__)

@@ -4,7 +4,7 @@
 
 import logging
 import asyncio
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Awaitable, Callable
 from datetime import datetime
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -13,82 +13,118 @@ from aiogram import Bot
 from django.db import DatabaseError
 
 from messages import get_message
+from bot.keyboards import get_main_menu_keyboard
 
 logger = logging.getLogger(__name__)
+
+async def send_main_menu_callback(bot_instance: Bot, user_id: int, language: str):
+    """
+    Функция-коллбэк для отправки главного меню пользователю.
+    """
+    # --- ДОБАВИМ ЛОГ ---
+    logger.info(f"send_main_menu_callback вызвана для user_id {user_id}, language {language}, bot_instance is None: {bot_instance is None}")
+    # --- КОНЕЦ ДОБАВКИ ---
+    try:
+        if not bot_instance:
+            logger.error(f"Bot instance is None in send_main_menu_callback for user {user_id}")
+            return
+
+        from messages import get_message
+        from bot.keyboards import get_main_menu_keyboard # Убедитесь, что импорт корректен
+
+        main_menu_text = get_message('main_menu', language)
+        # Попробуем получить пользователя для клавиатуры, если она принимает user
+        # user = await User.objects.aget(telegram_id=user_id) # Если нужно
+        main_menu_keyboard = get_main_menu_keyboard(language) # user=user, если нужно
+
+        await bot_instance.send_message(
+            chat_id=user_id,
+            text=main_menu_text,
+            reply_markup=main_menu_keyboard
+        )
+        logger.info(f"Главное меню отправлено пользователю {user_id} после таймаута FSM.")
+    except Exception as e:
+        logger.error(f"Ошибка при отправке главного меню пользователю {user_id} после таймаута FSM: {e}", exc_info=True) # exc_info=True покажет трейсбек
+
 
 class StateManager:
     """Менеджер для работы с состояниями FSM с автоматическим таймаутом"""
     
-    def __init__(self, timeout_seconds: int = 3600):  # 1 час по умолчанию
+    def __init__(self, timeout_seconds: int = 3600, on_timeout_callback: Optional[Callable[[Bot, int, str], Awaitable[None]]] = None): # bot_instance, user_id, language
         self._timeout_seconds = timeout_seconds
         self._state_timers: Dict[str, asyncio.Task] = {}
         self._bot_instance: Optional[Bot] = None
         self._storage_key_to_user_id: Dict[str, int] = {}
+        self._on_timeout_callback = on_timeout_callback
         
     def set_bot(self, bot: Bot):
         """Установка экземпляра бота для отправки сообщений"""
         self._bot_instance = bot
+        logger.info("Bot instance установлен в StateManager")
     
     async def set_state(self, context: FSMContext, state: State, **data):
         """Установка состояния с автоматическим таймаутом"""
         try:
-            # Получаем идентификатор пользователя и ключ хранилища
             user_id = context.key.user_id
             storage_key = self._get_storage_key(context.key)
-            
-            # Останавливаем предыдущий таймер если есть
+
             await self._stop_timer(storage_key)
-            
-            # Устанавливаем состояние и данные
+
             await context.set_state(state)
             if data:
                 await context.update_data(**data)
-            
-            # Сохраняем связь ключа хранилища с user_id
+
             self._storage_key_to_user_id[storage_key] = user_id
-            
-            # Запускаем таймер таймаута
+
+            # Передаём user_id в _state_timeout_handler
             self._state_timers[storage_key] = asyncio.create_task(
-                self._state_timeout_handler(storage_key, context, self._timeout_seconds)
+                self._state_timeout_handler(storage_key, context, self._timeout_seconds, user_id)
             )
-            
+
             logger.debug(f"State {state.state} set for user {user_id} with timeout {self._timeout_seconds}s")
-            
+
         except Exception as e:
             logger.error(f"Error setting state {state.state}: {e}")
             raise
     
-    async def _state_timeout_handler(self, storage_key: str, context: FSMContext, timeout: int):
+    async def _state_timeout_handler(self, storage_key: str, context: FSMContext, timeout: int, user_id: int):
         """Обработчик таймаута состояния"""
         try:
             await asyncio.sleep(timeout)
-            
-            # Получаем user_id из сохраненной связи
-            user_id = self._storage_key_to_user_id.get(storage_key)
-            if not user_id:
-                logger.warning(f"No user_id found for storage key {storage_key}")
-                return
-            
-            # Получаем текущее состояние перед очисткой
+
             current_state = await context.get_state()
-            
-            # Сбрасываем состояние
+
             await context.clear()
-            # Отправляем сообщение о таймауте если есть бот
-            if self._bot_instance and user_id:
-                language = await self._get_user_language(user_id)
+            language = await self._get_user_language(user_id)
+
+            # --- НОВАЯ ЛОГИКА ---
+            # 1. Отправляем сообщение о таймауте
+            if self._bot_instance:
                 try:
+                    # Импортируем внутри функции
                     await self._bot_instance.send_message(
                         user_id,
                         get_message('session_expired', language)
                     )
-                    logger.info(f"State timeout handled for user {user_id}, previous state: {current_state}")
+                    logger.info(f"State timeout notification sent to user {user_id}, previous state: {current_state}")
                 except Exception as e:
-                    logger.error(f"Error sending timeout message to user {user_id}: {e}")
-            
-            # Очищаем данные
+                    logger.error(f"Error sending timeout notification to user {user_id}: {e}")
+
+            # 2. Вызываем внешнюю функцию для возврата в главное меню (если она установлена)
+            if self._on_timeout_callback: # <-- Проверка, что коллбэк установлен
+                logger.debug(f"Вызов on_timeout_callback для user {user_id}") # --- ДОБАВИМ ЛОГ ---
+                try:
+                    # Передаём bot_instance, user_id и language в коллбэк
+                    await self._on_timeout_callback(self._bot_instance, user_id, language)
+                except Exception as callback_error:
+                    logger.error(f"Error in on_timeout_callback for user {user_id}: {callback_error}", exc_info=True) # exc_info=True покажет трейсбек
+            else:
+                logger.warning(f"on_timeout_callback не установлен для user {user_id}") # --- ДОБАВИМ ЛОГ ---
+            # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
+
             await self._cleanup_storage_data(storage_key)
-            
+            logger.info(f"State timeout handled for user {user_id}, previous state: {current_state}")
+
         except asyncio.CancelledError:
             # Таймер был отменен - это нормально
             pass
@@ -203,4 +239,4 @@ class StateManager:
             return False
 
 # Глобальный экземпляр с таймаутом 1 час
-state_manager = StateManager(timeout_seconds=3600)
+state_manager = StateManager(timeout_seconds=3600, on_timeout_callback=send_main_menu_callback)

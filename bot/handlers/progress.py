@@ -2,13 +2,13 @@
 Handlers для прогресса
 """
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from django.db.models.functions import TruncDate
 from aiogram import F, Router
 from aiogram.types import CallbackQuery
 from asgiref.sync import sync_to_async
 
-from diary.models import WeeklyAnalysis, DiaryEntry, TaskCompletion
+from diary.models import WeeklyAnalysis, DiaryEntry, TaskCompletion, TherapyTask
 from messages import get_message
 from bot.keyboards import get_back_keyboard, get_weekly_navigation_keyboard, get_progress_keyboard_without_weekly, get_progress_keyboard_with_weekly
 from bot.utils.message_utils import safe_edit_message_text
@@ -35,26 +35,82 @@ async def _get_user_statistics(user) -> dict:
     stats = {
         'entries_count': 0,
         'tasks_completed': 0,
-        'streak_days': 0,
+        'tasks_assigned': 0, # Добавляем общее количество назначенных задач
+        'tasks_completion_percentage': 0.0, # Добавляем процент выполнения
+        'streak_days': 0, # Теперь это текущий стрик
     }
     try:
+        # --- Подсчёт общего количества записей ---
         @sync_to_async
         def _count_entries():
             return DiaryEntry.objects.filter(user=user).count()
         stats['entries_count'] = await _count_entries()
+
+        # --- Подсчёт выполненных задач ---
         @sync_to_async
-        def _count_tasks():
+        def _count_tasks_completed():
             return TaskCompletion.objects.filter(task__user=user).count()
-        stats['tasks_completed'] = await _count_tasks()
+        stats['tasks_completed'] = await _count_tasks_completed()
+
+        # --- Подсчёт назначенных задач ---
         @sync_to_async
-        def _count_active_days():
-            result = DiaryEntry.objects.filter(user=user).annotate(
-                entry_date=TruncDate('created_at')
-            ).values('entry_date').distinct().count()
-            return result
-        stats['streak_days'] = await _count_active_days()
+        def _count_tasks_assigned():
+            return TherapyTask.objects.filter(user=user).count()
+        stats['tasks_assigned'] = await _count_tasks_assigned()
+
+        # --- Вычисление процента выполнения ---
+        if stats['tasks_assigned'] > 0:
+            stats['tasks_completion_percentage'] = (stats['tasks_completed'] / stats['tasks_assigned']) * 100.0
+        # Если задач не было назначено, процент остается 0.0
+
+        # --- Подсчёт текущего стрика дней подряд с записями ---
+        @sync_to_async
+        def _calculate_current_streak():
+            # (Вставьте сюда логику подсчёта стрика из предыдущего ответа)
+            # 1. Получаем уникальные дни, когда были записи, отсортированные по убыванию
+            # Используем TruncDate и часовой пояс пользователя
+            user_timezone_str = user.timezone or 'UTC'
+            try:
+                user_tz = timezone(user_timezone_str)
+            except Exception:
+                logger.warning(f"Неверный часовой пояс для пользователя {user.id}: {user_timezone_str}. Используем UTC.")
+                user_tz = timezone('UTC')
+
+            # Запрос: получить уникальные даты (в часовом поясе пользователя) создания записей
+            entry_dates_qs = DiaryEntry.objects.filter(user=user).annotate(
+                entry_date=TruncDate('created_at', tzinfo=user_tz) # Обрезаем до даты в часовом поясе пользователя
+            ).values('entry_date').order_by('-entry_date').distinct()
+
+            # Извлекаем даты в список
+            entry_dates = [item['entry_date'] for item in entry_dates_qs]
+
+            if not entry_dates:
+                return 0 # Нет ни одной записи
+
+            # 2. Вычисляем стрик
+            # Берём сегодняшнюю дату в часовом поясе пользователя
+            today_user_date = datetime.now(user_tz).date()
+
+            streak = 0
+            expected_date = today_user_date # Начинаем с сегодняшней даты пользователя
+
+            for entry_date in entry_dates:
+                if entry_date == expected_date:
+                    streak += 1
+                    expected_date -= timedelta(days=1) # Переходим к предыдущему дню
+                elif entry_date < expected_date:
+                    # Был пропуск дня (или несколько)
+                    break
+                # else: entry_date > expected_date - такого быть не должно при сортировке desc
+
+            return streak
+
+        from datetime import datetime # Импортируем datetime для получения даты в часовом поясе
+        stats['streak_days'] = await _calculate_current_streak()
+        # --- Конец подсчёта стрика ---
+
     except Exception as e:
-        logger.error(f"[_get_user_statistics] Ошибка при подсчете статистики для пользователя {user.id}: {e}")
+        logger.error(f"[_get_user_statistics] Ошибка при подсчете статистики для пользователя {user.id}: {e}", exc_info=True)
     return stats
 
 async def _get_latest_weekly_analysis(user):
@@ -77,13 +133,18 @@ async def show_progress(callback: CallbackQuery, user, language: str):
         user_stats = await _get_user_statistics(user)
         total_entries = user_stats['entries_count']
         tasks_completed = user_stats['tasks_completed']
+        tasks_assigned = user_stats['tasks_assigned'] # Получаем из статистики
+        tasks_completion_percentage = user_stats['tasks_completion_percentage'] # Получаем из статистики
         streak_days = user_stats['streak_days']
-        progress_msg = get_message('progress_title', language).format(
-            awareness_level=awareness_level_current,
-            entries_count=total_entries,
-            tasks_completed=tasks_completed,
-            streak_days=streak_days
-        )
+        # --- ИЗМЕНЕНИЕ: Передаём новые параметры ---
+        progress_msg = get_message('progress_title', language,
+                                   awareness_level=awareness_level_current,
+                                   entries_count=total_entries,
+                                   tasks_completed=tasks_completed,
+                                   tasks_assigned=tasks_assigned,
+                                   tasks_completion_percentage=tasks_completion_percentage,
+                                   streak_days=streak_days)
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
         has_analyses = await _has_weekly_analyses(user)
         reply_markup = get_progress_keyboard_with_weekly(language) if has_analyses else get_progress_keyboard_without_weekly(language)
         success = await safe_edit_message_text(

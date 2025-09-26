@@ -128,6 +128,11 @@ TASKS_MESSAGES_RU = {
         'feelings_load_error': 'Ошибка при загрузке ощущений',
         'error_loading_task_details': 'Ошибка при загрузке деталей задания',
         'task_completed_at': '''✅ <b>Завершено:</b> {completed_at}''',
-        'no_effect_description': '''Нет описания эффекта'''
+        'no_effect_description': '''Нет описания эффекта''',
+        'task_summary': '{task_count} незавершенных задач.', # или '1 незавершенная задача', '2 незавершенные задачи', и т.д. - но для простоты используем общий вариант
+        'task_summary_single': '1 незавершенная задача.',
+        'task_summary_few': '{task_count} незавершенные задачи.',
+        'task_summary_many': '{task_count} незавершенных задач.',
+        'task_summary_zero': '',
     }
 }

@@ -63,7 +63,7 @@ MESSAGES = {
 'data_not_found': '''❌ Данные не найдены''',
 'no_comment': '''Нет комментария''',
 'no_recommendation': '''Нет рекомендации''',
-'session_expired': '''⏰ Время сессии истекло (1 час). Сессия автоматически завершена.\nИспользуйте /start для начала новой сессии.'''
+'session_expired': '''⏰ Время сессии истекло (1 час). Сессия автоматически завершена.'''
     },
     'en': {
         # === Mood scores ===
@@ -124,7 +124,7 @@ MESSAGES = {
 'data_not_found': '''❌ Data not found''',
 'no_comment': '''No comment''',
 'no_recommendation': '''No recommendation''',
-'session_expired': '''⏰ Session time expired (1 hour). Session automatically completed.\nUse /start to begin a new session.'''
+'session_expired': '''⏰ Session time expired (1 hour). Session automatically completed'''
     }
 }
 
@@ -135,10 +135,10 @@ def get_message(key: str, language: str = 'ru', **kwargs) -> str:
     """
     Получение сообщения по ключу и языку с подстановкой параметров
     """
-    logger.info("=== GET_MESSAGE ===")
-    logger.info(f"Ключ: {key}")
-    logger.info(f"Язык: {language}")
-    logger.info(f"Параметры: {kwargs}")
+    logger.debug("=== GET_MESSAGE ===")
+    logger.debug(f"Ключ: {key}")
+    logger.debug(f"Язык: {language}")
+    logger.debug(f"Параметры: {kwargs}")
     if language not in MESSAGES:
         logger.warning(f"Неподдерживаемый язык: {language}, используем ru")
         language = 'ru'

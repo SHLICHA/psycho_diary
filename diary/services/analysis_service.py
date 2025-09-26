@@ -1,11 +1,10 @@
 import logging
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List
 from asgiref.sync import sync_to_async
 from django.db import transaction
 
 from core.constants import INSIGHT_CATEGORIES, KEYPOINT_TYPES
-from diary.models import DiaryEntry, KeyPoint, UserInsight
-from users.models import User
+from diary.models import DiaryEntry
 
 logger = logging.getLogger(__name__)
 
@@ -104,88 +103,6 @@ class AnalysisService:
             except Exception as e:
                 logger.error(f"Ошибка при валидации инсайта {insight_data}: {e}")
         return validated_insights
-
-    @sync_to_async
-    def extract_and_save_insights_and_keypoints(
-        self,
-        entry: DiaryEntry,
-        analysis_result: Dict[str, Any]
-    ) -> bool:
-        """
-        Извлекает и сохраняет инсайты и ключевые моменты из результата анализа.
-
-        Args:
-            entry: Запись дневника.
-            analysis_result: Результат анализа от API (словарь result_data).
-
-        Returns:
-            bool: True, если операция прошла успешно, иначе False.
-        """
-        logger.info(f"Начало извлечения и сохранения инсайтов и ключевых моментов для записи {entry.id}")
-        try:
-            user = entry.user
-            entry_date = entry.entry_date
-            raw_key_points = analysis_result.get('key_points', [])
-            validated_keypoints_data = self._extract_and_validate_keypoints(raw_key_points)
-            raw_user_insights = analysis_result.get('user_insights', [])
-            validated_insights_data = self._extract_and_validate_insights(raw_user_insights)
-            if validated_keypoints_data:
-                keypoints_to_create = [
-                    KeyPoint(
-                        entry=entry,
-                        text=kp_data['text'],
-                        type=kp_data['type'],
-                        confidence=kp_data['confidence']
-                    )
-                    for kp_data in validated_keypoints_data
-                ]
-                try:
-                    with transaction.atomic():
-                        created_keypoints = KeyPoint.objects.bulk_create(keypoints_to_create)
-                except Exception as bulk_create_error:
-                    logger.error(f"Ошибка при массовом создании KeyPoints для записи {entry.id}: {bulk_create_error}")
-            else:
-                logger.debug(f"Нет валидных ключевых моментов для сохранения для записи {entry.id}.")
-            insights_to_create = []
-            insights_to_update = []
-            if validated_insights_data:
-                try:
-                    with transaction.atomic(): 
-                        for insight_data in validated_insights_data:
-                            try:
-                                existing_insight = UserInsight.objects.select_for_update().get(
-                                    user=user, text=insight_data['text'], category=insight_data['category']
-                                )
-                                existing_insight.weight = min(existing_insight.weight + insight_data['weight'], 100)
-                                existing_insight.last_mentioned = entry.created_at
-                                insights_to_update.append(existing_insight)
-                            except UserInsight.DoesNotExist:
-                                insights_to_create.append(UserInsight(
-                                    user=user,
-                                    text=insight_data['text'],
-                                    category=insight_data['category'],
-                                    weight=insight_data['weight'],
-                                    last_mentioned=entry.created_at,
-                                    first_mentioned=entry.created_at,
-                                    source_entry=entry
-                                ))
-                        if insights_to_create:
-                            created_insights = UserInsight.objects.bulk_create(insights_to_create)
-                        if insights_to_update:
-                            updated_count = UserInsight.objects.bulk_update(
-                                insights_to_update, ['weight', 'last_mentioned']
-                            )
-                except Exception as bulk_ops_error:
-                    logger.error(f"Ошибка при массовых операциях (создание/обновление) UserInsights для записи {entry.id}: {bulk_ops_error}")
-                    return False
-            else:
-                logger.debug(f"Нет валидных инсайтов для сохранения для записи {entry.id}.")
-
-            logger.info(f"Успешно завершено извлечение и сохранение инсайтов и ключевых моментов для записи {entry.id}.")
-            return True
-        except Exception as e:
-            logger.error(f"Критическая ошибка в extract_and_save_insights_and_keypoints для записи {entry.id}: {e}", exc_info=True)
-            return False
 
 analysis_service = AnalysisService()
 

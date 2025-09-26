@@ -8,12 +8,11 @@ import json
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from django.db import transaction
-from django.db.models import Q
 from asgiref.sync import sync_to_async
 from aiogram.types import Message
 
 from prompts.get_prompt import get_prompt
-from diary.services.daily_state_service import daily_state_service
+from diary.services import daily_state_service
 from diary.models import DiaryEntry, TherapyTask, TaskCompletion, TaskCompletionAnalysis
 from users.models import User
 from bot.services.deepseek_api import deepseek_api_service

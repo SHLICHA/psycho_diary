@@ -503,27 +503,32 @@ async def view_detailed_task_analysis(callback: CallbackQuery, user, language: s
         except TherapyTask.DoesNotExist:
             await safe_answer_callback(callback, get_message('task_not_found', language), show_alert=True)
             return
+
         if task.status != 'completed':
              await safe_answer_callback(callback, get_message('task_not_completed_for_analysis', language), show_alert=True)
              return
+
         try:
             completion = await TaskCompletion.objects.aget(task=task)
         except TaskCompletion.DoesNotExist:
             await safe_answer_callback(callback, get_message('task_completion_not_found', language), show_alert=True)
+            # --- ИСПРАВЛЕНО: Используем клавиатуру истории ---
             await safe_edit_message_text(
                 message=callback.message,
                 text=get_message('task_completion_not_found', language),
-                reply_markup=get_back_keyboard(language)
+                reply_markup=get_task_history_main_keyboard(language) # <-- Заменено
             )
             return
+
         try:
             analysis = await TaskCompletionAnalysis.objects.aget(completion=completion, is_obsolete=False)
         except TaskCompletionAnalysis.DoesNotExist:
             await safe_answer_callback(callback, get_message('task_analysis_not_found', language), show_alert=True)
+            # --- ИСПРАВЛЕНО: Используем клавиатуру истории ---
             await safe_edit_message_text(
                 message=callback.message,
                 text=get_message('task_analysis_not_found', language),
-                reply_markup=get_back_keyboard(language)
+                reply_markup=get_task_history_main_keyboard(language) # <-- Заменено
             )
             return
         except TaskCompletionAnalysis.MultipleObjectsReturned:
@@ -531,17 +536,23 @@ async def view_detailed_task_analysis(callback: CallbackQuery, user, language: s
             if not analysis:
                  await safe_answer_callback(callback, get_message('task_analysis_error', language), show_alert=True)
                  return
+
         if analysis.detailed_analysis:
             header = get_message('detailed_task_analysis_header', language).format(task_title=task.title)
             analysis_text = f"<b>{header}</b>\n\n{analysis.detailed_analysis}"
         else:
             analysis_text = get_message('task_analysis_no_details', language).format(task_title=task.title)
 
-        back_button = [[InlineKeyboardButton(
-            text=get_button_text('btn_back', language),
-            callback_data="task_history_main"
-        )]]
-        reply_markup = InlineKeyboardMarkup(inline_keyboard=back_button)
+        # --- ИСПРАВЛЕНО: Используем клавиатуру истории ---
+        # back_button = [[InlineKeyboardButton(
+        #     text=get_button_text('btn_back', language),
+        #     callback_data="task_history_main"
+        # )]]
+        # reply_markup = InlineKeyboardMarkup(inline_keyboard=back_button)
+        # reply_markup = get_back_keyboard(language) # <-- Было
+        reply_markup = get_task_history_main_keyboard(language) # <-- Стало
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
         await safe_edit_message_text(
             message=callback.message,
             text=analysis_text,
@@ -554,7 +565,6 @@ async def view_detailed_task_analysis(callback: CallbackQuery, user, language: s
     except Exception as e:
         logger.error(f"Ошибка при просмотре детального анализа задания {task_id}: {e}", exc_info=True)
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
-
 #=========================ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ=====================================
 async def _format_task_history_detail(task: TherapyTask, language: str, state: FSMContext) -> str: 
     """

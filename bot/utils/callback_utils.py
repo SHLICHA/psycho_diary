@@ -54,7 +54,6 @@ async def extract_callback_data_parts(
     try:
         if callback.data:
             parts = callback.data.split(separator)
-            logger.info(f"Извлечено {len(parts)} частей из callback_data")
             return parts
         else:
             logger.warning("Callback data отсутствует")
@@ -81,18 +80,14 @@ async def get_callback_data_part(
     Returns:
         Any: Часть callback_data или значение по умолчанию
     """
-    logger.info(f"Получение части callback_data[{index}] от пользователя {callback.from_user.id}")
-    
     try:
         parts = await extract_callback_data_parts(callback, separator)
         if 0 <= index < len(parts):
             part = parts[index]
-            logger.info(f"Получена часть callback_data: {part}")
             return part
         else:
             logger.warning(f"Индекс {index} выходит за пределы callback_data")
             return default
-            
     except Exception as e:
         logger.error(f"Ошибка при получении части callback_data: {e}")
         return default
@@ -121,15 +116,12 @@ async def parse_callback_data_with_types(
                 try:
                     value = target_type(parts[index])
                     parsed_data[f'part_{index}'] = value
-                    logger.info(f"Часть {index} преобразована в {target_type.__name__}: {value}")
                 except (ValueError, TypeError) as convert_error:
                     logger.error(f"Ошибка преобразования части {index} в {target_type.__name__}: {convert_error}")
                     parsed_data[f'part_{index}'] = parts[index]
             else:
                 logger.warning(f"Индекс {index} выходит за пределы callback_data")
                 parsed_data[f'part_{index}'] = None
-        
-        logger.info(f"Callback_data успешно распарсен: {parsed_data}")
         return parsed_data
         
     except Exception as e:
@@ -181,7 +173,6 @@ def sanitize_callback_data(
             sanitized_data = callback_data[:max_length]
             return sanitized_data
         else:
-            logger.info("Callback_data не требуют санитизации")
             return callback_data
             
     except Exception as e:

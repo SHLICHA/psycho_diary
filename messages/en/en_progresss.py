@@ -1,12 +1,6 @@
 PROGRESS_MESSAGES_EN = {
     'en': {
-        'progress_title': '''📊 <b>Your progress</b>
-
-📈 <b>Awareness level:</b> {awareness_level}/10
-📝 <b>Total entries:</b> {entries_count}
-🎯 <b>Tasks completed:</b> {tasks_completed}
-📅 <b>Day streak:</b> {streak_days}''',
-        
+        'progress_title': '🎯 <b>Your Progress</b>\n\n🧠 Awareness Level: {awareness_level}/10\n📝 Entries: {entries_count}\n✅ Tasks: {tasks_completed}/{tasks_assigned} ({tasks_completion_percentage:.1f}%)\n🔥 Streak Days: {streak_days}',
         'progress_detailed': '''📊 <b>Detailed statistics</b>
 
 📉 <b>Mood dynamics:</b>
