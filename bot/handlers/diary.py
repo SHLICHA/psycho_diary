@@ -976,11 +976,14 @@ async def _show_entry_page(message, user, entry, entries, target_date, language)
             entry_datetime_str = entry.created_at.strftime('%d.%m.%Y %H:%M UTC')
         mood_score_display = "Н/Д"
         analysis_comment = ""
+        analysis_recommendation = ""
         try:
             analysis = await PsychoAnalysis.objects.aget(entry=entry)
             mood_score_display = str(analysis.mood_score)
             if analysis.comment:
-                 analysis_comment = analysis.comment
+                analysis_comment = analysis.comment
+            if analysis.recommendation:
+                analysis_recommendation = analysis.recommendation
         except PsychoAnalysis.DoesNotExist:
             pass
         header = f"📅 <b>{entry_datetime_str}</b>\n"
@@ -988,6 +991,9 @@ async def _show_entry_page(message, user, entry, entries, target_date, language)
         analysis_section = ""
         if analysis_comment:
             analysis_section = f"\n\n📊 <b>Анализ:</b>\n{analysis_comment}"
+        if analysis_recommendation: # <-- Добавляем рекомендацию в секцию анализа
+            # Можно использовать другой тег, если хочется визуально отделить
+            analysis_section += f"🎯 <b>Рекомендация:</b> {analysis_recommendation}"
         footer = f"\n\n📊 <b>Оценка:</b> {mood_score_display}/10"
         text = header + entry_content + analysis_section + footer
         is_day_analyzed = False
