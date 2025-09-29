@@ -30,6 +30,8 @@ from .calendar_keyboard import (
 # Универсальные клавиатуры
 from .common_keyboards import (
     get_cancel_keyboard,
+    get_add_foto_kb,
+    get_skip_kb
 )
 
 # Клавиатуры настроек
@@ -87,6 +89,8 @@ from .profile_keyboards import (
 __all__ = [
     # Основные клавиатуры
     'get_main_menu_keyboard',
+    'get_add_foto_kb',
+    'get_skip_kb',
     
     # Клавиатуры календаря
     'get_smart_calendar_keyboard',

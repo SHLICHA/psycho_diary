@@ -40,6 +40,10 @@ ENTRY_MESSAGES_RU = {
         'reminder_clarification': '📝 Ты не ответил(а) на уточняющие вопросы, отправленные ранее. Пожалуйста, ответь, чтобы получить более точный анализ.',
         'reminder_entry': '📝 <b>Не забудь сделать запись в дневник сегодня!</b>\n\nПоделись своими мыслями и чувствами, чтобы лучше понимать себя.{task_text}',
         'new_ai_task': '''\n📌 <b>Новое задание:</b>\n<b>{title}</b>\n{preview}''',
-
+        'entry_header': '''<b>Запись {current_index}/{total}</b>\n{entry_text}''',
+        'analysis_section': '''\n\n📊 <b>Анализ:</b>\n{analysis_comment}''',
+        'recommendation_section': '''\n🎯 <b>Рекомендация:</b> {analysis_recommendation}''',
+        'entry_footer': '''\n\n📊 <b>Оценка:</b> {mood_score_display}/10''',
+        'streak_reset_warning': ' (обнулится сегодня, если не напишете)',
         }
 }

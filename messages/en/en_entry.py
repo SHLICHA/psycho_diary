@@ -41,6 +41,11 @@ ENTRY_MESSAGES_EN = {
         'btn_skip_clarification': '➡️ Skip questions',
         'reminder_clarification': '📝 You did not respond to the clarifying questions sent earlier. Please reply to get a more accurate analysis.',
         'reminder_entry': '📝 <b>Don\'t forget to make a diary entry today!</b>\n\nShare your thoughts and feelings to better understand yourself.{task_text}',
-        'new_ai_task': '''\n📌 <b>New task:</b>\n<b>{title}</b>\n{preview}'''
+        'new_ai_task': '''\n📌 <b>New task:</b>\n<b>{title}</b>\n{preview}''',
+        'entry_header': '''<b>Entry {current_index}/{total}</b>\n{entry_text}''',
+        'analysis_section': '''\n\n📊 <b>Analysis:</b>\n{analysis_comment}''',
+        'recommendation_section': '''\n🎯 <b>Recommendation:</b> {analysis_recommendation}''',
+        'entry_footer': '''\n\n📊 <b>Rating:</b> {mood_score_display}/10''',
+        'streak_reset_warning': ' (resets today if you don\'t write)',
         }
 }

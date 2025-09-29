@@ -32,5 +32,27 @@ Choose an action:''',
         'btn_help': '❓ Help',
         'btn_back': '''🔙 Back''',
         'btn_cancel': '❌ Cancel',
+        'feedback': '''📩 <b>Feedback</b>
+
+Write to us about:
+• Bot operation issues
+• Improvement suggestions
+• Functionality questions
+
+You can send text or voice message.''',
+    'btn_add_screenshot': '''📷 Add screenshot''',
+    'btn_send_without_photo': '''➡️ Send without photo''',
+    'screenshot_prompt': '''Would you like to attach a screenshot for clarity?''',
+    'screenshot_instructions': '''🖼 <b>Send screenshot</b>
+
+Simply send a photo or image that will help understand your issue/suggestion.''',
+    'feedback_thanks': '''✅ <b>Thank you for your feedback!</b>
+
+Your message has been successfully sent to the developers.
+We will review it shortly.''',
+    'voice_message_accepted': '''🎤 <b>Voice message accepted!</b>
+
+Would you like to attach a screenshot for better understanding?''',
+'support_response': '''📩 Support response to your request #{feedback_id}:\n\n{message_text}'''
     }
 }

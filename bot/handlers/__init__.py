@@ -12,6 +12,7 @@ from .progress import router as progress_router
 from .profile import router as profile_router
 from .help import router as help_router
 from .onboarding import router as onboarding_router
+from .feedback import router as feedback_router
 
 # Присваиваем имена
 calendar_router.name = "Calendar_router"
@@ -23,6 +24,7 @@ progress_router.name = "Progress_router"
 help_router.name = "Help_router"
 profile_router.name = "Profile_router"
 onboarding_router.name = 'Onboarding_router'
+feedback_router.name = "Feedback_router"
 
 
 # Создаем список всех роутеров
@@ -35,7 +37,8 @@ all_routers = [
     profile_router,
     help_router,
     calendar_router,
-    onboarding_router
+    onboarding_router,
+    feedback_router
 ]
 
 __all__ = [
@@ -48,5 +51,6 @@ __all__ = [
     'help_router',
     'calendar_router',
     'all_routers',
-    'onboarding_router'
+    'onboarding_router',
+    'feedback_router'
 ]

@@ -38,6 +38,8 @@ MESSAGES = {
         'btn_back_to_day': '🔙 Назад к дню',
         'btn_back_to_day_without_analysis': '🔙 Назад без анализа',
         'btn_back_to_edit_day': '🔙 Назад к редактированию',
+        'btn_skip': '''⏭ Пропустить''',
+
         # === Уведомления ===
         'reminder_entry': '📝 Не забудь сделать запись в дневник сегодня!',
         'reminder_task': '🎯 У тебя есть невыполненное задание!',
@@ -63,7 +65,8 @@ MESSAGES = {
 'data_not_found': '''❌ Данные не найдены''',
 'no_comment': '''Нет комментария''',
 'no_recommendation': '''Нет рекомендации''',
-'session_expired': '''⏰ Время сессии истекло (1 час). Сессия автоматически завершена.'''
+'session_expired': '''⏰ Время сессии истекло (1 час). Сессия автоматически завершена.''',
+'photo_too_large': '''⚠️ Фото слишком большое. Максимальный размер - 20 МБ'''
     },
     'en': {
         # === Mood scores ===
@@ -96,6 +99,7 @@ MESSAGES = {
         'btn_back_to_day': '🔙 Back to day',
         'btn_back_to_day_without_analysis': '🔙 Back without analysis',
         'btn_back_to_edit_day': '🔙 Back to editing',
+        'btn_skip': '''⏭ Skip''',
         
         # === Notifications ===
         'reminder_entry': '📝 Don\'t forget to make an entry in your diary today!',
@@ -124,7 +128,8 @@ MESSAGES = {
 'data_not_found': '''❌ Data not found''',
 'no_comment': '''No comment''',
 'no_recommendation': '''No recommendation''',
-'session_expired': '''⏰ Session time expired (1 hour). Session automatically completed'''
+'session_expired': '''⏰ Session time expired (1 hour). Session automatically completed''',
+'photo_too_large': '''⚠️ Photo is too large. Maximum size - 20 MB'''
     }
 }
 
@@ -135,10 +140,10 @@ def get_message(key: str, language: str = 'ru', **kwargs) -> str:
     """
     Получение сообщения по ключу и языку с подстановкой параметров
     """
-    logger.debug("=== GET_MESSAGE ===")
-    logger.debug(f"Ключ: {key}")
-    logger.debug(f"Язык: {language}")
-    logger.debug(f"Параметры: {kwargs}")
+    #logger.debug("=== GET_MESSAGE ===")
+    #logger.debug(f"Ключ: {key}")
+    #logger.debug(f"Язык: {language}")
+    #logger.debug(f"Параметры: {kwargs}")
     if language not in MESSAGES:
         logger.warning(f"Неподдерживаемый язык: {language}, используем ru")
         language = 'ru'

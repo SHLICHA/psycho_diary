@@ -2,7 +2,10 @@
 Handlers для прогресса
 """
 import logging
-from datetime import date, datetime, timedelta, timezone
+import pytz
+
+from datetime import date, datetime, timedelta
+from datetime import time as dtime
 from django.db.models.functions import TruncDate
 from aiogram import F, Router
 from aiogram.types import CallbackQuery
@@ -35,80 +38,82 @@ async def _get_user_statistics(user) -> dict:
     stats = {
         'entries_count': 0,
         'tasks_completed': 0,
-        'tasks_assigned': 0, # Добавляем общее количество назначенных задач
-        'tasks_completion_percentage': 0.0, # Добавляем процент выполнения
-        'streak_days': 0, # Теперь это текущий стрик
+        'tasks_assigned': 0,
+        'tasks_completion_percentage': 0.0,
+        'streak_days': 0,
+        'has_entry_today': False,
+        'streak_reset_warning': "",
     }
     try:
-        # --- Подсчёт общего количества записей ---
         @sync_to_async
         def _count_entries():
             return DiaryEntry.objects.filter(user=user).count()
         stats['entries_count'] = await _count_entries()
-
-        # --- Подсчёт выполненных задач ---
         @sync_to_async
         def _count_tasks_completed():
             return TaskCompletion.objects.filter(task__user=user).count()
         stats['tasks_completed'] = await _count_tasks_completed()
-
-        # --- Подсчёт назначенных задач ---
         @sync_to_async
         def _count_tasks_assigned():
             return TherapyTask.objects.filter(user=user).count()
         stats['tasks_assigned'] = await _count_tasks_assigned()
-
-        # --- Вычисление процента выполнения ---
         if stats['tasks_assigned'] > 0:
             stats['tasks_completion_percentage'] = (stats['tasks_completed'] / stats['tasks_assigned']) * 100.0
-        # Если задач не было назначено, процент остается 0.0
-
-        # --- Подсчёт текущего стрика дней подряд с записями ---
         @sync_to_async
-        def _calculate_current_streak():
-            # (Вставьте сюда логику подсчёта стрика из предыдущего ответа)
-            # 1. Получаем уникальные дни, когда были записи, отсортированные по убыванию
-            # Используем TruncDate и часовой пояс пользователя
+        def _check_entry_today():
+            
+            from datetime import time as dtime
             user_timezone_str = user.timezone or 'UTC'
             try:
-                user_tz = timezone(user_timezone_str)
+                user_tz = pytz.timezone(user_timezone_str)
             except Exception:
                 logger.warning(f"Неверный часовой пояс для пользователя {user.id}: {user_timezone_str}. Используем UTC.")
-                user_tz = timezone('UTC')
-
-            # Запрос: получить уникальные даты (в часовом поясе пользователя) создания записей
+                user_tz = pytz.UTC
+            now_user_tz = datetime.now(user_tz)
+            today_user_date = now_user_tz.date()
+            start_of_day_user_tz = datetime.combine(today_user_date, dtime.min)
+            start_of_day_user_tz = user_tz.localize(start_of_day_user_tz)
+            end_of_day_user_tz = datetime.combine(today_user_date, dtime.max)
+            end_of_day_user_tz = user_tz.localize(end_of_day_user_tz)
+            start_of_day_utc = start_of_day_user_tz.astimezone(pytz.utc)
+            end_of_day_utc = end_of_day_user_tz.astimezone(pytz.utc)
+            return DiaryEntry.objects.filter(
+                user=user,
+                created_at__gte=start_of_day_utc,
+                created_at__lte=end_of_day_utc
+            ).exists()
+        stats['has_entry_today'] = await _check_entry_today()
+        @sync_to_async
+        def _calculate_current_streak():
+            from datetime import datetime
+            import pytz
+            from django.db.models.functions import TruncDate
+            from django.db.models import Q
+            user_timezone_str = user.timezone or 'UTC'
+            try:
+                user_tz = pytz.timezone(user_timezone_str)
+            except Exception:
+                logger.warning(f"Неверный часовой пояс для пользователя {user.id}: {user_timezone_str}. Используем UTC.")
+                user_tz = pytz.UTC
             entry_dates_qs = DiaryEntry.objects.filter(user=user).annotate(
-                entry_date=TruncDate('created_at', tzinfo=user_tz) # Обрезаем до даты в часовом поясе пользователя
+                entry_date=TruncDate('created_at', tzinfo=user_tz)
             ).values('entry_date').order_by('-entry_date').distinct()
-
-            # Извлекаем даты в список
             entry_dates = [item['entry_date'] for item in entry_dates_qs]
-
             if not entry_dates:
-                return 0 # Нет ни одной записи
-
-            # 2. Вычисляем стрик
-            # Берём сегодняшнюю дату в часовом поясе пользователя
+                return 0 
             today_user_date = datetime.now(user_tz).date()
-
             streak = 0
-            expected_date = today_user_date # Начинаем с сегодняшней даты пользователя
-
+            expected_date = today_user_date
             for entry_date in entry_dates:
                 if entry_date == expected_date:
                     streak += 1
-                    expected_date -= timedelta(days=1) # Переходим к предыдущему дню
+                    expected_date -= timedelta(days=1)
                 elif entry_date < expected_date:
-                    # Был пропуск дня (или несколько)
                     break
-                # else: entry_date > expected_date - такого быть не должно при сортировке desc
-
             return streak
-
-        from datetime import datetime # Импортируем datetime для получения даты в часовом поясе
         stats['streak_days'] = await _calculate_current_streak()
-        # --- Конец подсчёта стрика ---
-
+        if not stats['has_entry_today'] and stats['streak_days'] > 0:
+             stats['streak_reset_warning'] = get_message('streak_reset_warning', user.language or 'ru', streak_days=stats['streak_days'])
     except Exception as e:
         logger.error(f"[_get_user_statistics] Ошибка при подсчете статистики для пользователя {user.id}: {e}", exc_info=True)
     return stats
@@ -133,18 +138,18 @@ async def show_progress(callback: CallbackQuery, user, language: str):
         user_stats = await _get_user_statistics(user)
         total_entries = user_stats['entries_count']
         tasks_completed = user_stats['tasks_completed']
-        tasks_assigned = user_stats['tasks_assigned'] # Получаем из статистики
-        tasks_completion_percentage = user_stats['tasks_completion_percentage'] # Получаем из статистики
+        tasks_assigned = user_stats['tasks_assigned']
+        tasks_completion_percentage = user_stats['tasks_completion_percentage']
         streak_days = user_stats['streak_days']
-        # --- ИЗМЕНЕНИЕ: Передаём новые параметры ---
+        streak_reset_warning = user_stats['streak_reset_warning']
         progress_msg = get_message('progress_title', language,
                                    awareness_level=awareness_level_current,
                                    entries_count=total_entries,
                                    tasks_completed=tasks_completed,
                                    tasks_assigned=tasks_assigned,
                                    tasks_completion_percentage=tasks_completion_percentage,
-                                   streak_days=streak_days)
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+                                   streak_days=streak_days,
+                                   streak_reset_warning=streak_reset_warning)
         has_analyses = await _has_weekly_analyses(user)
         reply_markup = get_progress_keyboard_with_weekly(language) if has_analyses else get_progress_keyboard_without_weekly(language)
         success = await safe_edit_message_text(

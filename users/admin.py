@@ -4,7 +4,7 @@ from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from django.urls import reverse
 
-from .models import User, CityTimezone, UserProfileHistory
+from .models import Feedback, User, CityTimezone, UserProfileHistory
 
 @admin.register(UserProfileHistory)
 class UserProfileHistoryAdmin(admin.ModelAdmin):
@@ -177,3 +177,68 @@ class CityTimezoneAdmin(admin.ModelAdmin):
             messages.error(request, f"Неверный часовой пояс: {obj.timezone}")
             return
         super().save_model(request, obj, form, change)
+
+@admin.register(Feedback)
+class FeedbackAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user_link', 'short_message', 'feedback_type', 
+                   'status_badge', 'created_at')
+    list_filter = ('status', 'is_voice', 'is_photo', 'created_at')
+    search_fields = ('message', 'user__username', 'admin_response')
+    readonly_fields = ('created_at', 'user', 'message', 'is_voice', 'is_photo')
+    list_per_page = 30
+    date_hierarchy = 'created_at'
+    actions = ['mark_as_processed', 'mark_as_replied']
+    
+    fieldsets = (
+        (None, {
+            'fields': ('user', 'message', 'is_voice', 'is_photo')
+        }),
+        ('Ответ администратора', {
+            'fields': ('admin_response', 'status')
+        }),
+        ('Даты', {
+            'fields': ('created_at',),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def user_link(self, obj):
+        url = f"/admin/bot/user/{obj.user.id}/change/"
+        return format_html('<a href="{}">{}</a>', url, obj.user.username)
+    user_link.short_description = 'Пользователь'
+    
+    def short_message(self, obj):
+        return (obj.message[:50] + '...') if len(obj.message) > 50 else obj.message
+    short_message.short_description = 'Сообщение'
+    
+    def feedback_type(self, obj):
+        if obj.is_voice:
+            return 'Голосовое'
+        if obj.is_photo:
+            return 'Фото'
+        return 'Текст'
+    feedback_type.short_description = 'Тип'
+    
+    def status_badge(self, obj):
+        status_map = {
+            'new': ('gray', 'Новое'),
+            'processed': ('blue', 'Обработано'),
+            'replied': ('green', 'Ответ отправлен')
+        }
+        color, text = status_map.get(obj.status, ('black', 'Unknown'))
+        return format_html(
+            '<span style="color: white; background-color: {}; '
+            'padding: 3px 5px; border-radius: 3px;">{}</span>',
+            color, text
+        )
+    status_badge.short_description = 'Статус'
+    
+    @admin.action(description='Пометить как обработанные')
+    def mark_as_processed(self, request, queryset):
+        updated = queryset.filter(status='new').update(status='processed')
+        self.message_user(request, f"Помечено как обработанные: {updated} обращений")
+    
+    @admin.action(description='Пометить как отвеченные')
+    def mark_as_replied(self, request, queryset):
+        updated = queryset.filter(status__in=['new', 'processed']).update(status='replied')
+        self.message_user(request, f"Помечено как отвеченные: {updated} обращений")

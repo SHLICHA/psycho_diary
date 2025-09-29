@@ -44,9 +44,9 @@ PROMPTS['ru']['task_effect_analysis'] = TASK_EFFECT_ANALYSIS_PROMPT['ru']
 PROMPTS['en']['task_effect_analysis'] = TASK_EFFECT_ANALYSIS_PROMPT['en']
 
 def get_prompt(key: str, language: str = 'ru', **kwargs) -> str:
-    logger.debug(f"=== GET_PROMPT ===")
-    logger.debug(f"Ключ: {key}")
-    logger.debug(f"Язык: {language}")
+    #logger.debug(f"=== GET_PROMPT ===")
+    #logger.debug(f"Ключ: {key}")
+    #logger.debug(f"Язык: {language}")
     if language not in PROMPTS:
         logger.warning(f"Неподдерживаемый язык: {language}, используем 'ru'")
         language = 'ru'

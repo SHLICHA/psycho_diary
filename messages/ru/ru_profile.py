@@ -20,5 +20,31 @@ PROFILE_MESSAGES_RU = {
     'description_shortened': '''\n\n<i>...(описание сокращено)...</i>''',
     'portrait_not_ready': '''Еще не сформировано. Продолжайте вести дневник, и ИИ постепенно создаст ваш психологический портрет.''',
     'message_truncated': '''\n\n<i>...(сообщение обрезано)...</i>''',
+    # --- Кнопки для просмотра полей профиля ---
+    'btn_view_values': '🎯 Ключевые ценности',
+    'btn_view_triggers': '⚠️ Триггеры',
+    'btn_view_strengths': '💪 Сильные стороны',
+    'btn_view_growth': '🌱 Зоны роста',
+    'btn_view_insights': '💡 Глубинные инсайты',
+    'btn_view_description': 'Текстовое описание',
+    'btn_back_to_psychology': '🔙 Назад к психологическому портрету',
+    # --- Названия полей ---
+    'field_name_core_values': 'Ключевые ценности',
+    'field_name_triggers': 'Триггеры',
+    'field_name_strengths': 'Сильные стороны',
+    'field_name_areas_for_growth': 'Зоны роста',
+    'field_name_personality_insights': 'Глубинные инсайты',
+    'field_name_personality_description': 'Текстовое описание',
+    'field_name_personality_traits': 'Черты характера',
+    'field_name_life_facts': 'Факты о жизни',
+    'field_name_hobbies': 'Увлечения',
+    'field_name_habits': 'Привычки',
+    'field_name_skills': 'Навыки',
+    'field_name_aspirations': 'Стремления',
+    # --- Сообщения об ошибках и пустых полях ---
+    'field_not_found': 'Поле не найдено.',
+    'profile_field_empty_list': '(Список пуст)',
+    'profile_field_empty_dict': '(Словарь пуст)',
+    'profile_field_empty_string': '(Поле пустое)',
     }
 }

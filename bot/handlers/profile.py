@@ -79,15 +79,58 @@ async def show_psychology_profile(callback: CallbackQuery, user, language: str):
             psychology_msg += get_message(key='portrait_not_ready', language=user.language)
         if len(psychology_msg) > MAX_TOTAL_LENGTH:
              psychology_msg = psychology_msg[:MAX_TOTAL_LENGTH] + get_message(key='message_truncated', language=user.language)
-        back_buttons = [
-            [
+
+        # --- НОВАЯ КЛАВИАТУРА ---
+        # Создаём клавиатуру с кнопками для просмотра отдельных полей
+        profile_detail_buttons = []
+
+        # Проверяем, есть ли данные для отображения
+        if user.core_values:
+            profile_detail_buttons.append([
                 InlineKeyboardButton(
-                    text=get_button_text('btn_back', language),
-                    callback_data="user_profile"
+                    text=get_button_text('btn_view_values', language), # Добавим этот ключ в messages
+                    callback_data="view_profile_field:core_values"
                 )
-            ]
-        ]
-        keyboard = InlineKeyboardMarkup(inline_keyboard=back_buttons)
+            ])
+        if user.triggers:
+            profile_detail_buttons.append([
+                InlineKeyboardButton(
+                    text=get_button_text('btn_view_triggers', language), # Добавим этот ключ в messages
+                    callback_data="view_profile_field:triggers"
+                )
+            ])
+        if user.strengths:
+            profile_detail_buttons.append([
+                InlineKeyboardButton(
+                    text=get_button_text('btn_view_strengths', language), # Добавим этот ключ в messages
+                    callback_data="view_profile_field:strengths"
+                )
+            ])
+        if user.areas_for_growth:
+            profile_detail_buttons.append([
+                InlineKeyboardButton(
+                    text=get_button_text('btn_view_growth', language), # Добавим этот ключ в messages
+                    callback_data="view_profile_field:areas_for_growth"
+                )
+            ])
+        if user.personality_insights:
+            profile_detail_buttons.append([
+                InlineKeyboardButton(
+                    text=get_button_text('btn_view_insights', language), # Добавим этот ключ в messages
+                    callback_data="view_profile_field:personality_insights"
+                )
+            ])
+        # Кнопка "Назад" к общему профилю
+        profile_detail_buttons.append([
+            InlineKeyboardButton(
+                text=get_button_text('btn_back', language),
+                callback_data="user_profile" # Возврат к основному профилю
+            )
+        ])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=profile_detail_buttons)
+        # --- КОНЕЦ НОВОЙ КЛАВИАТУРЫ ---
+
         await callback.message.edit_text(
             psychology_msg,
             reply_markup=keyboard,
@@ -99,3 +142,109 @@ async def show_psychology_profile(callback: CallbackQuery, user, language: str):
         error_msg = get_message('error_generic', language=language)
         await callback.message.edit_text(error_msg, reply_markup=get_back_keyboard(language))
         await callback.answer(error_msg, show_alert=True)
+
+@router.callback_query(F.data.startswith("view_profile_field:"))
+async def show_profile_field(callback: CallbackQuery, user, language: str):
+    """Показывает конкретное поле психологического профиля."""
+    try:
+        field_key = callback.data.split(":")[1]
+
+        # --- ПРОВЕРКА НА ВАЛИДНОСТЬ ПОЛЯ (ОПЦИОНАЛЬНО, но рекомендуется) ---
+        # Список ожидаемых полей
+        valid_profile_fields = {
+            'personality_traits', 'life_facts', 'hobbies', 'core_values',
+            'triggers', 'strengths', 'areas_for_growth', 'personality_insights',
+            'habits', 'skills', 'aspirations', 'personality_description'
+        }
+        if field_key not in valid_profile_fields:
+            logger.warning(f"Получен запрос на отображение недопустимого поля профиля: {field_key}")
+            error_msg = get_message('field_not_found', language)
+            await callback.answer(error_msg, show_alert=True)
+            return
+        # --- КОНЕЦ ПРОВЕРКИ ---
+
+        field_value = getattr(user, field_key, None)
+        # --- ИСПРАВЛЕНО: Используем get_message для названия поля ---
+        # Предполагаем, что в messages есть ключи вроде 'field_name_core_values', 'field_name_triggers', и т.д.
+        # Добавим эмодзи к названию поля (если не в get_message)
+        field_emojis = {
+            'core_values': '🎯',
+            'triggers': '⚠️',
+            'strengths': '💪',
+            'areas_for_growth': '🌱',
+            'personality_insights': '💡',
+            'personality_description': '📝',
+            'personality_traits': '🧠',
+            'life_facts': '📋',
+            'hobbies': '🎨',
+            'habits': '🔄',
+            'skills': '🛠️',
+            'aspirations': '🌟',
+        }
+        emoji = field_emojis.get(field_key, '📋')
+        field_display_name = f"{emoji} {get_message(f'field_name_{field_key}', language)}"
+
+        if field_value is None:
+            error_msg = get_message('field_not_found', language)
+            await callback.answer(error_msg, show_alert=True)
+            return
+
+        field_text = ""
+        if isinstance(field_value, list):
+            if field_value:
+                formatted_items = []
+                item_emoji = "\n🔸"
+                for item in field_value:
+                    if isinstance(item, dict):
+                        item_text = item.get('text') or item.get('name') or item.get('theme') or item.get('emotion') or item.get('category') or str(item)
+                        item_text = item_text or item.get('insight') or item.get('pattern') or item_text
+                        if 'text' in item and 'category' in item:
+                             insight_text = item['text']
+                             insight_category = item['category']
+                             formatted_items.append(f"{item_emoji} {insight_text} (Категория: {insight_category})")
+                        elif 'emotion' in item and 'context' in item:
+                             emotion_text = item['emotion']
+                             emotion_context = item['context']
+                             formatted_items.append(f"{item_emoji} {emotion_text} (Контекст: {emotion_context})")
+                        else:
+                             formatted_items.append(f"{item_emoji} {item_text}")
+                    else:
+                        formatted_items.append(f"{item_emoji} {item}")
+                field_text = f"<b>{field_display_name}</b>" + " ".join(formatted_items)
+            else:
+                field_text = f"<b>{field_display_name}</b>" + get_message('profile_field_empty_list', language)
+        elif isinstance(field_value, dict):
+            if field_value:
+                dict_items = [f"  <b>{k}</b>: {v}" for k, v in field_value.items()]
+                field_text = f"<b>{field_display_name}</b>" + " ".join(dict_items)
+            else:
+                field_text = f"<b>{field_display_name}</b>" + get_message('profile_field_empty_dict', language)
+        elif isinstance(field_value, str):
+            if field_value.strip():
+                field_text = f"<b>{field_display_name}</b>{field_value.strip()}"
+            else:
+                field_text = f"<b>{field_display_name}</b>" + get_message('profile_field_empty_string', language)
+        else:
+            field_text = f"<b>{field_display_name}</b>{field_value}"
+        back_to_psychology_button = [
+            [
+                InlineKeyboardButton(
+                    text=get_button_text('btn_back_to_psychology', language),
+                    callback_data="view_psychology_profile"
+                )
+            ]
+        ]
+        keyboard = InlineKeyboardMarkup(inline_keyboard=back_to_psychology_button)
+        await callback.message.edit_text(
+            field_text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+        await callback.answer()
+    except (IndexError, ValueError) as e:
+        logger.error(f"Ошибка парсинга callback_data в show_profile_field: {callback.data} - {e}")
+        await callback.answer(get_message('error_generic', language), show_alert=True)
+    except Exception as e:
+        logger.error(f"Ошибка при показе поля профиля {callback.data}: {e}", exc_info=True)
+        await callback.answer(get_message('error_generic', language), show_alert=True)
+

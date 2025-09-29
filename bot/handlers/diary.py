@@ -987,14 +987,19 @@ async def _show_entry_page(message, user, entry, entries, target_date, language)
         except PsychoAnalysis.DoesNotExist:
             pass
         header = f"📅 <b>{entry_datetime_str}</b>\n"
-        entry_content = f"<b>Запись {current_index + 1}/{total}</b>\n{entry.text}"
+        entry_content = get_message('entry_header', language, 
+                                current_index=current_index + 1, 
+                                total=total, 
+                                entry_text=entry.text)
         analysis_section = ""
         if analysis_comment:
-            analysis_section = f"\n\n📊 <b>Анализ:</b>\n{analysis_comment}"
-        if analysis_recommendation: # <-- Добавляем рекомендацию в секцию анализа
-            # Можно использовать другой тег, если хочется визуально отделить
-            analysis_section += f"🎯 <b>Рекомендация:</b> {analysis_recommendation}"
-        footer = f"\n\n📊 <b>Оценка:</b> {mood_score_display}/10"
+            analysis_section = get_message('analysis_section', language, 
+                                        analysis_comment=analysis_comment)
+        if analysis_recommendation:
+            analysis_section += get_message('recommendation_section', language, 
+                                        analysis_recommendation=analysis_recommendation)
+        footer = get_message('entry_footer', language, 
+                    mood_score_display=mood_score_display)
         text = header + entry_content + analysis_section + footer
         is_day_analyzed = False
         try:

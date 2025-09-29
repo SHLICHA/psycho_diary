@@ -2,6 +2,7 @@ import pytz
 import logging
 import json
 
+from asgiref.sync import sync_to_async
 from datetime import datetime
 from django.contrib.auth.models import AbstractUser
 from django.db import models
@@ -115,8 +116,6 @@ class UserProfileHistory(models.Model):
     """
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='profile_history', verbose_name="Пользователь")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания слепка")
-    
-    # --- Структурированные данные профиля на момент создания слепка ---
     awareness_level = models.PositiveIntegerField(verbose_name="Уровень осознанности")
     personality_traits = models.JSONField(verbose_name="Черты характера")
     life_facts = models.JSONField(verbose_name="Факты о жизни")
@@ -129,25 +128,18 @@ class UserProfileHistory(models.Model):
     habits = models.JSONField(verbose_name="Привычки")
     skills = models.JSONField(verbose_name="Навыки")
     aspirations = models.JSONField(verbose_name="Стремления")
-    
-    # --- Текстовое описание личности на момент создания слепка ---
     personality_description = models.TextField(verbose_name="Текстовое описание личности")
-    
-    # --- (Опционально) Ссылка на WeeklyAnalysis, послуживший основой для этого слепка ---
-    # weekly_analysis = models.ForeignKey('diary.WeeklyAnalysis', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Основа анализа (WeeklyAnalysis)")
-    
     class Meta:
         verbose_name = "История профиля пользователя"
         verbose_name_plural = "Истории профилей пользователей"
         db_table = "users_profile_history"
-        ordering = ['-created_at'] # Новейшие первыми
+        ordering = ['-created_at']
 
     def __str__(self):
         return f"Профиль {self.user.username} от {self.created_at.strftime('%Y-%m-%d %H:%M')}"
 
     def save(self, *args, **kwargs):
         """Проверка и корректное сохранение JSON-полей при необходимости."""
-        # Убедиться, что JSON-поля являются правильными типами (dict/list)
         json_fields = [
             'personality_traits', 'life_facts', 'hobbies', 'core_values',
             'triggers', 'strengths', 'areas_for_growth', 'personality_insights',
@@ -156,15 +148,12 @@ class UserProfileHistory(models.Model):
         for field_name in json_fields:
             field_value = getattr(self, field_name)
             if not isinstance(field_value, (dict, list)):
-                 # Пробуем десериализовать, если это строка
                  if isinstance(field_value, str):
                      try:
                          setattr(self, field_name, json.loads(field_value))
                      except json.JSONDecodeError:
-                         # Если не JSON, сохраняем как есть (или устанавливаем значение по умолчанию)
                          setattr(self, field_name, {} if 'traits' in field_name or 'insights' in field_name else [])
                  else:
-                     # Устанавливаем значение по умолчанию
                      setattr(self, field_name, {} if 'traits' in field_name or 'insights' in field_name else [])
         super().save(*args, **kwargs)
 
@@ -194,3 +183,62 @@ class CityTimezone(models.Model):
         except pytz.UnknownTimeZoneError:
             raise ValueError(f"Неверный часовой пояс: {self.timezone}")
         super().save(*args, **kwargs)
+
+class Feedback(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='feedbacks')
+    message = models.TextField()
+    is_voice = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    admin_response = models.TextField(null=True, blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=[
+            ('new', 'Новое'),
+            ('processed', 'Обработано'),
+            ('replied', 'Ответ отправлен')
+        ],
+        default='new'
+    )
+    is_photo = models.BooleanField(default=False, verbose_name="Фото")
+    
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Обратная связь'
+        verbose_name_plural = 'Обратные связи'
+
+    def __str__(self):
+        return f"Обращение от {self.user} ({self.created_at})"
+    
+    @classmethod
+    async def aget_by_id(cls, feedback_id: int):
+        """Асинхронное получение обращения"""
+        return await sync_to_async(cls.objects.get)(id=feedback_id)
+    
+    async def asave_with_status(self, status: str, admin_response: str = None):
+        """Асинхронное сохранение с обновлением статуса"""
+        self.status = status
+        if admin_response:
+            self.admin_response = admin_response
+        await sync_to_async(self.save)()
+
+    @classmethod
+    async def areply_to_feedback(cls, feedback_id: int, response_text: str):
+        """Асинхронное обновление статуса обращения"""
+        def update():
+            feedback = cls.objects.get(id=feedback_id)
+            feedback.admin_response = response_text
+            feedback.status = 'replied'
+            feedback.save()
+            return feedback
+        return await sync_to_async(update)()
+    
+    @classmethod
+    async def aget_unprocessed(cls, limit=20):
+        """Асинхронно получает необработанные обращения"""
+        def get_feedbacks():
+            return list(
+                cls.objects.filter(status='new')
+                .select_related('user')
+                .order_by('-created_at')[:limit]
+            )
+        return await sync_to_async(get_feedbacks)()
