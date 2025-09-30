@@ -171,6 +171,7 @@ class FullDayAnalysisService:
                         "mood_score": analysis.mood_score,
                         "comment": analysis.comment,
                         "recommendation": analysis.recommendation,
+                        "user_comment": entry.user_comment
                     })
             except PsychoAnalysis.DoesNotExist:
                 entry_analyses_data.append({
@@ -179,6 +180,7 @@ class FullDayAnalysisService:
                     "mood_score": None,
                     "comment": "Анализ отсутствует",
                     "recommendation": "Анализ отсутствует",
+                    "user_comment": entry.user_comment
                 })
                 logger.debug(f"[FullDayAnalysisService] Анализ для записи {entry.id} отсутствует.")
         daily_mood_scores = combined_entry.daily_mood_scores
@@ -211,6 +213,9 @@ class FullDayAnalysisService:
             "triggers": user.triggers,
             "strengths": user.strengths,
             "areas_for_growth": user.areas_for_growth,
+            "habits": user.habits,
+            "skills": user.skills,
+            "aspirations": user.aspirations
         }
         context = {
             "user_profile": extended_user_profile,

@@ -14,6 +14,7 @@ FULL_DAY_ANALYSIS_PROMPT = {
 
 **Анализы отдельных записей за день:**
 {entry_analyses}
+*Каждый элемент списка содержит: "entry_id", "entry_text_snippet", "mood_score", "comment", "recommendation", "user_comment" (если был добавлен пользователем после анализа).*
 
 **Оценки настроения за день:**
 {daily_mood_scores}

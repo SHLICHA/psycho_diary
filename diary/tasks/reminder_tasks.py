@@ -229,4 +229,3 @@ async def _send_entry_reminders_async():
                 logger.info("Сессия бота для напоминаний закрыта")
             except Exception as close_error:
                 logger.error(f"Ошибка при закрытии сессии бота: {close_error}")
-

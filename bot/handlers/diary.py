@@ -141,6 +141,9 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
             "triggers": user.triggers,
             "strengths": user.strengths,
             "areas_for_growth": user.areas_for_growth,
+            "habits": user.habits,
+            "skills": user.skills,
+            "aspirations": user.aspirations
         }
         prompt = get_prompt(
             key='incremental_day_analysis',
@@ -229,14 +232,28 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
         first_name = user_profile.get('first_name', 'Пользователь')
         awareness_level = user_profile['awareness_level']
         logger.debug(f'Профиль пользователя: {user_profile}')
+        user_profile = await user.aget_profile_data()
+        extended_user_profile_for_clarification = {
+            "first_name": user_profile.get('first_name', 'Пользователь'),
+            "awareness_level": user_profile['awareness_level'],
+            "personality_traits": user.personality_traits,
+            "life_facts": user.life_facts,
+            "hobbies": user.hobbies,
+            "core_values": user.core_values,
+            "triggers": user.triggers,
+            "strengths": user.strengths,
+            "areas_for_growth": user.areas_for_growth,
+            "habits": user.habits,
+            "skills": user.skills,
+            "aspirations": user.aspirations
+        }
         prompt = get_prompt(
             key='clarification_analysis',
             language=language,
             original_text=diary_entry.text,
             clarification_questions="\n".join(clarification_questions),
             clarification_answers="\n".join([f"{q}: {a}" for q, a in clarification_answers_dict.items()]),
-            first_name=first_name,
-            awareness_level=awareness_level,
+            user_profile=extended_user_profile_for_clarification
         )
         status_message = await message.answer(get_message('processing', language))
         analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
@@ -253,6 +270,259 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
         if status_message:
             await status_message.edit_text(get_message('error_processing', language))
         await state_manager.clear_state(state)
+
+@router.callback_query(F.data.startswith("request_add_comment:"))
+async def request_add_comment(callback: CallbackQuery, state: FSMContext, user, language: str):
+    """
+    Запрашивает у пользователя комментарий к записи.
+    """
+    try:
+        entry_id = int(callback.data.split(":")[1])
+        # Проверим, что запись принадлежит пользователю и существует
+        try:
+            diary_entry = await DiaryEntry.objects.aget(id=entry_id, user=user)
+        except DiaryEntry.DoesNotExist:
+            logger.warning(f"Пользователь {user.telegram_id} пытается добавить комментарий к несуществующей записи {entry_id}")
+            await safe_answer_callback(callback, get_message('entry_not_found', language), show_alert=True)
+            return
+
+        # Проверим, что у записи ещё нет комментария (дополнительная защита)
+        if diary_entry.user_comment:
+            logger.info(f"Пользователь {user.telegram_id} пытается добавить комментарий к записи {entry_id}, но комментарий уже существует.")
+            await safe_answer_callback(callback, get_message('comment_already_added', language), show_alert=True) # Убедись, что 'comment_already_added' добавлено в messages
+            return
+
+        await state_manager.set_state(state, DiaryStates.waiting_for_user_comment)
+        await state_manager.update_state_data(state, comment_entry_id=entry_id) # Сохраняем ID записи
+
+        prompt_text = get_message('ask_user_comment', language) # Убедись, что 'ask_user_comment' добавлено в messages
+        await safe_edit_message_text(
+            message=callback.message,
+            text=prompt_text,
+            reply_markup=get_cancel_keyboard(language)
+        )
+        await safe_answer_callback(callback, "")
+    except Exception as e:
+        logger.error(f"[request_add_comment] Ошибка при запросе комментария от пользователя {user.telegram_id}: {e}", exc_info=True)
+        await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
+
+@router.message(DiaryStates.waiting_for_user_comment, F.content_type.in_({ContentType.TEXT}))
+async def process_user_comment(message: Message, state: FSMContext, user, language: str):
+    """
+    Обрабатывает комментарий пользователя и отправляет его на анализ ИИ.
+    """
+    status_message = None
+    try:
+        # 1. Получить ID записи из FSM
+        state_data = await state_manager.get_state_data(state)
+        entry_id = state_data.get('comment_entry_id')
+        if not entry_id:
+            logger.error(f"[process_user_comment] ID записи не найден в FSM для пользователя {user.telegram_id}")
+            await message.answer(get_message('error_generic', language))
+            await state_manager.clear_state(state)
+            return
+
+        # 2. Загрузить запись
+        try:
+            diary_entry = await DiaryEntry.objects.aget(id=entry_id, user=user)
+        except DiaryEntry.DoesNotExist:
+            logger.error(f"[process_user_comment] Запись {entry_id} не найдена для пользователя {user.telegram_id}")
+            await message.answer(get_message('error_generic', language))
+            await state_manager.clear_state(state)
+            return
+
+        # 3. Получить текст комментария
+        user_comment_text = message.text.strip()
+        if not user_comment_text:
+             await message.answer(get_message('invalid_input', language))
+             return
+
+        # 4. Сохранить комментарий в запись
+        diary_entry.user_comment = user_comment_text
+        await sync_to_async(diary_entry.save)(update_fields=['user_comment'])
+        logger.info(f"[process_user_comment] Комментарий сохранён для записи {entry_id}, пользователь {user.telegram_id}")
+        combined_entry_for_day = await daily_state_service.get_daily_state(user, await diary_entry.aentry_date())
+        if combined_entry_for_day:
+            # Сбросим флаг анализа, так как день изменился
+            combined_entry_for_day.reset_analysis_flag() # Вызываем метод модели
+            await sync_to_async(combined_entry_for_day.save)(update_fields=['is_analyzed'])
+            logger.info(f"[process_user_comment] Флаг is_analyzed сброшен для CombinedDiaryEntry ID {combined_entry_for_day.id} после добавления комментария к записи {entry_id}.")
+        else:
+            logger.warning(f"[process_user_comment] CombinedDiaryEntry не найден для даты {await diary_entry.aentry_date()} при сбросе флага анализа.")
+        
+        # 5. Подготовить данные для промпта
+        # Загрузить предыдущий анализ
+        try:
+            previous_analysis = await PsychoAnalysis.objects.aget(entry=diary_entry)
+            previous_comment = previous_analysis.comment or "Нет комментария"
+            previous_recommendation = previous_analysis.recommendation or "Нет рекомендации"
+            previous_analysis_text = previous_analysis.analysis_text or "Анализ не предоставлен"
+        except PsychoAnalysis.DoesNotExist:
+            logger.warning(f"[process_user_comment] Предыдущий анализ не найден для записи {entry_id}, используем заглушки.")
+            previous_comment = "Нет комментария"
+            previous_recommendation = "Нет рекомендации"
+            previous_analysis_text = "Анализ не предоставлен"
+
+        # Подготовить уточнения (если были)
+        clarification_questions = "\n".join(diary_entry.clarification_questions_asked) if diary_entry.clarification_questions_asked else "Нет уточняющих вопросов."
+        clarification_answers_dict = diary_entry.clarification_answers
+        clarification_answers_str = "\n".join([f"{q}: {a}" for q, a in clarification_answers_dict.items()]) if clarification_answers_dict else "Нет ответов на уточнения."
+
+        user_profile = await user.aget_profile_data()
+        extended_user_profile_for_comment = {
+            "first_name": user_profile.get('first_name', 'Пользователь'),
+            "awareness_level": user_profile['awareness_level'],
+            "personality_traits": user.personality_traits,
+            "life_facts": user.life_facts,
+            "hobbies": user.hobbies,
+            "core_values": user.core_values,
+            "triggers": user.triggers,
+            "strengths": user.strengths,
+            "areas_for_growth": user.areas_for_growth,
+            "habits": user.habits,
+            "skills": user.skills,
+            "aspirations": user.aspirations
+        }
+
+        # 6. Сгенерировать промт
+        prompt = get_prompt(
+            key='comment_analysis',
+            language=language,
+            original_text=diary_entry.text,
+            previous_comment=previous_comment,
+            previous_recommendation=previous_recommendation,
+            previous_analysis=previous_analysis_text,
+            user_comment=user_comment_text,
+            user_profile=extended_user_profile_for_comment,
+            # Передаём уточнения, если они есть
+            clarification_questions=clarification_questions,
+            clarification_answers=clarification_answers_str,
+        )
+
+        # 7. Отправить на ИИ
+        status_message = await message.answer(get_message('processing', language))
+        analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
+
+        # 8. Обработать результат (вызов _process_analysis_result)
+        # Важно: перед вызовом _process_analysis_result, убедимся, что FSM не находится в состоянии,
+        # которое может повлиять на него (например, asking_clarifying_questions).
+        # Так как мы в состоянии waiting_for_user_comment, просто очищаем его перед вызовом.
+        await state_manager.clear_state(state)
+        await _process_analysis_result(
+            entry=diary_entry,
+            analysis_result=analysis_result,
+            status_msg=status_message,
+            language=language,
+            state=state, # Передаём state, но _process_analysis_result его очистит
+            user=user
+        )
+        # _process_analysis_result сама вызовет state_manager.clear_state(state) снова,
+        # но это не страшно, если состояние уже очищено.
+
+    except Exception as e:
+        logger.error(f"[process_user_comment] Ошибка при обработке комментария пользователя {user.telegram_id}: {e}", exc_info=True)
+        if status_message:
+            try:
+                await status_message.edit_text(get_message('error_processing', language))
+            except Exception as edit_error:
+                logger.error(f"[process_user_comment] Ошибка при редактировании сообщения об ошибке: {edit_error}")
+        await state_manager.clear_state(state)
+
+@router.callback_query(F.data.startswith("rate_analysis:"))
+async def rate_analysis(callback: CallbackQuery, user, language: str):
+    """
+    Обработчик оценки анализа записи.
+    """
+    try:
+        parts = callback.data.split(":")
+        if len(parts) != 3:
+            logger.warning(f"Некорректный формат callback_data: {callback.data}")
+            await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
+            return
+
+        analysis_id = int(parts[1])
+        rating = int(parts[2])
+
+        if not (1 <= rating <= 5):
+            logger.warning(f"Некорректная оценка: {rating}")
+            await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
+            return
+
+        # Найти PsychoAnalysis и проверить принадлежность пользователю через связанную запись
+        try:
+            analysis = await PsychoAnalysis.objects.select_related('entry__user').aget(id=analysis_id)
+            if analysis.entry.user_id != user.id:
+                 logger.warning(f"Пользователь {user.telegram_id} пытается оценить чужой анализ {analysis_id}")
+                 await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
+                 return
+        except PsychoAnalysis.DoesNotExist:
+            logger.warning(f"PsychoAnalysis с ID {analysis_id} не найден")
+            await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
+            return
+
+        # Попытаться создать оценку
+        try:
+            from diary.models import AnalysisRating
+            from asgiref.sync import sync_to_async
+            from django.db import IntegrityError
+
+            @sync_to_async
+            def create_rating():
+                rating_obj = AnalysisRating.objects.create(user=user, analysis=analysis, rating=rating)
+                return rating_obj
+
+            await create_rating()
+            logger.info(f"Пользователь {user.telegram_id} поставил оценку {rating} анализу {analysis_id}")
+
+            # Попробуем отредактировать сообщение, убрав кнопки и добавив подтверждение/оценку
+            # Сначала нужно понять, какие кнопки были. Попробуем пересобрать сообщение без кнопок оценки.
+            # Но проще, если мы просто удалим строку с кнопками и добавим текст "Спасибо за оценку: X".
+            # Для этого нужно получить текущий текст и reply_markup.
+
+            # Текущий текст
+            current_text = callback.message.text or callback.message.caption or ""
+            # Текущая клавиатура (без кнопок оценки)
+            current_reply_markup = callback.message.reply_markup
+            if current_reply_markup and hasattr(current_reply_markup, 'inline_keyboard'):
+                 # Найдём и удалим строку с кнопками оценки
+                 new_inline_keyboard = []
+                 for row in current_reply_markup.inline_keyboard:
+                     # Предположим, кнопки оценки имеют callback_data, начинающийся с "rate_analysis:"
+                     if not any(btn.callback_data and btn.callback_data.startswith("rate_analysis:") for btn in row):
+                         new_inline_keyboard.append(row)
+                 # Добавим строку с подтверждением оценки (опционально)
+                 # new_inline_keyboard.append([InlineKeyboardButton(text=f"Спасибо за оценку: {rating}!", callback_data="rating_confirmed")])
+                 # Или просто оставим клавиатуру без кнопок оценки
+                 updated_reply_markup = InlineKeyboardMarkup(inline_keyboard=new_inline_keyboard)
+            else:
+                 updated_reply_markup = None
+
+            # Добавим текст оценки к сообщению (опционально, например, в конец)
+            # Это может выглядеть не очень, если сообщение длинное.
+            # Лучше обновить клавиатуру.
+            # Попробуем обновить только клавиатуру.
+            # Но если вдруг нужен текст, можно добавить его к current_text.
+            # rating_emojis = {1: "😠", 2: "😟", 3: "😐", 4: "🙂", 5: "😄"}
+            # rating_emoji = rating_emojis.get(rating, "❓")
+            # updated_text = f"{current_text}\n\n(Ваша оценка: {rating} {rating_emoji})"
+
+            await callback.message.edit_reply_markup(reply_markup=updated_reply_markup)
+            # Или, если нужно обновить текст:
+            # await callback.message.edit_text(text=updated_text, reply_markup=updated_reply_markup)
+
+            await safe_answer_callback(callback, "") # "Спасибо за оценку!" можно показать как toast-уведомление
+
+        except IntegrityError:
+            # Уникальное ограничение нарушено - оценка уже поставлена
+            logger.info(f"Пользователь {user.telegram_id} уже поставил оценку анализу {analysis_id}")
+            await safe_answer_callback(callback, get_message('rating_already_submitted', language), show_alert=True)
+
+    except ValueError as ve:
+        logger.error(f"Ошибка парсинга callback_data: {callback.data} - {ve}")
+        await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
+    except Exception as e:
+        logger.error(f"Ошибка при оценке анализа пользователем {user.telegram_id}: {e}", exc_info=True)
+        await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
 @router.message(DiaryStates.waiting_for_text_entry)
 async def handle_invalid_entry_type(message: Message, state: FSMContext, language: str):
@@ -934,6 +1204,58 @@ async def _process_analysis_result(
             else:
                 logger.debug(f"Задание от ИИ для пользователя {user.telegram_id} не создано: превышен дневной лимит ({user.max_ai_tasks_per_day}).")
         final_text = get_message('entry_saved', language, score=mood_score, mood=get_message(f'mood_{mood_score}', language), comment=comment, recommendation=recommendation) + task_info
+        back_buttons = None
+        if isinstance(reply_markup, InlineKeyboardMarkup):
+            if reply_markup.inline_keyboard and len(reply_markup.inline_keyboard) > 0:
+                 last_row = reply_markup.inline_keyboard[-1]
+                 back_button_found = False
+                 for btn in last_row:
+                     if btn.callback_data == "main_menu":
+                         back_button_found = True
+                         break
+                 if back_button_found:
+                     back_buttons = reply_markup.inline_keyboard.pop()
+                     logger.debug(f"[DEBUG] Сохранены кнопки 'Назад': {back_buttons}")
+                 else:
+                     logger.debug(f"[DEBUG] Кнопки 'Назад' не найдены в последней строке. Тип клавиатуры: {type(reply_markup)}")
+        try:
+            current_analysis = await PsychoAnalysis.objects.aget(entry=entry)
+            user_rating_exists = await current_analysis.user_ratings.filter(user=user).aexists()
+        except PsychoAnalysis.DoesNotExist:
+            user_rating_exists = False
+            logger.warning(f"PsychoAnalysis для записи {entry.id} не найден при добавлении кнопок оценки в _process_analysis_result")
+        if not user_rating_exists:
+            rating_emojis = {1: "😠", 2: "😟", 3: "😐", 4: "🙂", 5: "😄"}
+            rating_buttons = []
+            for rate_value, emoji in rating_emojis.items():
+                rating_buttons.append(
+                    InlineKeyboardButton(
+                        text=emoji,
+                        callback_data=f"rate_analysis:{current_analysis.id}:{rate_value}"
+                    )
+                )
+            if isinstance(reply_markup, InlineKeyboardMarkup):
+                 reply_markup.inline_keyboard.append(rating_buttons)
+            else:
+                 logger.warning(f"reply_markup не является InlineKeyboardMarkup: {type(reply_markup)} в _process_analysis_result, не добавляем кнопки оценки.")
+        try:
+            current_entry = await DiaryEntry.objects.aget(id=entry.id)
+            has_user_comment = bool(current_entry.user_comment)
+        except DiaryEntry.DoesNotExist:
+            has_user_comment = True
+            logger.warning(f"Запись {entry.id} не найдена при проверке комментария в _process_analysis_result")
+        if not has_user_comment:
+            add_comment_button = InlineKeyboardButton(
+                text=get_button_text('btn_add_comment', language),
+                callback_data=f"request_add_comment:{entry.id}"
+            )
+            if isinstance(reply_markup, InlineKeyboardMarkup):
+                 reply_markup.inline_keyboard.append([add_comment_button])
+            else:
+                 logger.warning(f"reply_markup не является InlineKeyboardMarkup: {type(reply_markup)} в _process_analysis_result, не добавляем кнопку 'Добавить комментарий'.")
+        if back_buttons and isinstance(reply_markup, InlineKeyboardMarkup):
+            reply_markup.inline_keyboard.append(back_buttons)
+            logger.debug(f"[DEBUG] Кнопки 'Назад' восстановлены в конец клавиатуры.")
         await status_msg.edit_text(final_text, reply_markup=reply_markup)
         await state_manager.clear_state(state)
     except Exception as e:

@@ -37,6 +37,7 @@ ENTRY_MESSAGES_RU = {
         'btn_confirm_delete_entry': '✅ Да, удалить запись',
         'btn_confirm_delete_day': "✅ Да, удалить день",
         'btn_skip_clarification': '➡️ Пропустить вопросы',
+        'btn_add_comment': '💬 Добавить комментарий',
         'reminder_clarification': '📝 Ты не ответил(а) на уточняющие вопросы, отправленные ранее. Пожалуйста, ответь, чтобы получить более точный анализ.',
         'reminder_entry': '📝 <b>Не забудь сделать запись в дневник сегодня!</b>\n\nПоделись своими мыслями и чувствами, чтобы лучше понимать себя.{task_text}',
         'new_ai_task': '''\n📌 <b>Новое задание:</b>\n<b>{title}</b>\n{preview}''',
@@ -45,5 +46,8 @@ ENTRY_MESSAGES_RU = {
         'recommendation_section': '''\n🎯 <b>Рекомендация:</b> {analysis_recommendation}''',
         'entry_footer': '''\n\n📊 <b>Оценка:</b> {mood_score_display}/10''',
         'streak_reset_warning': ' (обнулится сегодня, если не напишете)',
+        'comment_already_added': 'Комментарий к этой записи уже был добавлен.',
+        'ask_user_comment': 'Пожалуйста, введите ваш комментарий к записи:',
+        'rating_already_submitted': 'Вы уже поставили оценку этому анализу.',
         }
 }

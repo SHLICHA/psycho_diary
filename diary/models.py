@@ -90,6 +90,11 @@ class DiaryEntry(models.Model):
         verbose_name=_("Время принудительной обработки анализа"),
         help_text=_("Время, когда был принудительно завершен анализ (например, из-за отсутствия ответов на уточнения).")
     )
+    user_comment = models.TextField(
+        blank=True,
+        verbose_name=_("Комментарий пользователя"),
+        help_text=_("Комментарий, добавленный пользователем после получения анализа.")
+    )
 
 
     class Meta:
@@ -643,3 +648,24 @@ class NextEntryPrompt(models.Model):
         except Exception as e:
             logger.error(f"Ошибка при асинхронном поиске последней непросмотренной подсказки для пользователя {user.telegram_id}: {e}")
             return None
+
+class AnalysisRating(models.Model):
+    """
+    Модель для хранения оценок пользователя анализа записи (PsychoAnalysis).
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name=_("Пользователь"))
+    analysis = models.ForeignKey(PsychoAnalysis, on_delete=models.CASCADE, related_name='user_ratings', verbose_name=_("Анализ"))
+    rating = models.PositiveSmallIntegerField(
+        verbose_name=_("Оценка (1-5)"),
+        choices=[(i, str(i)) for i in range(1, 6)]
+    )
+    rated_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата оценки"))
+
+    class Meta:
+        verbose_name = _("Оценка анализа")
+        verbose_name_plural = _("Оценки анализа")
+        db_table = "diary_analysis_rating"
+        unique_together = ['user', 'analysis']
+
+    def __str__(self):
+        return f"Оценка {self.rating} от {self.user.username} для анализа {self.analysis.id}"

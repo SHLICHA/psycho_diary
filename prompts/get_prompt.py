@@ -12,7 +12,9 @@ from . import (
     ONBOARDING_QUESTIONNAIRE_ANALYSIS_PROMPT,
     WEEKLY_ANALYSIS_PROMPT,
     USER_PROFILE_ANALYSIS_PROMPT,
-    NEXT_ENTRY_PROMPT_GENERATION
+    NEXT_ENTRY_PROMPT_GENERATION,
+    COMMENT_ANALYSIS_PROMPT,
+    MORNING_MOTIVATION_PROMPT
 )
 
 logger = logging.getLogger(__name__)
@@ -22,6 +24,10 @@ PROMPTS = {
     'en': {}
 }
 
+PROMPTS['ru']['morning_motivation'] = MORNING_MOTIVATION_PROMPT['ru']
+PROMPTS['en']['morning_motivation'] = MORNING_MOTIVATION_PROMPT['en']
+PROMPTS['ru']['comment_analysis'] = COMMENT_ANALYSIS_PROMPT['ru']
+PROMPTS['en']['comment_analysis'] = COMMENT_ANALYSIS_PROMPT['en']
 PROMPTS['ru']['next_entry_prompt_generation'] = NEXT_ENTRY_PROMPT_GENERATION['ru']
 PROMPTS['en']['next_entry_prompt_generation'] = NEXT_ENTRY_PROMPT_GENERATION['en']
 PROMPTS['ru']['user_profile_analysis'] = USER_PROFILE_ANALYSIS_PROMPT['ru']

@@ -39,6 +39,7 @@ MESSAGES = {
         'btn_back_to_day_without_analysis': '🔙 Назад без анализа',
         'btn_back_to_edit_day': '🔙 Назад к редактированию',
         'btn_skip': '''⏭ Пропустить''',
+        'btn_main_menu': '🔙 В главное меню',
 
         # === Уведомления ===
         'reminder_entry': '📝 Не забудь сделать запись в дневник сегодня!',
@@ -66,7 +67,8 @@ MESSAGES = {
 'no_comment': '''Нет комментария''',
 'no_recommendation': '''Нет рекомендации''',
 'session_expired': '''⏰ Время сессии истекло (1 час). Сессия автоматически завершена.''',
-'photo_too_large': '''⚠️ Фото слишком большое. Максимальный размер - 20 МБ'''
+'photo_too_large': '''⚠️ Фото слишком большое. Максимальный размер - 20 МБ''',
+'morning_motivation_default': 'Доброе утро, {first_name}! Пусть этот день будет наполнен радостью и вдохновением.',
     },
     'en': {
         # === Mood scores ===
@@ -100,6 +102,7 @@ MESSAGES = {
         'btn_back_to_day_without_analysis': '🔙 Back without analysis',
         'btn_back_to_edit_day': '🔙 Back to editing',
         'btn_skip': '''⏭ Skip''',
+        'btn_main_menu': '🔙 Main menu',
         
         # === Notifications ===
         'reminder_entry': '📝 Don\'t forget to make an entry in your diary today!',
@@ -129,7 +132,8 @@ MESSAGES = {
 'no_comment': '''No comment''',
 'no_recommendation': '''No recommendation''',
 'session_expired': '''⏰ Session time expired (1 hour). Session automatically completed''',
-'photo_too_large': '''⚠️ Photo is too large. Maximum size - 20 MB'''
+'photo_too_large': '''⚠️ Photo is too large. Maximum size - 20 MB''',
+'morning_motivation_default': 'Good morning, {first_name}! May this day be filled with joy and inspiration.',
     }
 }
 

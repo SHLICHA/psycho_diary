@@ -39,6 +39,7 @@ ENTRY_MESSAGES_EN = {
         'btn_confirm_delete_entry': '✅ Yes, delete entry',
         'btn_confirm_delete_day': "✅ Yes, delete the day",
         'btn_skip_clarification': '➡️ Skip questions',
+        'btn_add_comment': '💬 Add comment',
         'reminder_clarification': '📝 You did not respond to the clarifying questions sent earlier. Please reply to get a more accurate analysis.',
         'reminder_entry': '📝 <b>Don\'t forget to make a diary entry today!</b>\n\nShare your thoughts and feelings to better understand yourself.{task_text}',
         'new_ai_task': '''\n📌 <b>New task:</b>\n<b>{title}</b>\n{preview}''',
@@ -47,5 +48,8 @@ ENTRY_MESSAGES_EN = {
         'recommendation_section': '''\n🎯 <b>Recommendation:</b> {analysis_recommendation}''',
         'entry_footer': '''\n\n📊 <b>Rating:</b> {mood_score_display}/10''',
         'streak_reset_warning': ' (resets today if you don\'t write)',
+        'comment_already_added': 'A comment has already been added to this entry.',
+        'ask_user_comment': 'Please enter your comment for the entry.',
+        'rating_already_submitted': 'You have already rated this analysis.',
         }
 }

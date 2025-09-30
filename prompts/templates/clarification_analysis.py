@@ -15,8 +15,9 @@ CLARIFICATION_ANALYSIS_PROMPT = {
 {clarification_answers}
 
 **Профиль пользователя:**
-Имя: {first_name}
-Уровень осознанности: {awareness_level}/10
+{user_profile}
+*Содержит: имя (first_name), уровень осознанности (awareness_level), черты характера (personality_traits), факты о жизни (life_facts), увлечения (hobbies), ценности (core_values), триггеры (triggers), сильные стороны (strengths), зоны роста (areas_for_growth), привычки (habits), навыки (skills), стремления (aspirations).*
+
 
 ---
 
@@ -65,8 +66,8 @@ CLARIFICATION_ANALYSIS_PROMPT = {
 {clarification_answers}
 
 **User Profile:**
-Name: {first_name}
-Awareness Level: {awareness_level}/10
+{user_profile}
+*Contains: first_name, awareness_level, personality_traits, life_facts, hobbies, core_values, triggers, strengths, areas_for_growth, habits, skills, aspirations.*
 
 ---
 

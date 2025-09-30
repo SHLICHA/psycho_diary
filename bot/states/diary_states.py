@@ -28,6 +28,9 @@ class DiaryStates(StatesGroup):
     # Обработка отредактированной записи
     waiting_for_entry_edit = State()
 
+    # Ожидание комментария
+    waiting_for_user_comment = State()
+
     processing_entry = State()
 
     def __str__(self):

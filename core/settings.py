@@ -126,6 +126,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'diary.tasks.reminder_ask_questions.force_process_clarifications', # Убедитесь в правильном пути
         'schedule': 300.0, # 5 минут, или 600 (10 мин), или 1800 (30 мин) - зависит от того, как часто вы хотите проверять
     },
+    'send-morning-motivation-hourly': {
+        'task': 'diary.tasks.morning_motivations.send_morning_motivation_task',
+        'schedule': crontab(minute=0)
+    },
 }
 
 CELERY_BROKER_URL = config('CELERY_BROKER_URL')

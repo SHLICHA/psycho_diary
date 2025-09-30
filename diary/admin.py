@@ -35,11 +35,10 @@ class DiaryEntryAdmin(admin.ModelAdmin):
         'combined_text_display', 'analysis_link', 'voice_to_text_link',
         'key_points_inline', 'assigned_tasks_inline'
     )
-    # raw_id_fields = ('user', 'parent_entry') # Для быстрого поиска пользователей
     
     fieldsets = (
         (None, {
-            'fields': ('user', 'text', 'language', 'word_count', 'clarification_asked_at', 'last_reminder_sent_at', 'analysis_processed_at', 'clarification_reminder_due_at', 'clarification_force_process_at')
+            'fields': ('user', 'text', 'language', 'word_count', 'clarification_asked_at', 'last_reminder_sent_at', 'analysis_processed_at', 'clarification_reminder_due_at', 'clarification_force_process_at', 'user_comment')
         }),
         (_('Даты и время'), {
             'fields': ('created_at', 'updated_at', 'entry_date', 'localized_created_at'),
@@ -735,9 +734,8 @@ class TaskCompletionAnalysisAdmin(admin.ModelAdmin):
         'mood_impact_score',
         'analysis_performed_at',
         'detailed_analysis',
-        'api_response', # Для дебага
+        'api_response',
     )
-    # raw_id_fields = ('related_insights',) # Если инсайтов много, удобнее так
 
     def get_task_title(self, obj):
         """Отображение названия задания."""
@@ -757,8 +755,6 @@ class WeeklyAnalysisAdmin(admin.ModelAdmin):
     list_filter = ('week_start_date', 'created_at', 'user')
     search_fields = ('user__username', 'user__telegram_id', 'summary_text')
     readonly_fields = ('created_at', 'api_response')
-    # Можно добавить поля для отображения в списке или фильтрации по ним
-    # raw_id_fields = ('user',) # Если пользователей много, удобнее использовать raw_id_fields
 
     fieldsets = (
         (None, {
@@ -766,7 +762,7 @@ class WeeklyAnalysisAdmin(admin.ModelAdmin):
         }),
         ('Инсайты и Прогресс', {
             'fields': ('progress_insights', 'comparison_with_previous'),
-            'classes': ('collapse',), # Сворачиваем для компактности
+            'classes': ('collapse',),
         }),
         ('Профиль и Статистика', {
             'fields': ('consolidated_user_profile', 'statistics'),
@@ -790,13 +786,13 @@ class NextEntryPromptAdmin(admin.ModelAdmin):
         'is_used',
         'used_at',
         'created_at',
-        'get_prompt_preview' # Добавим предпросмотр текста
+        'get_prompt_preview'
     )
     list_filter = (
         'is_used',
         'created_at',
         'target_date',
-        ('user', admin.RelatedOnlyFieldListFilter), # Удобный фильтр по пользователю
+        ('user', admin.RelatedOnlyFieldListFilter),
     )
     search_fields = (
         'user__username',
@@ -807,33 +803,27 @@ class NextEntryPromptAdmin(admin.ModelAdmin):
         'id',
         'created_at',
         'used_at',
-        'get_prompt_full' # Полный текст будет только для просмотра
+        'get_prompt_full'
     )
-    date_hierarchy = 'target_date' # Навигация по датам
+    date_hierarchy = 'target_date'
 
-    # Оптимизация запросов к БД
     def get_queryset(self, request):
         qs = super().get_queryset(request)
-        return qs.select_related('user') # Предзагрузка данных пользователя
+        return qs.select_related('user')
 
-    # Метод для предпросмотра текста подсказки в списке
     @admin.display(description="Текст подсказки (превью)")
     def get_prompt_preview(self, obj):
         if obj.prompt_text:
-            # Возвращаем первые 100 символов
             return obj.prompt_text[:100] + "..." if len(obj.prompt_text) > 100 else obj.prompt_text
         return "-"
 
-    # Метод для отображения полного текста в форме редактирования
     @admin.display(description="Полный текст подсказки")
     def get_prompt_full(self, obj):
         if obj.prompt_text:
-            # Используем <pre> для сохранения форматирования
             return f"<pre>{obj.prompt_text}</pre>"
         return "-"
-    get_prompt_full.allow_tags = True # Разрешить HTML (в Django 3.2+ используйте format_html)
+    get_prompt_full.allow_tags = True
 
-    # Действия админки
     actions = ['mark_as_used', 'mark_as_unused']
 
     @admin.action(description="Пометить выбранные как использованные")
@@ -851,3 +841,14 @@ class NextEntryPromptAdmin(admin.ModelAdmin):
             request,
             f"Успешно помечено как НЕ использованные: {updated_count} подсказок."
         )
+
+@admin.register(AnalysisRating)
+class AnalysisRatingAdmin(admin.ModelAdmin):
+    list_display = ('user', 'analysis', 'rating', 'rated_at') # Показываем основные поля
+    list_filter = ('rating', 'rated_at', 'user') # Фильтры по оценке, дате, пользователю
+    search_fields = ('user__username', 'analysis__entry__text') # Поиск по имени пользователя и тексту записи
+    readonly_fields = ('rated_at',) # rated_at не редактируется
+
+    def analysis_entry_text(self, obj):
+        return obj.analysis.entry.text[:50] + "..." if obj.analysis.entry.text else "Нет текста"
+    analysis_entry_text.short_description = 'Текст записи анализа' # Заголовок колонки

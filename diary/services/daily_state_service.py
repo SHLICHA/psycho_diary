@@ -155,7 +155,7 @@ class DailyStateService:
                 text=combined_text,
                 entry_count=entry_count,
                 ai_state_data=new_ai_state_data,
-                is_analyzed=True,
+                is_analyzed=None,
                 latest_mood_score=latest_mood_score
             )
             if update_success:
