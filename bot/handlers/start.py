@@ -16,6 +16,7 @@ from bot.keyboards import (
 )
 from bot.utils.message_utils import safe_edit_message_text
 from bot.utils.callback_utils import safe_answer_callback
+from bot.utils.state_manager import state_manager
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -44,9 +45,10 @@ async def cmd_start(message: Message, user, language: str, state: FSMContext):
         await message.answer(get_message('error_generic', language))
 
 @router.callback_query(F.data == "main_menu")
-async def back_to_main_menu(callback: CallbackQuery, language: str):
+async def back_to_main_menu(callback: CallbackQuery, state: FSMContext, language: str):
     """Возврат в главное меню"""
     try:
+        await state_manager.clear_state(state)
         main_menu_msg = get_message('main_menu', language)
         await safe_edit_message_text(
             message=callback.message,

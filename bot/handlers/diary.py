@@ -255,7 +255,7 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
         await state_manager.clear_state(state)
 
 @router.message(DiaryStates.waiting_for_text_entry)
-async def handle_invalid_entry_type(message: Message, language: str):
+async def handle_invalid_entry_type(message: Message, state: FSMContext, language: str):
     """Обработка недопустимого типа сообщения"""
     try:
         invalid_msg = get_message('invalid_input', language)
@@ -265,6 +265,7 @@ async def handle_invalid_entry_type(message: Message, language: str):
             text=invalid_msg,
             message_to_edit=None
         )
+        await state_manager.clear_state(state)
     except Exception as e:
         logger.error(f"Ошибка при обработке недопустимого типа сообщения: {e}")
         await edit_or_send_message(
@@ -647,7 +648,7 @@ async def process_entry_edit(message: Message, state: FSMContext, user, language
             logger.warning(f"Запись {entry_id} не найдена при попытке получить дату для навигации.")
         state_data = await state_manager.get_state_data(state)
         target_date_iso = state_data.get('editing_entry_target_date')
-        target_date = date.fromisoformat(target_date_iso) if target_date_iso else entry.entry_date
+        target_date = date.fromisoformat(target_date_iso) if target_date_iso else await entry.aentry_date()
         entries = await diary_service.get_user_entries_for_date(user, target_date)
         if entries:
             sorted_entries = sorted(entries, key=lambda e: e.created_at)
@@ -675,7 +676,7 @@ async def request_delete_specific_entry(callback: CallbackQuery, user, language:
         entry_id = int(callback.data.split(":")[1])
         try:
             entry = await DiaryEntry.objects.select_related('user').aget(id=entry_id, user=user)
-            target_date = entry.entry_date
+            target_date = await entry.aentry_date()
         except DiaryEntry.DoesNotExist:
             await safe_answer_callback(callback, get_message('entry_not_found', language), show_alert=True)
             return
@@ -893,7 +894,7 @@ async def _process_analysis_result(
             analysis_text=analysis_text,
             api_response=analysis_result.get('api_response', {})
         )
-        combined_entry = await daily_state_service.get_daily_state(user, entry.entry_date)
+        combined_entry = await daily_state_service.get_daily_state(user, await entry.aentry_date())
         if combined_entry and 'updated_ai_state_data' in result_data:
             new_state = result_data['updated_ai_state_data']
         else:
@@ -917,10 +918,14 @@ async def _process_analysis_result(
             limit_not_exceeded = await check_ai_tasks_limit_sync()
             if limit_not_exceeded:
                 try:
-                    task = await _create_task_from_suggested_data(user, suggested_task, entry.entry_date, entry)
+                    task = await _create_task_from_suggested_data(user, suggested_task, await entry.aentry_date(), entry)
                     if task:
                         preview = task.description[:150] + "..." if len(task.description) > 150 else task.description
-                        task_info = f"\n📌 <b>Новое задание от ИИ:</b>\n<b>{task.title}</b>\n{preview}"
+                        task_info = get_message(
+                            'task_assigned',
+                            language,
+                            title=task.title,
+                            description=preview)
                         reply_markup = get_task_pagination_keyboard(task.id, 0, 1, language)
                     else:
                          logger.debug(f"Задание от ИИ не было создано для пользователя {user.telegram_id} (возможно, превышен общий лимит активных заданий).")

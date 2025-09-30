@@ -209,9 +209,19 @@ class StateManager:
     
     @staticmethod
     async def clear_state(context: FSMContext):
-        """Очистка состояния"""
+        """Очистка состояния с остановкой таймера"""
         try:
+            logger.debug(f"StateManager.clear_state вызван для FSMContext с key: {context.key}")
+            
+            # Сначала останавливаем таймер
+            storage_key = state_manager._get_storage_key(context.key)
+            await state_manager._stop_timer(storage_key)
+            
+            # Затем очищаем данные состояния
             await context.clear()
+            
+            logger.debug(f"State cleared and timer stopped for user {context.key.user_id}")
+            
         except Exception as e:
             logger.error(f"Error clearing state: {e}")
     
