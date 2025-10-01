@@ -1,4 +1,6 @@
+
 📋 ТЕХНИЧЕСКОЕ ЗАДАНИЕ: Психоаналитический дневник в Telegram
+
 🎯 Цель проекта
 Создание Telegram-бота для ведения дневника с автоматическим психоэмоциональным анализом записей. Бот должен становиться "умнее" с каждым днем, узнавая пользователя и давая более точные рекомендации. Система включает терапевтические задания для активного участия пользователя в процессе саморазвития.
 
@@ -18,6 +20,7 @@ API: Yandex SpeechKit, DeepSeek (в перспективе)
 Люди, ведущие саморазвитие, работающие с психологом или самостоятельно занимающиеся психоанализом.
 
 📋 Функциональные требования
+
 1. Регистрация и профиль
 Автоматическая регистрация при первом /start
 Определение языка через language_code Telegram
@@ -102,6 +105,7 @@ FSM для управления диалогом
 Персональные рекомендации
 Экспорт данных
 🧠 Интеллектуальная составляющая
+
 1. Модель пользователя
 Учет предыдущих записей
 Построение психологического портрета
@@ -150,7 +154,6 @@ FSM для управления диалогом
 Статистика по заданиям
 Периоды активности
 🗺️ Структура проекта
-
 
 psycho_diary/
 ├── bot/                    # Aiogram часть
@@ -215,96 +218,90 @@ psycho_diary/
 ├── .gitignore
 └── README.md
 
-
 📦 Модели данных
+
 1. User (расширение AbstractUser)
 
-- telegram_id (BigIntegerField, unique)
-- language (CharField, choices=LANGUAGES, default='ru')
-- last_entry (DateTimeField, null=True, blank=True)
-- awareness_level (PositiveIntegerField, default=1)  # 1-10
-- created_at (DateTimeField, auto_now_add=True)
-- updated_at (DateTimeField, auto_now=True)
-- is_premium (BooleanField, default=False)
-- deleted_at (DateTimeField, null=True, blank=True)  # Soft delete
+    - telegram_id (BigIntegerField, unique)
+    - language (CharField, choices=LANGUAGES, default='ru')
+    - last_entry (DateTimeField, null=True, blank=True)
+    - awareness_level (PositiveIntegerField, default=1)  # 1-10
+    - created_at (DateTimeField, auto_now_add=True)
+    - updated_at (DateTimeField, auto_now=True)
+    - is_premium (BooleanField, default=False)
+    - deleted_at (DateTimeField, null=True, blank=True)  # Soft delete
 
-2. DiaryEntry
-- user (ForeignKey)
-- text (TextField)
-- created_at (DateTimeField, auto_now_add=True)
-- language (CharField, choices=LANGUAGES)
-- word_count (PositiveIntegerField)
-- is_processed (BooleanField, default=False)
-- processing_error (TextField, blank=True)
+2. DiaryEntry.
+
+    - user (ForeignKey)
+    - text (TextField)
+    - created_at (DateTimeField, auto_now_add=True)
+    - language (CharField, choices=LANGUAGES)
+    - word_count (PositiveIntegerField)
+    - is_processed (BooleanField, default=False)
+    - processing_error (TextField, blank=True)
 
 3. VoiceToText
-- entry (OneToOneField)
-- original_duration (PositiveIntegerField)  # секунды
-- processed_text (TextField)
-- processing_time (FloatField)  # время обработки
-- api_response (JSONField)  # для дебага
 
-4. KeyPoint
-- entry (ForeignKey, related_name='key_points')
-- text (TextField)
-- type (CharField, choices=KEYPOINT_TYPES)  # emotion/event/thought/trigger
-- confidence (FloatField, default=1.0)  # уверенность анализа
+    - entry (OneToOneField)
+    - original_duration (PositiveIntegerField)  # секунды
+    - processed_text (TextField)
+    - processing_time (FloatField)  # время обработки
+    - api_response (JSONField)  # для дебага
 
-5. PsychoAnalysis
-- entry (OneToOneField, related_name='analysis')
-- mood_score (PositiveIntegerField)  # 1-10
-- comment (TextField)
-- recommendation (TextField)
-- processing_time (FloatField)
-- insights_extracted (PositiveIntegerField)
+4. PsychoAnalysis
 
-6. UserInsight
-- user (ForeignKey, related_name='insights')
-- text (TextField)
-- weight (PositiveIntegerField, default=1)
-- last_mentioned (DateTimeField)
-- category (CharField, choices=INSIGHT_CATEGORIES)
-- first_mentioned (DateTimeField, auto_now_add=True)
+    - entry (OneToOneField, related_name='analysis')
+    - mood_score (PositiveIntegerField)  # 1-10
+    - comment (TextField)
+    - recommendation (TextField)
+    - processing_time (FloatField)
+    - insights_extracted (PositiveIntegerField)
 
-7. TherapyProgress
-- user (ForeignKey)
-- date (DateField)
-- avg_mood (FloatField)
-- insights_count (PositiveIntegerField)
-- trigger_count (PositiveIntegerField)
-- depth_score (PositiveIntegerField)
-- tasks_completed (PositiveIntegerField)
-- consistency_score (FloatField)  # регулярность записей
+5. TherapyProgress
 
-8. TherapyTask
-- user (ForeignKey, related_name='tasks')
-- title (CharField)
-- description (TextField)
-- assigned_at (DateTimeField, auto_now_add=True)
-- completed_at (DateTimeField, null=True, blank=True)
-- status (CharField, choices=TASK_STATUS)
-- type (CharField, choices=TASK_TYPES)
-- priority (PositiveIntegerField, default=1)
+    - user (ForeignKey)
+    - date (DateField)
+    - avg_mood (FloatField)
+    - insights_count (PositiveIntegerField)
+    - trigger_count (PositiveIntegerField)
+    - depth_score (PositiveIntegerField)
+    - tasks_completed (PositiveIntegerField)
+    - consistency_score (FloatField)  # регулярность записей
 
-9. TaskCompletion
-- task (OneToOneField, related_name='completion')
-- completion_text (TextField)
-- feelings_text (TextField)
-- created_at (DateTimeField, auto_now_add=True)
-- time_spent (PositiveIntegerField)  # минуты
+6. TherapyTask
 
-10. TaskAnalysis
-- completion (OneToOneField, related_name='analysis')
-- bot_response (TextField)
-- insights_updated (BooleanField, default=False)
-- quality_score (PositiveIntegerField)  # 1-10
-- feedback_given (BooleanField, default=False)
+    - user (ForeignKey, related_name='tasks')
+    - title (CharField)
+    - description (TextField)
+    - assigned_at (DateTimeField, auto_now_add=True)
+    - completed_at (DateTimeField, null=True, blank=True)
+    - status (CharField, choices=TASK_STATUS)
+    - type (CharField, choices=TASK_TYPES)
+    - priority (PositiveIntegerField, default=1)
 
-11. UserActivity
-- user (ForeignKey)
-- activity_type (CharField, choices=ACTIVITY_TYPES)
-- timestamp (DateTimeField, auto_now_add=True)
-- metadata (JSONField, blank=True)  # дополнительные данные
+7. TaskCompletion
+
+    - task (OneToOneField, related_name='completion')
+    - completion_text (TextField)
+    - feelings_text (TextField)
+    - created_at (DateTimeField, auto_now_add=True)
+    - time_spent (PositiveIntegerField)  # минуты
+
+8. TaskAnalysis
+
+    - completion (OneToOneField, related_name='analysis')
+    - bot_response (TextField)
+    - insights_updated (BooleanField, default=False)
+    - quality_score (PositiveIntegerField)  # 1-10
+    - feedback_given (BooleanField, default=False)
+
+9. UserActivity
+
+    - user (ForeignKey)
+    - activity_type (CharField, choices=ACTIVITY_TYPES)
+    - timestamp (DateTimeField, auto_now_add=True)
+    - metadata (JSONField, blank=True)  # дополнительные данные
 
 🌍 Многоязычность
 messages.py
@@ -336,17 +333,21 @@ MESSAGES = {
 }
 
 ⚙️ Константы (core/constants.py)
+
 # Лимиты
+
 VOICE_MESSAGE_MAX_DURATION = 120  # секунд
 TEXT_MESSAGE_MAX_LENGTH = 5000
 MESSAGES_PER_MINUTE_LIMIT = 5
 
 # Веса и коэффициенты
+
 INSIGHT_WEIGHT_INCREMENT = 1
 INSIGHT_WEIGHT_DECREMENT = 0.1
 AWARENESS_LEVEL_MAX = 10
 
 # Типы ключевых моментов
+
 KEYPOINT_TYPES = [
     ('emotion', 'Эмоция'),
     ('event', 'Событие'),
@@ -355,6 +356,7 @@ KEYPOINT_TYPES = [
 ]
 
 # Статусы задач
+
 TASK_STATUS = [
     ('pending', 'Ожидает'),
     ('completed', 'Выполнена'),
@@ -362,6 +364,7 @@ TASK_STATUS = [
 ]
 
 # Типы задач
+
 TASK_TYPES = [
     ('daily', 'Ежедневная'),
     ('reflection', 'Рефлексивная'),
@@ -370,6 +373,7 @@ TASK_TYPES = [
 ]
 
 # Языки
+
 LANGUAGES = [
     ('ru', 'Русский'),
     ('en', 'English'),

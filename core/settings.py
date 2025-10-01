@@ -130,6 +130,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'diary.tasks.morning_motivations.send_morning_motivation_task',
         'schedule': crontab(minute=0)
     },
+    #'send-test-morning-motivation-every-minute-during-test': { # Имя задачи
+    #     'task': 'diary.tasks.test_morning.send_test_morning_motivation_task',
+    #     'schedule': 60.0, # Каждую минуту
+    #},
 }
 
 CELERY_BROKER_URL = config('CELERY_BROKER_URL')
