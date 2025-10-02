@@ -142,9 +142,7 @@ class TaskService:
         """
         logger.info(f"Начало выполнения задания ID: {task_id} для пользователя {user.telegram_id}")
         try:
-            # Получаем локальное время пользователя
             user_local_time = await user.aget_local_datetime_now()
-            
             @sync_to_async
             def complete_task_sync():
                 with transaction.atomic():
@@ -170,22 +168,19 @@ class TaskService:
                             task=task,
                             completion_text=completion_text,
                             feelings_text=feelings_text,
-                            created_at=user_local_time  # Используем локальное время
+                            created_at=user_local_time
                         )
                         logger.debug(f"[SYNC] TaskCompletion создан: ID {task_completion.id}")
                     
                     old_status = task.status
                     task.status = 'completed'
                     if old_status != 'completed': 
-                        task.completed_at = user_local_time  # Используем локальное время
+                        task.completed_at = user_local_time
                     task.save(update_fields=['status', 'completed_at'])
                     task_analysis = None   
-                
                 return task_completion, task_analysis
-            
             task_completion, task_analysis = await complete_task_sync()
             asyncio.create_task(self._run_analysis_and_notify_user(task_completion, user, status_message))
-            
             result = {
                 'task_completion': task_completion,
                 'task_analysis': task_analysis,
@@ -193,7 +188,6 @@ class TaskService:
             }
             logger.debug(f"Функция complete_task возвращает результат: {result}")
             return result 
-            
         except ValueError as ve:
             logger.warning(f"Ожидаемая ошибка в complete_task для задания {task_id}: {ve}")
             return None
@@ -207,10 +201,7 @@ class TaskService:
         """
         try:
             from bot.main import bot as global_bot
-            
-            # Запускаем анализ эффекта выполнения задания
             analysis_result = await self.analyze_task_completion_effect(task_completion, user)
-            
             target_chat_id = user.telegram_id
             use_edit = False
             message_to_edit = None
@@ -219,20 +210,14 @@ class TaskService:
                 target_chat_id = status_message.chat.id
                 use_edit = True
                 message_to_edit = status_message
-
-            # Обрабатываем разные типы результатов анализа
             if isinstance(analysis_result, dict) and analysis_result.get('invalid'):
-                # Случай невалидного выполнения задания
                 validation_comment = analysis_result.get('validation_comment', 'Выполнение задания не засчитано из-за недостаточной содержательности.')
                 language = user.language
-                
-                # Используем get_message для текста
                 final_message = get_message(
                     'task_completion_invalid_formatted', 
                     language, 
                     validation_comment=validation_comment
                 )
-                
                 buttons = [
                     [
                         InlineKeyboardButton(
@@ -253,24 +238,15 @@ class TaskService:
                         )
                     ]
                 ]
-                reply_markup = InlineKeyboardMarkup(inline_keyboard=buttons)
-                
+                reply_markup = InlineKeyboardMarkup(inline_keyboard=buttons)   
             elif analysis_result and hasattr(analysis_result, 'id'):
-                # Успешный анализ - создан объект TaskCompletionAnalysis
                 language = user.language
-                
-                # Пытаемся получить форматированное сообщение из промпта
                 parsed_result = analysis_result.api_response.get('result', {})
                 formatted_message = parsed_result.get('formatted_message')
-                
                 if formatted_message:
-                    # Если ИИ вернул готовое форматированное сообщение - используем его
                     final_message = formatted_message
                 else:
-                    # Иначе создаем сообщение через get_message
                     effect_description = analysis_result.effect_description or get_message('no_effect_description', language)
-                    
-                    # Форматируем оценку влияния на настроение
                     mood_impact_score_raw = analysis_result.mood_impact_score
                     if mood_impact_score_raw is not None:
                         try:
@@ -282,12 +258,9 @@ class TaskService:
                         except (ValueError, TypeError):
                             mood_impact_display = "N/A"
                     else:
-                        mood_impact_display = "N/A"
-                        
+                        mood_impact_display = "N/A"   
                     comment_for_user = analysis_result.comment or get_message('no_comment', language)
                     recommendation_for_user = analysis_result.recommendation or get_message('no_recommendation', language)
-                    
-                    # Используем get_message для форматированного результата
                     final_message = get_message(
                         'task_effect_analysis_result_formatted',
                         language,
@@ -296,16 +269,11 @@ class TaskService:
                         comment=comment_for_user,
                         recommendation=recommendation_for_user
                     )
-                
                 reply_markup = get_back_keyboard(language)
-                
             else:
-                # Ошибка в анализе или анализ не создан
                 language = user.language
                 final_message = get_message('task_analysis_error_formatted', language)
                 reply_markup = get_back_keyboard(language)
-
-            # Отправка или редактирование сообщения
             if use_edit and message_to_edit:
                 try:
                     await safe_edit_message_text(
@@ -330,14 +298,12 @@ class TaskService:
                         reply_markup=reply_markup
                     )
                     logger.info(f"Новое сообщение отправлено для задания {task_completion.task.id}")
-                    
         except Exception as task_error:
             logger.error(f"Критическая ошибка в _run_analysis_and_notify_user: {task_error}", exc_info=True)
             try:
                 language = user.language if 'user' in locals() else 'ru'
                 final_message = get_message('task_analysis_error_formatted', language)
                 error_reply_markup = get_back_keyboard(language)
-                
                 if status_message and global_bot:
                     try:
                         await safe_edit_message_text(
@@ -368,9 +334,7 @@ class TaskService:
         Пропуск задания с учетом часового пояса пользователя.
         """
         try:
-            # Получаем локальное время пользователя
             user_local_time = await user.aget_local_datetime_now()
-            
             @sync_to_async
             def skip_task_sync():
                 try:
@@ -382,17 +346,13 @@ class TaskService:
                 except TherapyTask.DoesNotExist:
                     logger.warning(f"Задание {task_id} не найдено или не принадлежит пользователю {user.telegram_id}")
                     return False
-                
                 with transaction.atomic():
                     task.status = 'skipped'
-                    task.completed_at = user_local_time  # Используем локальное время
+                    task.completed_at = user_local_time
                     task.save(update_fields=['status', 'completed_at'])       
-                
                 return True
-            
             success = await skip_task_sync()
             return success
-            
         except Exception as e:
             logger.error(f"Ошибка при пропуске задания: {e}")
             return False
@@ -523,29 +483,19 @@ class TaskService:
                 )
                 return analysis
             parsed_result = api_result.get('result', {})
-
-            # Проверяем валидность
             is_valid = parsed_result.get('is_valid', True)
             if not is_valid:
                 validation_comment = parsed_result.get('validation_comment', 'Выполнение задания признано недействительным.')
                 logger.warning(f"Выполнение задания {task_completion.task.id} признано недействительным: {validation_comment}")
-                
-                # Возвращаем задачу в статус pending
                 task = task_completion.task
                 task.status = 'pending'
                 task.completed_at = None
                 await sync_to_async(task.save)(update_fields=['status', 'completed_at'])
-                
-                # Удаляем TaskCompletion
                 await sync_to_async(task_completion.delete)()
-                
-                # Создаем анализ с пометкой о невалидности
                 return {
                     'invalid': True,
                     'validation_comment': validation_comment
                 }
-
-            # Если валидно - продолжаем как обычно
             effect_desc = parsed_result.get('effect_description', 'Эффект задания проанализирован.')
             mood_impact_score_raw = parsed_result.get('mood_impact_score')
             effect_desc = parsed_result.get('effect_description', 'Эффект задания проанализирован.')
@@ -557,7 +507,6 @@ class TaskService:
                 except (ValueError, TypeError):
                     logger.warning(f"Некорректный формат mood_impact_score из API: {mood_impact_score_raw}")
                     mood_impact_score = None
-
             comment_from_api = parsed_result.get('comment', '')
             recommendation_from_api = parsed_result.get('recommendation', '')
             detailed_analysis_from_api = parsed_result.get('detailed_analysis', '')
@@ -649,22 +598,19 @@ class TaskService:
                             status='skipped'
                         )
                         task.status = 'pending'
-                        task.completed_at = None  # Сбрасываем время выполнения
+                        task.completed_at = None
                         task.save(update_fields=['status', 'completed_at'])
                         return True
                     except TherapyTask.DoesNotExist:
                         logger.warning(f"Задание {task_id} не найдено, не принадлежит пользователю {user.telegram_id} или не пропущено")
                         return False
-            
             success = await restore_task_sync()
             return success
-            
         except Exception as e:
             logger.error(f"Ошибка при восстановлении задания {task_id} для пользователя {user.telegram_id}: {e}")
             return False
 
 task_service = TaskService()
-
 
 async def assign_task(
     user: User, 

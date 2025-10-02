@@ -132,7 +132,7 @@ Tell me what you felt while completing:
         'no_effect_description': '''No effect description''',
         'task_summary': '{task_count} uncompleted tasks.',
         'task_summary_single': '1 uncompleted task.',
-        'task_summary_other': '{task_count} uncompleted tasks.', # Для английского это часто работает для > 1
+        'task_summary_other': '{task_count} uncompleted tasks.',
         'task_summary_zero': '',
         'task_completion_invalid': '''❌ <b>Task not counted</b>
 
