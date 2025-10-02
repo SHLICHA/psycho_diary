@@ -25,7 +25,8 @@ from bot.keyboards import (
     get_analysis_time_selection_keyboard,
     get_edit_profile_keyboard,
     get_account_deletion_confirmation_keyboard,
-    get_account_deletion_menu_keyboard
+    get_account_deletion_menu_keyboard,
+    get_task_settings_keyboard
     )
 from bot.services import deepseek_api_service
 from bot.utils.state_manager import state_manager
@@ -188,6 +189,76 @@ async def premium_subscribe(callback: CallbackQuery, user, language: str):
         await callback.answer()
     except Exception as e:
         logger.error(f"Ошибка при подписке на премиум: {e}")
+        await callback.answer(get_message('error_generic', language=language))
+
+@router.callback_query(F.data == "settings_tasks")
+async def show_task_settings(callback: CallbackQuery, user, language: str):
+    """Показ настроек заданий"""
+    try:
+        task_settings_msg = get_message('task_settings_menu', language=language).format(
+            max_tasks=user.max_ai_tasks_per_day
+        )
+        await callback.message.edit_text(
+            task_settings_msg,
+            reply_markup=get_task_settings_keyboard(user, language)
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка при показе настроек заданий: {e}")
+        await callback.answer(get_message('error_generic', language=language))
+
+@router.callback_query(F.data == "settings_increase_tasks_limit")
+async def increase_tasks_limit(callback: CallbackQuery, user, language: str):
+    """Увеличение лимита заданий"""
+    try:
+        if user.max_ai_tasks_per_day < 5:  # Максимум 5 заданий в день
+            user.max_ai_tasks_per_day += 1
+            await user.asave(update_fields=['max_ai_tasks_per_day'])
+            success_msg = get_message('tasks_limit_increased', language=language).format(
+                new_limit=user.max_ai_tasks_per_day
+            )
+        else:
+            success_msg = get_message('tasks_limit_max_reached', language=language)
+        await callback.answer(success_msg)
+        
+        # Обновляем сообщение с настройками заданий
+        from bot.keyboards import get_task_settings_keyboard
+        task_settings_msg = get_message('task_settings_menu', language=language).format(
+            max_tasks=user.max_ai_tasks_per_day
+        )
+        await callback.message.edit_text(
+            task_settings_msg,
+            reply_markup=get_task_settings_keyboard(user, language)
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при увеличении лимита заданий: {e}")
+        await callback.answer(get_message('error_generic', language=language))
+
+@router.callback_query(F.data == "settings_decrease_tasks_limit")
+async def decrease_tasks_limit(callback: CallbackQuery, user, language: str):
+    """Уменьшение лимита заданий"""
+    try:
+        if user.max_ai_tasks_per_day > 1:  # Минимум 1 задание в день
+            user.max_ai_tasks_per_day -= 1
+            await user.asave(update_fields=['max_ai_tasks_per_day'])
+            success_msg = get_message('tasks_limit_decreased', language=language).format(
+                new_limit=user.max_ai_tasks_per_day
+            )
+        else:
+            success_msg = get_message('tasks_limit_min_reached', language=language)
+        await callback.answer(success_msg)
+        
+        # Обновляем сообщение с настройками заданий
+        from bot.keyboards import get_task_settings_keyboard
+        task_settings_msg = get_message('task_settings_menu', language=language).format(
+            max_tasks=user.max_ai_tasks_per_day
+        )
+        await callback.message.edit_text(
+            task_settings_msg,
+            reply_markup=get_task_settings_keyboard(user, language)
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при уменьшении лимита заданий: {e}")
         await callback.answer(get_message('error_generic', language=language))
 
 # ==================== ВСПОМОГАТЕЛЬНЫЕ HANDLERS ====================

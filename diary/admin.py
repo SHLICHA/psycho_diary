@@ -277,11 +277,11 @@ class TherapyTaskAdmin(admin.ModelAdmin):
     Админка для терапевтических заданий.
     """
     list_display = (
-        'id', 'user_link', 'short_title', 'type', 'priority', 'status', 
+        'id', 'user_link', 'short_title', 'type', 'complexity', 'status', 
         'assigned_at', 'completed_at_display'
     )
     list_filter = (
-        'type', 'priority', 'status', 'assigned_at', 'completed_at',
+        'type', 'complexity', 'status', 'assigned_at', 'completed_at',
         ('user', admin.RelatedOnlyFieldListFilter),
         ('related_entry', admin.RelatedOnlyFieldListFilter),
     )
@@ -295,7 +295,7 @@ class TherapyTaskAdmin(admin.ModelAdmin):
     
     fieldsets = (
         (None, {
-            'fields': ('user_link', 'title', 'description', 'type', 'priority', 'status')
+            'fields': ('user_link', 'title', 'description', 'type', 'complexity', 'status')
         }),
         (_('Связи'), {
             'fields': ('related_entry_link', 'completion_link')
@@ -357,10 +357,10 @@ class TaskCompletionAdmin(admin.ModelAdmin):
     Админка для выполнения заданий.
     """
     list_display = (
-        'id', 'task_link', 'short_completion_text', 'created_at', 'time_spent'
+        'id', 'task_link', 'short_completion_text', 'created_at'
     )
     list_filter = (
-        'created_at', 'time_spent',
+        'created_at',
         ('task__user', admin.RelatedOnlyFieldListFilter),
     )
     search_fields = (
@@ -373,7 +373,7 @@ class TaskCompletionAdmin(admin.ModelAdmin):
     
     fieldsets = (
         (None, {
-            'fields': ('task_link', 'time_spent')
+            'fields': ('task_link',)
         }),
         (_('Выполнение'), {
             'fields': ('completion_text_full',)

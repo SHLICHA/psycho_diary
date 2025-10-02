@@ -3,7 +3,7 @@ from .scheduler_tasks import schedule_daily_analyses, perform_scheduled_daily_an
 from .reminder_tasks import send_entry_reminders
 from .reminder_ask_questions import check_clarification_reminders, force_process_clarifications
 from .morning_motivations import send_morning_motivation_task
-from .test_morning import send_test_morning_motivation_task
+#from .test_morning import send_entry_reminders
 
 __all__ = [
     'perform_weekly_analysis_for_user_task',

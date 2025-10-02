@@ -1,6 +1,6 @@
 TASKS_MESSAGES_RU = {
     'ru': {  
-        'task_assigned': '''🎯 <b>Новое задание!</b>
+        'task_assigned': '''\n🎯 <b>Новое задание!</b>
 
 <b>{title}</b>
 
@@ -27,6 +27,7 @@ TASKS_MESSAGES_RU = {
         # === Кнопки заданий ===
         'btn_complete_task': '✅ Выполнить',
         'btn_skip_task': '⏭ Пропустить задание',
+        'btn_try_again': '''🔄 Попробовать снова''',
         'btn_delete_task': '🗑 Удалить задание',
         'btn_view_task': '👁 Посмотреть',
         'btn_cancel_task': '❌ Отменить задание',
@@ -38,8 +39,8 @@ TASKS_MESSAGES_RU = {
         'task_restored': '✅ Задание восстановлено и снова доступно!',
         'task_not_found_or_not_skipped': '❌ Задание не найдено или не является пропущенным.',
         'btn_restore_task': '🔄 Восстановить задание',
-
         'btn_detailed_analysis': '🔬 Детальный анализ',
+
         'detailed_task_analysis_header': 'Детальный анализ задания "{task_title}"',
         'task_analysis_not_found': 'Детальный анализ для этого выполнения задания пока недоступен.',
         'task_analysis_no_details': 'Детальный анализ для задания "{task_title}" не содержит информации.',
@@ -109,7 +110,6 @@ TASKS_MESSAGES_RU = {
 🕒 <b>Назначено:</b> {assigned_at}
 {completed_at}
 📊 <b>Статус:</b> {status}
-⭐ <b>Приоритет:</b> {priority}
 
 <b>Описание:</b>
 {description}
@@ -134,5 +134,17 @@ TASKS_MESSAGES_RU = {
         'task_summary_few': '{task_count} незавершенные задачи.',
         'task_summary_many': '{task_count} незавершенных задач.',
         'task_summary_zero': '',
+        'task_completion_invalid': '''❌ <b>Задание не засчитано</b>
+
+Причина: {validation_comment}
+
+Пожалуйста, выполните задание более подробно и содержательно.''',
+
+    'settings_tasks_limit': 'Лимит заданий: {limit}',
+    'task_settings_menu': 'Настройки заданий\n\nМаксимум заданий в день: {max_tasks}',
+    'tasks_limit_increased': 'Лимит заданий увеличен до {new_limit}',
+    'tasks_limit_decreased': 'Лимит заданий уменьшен до {new_limit}',
+    'tasks_limit_max_reached': 'Достигнут максимальный лимит заданий',
+    'tasks_limit_min_reached': 'Достигнут минимальный лимит заданий',
     }
 }

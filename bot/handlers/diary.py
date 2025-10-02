@@ -1275,14 +1275,16 @@ async def _create_task_from_suggested_data(user, task_data, entry_date, related_
     task_type = task_data.get('type', 'daily')
     if task_type not in valid_types:
         task_type = 'daily'
-    priority_map = {'low': 1, 'medium': 2, 'high': 3, 'critical': 4}
-    priority = priority_map.get(task_data.get('priority', 'medium').lower(), 2)
+    complexity = task_data.get('priority', 'medium').lower()
+    if complexity not in ['low', 'medium', 'high']:
+        complexity = 'medium'
+    
     return await task_service.assign_task(
         user=user,
         title=task_data.get('title', 'Задание от ИИ'),
         description=task_data.get('description', 'Выполните задание.'),
         task_type=task_type,
-        priority=priority,
+        complexity=complexity,
         related_entry=related_entry
     )
              

@@ -7,6 +7,8 @@ import logging
 from datetime import datetime
 import pytz
 
+from django.db.models import Q
+from datetime import timedelta, time as dtime
 from asgiref.sync import sync_to_async
 from celery import shared_task
 from aiogram import Bot
@@ -14,14 +16,69 @@ from aiogram.enums import ParseMode
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from bot.utils.message_utils import send_message_to_user
-from diary.models import TherapyTask
+from bot.services import deepseek_api_service
+from diary.models import TherapyTask, DiaryEntry, CombinedDiaryEntry, DailyAnalysis
 from users.models import User
 from messages import get_message, get_button_text
+from prompts.get_prompt import get_prompt
 from core.settings import TELEGRAM_BOT_TOKEN
 
 logger = logging.getLogger(__name__)
 
 # === Вспомогательные асинхронные функции для работы с БД ===
+
+@sync_to_async
+def get_user_streaks(user):
+    """
+    Подсчитывает текущую и максимальную серию дней с записями для пользователя.
+    """
+    try:
+        import pytz
+        user_timezone_str = user.timezone if user.timezone else 'UTC'
+        user_tz = pytz.timezone(user_timezone_str)
+        now = datetime.now(user_tz)
+        today = now.date()
+        # Получаем все даты, когда пользователь делал записи
+        entry_dates = DiaryEntry.objects.filter(
+            user=user
+        ).order_by('-created_at').distinct().values_list('created_at', flat=True)
+        # Преобразуем в даты в часовом поясе пользователя
+        user_entry_dates = []
+        for dt in entry_dates:
+            if dt.tzinfo is None:
+                dt = pytz.utc.localize(dt)
+            user_entry_dates.append(dt.astimezone(user_tz).date())
+        # Убираем дубликаты и сортируем по убыванию
+        unique_dates = sorted(set(user_entry_dates), reverse=True)
+        if not unique_dates:
+            return 0, 0
+        # Подсчитываем текущую серию
+        current_streak = 0
+        current_date = today
+        for entry_date in unique_dates:
+            if entry_date == current_date:
+                current_streak += 1
+                current_date -= timedelta(days=1)
+            elif entry_date < current_date:
+                break
+        # Подсчитываем максимальную серию
+        max_streak = 0
+        current_run = 0
+        prev_date = None
+        for entry_date in sorted(set(user_entry_dates)):
+            if prev_date is None:
+                current_run = 1
+            elif entry_date == prev_date + timedelta(days=1):
+                current_run += 1
+            else:
+                max_streak = max(max_streak, current_run)
+                current_run = 1
+            prev_date = entry_date
+        max_streak = max(max_streak, current_run)
+        return current_streak, max_streak
+    except Exception as e:
+        logger.error(f"Ошибка при подсчете серий пользователя {user.telegram_id}: {e}")
+        return 0, 0
 
 @sync_to_async
 def get_active_users_with_notifications():
@@ -42,9 +99,7 @@ def has_entries_for_user_on_date(user, target_date):
     """
     Проверяет, есть ли у пользователя записи на заданную дату (в его часовом поясе).
     """
-    from diary.models import DiaryEntry
-    from django.db.models import Q
-    from datetime import time as dtime
+
 
     try:
         import pytz
@@ -95,16 +150,16 @@ def send_entry_reminders():
 @sync_to_async
 def get_uncompleted_tasks_count_for_user_today(user):
     """
-    Подсчитывает количество ВСЕХ незавершенных задач для пользователя (статус != 'completed').
+    Подсчитывает количество незавершенных задач для пользователя (статус в ['pending', 'in_progress']).
     """
     try:
         count = TherapyTask.objects.filter(
             user=user,
-            status__ne='completed'
+            status__in=['pending',]  # только незавершенные, исключая 'completed', 'skipped', 'expired'
         ).count()
         return count
     except Exception as e:
-        logger.error(f"Ошибка при подсчете ВСЕХ незавершенных задач пользователя {user.telegram_id}: {e}", exc_info=True)
+        logger.error(f"Ошибка при подсчете незавершенных задач пользователя {user.telegram_id}: {e}", exc_info=True)
         return 0
 
 async def _send_entry_reminders_async():
@@ -156,36 +211,80 @@ async def _send_entry_reminders_async():
                             error_count += 1
                             logger.info(f"Не удалось отправить напоминание об анкете пользователю {user.telegram_id}")
                         continue 
-                if current_user_hour == 21: 
-                    has_entries_today = await has_entries_for_user_on_date(user, user_local_date)
-                    if has_entries_today:
-                        logger.info(f"Пользователь {user.telegram_id} уже сделал запись сегодня ({user_local_date}). Напоминание о записи не отправляется.")
-                        continue
-                    uncompleted_tasks_count = await get_uncompleted_tasks_count_for_user_today(user)
-                    if uncompleted_tasks_count > 0:
-                        if language == 'ru':
-                            if uncompleted_tasks_count == 1:
-                                task_text = f"\n\n🎯 У тебя {uncompleted_tasks_count} незавершенная задача."
-                            elif 2 <= uncompleted_tasks_count % 10 <= 4 and (uncompleted_tasks_count < 10 or uncompleted_tasks_count > 20):
-                                task_text = f"\n\n🎯 У тебя {uncompleted_tasks_count} незавершенные задачи."
-                            else:
-                                task_text = f"\n\n🎯 У тебя {uncompleted_tasks_count} незавершенных задач."
-                        else:
-                            task_text = f"\n\n🎯 You have {uncompleted_tasks_count} uncompleted task{'s' if uncompleted_tasks_count != 1 else ''}."
-                    else:
-                        task_text = ""
-                    try:
-                        entry_reminder_text = get_message('reminder_entry', language, task_text=task_text)
-                    except Exception as msg_error:
-                        logger.warning(f"Не удалось получить сообщение 'reminder_entry' для пользователя {user.telegram_id}: {msg_error}")
-                        base_text = (
-                            "📝 <b>Не забудь сделать запись в дневник сегодня!</b>\n\n"
-                            "Поделись своими мыслями и чувствами, чтобы лучше понимать себя."
-                        ) if language == 'ru' else (
-                            "📝 <b>Don't forget to make a diary entry today!</b>\n\n"
-                            "Share your thoughts and feelings to better understand yourself."
+                    if current_user_hour == 21: 
+                        has_entries_today = await has_entries_for_user_on_date(user, user_local_date)
+                        if has_entries_today:
+                            logger.info(f"Пользователь {user.telegram_id} уже сделал запись сегодня ({user_local_date}). Напоминание о записи не отправляется.")
+                            continue
+                        uncompleted_tasks_count = await get_uncompleted_tasks_count_for_user_today(user)
+                        # Подсчитываем серии
+                        current_streak, longest_streak = await get_user_streaks(user)
+                        yesterday = user_local_date - timedelta(days=1)
+
+                        # Получаем CombinedDiaryEntry за вчера
+                        try:
+                            combined_entry_yesterday = await CombinedDiaryEntry.objects.aget(user=user, date=yesterday)
+                            previous_day_text = combined_entry_yesterday.text
+                            # Получаем DailyAnalysis за вчера
+                            try:
+                                daily_analysis_yesterday = await DailyAnalysis.objects.aget(combined_entry=combined_entry_yesterday)
+                                previous_day_analysis = {
+                                    "overall_analysis_text": daily_analysis_yesterday.overall_analysis_text,
+                                    "key_themes": daily_analysis_yesterday.key_themes,
+                                    "emotional_patterns": daily_analysis_yesterday.emotional_patterns,
+                                    "insights": daily_analysis_yesterday.insights,
+                                    "recommendations": daily_analysis_yesterday.recommendations,
+                                    "mood_trend": daily_analysis_yesterday.mood_trend,
+                                    "average_mood_score": combined_entry_yesterday.average_mood_score
+                                }
+                            except DailyAnalysis.DoesNotExist:
+                                previous_day_analysis = {}
+                        except CombinedDiaryEntry.DoesNotExist:
+                            previous_day_text = ""
+                            previous_day_analysis = {}
+                        
+                        # Формируем промпт для ИИ
+                        user_profile_data = await user.aget_profile_data()
+                        prompt = get_prompt(
+                            key='reminder_message',
+                            language=language,
+                            user_profile=user_profile_data,
+                            uncompleted_tasks_count=uncompleted_tasks_count,
+                            current_streak=current_streak,
+                            longest_streak=longest_streak,
+                            previous_day_analysis=previous_day_analysis
                         )
-                        entry_reminder_text = base_text + task_text
+
+                        # Отправляем промпт в ИИ
+                        api_result = await deepseek_api_service.send_prompt_and_parse(prompt, language=language)
+
+                        if api_result.get('success'):
+                            entry_reminder_text = api_result.get('result', {}).get('motivation_message', 
+                                get_message('reminder_entry', language))
+                        else:
+                            # Если ИИ не сработал, используем стандартное сообщение
+                            logger.warning(f"ИИ не сгенерировал персонализированное напоминание для {user.telegram_id}. Используется стандартное. Ошибка API: {api_result.get('error')}")
+                            try:
+                                entry_reminder_text = get_message('reminder_entry', language)
+                            except Exception as msg_error:
+                                logger.warning(f"Не удалось получить сообщение 'reminder_entry' для пользователя {user.telegram_id}: {msg_error}")
+                                base_text = (
+                                    "📝 <b>Не забудь сделать запись в дневник сегодня!</b>\n\n"
+                                    "Поделись своими мыслями и чувствами, чтобы лучше понимать себя."
+                                ) if language == 'ru' else (
+                                    "📝 <b>Don't forget to make a diary entry today!</b>\n\n"
+                                    "Share your thoughts and feelings to better understand yourself."
+                                )
+                                entry_reminder_text = base_text
+
+                        entry_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                            [
+                                InlineKeyboardButton(
+                                    text=get_button_text('btn_new_entry', language),
+                                    callback_data="new_entry"
+                                )
+                            ]
+                        ])
                     entry_keyboard = InlineKeyboardMarkup(inline_keyboard=[
                         [
                             InlineKeyboardButton(

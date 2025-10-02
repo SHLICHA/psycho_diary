@@ -46,7 +46,8 @@ from .settings_keyboard import (
     get_analysis_time_selection_keyboard,
     get_edit_profile_keyboard,
     get_account_deletion_confirmation_keyboard,
-    get_account_deletion_menu_keyboard
+    get_account_deletion_menu_keyboard,
+    get_task_settings_keyboard
 )
 
 # Клавиатуры помощи
@@ -124,6 +125,7 @@ __all__ = [
     'get_analysis_time_selection_keyboard',
     'get_account_deletion_confirmation_keyboard',
     'get_account_deletion_menu_keyboard',
+    'get_task_settings_keyboard',
     
     # Клавиатуры помощи
     'get_help_keyboard',

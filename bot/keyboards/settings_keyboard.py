@@ -22,6 +22,9 @@ def get_settings_keyboard(user, language: str) -> InlineKeyboardMarkup:
     premium_text = get_button_text('settings_premium', language).format(
         status=get_status_text(user.is_premium, language)
     )
+    tasks_limit_text = get_button_text('settings_tasks_limit', language).format(
+        limit=user.max_ai_tasks_per_day
+    )
     buttons = [
         [
             InlineKeyboardButton(
@@ -57,6 +60,12 @@ def get_settings_keyboard(user, language: str) -> InlineKeyboardMarkup:
             InlineKeyboardButton(
                 text=premium_text,
                 callback_data="settings_premium"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=tasks_limit_text,
+                callback_data="settings_tasks"
             )
         ],
         [
@@ -387,6 +396,38 @@ def get_account_deletion_confirmation_keyboard(language: str) -> InlineKeyboardM
                 text=get_button_text('btn_cancel_deletion', language),
                 callback_data="delete_account_cancel"
             )
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_task_settings_keyboard(user, language: str) -> InlineKeyboardMarkup:
+    """Клавиатура настроек заданий"""
+    from aiogram.types import InlineKeyboardButton
+    increase_btn = InlineKeyboardButton(
+        text="➕",
+        callback_data="settings_increase_tasks_limit"
+    )
+    decrease_btn = InlineKeyboardButton(
+        text="➖",
+        callback_data="settings_decrease_tasks_limit"
+    )
+    limit_text = f"{user.max_ai_tasks_per_day}"
+    limit_btn = InlineKeyboardButton(
+        text=limit_text,
+        callback_data="settings_tasks_noop"  # заглушка
+    )
+    back_btn = InlineKeyboardButton(
+        text=get_button_text('btn_back', language),
+        callback_data="settings"
+    )
+    buttons = [
+        [
+            decrease_btn,
+            limit_btn,
+            increase_btn
+        ],
+        [
+            back_btn
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)

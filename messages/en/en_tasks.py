@@ -1,6 +1,6 @@
 TASKS_MESSAGES_EN = {
     'en': {  
-        'task_assigned': '''🎯 <b>New task!</b>
+        'task_assigned': '''\n🎯 <b>New task!</b>
 
 <b>{title}</b>
 
@@ -27,6 +27,7 @@ Your response is saved. I will consider this in future analysis.
         # === Task buttons ===
         'btn_complete_task': '✅ Complete',
         'btn_skip_task': '⏭ Skip task',
+        'btn_try_again': '''🔄 Try Again''',
         'btn_delete_task': '🗑 Delete task',
         'btn_view_task': '👁 View',
         'btn_cancel_task': '❌ Cancel Task',
@@ -110,7 +111,6 @@ Tell me what you felt while completing:
 🕒 <b>Assigned:</b> {assigned_at}
 {completed_at}
 📊 <b>Status:</b> {status}
-⭐ <b>Priority:</b> {priority}
 
 <b>Description:</b>
 {description}
@@ -134,5 +134,17 @@ Tell me what you felt while completing:
         'task_summary_single': '1 uncompleted task.',
         'task_summary_other': '{task_count} uncompleted tasks.', # Для английского это часто работает для > 1
         'task_summary_zero': '',
+        'task_completion_invalid': '''❌ <b>Task not counted</b>
+
+Reason: {validation_comment}
+
+Please complete the task more thoroughly and meaningfully.''',
+
+    'settings_tasks_limit': 'Tasks limit: {limit}',
+    'task_settings_menu': 'Task Settings\n\nMax tasks per day: {max_tasks}',
+    'tasks_limit_increased': 'Tasks limit increased to {new_limit}',
+    'tasks_limit_decreased': 'Tasks limit decreased to {new_limit}',
+    'tasks_limit_max_reached': 'Maximum tasks limit reached',
+    'tasks_limit_min_reached': 'Minimum tasks limit reached',
     }
 }

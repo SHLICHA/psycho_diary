@@ -131,7 +131,7 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': crontab(minute=0)
     },
     #'send-test-morning-motivation-every-minute-during-test': { # Имя задачи
-    #     'task': 'diary.tasks.test_morning.send_test_morning_motivation_task',
+    #     'task': 'diary.tasks.test_morning.send_entry_reminders',
     #     'schedule': 60.0, # Каждую минуту
     #},
 }

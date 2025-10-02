@@ -9,9 +9,10 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 from django.db import transaction
 from asgiref.sync import sync_to_async
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from prompts.get_prompt import get_prompt
+from messages import get_message
 from diary.services import daily_state_service
 from diary.models import DiaryEntry, TherapyTask, TaskCompletion, TaskCompletionAnalysis
 from users.models import User
@@ -29,7 +30,7 @@ class TaskService:
         title: str, 
         description: str, 
         task_type: str = 'daily',
-        priority: int = 1,
+        complexity: str = 'medium',
         related_entry: DiaryEntry = None
     ) -> TherapyTask:
         """
@@ -40,7 +41,7 @@ class TaskService:
             title: Название задания
             description: Описание задания
             task_type: Тип задания
-            priority: Приоритет задания
+            complexity: Сложность задания
             
         Returns:
             TherapyTask: Назначенное задание
@@ -54,7 +55,7 @@ class TaskService:
                         title=title,
                         description=description,
                         type=task_type,
-                        priority=priority,
+                        complexity=complexity,
                         status='pending',
                         related_entry=related_entry
                     )
@@ -156,15 +157,13 @@ class TaskService:
                         task_completion = task.completion
                         task_completion.completion_text = completion_text
                         task_completion.feelings_text = feelings_text
-                        task_completion.time_spent = 5
-                        task_completion.save(update_fields=['completion_text', 'feelings_text', 'time_spent'])             
+                        task_completion.save(update_fields=['completion_text', 'feelings_text'])             
                     else:
                         logger.debug(f"[SYNC] Создание нового TaskCompletion для задания {task_id}")
                         task_completion = TaskCompletion.objects.create(
                             task=task,
                             completion_text=completion_text,
                             feelings_text=feelings_text,
-                            time_spent=5 # TODO: Реальное время
                         )
                         logger.debug(f"[SYNC] TaskCompletion создан: ID {task_completion.id}")
                     old_status = task.status
@@ -199,17 +198,42 @@ class TaskService:
         """
         try:
             from bot.main import bot as global_bot
-            effect_analysis = await self.analyze_task_completion_effect(task_completion, user)
+            
+            analysis_result = await self.analyze_task_completion_effect(task_completion, user)
             target_chat_id = user.telegram_id
             use_edit = False
             if status_message:
                 target_chat_id = status_message.chat.id
                 use_edit = True
-            if effect_analysis:
-                from messages import get_message
+            if isinstance(analysis_result, dict) and analysis_result.get('invalid'):
+                validation_comment = analysis_result.get('validation_comment', 'Выполнение задания не засчитано из-за недостаточной содержательности.')
                 language = user.language
-                effect_description = effect_analysis.effect_description or get_message('no_effect_description', language)
-                mood_impact_score_raw = effect_analysis.mood_impact_score
+                error_msg = get_message('task_completion_invalid', language, validation_comment=validation_comment)
+                buttons = [
+                    [
+                        InlineKeyboardButton(
+                            text=get_message('btn_try_again', language),  # "Попробовать снова"
+                            callback_data=f"complete_task:{task_completion.task.id}"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text=get_message('btn_skip_task', language),  # "Пропустить"
+                            callback_data=f"skip_task:{task_completion.task.id}"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text=get_message('btn_back', language),
+                            callback_data="back_to_tasks"
+                        )
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(inline_keyboard=buttons)
+            elif analysis_result and hasattr(analysis_result, 'id'):
+                language = user.language
+                effect_description = analysis_result.effect_description or get_message('no_effect_description', language)
+                mood_impact_score_raw = analysis_result.mood_impact_score
                 if mood_impact_score_raw is not None:
                     try:
                         mood_impact_score = int(mood_impact_score_raw)
@@ -221,8 +245,8 @@ class TaskService:
                         mood_impact_display = "N/A"
                 else:
                     mood_impact_display = "N/A"
-                comment_for_user = effect_analysis.comment or get_message('no_comment', language)
-                recommendation_for_user = effect_analysis.recommendation or get_message('no_recommendation', language)
+                comment_for_user = analysis_result.comment or get_message('no_comment', language)
+                recommendation_for_user = analysis_result.recommendation or get_message('no_recommendation', language)
                 effect_msg = get_message(
                     'task_effect_analysis_result',
                     language,
@@ -232,50 +256,56 @@ class TaskService:
                     recommendation=recommendation_for_user
                 )
                 reply_markup = get_back_keyboard(language)
-                if use_edit:
-                    try:
-                        await safe_edit_message_text(
-                            message=status_message,
-                            text=effect_msg,
-                            reply_markup=reply_markup
-                        )
-                    except Exception as edit_error:
-                        logger.warning(f"[Асинхронная задача] Не удалось отредактировать сообщение: {edit_error}. Отправляем новое.")
-                        if global_bot:
-                            await global_bot.send_message(chat_id=target_chat_id, text=effect_msg, reply_markup=reply_markup)
-                        else:
-                            logger.error("[Асинхронная задача] Глобальный бот не найден для отправки нового сообщения.")
-                else:
-                    if global_bot:
-                        await global_bot.send_message(chat_id=target_chat_id, text=effect_msg, reply_markup=reply_markup)
-                    else:
-                        logger.error("[Асинхронная задача] Глобальный бот не найден для отправки сообщения.")
             else:
-                logger.error(f"[Асинхронная задача] analyze_task_completion_effect вернул None для выполнения {task_completion.id}")
+                # Ошибка в анализе
+                language = user.language
                 error_msg = get_message('error_processing', user.language)
-                error_reply_markup = get_back_keyboard(user.language) 
+                reply_markup = get_back_keyboard(user.language)
+                
                 if use_edit:
                     try:
                         await safe_edit_message_text(
                             message=status_message,
                             text=error_msg,
-                            reply_markup=error_reply_markup
+                            reply_markup=reply_markup
                         )
                     except Exception as edit_error:
-                        logger.warning(f"[Асинхронная задача] Не удалось отредактировать сообщение об ошибке: {edit_error}. Отправляем новое.")
+                        logger.warning(f"[Асинхронная задача] Не удалось отредактировать сообщение: {edit_error}. Отправляем новое.")
                         if global_bot:
-                            await global_bot.send_message(chat_id=target_chat_id, text=error_msg, reply_markup=error_reply_markup)
+                            await global_bot.send_message(chat_id=target_chat_id, text=error_msg, reply_markup=reply_markup)
                         else:
-                            logger.error("[Асинхронная задача] Глобальный бот не найден для отправки сообщения об ошибке.")
+                            logger.error("[Асинхронная задача] Глобальный бот не найден для отправки нового сообщения.")
                 else:
                     if global_bot:
-                        await global_bot.send_message(chat_id=target_chat_id, text=error_msg, reply_markup=error_reply_markup)
+                        await global_bot.send_message(chat_id=target_chat_id, text=error_msg, reply_markup=reply_markup)
                     else:
-                        logger.error("[Асинхронная задача] Глобальный бот не найден для отправки сообщения об ошибке.")
+                        logger.error("[Асинхронная задача] Глобальный бот не найден для отправки сообщения.")
+                return
+
+            # Отправка или редактирование сообщения
+            if isinstance(analysis_result, dict) and analysis_result.get('invalid'):
+                # Для невалидного выполнения используем error_msg
+                if use_edit:
+                    try:
+                        await safe_edit_message_text(
+                            message=status_message,
+                            text=error_msg,
+                            reply_markup=reply_markup
+                        )
+                    except Exception as edit_error:
+                        logger.warning(f"[Асинхронная задача] Не удалось отредактировать сообщение: {edit_error}. Отправляем новое.")
+                        if global_bot:
+                            await global_bot.send_message(chat_id=target_chat_id, text=error_msg, reply_markup=reply_markup)
+                        else:
+                            logger.error("[Асинхронная задача] Глобальный бот не найден для отправки нового сообщения.")
+                else:
+                    if global_bot:
+                        await global_bot.send_message(chat_id=target_chat_id, text=error_msg, reply_markup=reply_markup)
+                    else:
+                        logger.error("[Асинхронная задача] Глобальный бот не найден для отправки сообщения.")
         except Exception as task_error:
             logger.error(f"[Асинхронная задача] Критическая ошибка в _run_analysis_and_notify_user: {task_error}", exc_info=True)
             try:
-                from messages import get_message
                 error_msg = get_message('error_processing', user.language if 'user' in locals() else 'ru')
                 error_reply_markup = get_back_keyboard(user.language if 'user' in locals() else 'ru')
                 if status_message and global_bot:
@@ -405,31 +435,21 @@ class TaskService:
                 logger.warning(f"Задание {task_completion.task.id} не связано с записью дневника.")
             completion_combined_entry = await daily_state_service.get_daily_state(user, completion_date)
             if not completion_combined_entry:
-                logger.error(f"CombinedDiaryEntry для дня выполнения ({completion_date}) не найден. "
-                            f"Анализ невозможен.")
-                analysis = await sync_to_async(TaskCompletionAnalysis.objects.create)(
-                    completion=task_completion,
-                    effect_description="[Ошибка: CombinedDiaryEntry дня выполнения не найден]",
-                    mood_impact_score=None,
-                    comment="",
-                    recommendation="",
-                    detailed_analysis="",
-                    api_response={"error": "Completion day CombinedDiaryEntry not found"}
-                )
-                return analysis
+                logger.warning(f"CombinedDiaryEntry для дня выполнения ({completion_date}) не найден. "
+                            f"Анализ будет выполнен без данных дня выполнения.")
+                completion_combined_entry = None
             assigned_day_context = {
                 "text": assigned_combined_entry.text if assigned_combined_entry else "",
                 "analysis_result": assigned_combined_entry.analysis_result if assigned_combined_entry else {}
             }
             completion_day_context = {
-                "text": completion_combined_entry.text,
-                "analysis_result": completion_combined_entry.analysis_result
+                "text": completion_combined_entry.text if completion_combined_entry else "",
+                "analysis_result": completion_combined_entry.analysis_result if completion_combined_entry else {}
             }
             user_profile_data = {
                 'username': user.username or f"user_{user.telegram_id}",
                 'first_name': user.first_name or "",
                 'awareness_level': user.awareness_level,
-                'is_premium': user.is_premium,
                 'personality_traits': user.personality_traits,
                 'life_facts': user.life_facts,
                 'hobbies': user.hobbies,
@@ -450,6 +470,7 @@ class TaskService:
                 completion_day_analysis=json.dumps(completion_day_context['analysis_result'], ensure_ascii=False, indent=2),
                 task_title=task_completion.task.title,
                 task_description=task_completion.task.description,
+                task_complexity=task_completion.task.complexity,
                 completion_text=task_completion.completion_text,
                 feelings_text=task_completion.feelings_text
             )
@@ -468,6 +489,31 @@ class TaskService:
                 )
                 return analysis
             parsed_result = api_result.get('result', {})
+
+            # Проверяем валидность
+            is_valid = parsed_result.get('is_valid', True)
+            if not is_valid:
+                validation_comment = parsed_result.get('validation_comment', 'Выполнение задания признано недействительным.')
+                logger.warning(f"Выполнение задания {task_completion.task.id} признано недействительным: {validation_comment}")
+                
+                # Возвращаем задачу в статус pending
+                task = task_completion.task
+                task.status = 'pending'
+                task.completed_at = None
+                await sync_to_async(task.save)(update_fields=['status', 'completed_at'])
+                
+                # Удаляем TaskCompletion
+                await sync_to_async(task_completion.delete)()
+                
+                # Создаем анализ с пометкой о невалидности
+                return {
+                    'invalid': True,
+                    'validation_comment': validation_comment
+                }
+
+            # Если валидно - продолжаем как обычно
+            effect_desc = parsed_result.get('effect_description', 'Эффект задания проанализирован.')
+            mood_impact_score_raw = parsed_result.get('mood_impact_score')
             effect_desc = parsed_result.get('effect_description', 'Эффект задания проанализирован.')
             mood_impact_score_raw = parsed_result.get('mood_impact_score')
             mood_impact_score = None
@@ -595,11 +641,11 @@ async def assign_task(
     title: str, 
     description: str, 
     task_type: str = 'daily',
-    priority: int = 1,
+    complexity: str = 'medium',
     related_entry: DiaryEntry = None
 ) -> TherapyTask:
     """Удобная функция для назначения задания"""
-    return await task_service.assign_task(user, title, description, task_type, priority, related_entry)
+    return await task_service.assign_task(user, title, description, task_type, complexity, related_entry)
 
 async def get_user_active_tasks(user: User) -> List[TherapyTask]:
     """Удобная функция для получения активных заданий"""

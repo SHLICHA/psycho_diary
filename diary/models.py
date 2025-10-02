@@ -9,8 +9,8 @@ from users.models import User
 from django.utils.translation import gettext_lazy as _
 
 from core.constants import (
-    KEYPOINT_TYPES, INSIGHT_CATEGORIES, TASK_STATUS, 
-    TASK_TYPES, ACTIVITY_TYPES, MOOD_SCORES, LANGUAGES, TASK_PRIORITIES
+    TASK_STATUS, 
+    TASK_TYPES, ACTIVITY_TYPES, LANGUAGES
 )
 
 logger = logging.getLogger(__name__)
@@ -279,7 +279,11 @@ class TherapyProgress(models.Model):
 
 class TherapyTask(models.Model):
     """Терапевтическое задание"""
-    
+    COMPLEXITY_CHOICES = [
+        ('low', 'Легкий'),
+        ('medium', 'Средний'),
+        ('high', 'Сложный'),
+    ]    
     user = models.ForeignKey(
         User, 
         on_delete=models.CASCADE, 
@@ -309,7 +313,12 @@ class TherapyTask(models.Model):
         choices=TASK_TYPES,
         verbose_name=_("Тип")
     )
-    priority = models.PositiveIntegerField(default=1, verbose_name=_("Сложность"))
+    complexity = models.CharField(
+        max_length=10,
+        choices=COMPLEXITY_CHOICES,
+        verbose_name=_("Сложность задания"),
+        default='medium'
+    )
 
     class Meta:
         verbose_name = _("Терапевтическое задание")
@@ -331,7 +340,6 @@ class TaskCompletion(models.Model):
     completion_text = models.TextField(verbose_name=_("Текст выполнения"))
     feelings_text = models.TextField(verbose_name=_("Ощущения при выполнении"))
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата выполнения"))
-    time_spent = models.PositiveIntegerField(verbose_name=_("Время выполнения (мин)"))
 
     class Meta:
         verbose_name = _("Выполнение задания")

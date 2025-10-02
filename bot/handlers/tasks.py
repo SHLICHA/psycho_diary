@@ -5,10 +5,10 @@ Handlers для работы с терапевтическими задания�
 import logging
 
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, ContentType,InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, ContentType
 from aiogram.fsm.context import FSMContext
 
-from messages import get_message, get_button_text
+from messages import get_message
 from bot.states.task_states import TaskStates
 from bot.keyboards import (
     get_confirm_delete_task_keyboard,
@@ -573,7 +573,7 @@ async def _format_task_history_detail(task: TherapyTask, language: str, state: F
     try:
         assigned_at = task.assigned_at.strftime('%d.%m.%Y %H:%M')
         status = task.get_status_display()
-        priority = task.priority
+        complexity = task.complexity
         completed_at = ""
         if task.completed_at:
             completed_at = get_message('task_completed_at', language, 
@@ -592,14 +592,14 @@ async def _format_task_history_detail(task: TherapyTask, language: str, state: F
             completion_text = get_message('completion_load_error', language)
             feelings_text = get_message('feelings_load_error', language)
         return get_message('task_history_detail', language,
-                         title=task.title,
-                         assigned_at=assigned_at,
-                         completed_at=completed_at,
-                         status=status,
-                         priority=priority,
-                         description=task.description,
-                         completion_text=completion_text,
-                         feelings_text=feelings_text)       
+                        title=task.title,
+                        assigned_at=assigned_at,
+                        completed_at=completed_at,
+                        status=status,
+                        complexity=complexity,
+                        description=task.description,
+                        completion_text=completion_text,
+                        feelings_text=feelings_text)       
     except Exception as e:
         logger.error(f"Ошибка при форматировании деталей задания {task.id}: {e}")
         return get_message('error_loading_task_details', language)
