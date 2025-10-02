@@ -130,6 +130,11 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'diary.tasks.morning_motivations.send_morning_motivation_task',
         'schedule': crontab(minute=0)
     },
+    'expire_task': { # Добавьте эту задачу
+        'task': 'diary.tasks.task_expiration.expire_tasks', # Убедитесь в правильном пути
+        'schedule': 60.0,
+     },
+       # 5 минут, или 600 (10 мин), или 1800 (30 мин) - зависит от того, как часто вы хотите проверять
     #'send-test-morning-motivation-every-minute-during-test': { # Имя задачи
     #     'task': 'diary.tasks.test_morning.send_entry_reminders',
     #     'schedule': 60.0, # Каждую минуту

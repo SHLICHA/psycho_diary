@@ -10,6 +10,7 @@ from .templates.user_profile_analysis import USER_PROFILE_ANALYSIS_PROMPT
 from .templates.next_entry_prompt_generation import NEXT_ENTRY_PROMPT_GENERATION
 from .templates.comment_analysis import COMMENT_ANALYSIS_PROMPT
 from .templates.morning_motivation import MORNING_MOTIVATION_PROMPT
+from .templates.reminder_message import REMINDER_MESSAGE_PROMPT
 from .get_prompt import get_prompt
 __all__ = [
     'incremental_day_analysis',

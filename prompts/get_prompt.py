@@ -14,7 +14,8 @@ from . import (
     USER_PROFILE_ANALYSIS_PROMPT,
     NEXT_ENTRY_PROMPT_GENERATION,
     COMMENT_ANALYSIS_PROMPT,
-    MORNING_MOTIVATION_PROMPT
+    MORNING_MOTIVATION_PROMPT,
+    REMINDER_MESSAGE_PROMPT
 )
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,8 @@ PROMPTS = {
     'en': {}
 }
 
+PROMPTS['ru']['reminder_message'] = REMINDER_MESSAGE_PROMPT['ru']
+PROMPTS['en']['reminder_message'] = REMINDER_MESSAGE_PROMPT['en']
 PROMPTS['ru']['morning_motivation'] = MORNING_MOTIVATION_PROMPT['ru']
 PROMPTS['en']['morning_motivation'] = MORNING_MOTIVATION_PROMPT['en']
 PROMPTS['ru']['comment_analysis'] = COMMENT_ANALYSIS_PROMPT['ru']

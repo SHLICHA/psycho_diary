@@ -49,6 +49,22 @@ MAIN_MESSAGES_RU = {
     'voice_message_accepted': '''🎤 <b>Голосовое сообщение принято!</b>
 
 Хотите приложить скриншот для лучшего понимания?''',
-'support_response': '''📩 Ответ от поддержки на ваше обращение #{feedback_id}:\n\n{message_text}'''
+'support_response': '''📩 Ответ от поддержки на ваше обращение #{feedback_id}:\n\n{message_text}''',
+        'current_streak_info': '''🔥 <b>Текущая серия:</b> {current_streak} дней подряд!''',
+        'max_streak_info': '''🏆 <b>Лучшая серия:</b> {max_streak} дней!''',
+        'no_current_streak': '''📅 <b>Сегодня ты ещё не писал(а)</b> в дневник. Начни сейчас!''',
+        'keep_going_1_day': ''' Отличное начало! Продолжай!''',
+        'keep_going_few_days': ''' Продолжай в том же духе!''',
+        'keep_going_streak': ''' Впечатляет! Так держать!''',
+        'main_menu_welcome_back': '''👋 Привет, <b>{first_name}</b>!
+
+📊 <b>Уровень осознанности:</b> {awareness_level}
+📝 <b>Всего записей:</b> {entries_count}
+
+{streak_info}
+{max_streak_info}
+
+Готов(а) поделиться мыслями?''',
+        'user_default_name': '''Друг'''
     }
 }

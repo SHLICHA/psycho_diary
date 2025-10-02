@@ -3,8 +3,10 @@ import logging
 import pytz
 
 from asgiref.sync import sync_to_async
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from django.db import models
+from django.utils import timezone
+
 from users.models import User
 from django.utils.translation import gettext_lazy as _
 
@@ -319,6 +321,13 @@ class TherapyTask(models.Model):
         verbose_name=_("Сложность задания"),
         default='medium'
     )
+    expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        default=timezone.now() + timedelta(days=7),
+        verbose_name=_("Срок действия задания"),
+        help_text=_("Дата и время, до которого задание считается активным. После этого времени статус изменится на 'expired'.")
+    )
 
     class Meta:
         verbose_name = _("Терапевтическое задание")
@@ -379,7 +388,6 @@ class TaskCompletionAnalysis(models.Model):
         verbose_name=_("Рекомендация ИИ"),
         help_text=_("Персональная рекомендация от ИИ, вытекающая из анализа выполнения.")
     )
-    
     analysis_performed_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата выполнения анализа"))
     api_response = models.JSONField(default=dict, blank=True, verbose_name=_("Ответ API DeepSeek"))
     detailed_analysis = models.TextField(

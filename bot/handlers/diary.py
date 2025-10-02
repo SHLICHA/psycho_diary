@@ -9,7 +9,7 @@ from asgiref.sync import sync_to_async
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, ContentType, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
-from datetime import date
+from datetime import date, datetime, timedelta
 
 from messages import get_message, get_button_text
 from diary.models import CombinedDiaryEntry, DiaryEntry, DailyAnalysis, TherapyTask, PsychoAnalysis
@@ -120,10 +120,6 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
             language=language,
             entry_datetime=entry_datetime
         )
-        try:
-            await smart_prompt_manager.on_entry_saved(user, diary_entry, language)
-        except Exception as prompt_error:
-            logger.error(f"[PROCESS_ENTRY] Ошибка уведомления менеджера: {prompt_error}")
         entry_date = await diary_entry.aentry_date()
         combined_entry, _ = await diary_service.get_or_update_daily_state_with_entries(user, diary_entry)
         all_entries_text = await diary_service.get_combined_entry_text(user, entry_date)
@@ -394,31 +390,20 @@ async def process_user_comment(message: Message, state: FSMContext, user, langua
             previous_analysis=previous_analysis_text,
             user_comment=user_comment_text,
             user_profile=extended_user_profile_for_comment,
-            # Передаём уточнения, если они есть
             clarification_questions=clarification_questions,
             clarification_answers=clarification_answers_str,
         )
-
-        # 7. Отправить на ИИ
         status_message = await message.answer(get_message('processing', language))
         analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
-
-        # 8. Обработать результат (вызов _process_analysis_result)
-        # Важно: перед вызовом _process_analysis_result, убедимся, что FSM не находится в состоянии,
-        # которое может повлиять на него (например, asking_clarifying_questions).
-        # Так как мы в состоянии waiting_for_user_comment, просто очищаем его перед вызовом.
         await state_manager.clear_state(state)
         await _process_analysis_result(
             entry=diary_entry,
             analysis_result=analysis_result,
             status_msg=status_message,
             language=language,
-            state=state, # Передаём state, но _process_analysis_result его очистит
+            state=state,
             user=user
         )
-        # _process_analysis_result сама вызовет state_manager.clear_state(state) снова,
-        # но это не страшно, если состояние уже очищено.
-
     except Exception as e:
         logger.error(f"[process_user_comment] Ошибка при обработке комментария пользователя {user.telegram_id}: {e}", exc_info=True)
         if status_message:
@@ -1143,7 +1128,7 @@ async def _process_analysis_result(
             clarification_questions = result_data.get('clarification_questions', [])
             if needs_clarification and clarification_questions:
                 entry.clarification_questions_asked = clarification_questions
-                await sync_to_async(lambda: entry.save(update_fields=['clarification_questions_asked']))()
+                await sync_to_async(entry.save)(update_fields=['clarification_questions_asked'])
                 await state_manager.update_state_data(
                     state,
                     clarifying_entry_id=entry.id,
@@ -1257,6 +1242,10 @@ async def _process_analysis_result(
             reply_markup.inline_keyboard.append(back_buttons)
             logger.debug(f"[DEBUG] Кнопки 'Назад' восстановлены в конец клавиатуры.")
         await status_msg.edit_text(final_text, reply_markup=reply_markup)
+        try:
+            asyncio.create_task(smart_prompt_manager.on_entry_saved(user, entry, language))
+        except Exception as prompt_error:
+            logger.error(f"[_process_analysis_result] Ошибка запуска генерации подсказки: {prompt_error}")
         await state_manager.clear_state(state)
     except Exception as e:
         logger.error(f"Ошибка в _process_analysis_result: {e}", exc_info=True)
@@ -1432,3 +1421,55 @@ async def _run_full_analysis_and_notify(
                 )
         except Exception as send_error:
              logger.error(f"[_run_full_analysis_and_notify] Не удалось отправить сообщение об ошибке в фоновой задаче: {send_error}")
+
+def get_user_streaks(user):
+    """
+    Подсчитывает текущую и максимальную серию дней с записями для пользователя.
+    """
+    try:
+        import pytz
+        user_timezone_str = user.timezone if user.timezone else 'UTC'
+        user_tz = pytz.timezone(user_timezone_str)
+        now = datetime.now(user_tz)
+        today = now.date()
+        # Получаем все даты, когда пользователь делал записи
+        entry_dates = DiaryEntry.objects.filter(
+            user=user
+        ).order_by('-created_at').distinct().values_list('created_at', flat=True)
+        # Преобразуем в даты в часовом поясе пользователя
+        user_entry_dates = []
+        for dt in entry_dates:
+            if dt.tzinfo is None:
+                dt = pytz.utc.localize(dt)
+            user_entry_dates.append(dt.astimezone(user_tz).date())
+        # Убираем дубликаты и сортируем по убыванию
+        unique_dates = sorted(set(user_entry_dates), reverse=True)
+        if not unique_dates:
+            return 0, 0
+        # Подсчитываем текущую серию
+        current_streak = 0
+        current_date = today
+        for entry_date in unique_dates:
+            if entry_date == current_date:
+                current_streak += 1
+                current_date -= timedelta(days=1)
+            elif entry_date < current_date:
+                break
+        # Подсчитываем максимальную серию
+        max_streak = 0
+        current_run = 0
+        prev_date = None
+        for entry_date in sorted(set(user_entry_dates)):
+            if prev_date is None:
+                current_run = 1
+            elif entry_date == prev_date + timedelta(days=1):
+                current_run += 1
+            else:
+                max_streak = max(max_streak, current_run)
+                current_run = 1
+            prev_date = entry_date
+        max_streak = max(max_streak, current_run)
+        return current_streak, max_streak
+    except Exception as e:
+        logger.error(f"Ошибка при подсчете серий пользователя {user.telegram_id}: {e}")
+        return 0, 0

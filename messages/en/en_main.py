@@ -53,6 +53,22 @@ We will review it shortly.''',
     'voice_message_accepted': '''🎤 <b>Voice message accepted!</b>
 
 Would you like to attach a screenshot for better understanding?''',
-'support_response': '''📩 Support response to your request #{feedback_id}:\n\n{message_text}'''
+'support_response': '''📩 Support response to your request #{feedback_id}:\n\n{message_text}''',
+        'current_streak_info': '''🔥 <b>Current streak:</b> {current_streak} days in a row!''',
+        'max_streak_info': '''🏆 <b>Best streak:</b> {max_streak} days!''',
+        'no_current_streak': '''📅 <b>You haven't written today yet.</b> Start now!''',
+        'keep_going_1_day': ''' Great start! Keep going!''',
+        'keep_going_few_days': ''' Keep up the good work!''',
+        'keep_going_streak': ''' Impressive! Keep it up!''',
+        'main_menu_welcome_back': '''👋 Hi, <b>{first_name}</b>!
+
+📊 <b>Awareness level:</b> {awareness_level}
+📝 <b>Total entries:</b> {entries_count}
+
+{streak_info}
+{max_streak_info}
+
+Ready to share your thoughts?''',
+        'user_default_name': '''Friend'''
     }
 }

@@ -301,7 +301,7 @@ class TherapyTaskAdmin(admin.ModelAdmin):
             'fields': ('related_entry_link', 'completion_link')
         }),
         (_('Даты'), {
-            'fields': ('assigned_at', 'completed_at'),
+            'fields': ('assigned_at', 'completed_at', 'expires_at'),
             'classes': ('collapse',)
         }),
     )
