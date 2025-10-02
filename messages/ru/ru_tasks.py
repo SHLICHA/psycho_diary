@@ -146,5 +146,8 @@ TASKS_MESSAGES_RU = {
     'tasks_limit_decreased': 'Лимит заданий уменьшен до {new_limit}',
     'tasks_limit_max_reached': 'Достигнут максимальный лимит заданий',
     'tasks_limit_min_reached': 'Достигнут минимальный лимит заданий',
-    }
+
+    'task_completion_invalid_formatted': '''<b>⚠️ Нужно немного доработать</b>\n\n{validation_comment}\n\n<i>Попробуй описать выполнение задания более подробно - что именно ты делал, какие мысли и чувства возникали.</i>''',
+    'task_effect_analysis_result_formatted': '''<b>🎯 Результат выполнения задания</b>\n\n💫 <b>Эффект:</b> {effect_description}\n\n😊 <b>Влияние на настроение:</b> {mood_impact}\n\n💭 <b>Комментарий:</b> {comment}\n\n🌟 <b>Рекомендация:</b> {recommendation}\n\n<i>Ты отлично справился с заданием! Продолжай в том же духе! 💪</i>''',
+    'task_analysis_error_formatted': '''<b>❌ Произошла ошибка</b>\n\nК сожалению, не удалось проанализировать выполнение задания.\nПопробуй выполнить задание еще раз или вернись к нему позже.''',}
 }

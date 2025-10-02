@@ -225,7 +225,13 @@ class TaskService:
                 # Случай невалидного выполнения задания
                 validation_comment = analysis_result.get('validation_comment', 'Выполнение задания не засчитано из-за недостаточной содержательности.')
                 language = user.language
-                error_msg = get_message('task_completion_invalid', language, validation_comment=validation_comment)
+                
+                # Используем get_message для текста
+                final_message = get_message(
+                    'task_completion_invalid_formatted', 
+                    language, 
+                    validation_comment=validation_comment
+                )
                 
                 buttons = [
                     [
@@ -249,48 +255,54 @@ class TaskService:
                 ]
                 reply_markup = InlineKeyboardMarkup(inline_keyboard=buttons)
                 
-                final_message = error_msg
-                
             elif analysis_result and hasattr(analysis_result, 'id'):
                 # Успешный анализ - создан объект TaskCompletionAnalysis
                 language = user.language
-                effect_description = analysis_result.effect_description or get_message('no_effect_description', language)
                 
-                # Форматируем оценку влияния на настроение
-                mood_impact_score_raw = analysis_result.mood_impact_score
-                if mood_impact_score_raw is not None:
-                    try:
-                        mood_impact_score = int(mood_impact_score_raw)
-                        if mood_impact_score > 0:
-                            mood_impact_display = f"+{mood_impact_score}"
-                        else:
-                            mood_impact_display = str(mood_impact_score)
-                    except (ValueError, TypeError):
-                        mood_impact_display = "N/A"
+                # Пытаемся получить форматированное сообщение из промпта
+                parsed_result = analysis_result.api_response.get('result', {})
+                formatted_message = parsed_result.get('formatted_message')
+                
+                if formatted_message:
+                    # Если ИИ вернул готовое форматированное сообщение - используем его
+                    final_message = formatted_message
                 else:
-                    mood_impact_display = "N/A"
+                    # Иначе создаем сообщение через get_message
+                    effect_description = analysis_result.effect_description or get_message('no_effect_description', language)
                     
-                comment_for_user = analysis_result.comment or get_message('no_comment', language)
-                recommendation_for_user = analysis_result.recommendation or get_message('no_recommendation', language)
+                    # Форматируем оценку влияния на настроение
+                    mood_impact_score_raw = analysis_result.mood_impact_score
+                    if mood_impact_score_raw is not None:
+                        try:
+                            mood_impact_score = int(mood_impact_score_raw)
+                            if mood_impact_score > 0:
+                                mood_impact_display = f"+{mood_impact_score}"
+                            else:
+                                mood_impact_display = str(mood_impact_score)
+                        except (ValueError, TypeError):
+                            mood_impact_display = "N/A"
+                    else:
+                        mood_impact_display = "N/A"
+                        
+                    comment_for_user = analysis_result.comment or get_message('no_comment', language)
+                    recommendation_for_user = analysis_result.recommendation or get_message('no_recommendation', language)
+                    
+                    # Используем get_message для форматированного результата
+                    final_message = get_message(
+                        'task_effect_analysis_result_formatted',
+                        language,
+                        effect_description=effect_description,
+                        mood_impact=mood_impact_display,
+                        comment=comment_for_user,
+                        recommendation=recommendation_for_user
+                    )
                 
-                # Формируем сообщение с результатом анализа
-                effect_msg = get_message(
-                    'task_effect_analysis_result',
-                    language,
-                    effect_description=effect_description,
-                    mood_impact=mood_impact_display,
-                    comment=comment_for_user,
-                    recommendation=recommendation_for_user
-                )
-                
-                final_message = effect_msg
                 reply_markup = get_back_keyboard(language)
                 
             else:
                 # Ошибка в анализе или анализ не создан
                 language = user.language
-                error_msg = get_message('error_processing', language)
-                final_message = error_msg
+                final_message = get_message('task_analysis_error_formatted', language)
                 reply_markup = get_back_keyboard(language)
 
             # Отправка или редактирование сообщения
@@ -310,8 +322,6 @@ class TaskService:
                             text=final_message, 
                             reply_markup=reply_markup
                         )
-                    else:
-                        logger.error("Глобальный бот не найден для отправки нового сообщения.")
             else:
                 if global_bot:
                     await global_bot.send_message(
@@ -320,27 +330,26 @@ class TaskService:
                         reply_markup=reply_markup
                     )
                     logger.info(f"Новое сообщение отправлено для задания {task_completion.task.id}")
-                else:
-                    logger.error("Глобальный бот не найден для отправки сообщения.")
                     
         except Exception as task_error:
             logger.error(f"Критическая ошибка в _run_analysis_and_notify_user: {task_error}", exc_info=True)
             try:
-                error_msg = get_message('error_processing', user.language if 'user' in locals() else 'ru')
-                error_reply_markup = get_back_keyboard(user.language if 'user' in locals() else 'ru')
+                language = user.language if 'user' in locals() else 'ru'
+                final_message = get_message('task_analysis_error_formatted', language)
+                error_reply_markup = get_back_keyboard(language)
                 
                 if status_message and global_bot:
                     try:
                         await safe_edit_message_text(
                             message=status_message,
-                            text=error_msg,
+                            text=final_message,
                             reply_markup=error_reply_markup
                         )
                     except:
                         try:
                             await global_bot.send_message(
                                 chat_id=status_message.chat.id,
-                                text=error_msg,
+                                text=final_message,
                                 reply_markup=error_reply_markup
                             )
                         except:
@@ -348,7 +357,7 @@ class TaskService:
                 elif global_bot and 'user' in locals():
                     await global_bot.send_message(
                         chat_id=user.telegram_id, 
-                        text=error_msg, 
+                        text=final_message, 
                         reply_markup=error_reply_markup
                     )
             except:

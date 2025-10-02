@@ -55,17 +55,31 @@ TASK_EFFECT_ANALYSIS_PROMPT = {
     *   **Персонализированной:** Используй знания о пользователе (ценности, сильные стороны) для персонализации.
     *   **Примеры хороших рекомендаций:** "Попробуй завести отдельный список приятных мелочей, замеченных сегодня", "Подумай, как можно по-другому взглянуть на эту ситуацию завтра", "Продолжай наблюдать за этим чувством в течение дня". *Опираясь на `Ключевые ценности` и `Сильные стороны`, предложи конкретные и значимые действия. Сделай это с поддержкой и мотивацией.*
 11. **Предоставь развернутый анализ** (detailed_analysis) — обоснование твоей оценки и выводов. Объясни, почему ты пришел к такому эффекту и оценке влияния на настроение. Ссылаясь на элементы из текстов дней, выполнения и ощущений. *Сравнивай новые данные с уже известными `Фактами о жизни`, `Чертами характера`, `Триггерами` и `Сильными сторонами`. Делай это дружелюбно и с заботой.*
+12. **Создай красивое форматированное сообщение** (formatted_message) для пользователя в формате HTML с эмодзи. Используй эту структуру:
+
+<b>🎯 Результат выполнения задания</b>
+
+💫 <b>Эффект:</b> [твой effect_description]
+
+😊 <b>Влияние на настроение:</b> [используй эмодзи: 🔺 для положительных, 🔻 для отрицательных, ➡️ для нейтральных] [mood_impact_score]
+
+💭 <b>Комментарий:</b> [твой comment]
+
+🌟 <b>Рекомендация:</b> [твоя recommendation]
+
+<i>Ты отлично справился с заданием! Продолжай в том же духе! 💪</i>
 
 === ФОРМАТ ОТВЕТА ===
 ```json
 {{
-  "is_valid": true/false,
-  "validation_comment": "строка, объясняющая, почему выполнение задания невалидно (если is_valid=false), с поддержкой и мотивацией",
-  "effect_description": "строка, краткое описание эффекта (1-2 предложения), дружелюбно и с позитивом",
-  "mood_impact_score": целое число (оценка влияния на настроение дня выполнения, от -10 до +10),
-  "comment": "строка, как конкретно изменился день или настроение пользователя, поддерживающе и мотивирующе",
-  "recommendation": "строка, четкая, понятная и полезная рекомендация непосредственно для пользователя, с поддержкой и мотивацией",
-  "detailed_analysis": "строка, развернутый анализ, сравнение дней, обоснование оценки влияния на настроение, дружелюбно и с заботой"
+  "is_valid": true,
+  "validation_comment": "",
+  "effect_description": "Твое выполнение задания помогло тебе лучше осознать свои эмоции и научиться управлять ими в сложных ситуациях.",
+  "mood_impact_score": 3,
+  "comment": "Я заметил, что после выполнения задания ты стал более осознанно подходить к своим эмоциональным реакциям, что положительно сказалось на твоем общем состоянии.",
+  "recommendation": "Попробуй применять эту технику осознанности в повседневных ситуациях, особенно когда чувствуешь напряжение или тревогу.",
+  "detailed_analysis": "Сравнивая день назначения и день выполнения, я вижу значительный прогресс...",
+  "formatted_message": "<b>🎯 Результат выполнения задания</b>\\n\\n💫 <b>Эффект:</b> Твое выполнение задания помогло тебе лучше осознать свои эмоции и научиться управлять ими в сложных ситуациях.\\n\\n😊 <b>Влияние на настроение:</b> 🔺 +3\\n\\n💭 <b>Комментарий:</b> Я заметил, что после выполнения задания ты стал более осознанно подходить к своим эмоциональным реакциям, что положительно сказалось на твоем общем состоянии.\\n\\n🌟 <b>Рекомендация:</b> Попробуй применять эту технику осознанности в повседневных ситуациях, особенно когда чувствуешь напряжение или тревогу.\\n\\n<i>Ты отлично справился с заданием! Продолжай в том же духе! 💪</i>"
 }}
 ```''',
 
@@ -77,7 +91,7 @@ RESPOND STRICTLY IN JSON FORMAT, enclosed in triple backticks (```json ... ```).
 
 **User Profile:**
 {user_profile}
-*This includes your name, awareness level, as well as your psychological profile: personality traits, life facts, hobbies, values, triggers, strengths, and areas for growth.*
+*This includes name, awareness level, as well as psychological profile: personality traits, life facts, hobbies, values, triggers, strengths, and areas for growth.*
 
 --- ASSIGNMENT DAY CONTEXT ---
 (The day the diary entry led to the assignment of this task)
@@ -125,17 +139,31 @@ User's Feelings During Completion (what feelings, thoughts, reactions arose): {f
     *   **Personalized:** Use knowledge of the user (values, strengths) to personalize it.
     *   **Examples of good recommendations:** "Try keeping a separate list of pleasant little things you noticed today", "Think about how you could look at this situation differently tomorrow", "Continue to observe this feeling throughout the day". *Based on `Core Values` and `Strengths`, suggest specific and meaningful actions. Make it supportive and motivating.*
 11. **Provide a detailed analysis** (detailed_analysis) - justification for your assessment and conclusions. Explain why you came to this effect and mood impact score. Referencing elements from the day texts, completion, and feelings. *Compare new data with already known `Life Facts`, `Personality Traits`, `Triggers`, and `Strengths`. Do it in a friendly and caring way.*
+12. **Create a beautiful formatted message** (formatted_message) for the user in HTML format with emojis. Use this structure:
+
+<b>🎯 Task Completion Result</b>
+
+💫 <b>Effect:</b> [your effect_description]
+
+😊 <b>Mood Impact:</b> [use emojis: 🔺 for positive, 🔻 for negative, ➡️ for neutral] [mood_impact_score]
+
+💭 <b>Comment:</b> [your comment]
+
+🌟 <b>Recommendation:</b> [your recommendation]
+
+<i>You did great with the task! Keep up the good work! 💪</i>
 
 === RESPONSE FORMAT ===
 ```json
 {{
-  "is_valid": true/false,
-  "validation_comment": "string, explaining why the task completion is invalid (if is_valid=false), with support and motivation",
-  "effect_description": "string, brief description of the effect (1-2 sentences), friendly and positive",
-  "mood_impact_score": integer (estimated impact on the completion day's mood score, from -10 to +10),
-  "comment": "string, how exactly the user's day or mood changed, supportive and motivating",
-  "recommendation": "string, a clear, understandable, and useful recommendation directly for the user, with support and motivation",
-  "detailed_analysis": "string, detailed analysis, comparison of days, justification for the mood impact assessment, friendly and caring"
+  "is_valid": true,
+  "validation_comment": "",
+  "effect_description": "Your completion of the task helped you better understand your emotions and learn to manage them in difficult situations.",
+  "mood_impact_score": 3,
+  "comment": "I noticed that after completing the task, you became more mindful of your emotional reactions, which positively affected your overall state.",
+  "recommendation": "Try applying this mindfulness technique in everyday situations, especially when you feel tension or anxiety.",
+  "detailed_analysis": "Comparing the assignment day and completion day, I see significant progress...",
+  "formatted_message": "<b>🎯 Task Completion Result</b>\\n\\n💫 <b>Effect:</b> Your completion of the task helped you better understand your emotions and learn to manage them in difficult situations.\\n\\n😊 <b>Mood Impact:</b> 🔺 +3\\n\\n💭 <b>Comment:</b> I noticed that after completing the task, you became more mindful of your emotional reactions, which positively affected your overall state.\\n\\n🌟 <b>Recommendation:</b> Try applying this mindfulness technique in everyday situations, especially when you feel tension or anxiety.\\n\\n<i>You did great with the task! Keep up the good work! 💪</i>"
 }}
 ```'''
 }
