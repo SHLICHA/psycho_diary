@@ -5,9 +5,12 @@
 import asyncio
 import logging
 import json
+import pytz
+
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from django.db import transaction
+from django.utils import timezone
 from asgiref.sync import sync_to_async
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -135,11 +138,13 @@ class TaskService:
         status_message: Optional[Message] = None
     ) -> Optional[Dict[str, Any]]:
         """
-        Выполнение задания.
-        Возвращает словарь с результатами (включая TaskCompletion) или None.
+        Выполнение задания с учетом часового пояса пользователя.
         """
         logger.info(f"Начало выполнения задания ID: {task_id} для пользователя {user.telegram_id}")
         try:
+            # Получаем локальное время пользователя
+            user_local_time = await user.aget_local_datetime_now()
+            
             @sync_to_async
             def complete_task_sync():
                 with transaction.atomic():
@@ -152,6 +157,7 @@ class TaskService:
                     except TherapyTask.DoesNotExist:
                         logger.warning(f"[SYNC] Задание {task_id} не найдено или не принадлежит пользователю {user.telegram_id}")
                         raise ValueError("Задание не найдено или не принадлежит вам")
+                    
                     task_completion = None
                     if hasattr(task, 'completion'):
                         task_completion = task.completion
@@ -164,17 +170,22 @@ class TaskService:
                             task=task,
                             completion_text=completion_text,
                             feelings_text=feelings_text,
+                            created_at=user_local_time  # Используем локальное время
                         )
                         logger.debug(f"[SYNC] TaskCompletion создан: ID {task_completion.id}")
+                    
                     old_status = task.status
                     task.status = 'completed'
                     if old_status != 'completed': 
-                        task.completed_at = datetime.now()
+                        task.completed_at = user_local_time  # Используем локальное время
                     task.save(update_fields=['status', 'completed_at'])
                     task_analysis = None   
+                
                 return task_completion, task_analysis
+            
             task_completion, task_analysis = await complete_task_sync()
             asyncio.create_task(self._run_analysis_and_notify_user(task_completion, user, status_message))
+            
             result = {
                 'task_completion': task_completion,
                 'task_analysis': task_analysis,
@@ -182,6 +193,7 @@ class TaskService:
             }
             logger.debug(f"Функция complete_task возвращает результат: {result}")
             return result 
+            
         except ValueError as ve:
             logger.warning(f"Ожидаемая ошибка в complete_task для задания {task_id}: {ve}")
             return None
@@ -192,33 +204,39 @@ class TaskService:
     async def _run_analysis_and_notify_user(self, task_completion: TaskCompletion, user: User, status_message: Optional[Message] = None):
         """
         Асинхронная задача для запуска анализа эффекта и уведомления пользователя.
-        Выполняется отдельно от основного потока обработки.
-        Если передан status_message, результат будет отредактирован в нем.
-        Иначе будет отправлено новое сообщение.
         """
         try:
             from bot.main import bot as global_bot
             
+            # Запускаем анализ эффекта выполнения задания
             analysis_result = await self.analyze_task_completion_effect(task_completion, user)
+            
             target_chat_id = user.telegram_id
             use_edit = False
+            message_to_edit = None
+            
             if status_message:
                 target_chat_id = status_message.chat.id
                 use_edit = True
+                message_to_edit = status_message
+
+            # Обрабатываем разные типы результатов анализа
             if isinstance(analysis_result, dict) and analysis_result.get('invalid'):
+                # Случай невалидного выполнения задания
                 validation_comment = analysis_result.get('validation_comment', 'Выполнение задания не засчитано из-за недостаточной содержательности.')
                 language = user.language
                 error_msg = get_message('task_completion_invalid', language, validation_comment=validation_comment)
+                
                 buttons = [
                     [
                         InlineKeyboardButton(
-                            text=get_message('btn_try_again', language),  # "Попробовать снова"
+                            text=get_message('btn_try_again', language),
                             callback_data=f"complete_task:{task_completion.task.id}"
                         )
                     ],
                     [
                         InlineKeyboardButton(
-                            text=get_message('btn_skip_task', language),  # "Пропустить"
+                            text=get_message('btn_skip_task', language),
                             callback_data=f"skip_task:{task_completion.task.id}"
                         )
                     ],
@@ -230,9 +248,15 @@ class TaskService:
                     ]
                 ]
                 reply_markup = InlineKeyboardMarkup(inline_keyboard=buttons)
+                
+                final_message = error_msg
+                
             elif analysis_result and hasattr(analysis_result, 'id'):
+                # Успешный анализ - создан объект TaskCompletionAnalysis
                 language = user.language
                 effect_description = analysis_result.effect_description or get_message('no_effect_description', language)
+                
+                # Форматируем оценку влияния на настроение
                 mood_impact_score_raw = analysis_result.mood_impact_score
                 if mood_impact_score_raw is not None:
                     try:
@@ -245,8 +269,11 @@ class TaskService:
                         mood_impact_display = "N/A"
                 else:
                     mood_impact_display = "N/A"
+                    
                 comment_for_user = analysis_result.comment or get_message('no_comment', language)
                 recommendation_for_user = analysis_result.recommendation or get_message('no_recommendation', language)
+                
+                # Формируем сообщение с результатом анализа
                 effect_msg = get_message(
                     'task_effect_analysis_result',
                     language,
@@ -255,59 +282,53 @@ class TaskService:
                     comment=comment_for_user,
                     recommendation=recommendation_for_user
                 )
-                reply_markup = get_back_keyboard(language)
-            else:
-                # Ошибка в анализе
-                language = user.language
-                error_msg = get_message('error_processing', user.language)
-                reply_markup = get_back_keyboard(user.language)
                 
-                if use_edit:
-                    try:
-                        await safe_edit_message_text(
-                            message=status_message,
-                            text=error_msg,
-                            reply_markup=reply_markup
-                        )
-                    except Exception as edit_error:
-                        logger.warning(f"[Асинхронная задача] Не удалось отредактировать сообщение: {edit_error}. Отправляем новое.")
-                        if global_bot:
-                            await global_bot.send_message(chat_id=target_chat_id, text=error_msg, reply_markup=reply_markup)
-                        else:
-                            logger.error("[Асинхронная задача] Глобальный бот не найден для отправки нового сообщения.")
-                else:
-                    if global_bot:
-                        await global_bot.send_message(chat_id=target_chat_id, text=error_msg, reply_markup=reply_markup)
-                    else:
-                        logger.error("[Асинхронная задача] Глобальный бот не найден для отправки сообщения.")
-                return
+                final_message = effect_msg
+                reply_markup = get_back_keyboard(language)
+                
+            else:
+                # Ошибка в анализе или анализ не создан
+                language = user.language
+                error_msg = get_message('error_processing', language)
+                final_message = error_msg
+                reply_markup = get_back_keyboard(language)
 
             # Отправка или редактирование сообщения
-            if isinstance(analysis_result, dict) and analysis_result.get('invalid'):
-                # Для невалидного выполнения используем error_msg
-                if use_edit:
-                    try:
-                        await safe_edit_message_text(
-                            message=status_message,
-                            text=error_msg,
+            if use_edit and message_to_edit:
+                try:
+                    await safe_edit_message_text(
+                        message=message_to_edit,
+                        text=final_message,
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Сообщение отредактировано для задания {task_completion.task.id}")
+                except Exception as edit_error:
+                    logger.warning(f"Не удалось отредактировать сообщение: {edit_error}. Отправляем новое.")
+                    if global_bot:
+                        await global_bot.send_message(
+                            chat_id=target_chat_id, 
+                            text=final_message, 
                             reply_markup=reply_markup
                         )
-                    except Exception as edit_error:
-                        logger.warning(f"[Асинхронная задача] Не удалось отредактировать сообщение: {edit_error}. Отправляем новое.")
-                        if global_bot:
-                            await global_bot.send_message(chat_id=target_chat_id, text=error_msg, reply_markup=reply_markup)
-                        else:
-                            logger.error("[Асинхронная задача] Глобальный бот не найден для отправки нового сообщения.")
-                else:
-                    if global_bot:
-                        await global_bot.send_message(chat_id=target_chat_id, text=error_msg, reply_markup=reply_markup)
                     else:
-                        logger.error("[Асинхронная задача] Глобальный бот не найден для отправки сообщения.")
+                        logger.error("Глобальный бот не найден для отправки нового сообщения.")
+            else:
+                if global_bot:
+                    await global_bot.send_message(
+                        chat_id=target_chat_id, 
+                        text=final_message, 
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Новое сообщение отправлено для задания {task_completion.task.id}")
+                else:
+                    logger.error("Глобальный бот не найден для отправки сообщения.")
+                    
         except Exception as task_error:
-            logger.error(f"[Асинхронная задача] Критическая ошибка в _run_analysis_and_notify_user: {task_error}", exc_info=True)
+            logger.error(f"Критическая ошибка в _run_analysis_and_notify_user: {task_error}", exc_info=True)
             try:
                 error_msg = get_message('error_processing', user.language if 'user' in locals() else 'ru')
                 error_reply_markup = get_back_keyboard(user.language if 'user' in locals() else 'ru')
+                
                 if status_message and global_bot:
                     try:
                         await safe_edit_message_text(
@@ -318,29 +339,29 @@ class TaskService:
                     except:
                         try:
                             await global_bot.send_message(
-                                chat_id=status_message.chat.id if status_message else (user.telegram_id if 'user' in locals() else 0),
+                                chat_id=status_message.chat.id,
                                 text=error_msg,
                                 reply_markup=error_reply_markup
                             )
                         except:
                             pass
                 elif global_bot and 'user' in locals():
-                    await global_bot.send_message(chat_id=user.telegram_id, text=error_msg, reply_markup=error_reply_markup)
+                    await global_bot.send_message(
+                        chat_id=user.telegram_id, 
+                        text=error_msg, 
+                        reply_markup=error_reply_markup
+                    )
             except:
                 pass
     
     async def skip_task(self, task_id: int, user: User) -> bool:
         """
-        Пропуск задания
-        
-        Args:
-            task_id: ID задания
-            user: Пользователь
-            
-        Returns:
-            bool: Успешность пропуска
+        Пропуск задания с учетом часового пояса пользователя.
         """
         try:
+            # Получаем локальное время пользователя
+            user_local_time = await user.aget_local_datetime_now()
+            
             @sync_to_async
             def skip_task_sync():
                 try:
@@ -352,13 +373,17 @@ class TaskService:
                 except TherapyTask.DoesNotExist:
                     logger.warning(f"Задание {task_id} не найдено или не принадлежит пользователю {user.telegram_id}")
                     return False
+                
                 with transaction.atomic():
                     task.status = 'skipped'
-                    task.completed_at = datetime.now()
+                    task.completed_at = user_local_time  # Используем локальное время
                     task.save(update_fields=['status', 'completed_at'])       
+                
                 return True
+            
             success = await skip_task_sync()
             return success
+            
         except Exception as e:
             logger.error(f"Ошибка при пропуске задания: {e}")
             return False
@@ -553,6 +578,7 @@ class TaskService:
             def _create_analysis():
                 return TaskCompletionAnalysis.objects.create(**analysis_data)
             analysis = await _create_analysis()
+            logger.debug(f"Анализ эффекта задания {task_completion.task.id} успешно создан: ID {analysis.id}")
             return analysis
         except Exception as e:
             logger.error(f"Критическая ошибка при анализе эффекта выполнения задания "
@@ -601,14 +627,7 @@ class TaskService:
 
     async def restore_task(self, task_id: int, user: User) -> bool:
         """
-        Восстановление (перевод в статус 'pending') пропущенного задания.
-
-        Args:
-            task_id: ID задания.
-            user: Пользователь.
-
-        Returns:
-            bool: Успешность операции.
+        Восстановление пропущенного задания.
         """
         try:
             @sync_to_async
@@ -621,14 +640,16 @@ class TaskService:
                             status='skipped'
                         )
                         task.status = 'pending'
-                        task.completed_at = None 
+                        task.completed_at = None  # Сбрасываем время выполнения
                         task.save(update_fields=['status', 'completed_at'])
                         return True
                     except TherapyTask.DoesNotExist:
                         logger.warning(f"Задание {task_id} не найдено, не принадлежит пользователю {user.telegram_id} или не пропущено")
                         return False
+            
             success = await restore_task_sync()
             return success
+            
         except Exception as e:
             logger.error(f"Ошибка при восстановлении задания {task_id} для пользователя {user.telegram_id}: {e}")
             return False

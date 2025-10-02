@@ -4,6 +4,7 @@ import json
 
 from asgiref.sync import sync_to_async
 from datetime import datetime
+from django.utils import timezone
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
@@ -108,6 +109,22 @@ class User(AbstractUser):
     async def aget_local_datetime(self):
         """Асинхронная версия get_local_datetime."""
         return self.get_local_datetime()
+    
+    async def aget_local_datetime_now(self):
+        """
+        Асинхронное получение текущего времени в часовом поясе пользователя.
+        Возвращает datetime с правильным часовым поясом.
+        """
+        try:
+            user_tz_str = self.timezone if self.timezone else 'UTC'
+            user_tz = pytz.timezone(user_tz_str)
+            utc_now = timezone.now()
+            if utc_now.tzinfo is None:
+                utc_now = pytz.utc.localize(utc_now)
+            return utc_now.astimezone(user_tz)
+        except Exception as e:
+            logger.error(f"Ошибка при получении локального времени пользователя {self.telegram_id}: {e}")
+            return timezone.now()
 
 class UserProfileHistory(models.Model):
     """
