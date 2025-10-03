@@ -33,7 +33,7 @@ def expire_tasks_sync():
         expired_count = expired_tasks.count()
         if expired_count > 0:
             expired_tasks.update(status='expired')
-            logger.info(f"Обновлено {expired_count} просроченных заданий.")
+            logger.debug(f"Обновлено {expired_count} просроченных заданий.")
         else:
             logger.debug("Нет просроченных заданий для обновления.")
         return f"Обновлено {expired_count} просроченных заданий."
