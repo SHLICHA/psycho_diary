@@ -35,20 +35,38 @@ def is_raw_value_encrypted(raw_value: Union[str, bytes, None]) -> Tuple[bool, st
     
     try:
         if isinstance(raw_value, bytes):
+            # Пробуем дешифровать байты
             fernet_instance.decrypt(raw_value)
             return True, "Байтовое значение успешно дешифровано"
+            
         elif isinstance(raw_value, str):
+            # Эвристика 1: Проверяем типичный префикс зашифрованных данных Fernet
+            if raw_value.startswith('gAAAA'):
+                return True, "Строка начинается с префикса Fernet"
+                
+            # Эвристика 2: Проверяем длину (зашифрованные данные обычно длинные)
+            if len(raw_value) > 100 and ' ' not in raw_value:
+                return True, "Длинная строка без пробелов - вероятно зашифрована"
+            
+            # Эвристика 3: Пробуем декодировать как base64 и дешифровать
             try:
                 decoded_bytes = base64.b64decode(raw_value)
-                fernet_instance.decrypt(decoded_bytes)
-                return True, "Base64 строка успешно дешифрована"
+                # Проверяем, что декодированные данные имеют разумный размер
+                if 10 <= len(decoded_bytes) <= 1000:
+                    fernet_instance.decrypt(decoded_bytes)
+                    return True, "Base64 строка успешно дешифрована"
             except (base64.binascii.Error, ValueError):
-                try:
-                    fernet_instance.decrypt(raw_value.encode('utf-8'))
-                    return True, "Строка успешно дешифрована"
-                except InvalidToken:
-                    return False, "Строка не является зашифрованными данными"
+                pass
+                
+            # Эвристика 4: Пробуем дешифровать как обычную строку
+            try:
+                fernet_instance.decrypt(raw_value.encode('utf-8'))
+                return True, "Строка успешно дешифрована"
+            except InvalidToken:
+                return False, "Строка не является зашифрованными данными"
+                
         return False, f"Неподдерживаемый тип: {type(raw_value)}"
+        
     except InvalidToken:
         return False, "Неверный токен"
     except Exception as e:

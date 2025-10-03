@@ -147,17 +147,24 @@ class Command(BaseCommand):
                     continue
                     
                 is_encrypted, reason = is_raw_value_encrypted(raw_value)
+                
                 if not is_encrypted:
                     try:
                         field = model_class._meta.get_field(field_name)
                         encrypted_value = field.get_prep_value(raw_value)
-                        updated_fields[field_name] = encrypted_value
-                        self.stdout.write(f"    Шифруем поле {field_name} записи {pk_value}")
+                        
+                        # ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: убедимся, что новое значение отличается от старого
+                        if encrypted_value != raw_value:
+                            updated_fields[field_name] = encrypted_value
+                            self.stdout.write(f"    Шифруем поле {field_name} записи {pk_value}")
+                        else:
+                            self.stdout.write(f"    ПРЕДУПРЕЖДЕНИЕ: поле {field_name} записи {pk_value} не изменилось после шифрования!")
+                            
                     except Exception as e:
                         logger.error(f"Ошибка шифрования {field_name} записи {pk_value}: {e}")
                         self.stdout.write(f"    ОШИБКА шифрования {field_name} записи {pk_value}: {e}")
                 else:
-                    self.stdout.write(f"    Поле {field_name} записи {pk_value} уже зашифровано")
+                    self.stdout.write(f"    Поле {field_name} записи {pk_value} уже зашифровано: {reason}")
             
             if updated_fields:
                 obj = model_class(pk=pk_value)
