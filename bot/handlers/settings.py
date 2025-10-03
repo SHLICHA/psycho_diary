@@ -221,8 +221,6 @@ async def increase_tasks_limit(callback: CallbackQuery, user, language: str):
             success_msg = get_message('tasks_limit_max_reached', language=language)
         await callback.answer(success_msg)
         
-        # Обновляем сообщение с настройками заданий
-        from bot.keyboards import get_task_settings_keyboard
         task_settings_msg = get_message('task_settings_menu', language=language).format(
             max_tasks=user.max_ai_tasks_per_day
         )

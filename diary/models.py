@@ -14,13 +14,15 @@ from core.constants import (
     TASK_STATUS, 
     TASK_TYPES, ACTIVITY_TYPES, LANGUAGES
 )
+from core.encrypted_fields import EncryptedCharField, EncryptedTextField, EncryptedJSONField
 
 logger = logging.getLogger(__name__)
 
 class DiaryEntry(models.Model):
     """Запись в дневнике"""
     user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name=_("Пользователь"), related_name='diary_entries')
-    text = models.TextField(verbose_name=_("Текст записи"))
+    #text = models.TextField(verbose_name=_("Текст записи"))
+    text = EncryptedTextField(verbose_name=_("Текст записи"))
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата создания"))
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
     language = models.CharField(

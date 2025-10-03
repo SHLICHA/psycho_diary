@@ -8,6 +8,8 @@ from django.utils import timezone
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
+from core.encrypted_fields import EncryptedCharField, EncryptedJSONField
+
 logger = logging.getLogger(__name__)
 
 class User(AbstractUser):
@@ -46,8 +48,10 @@ class User(AbstractUser):
     current_calendar_month = models.PositiveIntegerField(default=8, verbose_name="Текущий месяц календаря")
     notifications_enabled = models.BooleanField(default=True, verbose_name="Уведомления включены")
     auto_analysis_enabled = models.BooleanField(default=True, verbose_name="Автоанализ включен")
-    max_ai_tasks_per_day = models.PositiveIntegerField(default=1, verbose_name="Максимум заданий от ИИ в день")    
+    max_ai_tasks_per_day = models.PositiveIntegerField(default=1, verbose_name="Максимум заданий от ИИ в день")
+    #personality_traits = EncryptedJSONField(default=dict, blank=True, verbose_name="Черты характера")
     personality_traits = models.JSONField(default=dict, blank=True, verbose_name="Черты характера")
+    #life_facts = EncryptedJSONField(default=list, blank=True, verbose_name="Факты о жизни")
     life_facts = models.JSONField(default=list, blank=True, verbose_name="Факты о жизни")
     hobbies = models.JSONField(default=list, blank=True, verbose_name="Увлечения")
     core_values = models.JSONField(default=list, blank=True, verbose_name="Ключевые ценности")
