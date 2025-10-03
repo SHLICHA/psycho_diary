@@ -14,8 +14,7 @@ from bot.keyboards import (
     get_confirm_delete_task_keyboard,
     get_task_pagination_keyboard,
     get_task_detail_keyboard,
-    get_cancel_keyboard,
-    get_back_keyboard,
+    get_single_button_keyboard,
     get_task_history_main_keyboard,
     get_task_history_list_keyboard,
     get_task_main_menu_keyboard
@@ -86,7 +85,7 @@ async def paginate_tasks(callback: CallbackQuery, user, language: str):
             no_task_msg = get_message('task_no_active', language)
             await callback.message.edit_text(
                 no_task_msg,
-                reply_markup=get_back_keyboard(language)
+                reply_markup=get_single_button_keyboard(language)
             )
             await callback.answer()
             return
@@ -162,7 +161,7 @@ async def start_task_completion(callback: CallbackQuery, state: FSMContext, user
             )
             await callback.message.edit_text(
                 completion_msg,
-                reply_markup=get_cancel_keyboard(language, 'tasks')
+                reply_markup=get_single_button_keyboard(language, 'tasks', 'btn_back')
             )
         except TherapyTask.DoesNotExist:
             error_msg = get_message('task_not_found', language)
@@ -210,7 +209,7 @@ async def process_task_completion(message: Message, state: FSMContext, user, lan
         feelings_msg = get_message('ask_feelings_description', language)
         await message.answer(
             feelings_msg,
-            reply_markup=get_cancel_keyboard(language)
+            reply_markup=get_single_button_keyboard(language, 'tasks', 'btn_back')
         )
     except Exception as e:
         logger.error(f"Ошибка при обработке выполнения задания: {e}")
@@ -353,7 +352,7 @@ async def confirm_delete_task(callback: CallbackQuery, user, language: str):
             task_deleted_msg = get_message('task_deleted', language)
             await callback.message.edit_text(
                 task_deleted_msg,
-                reply_markup=get_back_keyboard(language)
+                reply_markup=get_single_button_keyboard(language, 'tasks', 'btn_back')
             )
         else:
             error_msg = get_message('task_not_found', language)
@@ -371,7 +370,7 @@ async def cancel_delete_task(callback: CallbackQuery, language: str):
         cancel_msg = get_message('task_delete_cancelled', language)
         await callback.message.edit_text(
             cancel_msg,
-            reply_markup=get_back_keyboard(language)
+            reply_markup=get_single_button_keyboard(language, 'tasks', 'btn_back')
         )
         await callback.answer()
     except Exception as e:
@@ -542,17 +541,7 @@ async def view_detailed_task_analysis(callback: CallbackQuery, user, language: s
             analysis_text = f"<b>{header}</b>\n\n{analysis.detailed_analysis}"
         else:
             analysis_text = get_message('task_analysis_no_details', language).format(task_title=task.title)
-
-        # --- ИСПРАВЛЕНО: Используем клавиатуру истории ---
-        # back_button = [[InlineKeyboardButton(
-        #     text=get_button_text('btn_back', language),
-        #     callback_data="task_history_main"
-        # )]]
-        # reply_markup = InlineKeyboardMarkup(inline_keyboard=back_button)
-        # reply_markup = get_back_keyboard(language) # <-- Было
-        reply_markup = get_task_history_main_keyboard(language) # <-- Стало
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
-
+        reply_markup = get_task_history_main_keyboard(language)
         await safe_edit_message_text(
             message=callback.message,
             text=analysis_text,
@@ -565,7 +554,9 @@ async def view_detailed_task_analysis(callback: CallbackQuery, user, language: s
     except Exception as e:
         logger.error(f"Ошибка при просмотре детального анализа задания {task_id}: {e}", exc_info=True)
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
+
 #=========================ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ=====================================
+
 async def _format_task_history_detail(task: TherapyTask, language: str, state: FSMContext) -> str: 
     """
     Форматирует текстовое сообщение с деталями задания из истории.

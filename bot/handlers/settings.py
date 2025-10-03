@@ -17,7 +17,7 @@ from bot.keyboards import (
     get_settings_keyboard,
     get_language_selection_keyboard,
     get_premium_keyboard,
-    get_back_keyboard,
+    get_single_button_keyboard,
     get_common_timezones_keyboard,
     get_timezone_selection_method_keyboard,
     get_city_timezone_confirmation_keyboard,
@@ -184,7 +184,7 @@ async def premium_subscribe(callback: CallbackQuery, user, language: str):
         subscribe_msg = "💳 Ждет доработки"
         await callback.message.edit_text(
             subscribe_msg,
-            reply_markup=get_back_keyboard(language)
+            reply_markup=get_single_button_keyboard(language, 'settings', 'btn_back')
         )
         await callback.answer()
     except Exception as e:
@@ -283,7 +283,7 @@ async def enter_city_for_timezone(callback: CallbackQuery, state: FSMContext, us
     """Ввод города для определения часового пояса"""
     try:
         city_msg = get_message(key='enter_city', language=language)
-        reply_markup = get_back_keyboard(language)
+        reply_markup = get_single_button_keyboard(language, 'settings', 'btn_back')
         await callback.message.edit_text(
             city_msg,
             reply_markup=reply_markup
@@ -340,14 +340,14 @@ async def process_city_input(message: Message, state: FSMContext, user, language
             error_msg = result.get('message', get_message('timezone_error', language))
             await message.answer(f"❌ {error_msg}")
             city_msg = get_message(key='please_enter_city', language=language)
-            await message.answer(city_msg, reply_markup=get_back_keyboard(language))
+            await message.answer(city_msg, reply_markup=get_single_button_keyboard(language, 'settings', 'btn_back'))
             return
         api_result = result['result']
         if not api_result.get('success', False):
             error_msg = api_result.get('error', get_message(key='city_not_found', language=language))
             await message.answer(f"❌ {error_msg}")
             city_msg = get_message(key='please_enter_city', language=language)
-            await message.answer(city_msg, reply_markup=get_back_keyboard(language))
+            await message.answer(city_msg, reply_markup=get_single_button_keyboard(language, 'settings', 'btn_back'))
             return
         if api_result.get('multiple', False):
             options = api_result.get('options', [])
@@ -362,7 +362,7 @@ async def process_city_input(message: Message, state: FSMContext, user, language
             else:
                 await message.answer(get_message(key='selection_failed', language=language))
                 city_msg = get_message(key='enter_city', language=language)
-                await message.answer(city_msg, reply_markup=get_back_keyboard(language))
+                await message.answer(city_msg, reply_markup=get_single_button_keyboard(language, 'settings', 'btn_back'))
                 return
         timezone_str = api_result.get('timezone')
         city = api_result.get('city', city_name)
@@ -370,14 +370,14 @@ async def process_city_input(message: Message, state: FSMContext, user, language
         if not timezone_str:
             await message.answer(get_message(key='timezone_detection_failed', language=language))
             city_msg = get_message(key='enter_city', language=language)
-            await message.answer(city_msg, reply_markup=get_back_keyboard(language))
+            await message.answer(city_msg, reply_markup=get_single_button_keyboard(language, 'settings', 'btn_back'))
             return
         try:
             pytz.timezone(timezone_str)
         except pytz.UnknownTimeZoneError:
             await message.answer(get_message(key='invalid_timezone', language=language))
             city_msg = get_message(key='enter_city', language=language)
-            await message.answer(city_msg, reply_markup=get_back_keyboard(language))
+            await message.answer(city_msg, reply_markup=get_single_button_keyboard(language, 'settings', 'btn_back'))
             return
         timezone_data = {
             'timezone': timezone_str,
@@ -562,8 +562,8 @@ async def show_edit_profile_menu(callback: CallbackQuery, user, language: str):
             'first_name': user.first_name or 'Не указано',
             'email': user.email or 'Не указан',
             'date_of_birth': user.date_of_birth.strftime('%d.%m.%Y') if user.date_of_birth else 'Не указана',
-            'hobbies': ', '.join(user.hobbies) if user.hobbies else 'Не указаны',
-            'life_facts': ', '.join(user.life_facts) if user.life_facts else 'Не указаны'
+            'hobbies': ', '.join([str(h) for h in user.hobbies if isinstance(h, (str, int, float))]) if isinstance(user.hobbies, list) else 'Не указаны',
+            'life_facts': ', '.join([str(f) for f in user.life_facts if isinstance(f, (str, int, float))]) if isinstance(user.life_facts, list) else 'Не указаны'
         }
         profile_msg = get_message('profile_menu', language, **profile_data)
         reply_markup = get_edit_profile_keyboard(language)
@@ -582,7 +582,7 @@ async def edit_profile_name(callback: CallbackQuery, state: FSMContext, user, la
     try:
         await state_manager.set_state(state, SettingsStates.waiting_for_name_input)
         ask_msg = get_message('ask_new_name', language)
-        reply_markup = get_back_keyboard(language)
+        reply_markup = get_single_button_keyboard(language, 'settings', 'btn_back')
         await callback.message.edit_text(
             ask_msg,
             reply_markup=reply_markup
@@ -598,7 +598,7 @@ async def edit_profile_email(callback: CallbackQuery, state: FSMContext, user, l
     try:
         await state_manager.set_state(state, SettingsStates.waiting_for_email_input)
         ask_msg = get_message('ask_new_email', language)
-        reply_markup = get_back_keyboard(language)
+        reply_markup = get_single_button_keyboard(language, 'settings', 'btn_back')
         await callback.message.edit_text(
             ask_msg,
             reply_markup=reply_markup
@@ -614,7 +614,7 @@ async def edit_profile_dob(callback: CallbackQuery, state: FSMContext, user, lan
     try:
         await state_manager.set_state(state, SettingsStates.waiting_for_date_of_birth_input)
         ask_msg = get_message('ask_new_dob', language)
-        reply_markup = get_back_keyboard(language)
+        reply_markup = get_single_button_keyboard(language, 'settings', 'btn_back')
         await callback.message.edit_text(
             ask_msg,
             reply_markup=reply_markup
@@ -636,7 +636,7 @@ async def edit_profile_hobbies(callback: CallbackQuery, state: FSMContext, user,
                 key='current_hobbies',
                 language=language,
                 current_hobbies=current_hobbies)
-        reply_markup = get_back_keyboard(language)
+        reply_markup = get_single_button_keyboard(language, 'settings', 'btn_back')
         await callback.message.edit_text(
             ask_msg,
             reply_markup=reply_markup
@@ -659,7 +659,7 @@ async def edit_profile_life_facts(callback: CallbackQuery, state: FSMContext, us
                 language=language,
                 current_facts=current_facts
             )
-        reply_markup = get_back_keyboard(language)
+        reply_markup = get_single_button_keyboard(language, 'settings', 'btn_back')
         await callback.message.edit_text(
             ask_msg,
             reply_markup=reply_markup

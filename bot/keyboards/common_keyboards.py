@@ -5,14 +5,20 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from messages import get_button_text
 
-def get_cancel_keyboard(language: str, cancel_callback_data: str = "main_menu") -> InlineKeyboardMarkup:
+def get_single_button_keyboard(
+        language: str,
+        button_callback_data: str = "main_menu",
+        button_text: str = 'btn_cancel'
+ ) -> InlineKeyboardMarkup:
     """
-    Клавиатура с кнопкой "Отмена".
+    Клавиатура с одной кнопкой. Может использоваться для "Отмена", "Назад", "Пропустить" и т.д.
 
     Args:
         language (str): Язык интерфейса.
-        cancel_callback_data (str, optional): Callback data для кнопки "Отмена". 
-                                               По умолчанию "main_menu".
+        button_callback_data (str, optional): Callback data для кнопки.
+                                                По умолчанию "main_menu".
+        button_text (str, optional): Ключ для текста кнопки.
+                                        По умолчанию 'btn_cancel'.
 
     Returns:
         InlineKeyboardMarkup: Клавиатура.
@@ -20,8 +26,8 @@ def get_cancel_keyboard(language: str, cancel_callback_data: str = "main_menu") 
     buttons = [
         [
             InlineKeyboardButton(
-                text=get_button_text('btn_cancel', language),
-                callback_data=cancel_callback_data
+                text=get_button_text(button_text, language),
+                callback_data=button_callback_data
             )
         ]
     ]

@@ -29,7 +29,7 @@ from .calendar_keyboard import (
 
 # Универсальные клавиатуры
 from .common_keyboards import (
-    get_cancel_keyboard,
+    get_single_button_keyboard,
     get_add_foto_kb,
     get_skip_kb
 )
@@ -89,6 +89,7 @@ from .profile_keyboards import (
 )
 __all__ = [
     # Основные клавиатуры
+    'get_single_button_keyboard',
     'get_main_menu_keyboard',
     'get_add_foto_kb',
     'get_skip_kb',
@@ -109,7 +110,6 @@ __all__ = [
     
     # Универсальные клавиатуры
     'get_back_keyboard',
-    'get_cancel_keyboard',
     'get_confirm_cancel_keyboard',
     'get_common_main_menu_keyboard',
     'get_edit_profile_keyboard',

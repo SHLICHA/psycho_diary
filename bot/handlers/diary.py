@@ -16,7 +16,7 @@ from diary.models import CombinedDiaryEntry, DiaryEntry, DailyAnalysis, TherapyT
 from diary.services import smart_prompt_manager, daily_state_service
 from bot.states.diary_states import DiaryStates
 from bot.keyboards import (
-    get_cancel_keyboard,
+    get_single_button_keyboard,
     get_confirmation_keyboard,
     format_entry_text_for_editing,
     get_back_keyboard,
@@ -60,7 +60,7 @@ async def new_entry_simple(callback: CallbackQuery, state: FSMContext, user, lan
         await safe_edit_message_text(
             message=callback.message,
             text=prompt_text,
-            reply_markup=get_cancel_keyboard(language)
+            reply_markup=get_single_button_keyboard(language, 'main_menu', 'btn_cancel')
         )
         await safe_answer_callback(callback, "")
     except Exception as e:
@@ -69,7 +69,7 @@ async def new_entry_simple(callback: CallbackQuery, state: FSMContext, user, lan
             await safe_edit_message_text(
                 message=callback.message,
                 text=get_message('ask_entry', language),
-                reply_markup=get_cancel_keyboard(language)
+                reply_markup=get_single_button_keyboard(language, 'main_menu', 'btn_cancel')
             )
             await safe_answer_callback(callback, "")
         except Exception as fallback_error:
@@ -281,21 +281,17 @@ async def request_add_comment(callback: CallbackQuery, state: FSMContext, user, 
             logger.warning(f"Пользователь {user.telegram_id} пытается добавить комментарий к несуществующей записи {entry_id}")
             await safe_answer_callback(callback, get_message('entry_not_found', language), show_alert=True)
             return
-
-        # Проверим, что у записи ещё нет комментария (дополнительная защита)
         if diary_entry.user_comment:
             logger.warning(f"Пользователь {user.telegram_id} пытается добавить комментарий к записи {entry_id}, но комментарий уже существует.")
-            await safe_answer_callback(callback, get_message('comment_already_added', language), show_alert=True) # Убедись, что 'comment_already_added' добавлено в messages
+            await safe_answer_callback(callback, get_message('comment_already_added', language), show_alert=True) 
             return
-
         await state_manager.set_state(state, DiaryStates.waiting_for_user_comment)
-        await state_manager.update_state_data(state, comment_entry_id=entry_id) # Сохраняем ID записи
-
-        prompt_text = get_message('ask_user_comment', language) # Убедись, что 'ask_user_comment' добавлено в messages
+        await state_manager.update_state_data(state, comment_entry_id=entry_id)
+        prompt_text = get_message('ask_user_comment', language)
         await safe_edit_message_text(
             message=callback.message,
             text=prompt_text,
-            reply_markup=get_cancel_keyboard(language)
+            reply_markup=get_single_button_keyboard(language, 'main_menu', 'btn_cancel')
         )
         await safe_answer_callback(callback, "")
     except Exception as e:
@@ -675,7 +671,7 @@ async def entry_edit(callback: CallbackQuery, state: FSMContext, user, language:
         await state_manager.update_state_data(state, editing_entry_id=entry_id)
         formatted_text = format_entry_text_for_editing(entry.text)
         edit_msg = get_message('ask_entry_edit_with_text', language).format(old_text=formatted_text)
-        await callback.message.answer(edit_msg, reply_markup=get_cancel_keyboard(language))
+        await callback.message.answer(edit_msg, reply_markup=get_single_button_keyboard(language))
         await safe_answer_callback(callback, "")
     except Exception as e:
         logger.error(f"Ошибка при редактировании записи {entry_id}: {e}")
@@ -1138,7 +1134,7 @@ async def _process_analysis_result(
                 questions_text = "\n".join([f"{i+1}. {q}" for i, q in enumerate(clarification_questions)])
                 await status_msg.edit_text(
                     f"{get_message('clarification_needed', language)}\n{questions_text}",
-                    reply_markup=get_cancel_keyboard(language)
+                    reply_markup=get_single_button_keyboard(language, 'main_menu', 'btn_cancel')
                 )
                 return
         await psycho_analysis_service.create_or_update_analysis(

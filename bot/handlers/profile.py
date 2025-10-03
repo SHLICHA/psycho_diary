@@ -9,7 +9,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardBut
 from asgiref.sync import sync_to_async
 
 from messages import get_message, get_button_text
-from bot.keyboards import get_back_keyboard, get_profile_keyboard
+from bot.keyboards import get_single_button_keyboard, get_profile_keyboard
 from users.models import UserProfileHistory
 
 router = Router()
@@ -79,44 +79,39 @@ async def show_psychology_profile(callback: CallbackQuery, user, language: str):
             psychology_msg += get_message(key='portrait_not_ready', language=user.language)
         if len(psychology_msg) > MAX_TOTAL_LENGTH:
              psychology_msg = psychology_msg[:MAX_TOTAL_LENGTH] + get_message(key='message_truncated', language=user.language)
-
-        # --- НОВАЯ КЛАВИАТУРА ---
-        # Создаём клавиатуру с кнопками для просмотра отдельных полей
         profile_detail_buttons = []
-
-        # Проверяем, есть ли данные для отображения
         if user.core_values:
             profile_detail_buttons.append([
                 InlineKeyboardButton(
-                    text=get_button_text('btn_view_values', language), # Добавим этот ключ в messages
+                    text=get_button_text('btn_view_values', language),
                     callback_data="view_profile_field:core_values"
                 )
             ])
         if user.triggers:
             profile_detail_buttons.append([
                 InlineKeyboardButton(
-                    text=get_button_text('btn_view_triggers', language), # Добавим этот ключ в messages
+                    text=get_button_text('btn_view_triggers', language),
                     callback_data="view_profile_field:triggers"
                 )
             ])
         if user.strengths:
             profile_detail_buttons.append([
                 InlineKeyboardButton(
-                    text=get_button_text('btn_view_strengths', language), # Добавим этот ключ в messages
+                    text=get_button_text('btn_view_strengths', language),
                     callback_data="view_profile_field:strengths"
                 )
             ])
         if user.areas_for_growth:
             profile_detail_buttons.append([
                 InlineKeyboardButton(
-                    text=get_button_text('btn_view_growth', language), # Добавим этот ключ в messages
+                    text=get_button_text('btn_view_growth', language),
                     callback_data="view_profile_field:areas_for_growth"
                 )
             ])
         if user.personality_insights:
             profile_detail_buttons.append([
                 InlineKeyboardButton(
-                    text=get_button_text('btn_view_insights', language), # Добавим этот ключ в messages
+                    text=get_button_text('btn_view_insights', language),
                     callback_data="view_profile_field:personality_insights"
                 )
             ])
@@ -124,13 +119,11 @@ async def show_psychology_profile(callback: CallbackQuery, user, language: str):
         profile_detail_buttons.append([
             InlineKeyboardButton(
                 text=get_button_text('btn_back', language),
-                callback_data="user_profile" # Возврат к основному профилю
+                callback_data="user_profile"
             )
         ])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=profile_detail_buttons)
-        # --- КОНЕЦ НОВОЙ КЛАВИАТУРЫ ---
-
         await callback.message.edit_text(
             psychology_msg,
             reply_markup=keyboard,
@@ -140,7 +133,7 @@ async def show_psychology_profile(callback: CallbackQuery, user, language: str):
     except Exception as e:
         logger.error(f"Ошибка при показе психологического профиля: {e}", exc_info=True)
         error_msg = get_message('error_generic', language=language)
-        await callback.message.edit_text(error_msg, reply_markup=get_back_keyboard(language))
+        await callback.message.edit_text(error_msg, reply_markup=get_single_button_keyboard(language, 'user_profile', 'btn_back'))
         await callback.answer(error_msg, show_alert=True)
 
 @router.callback_query(F.data.startswith("view_profile_field:"))
@@ -148,9 +141,6 @@ async def show_profile_field(callback: CallbackQuery, user, language: str):
     """Показывает конкретное поле психологического профиля."""
     try:
         field_key = callback.data.split(":")[1]
-
-        # --- ПРОВЕРКА НА ВАЛИДНОСТЬ ПОЛЯ (ОПЦИОНАЛЬНО, но рекомендуется) ---
-        # Список ожидаемых полей
         valid_profile_fields = {
             'personality_traits', 'life_facts', 'hobbies', 'core_values',
             'triggers', 'strengths', 'areas_for_growth', 'personality_insights',
@@ -161,12 +151,7 @@ async def show_profile_field(callback: CallbackQuery, user, language: str):
             error_msg = get_message('field_not_found', language)
             await callback.answer(error_msg, show_alert=True)
             return
-        # --- КОНЕЦ ПРОВЕРКИ ---
-
         field_value = getattr(user, field_key, None)
-        # --- ИСПРАВЛЕНО: Используем get_message для названия поля ---
-        # Предполагаем, что в messages есть ключи вроде 'field_name_core_values', 'field_name_triggers', и т.д.
-        # Добавим эмодзи к названию поля (если не в get_message)
         field_emojis = {
             'core_values': '🎯',
             'triggers': '⚠️',
