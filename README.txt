@@ -23,7 +23,7 @@ git pull origin master #обновить из GitHub
 
 python -m pytest tests/test_messages.py -v
 
-python manage.py migrate_encrypted_fields
+python manage.py migrate_encrypted_fields # незабыть добавить новые поля в get_default_config
 python manage.py migrate_encrypted_fields --dry-run --config '{"app.Model": ["field1", "field2"]}'
 python manage.py migrate_encrypted_fields --config '{"app.Model": ["field1", "field2"]}' --batch-size 500
 
