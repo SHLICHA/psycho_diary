@@ -134,15 +134,13 @@ def needs_questionnaire_reminder(user):
         logger.error(f"Ошибка при проверке необходимости напоминания об анкете для пользователя {user.telegram_id}: {e}")
         return False
 
-# === Основная логика задачи ===
-
 @shared_task
 def send_entry_reminders():
     """
     Отправка ежедневных напоминаний о записи в дневник.
     Запускается раз в час Celery Beat.
     """
-    logger.info("Запуск задачи отправки напоминаний о записи в дневник.")
+    logger.debug("Запуск задачи отправки напоминаний о записи в дневник.")
     return asyncio.run(_send_entry_reminders_async())
 
 
@@ -154,7 +152,7 @@ def get_uncompleted_tasks_count_for_user_today(user):
     try:
         count = TherapyTask.objects.filter(
             user=user,
-            status__in=['pending',]  # только незавершенные, исключая 'completed', 'skipped', 'expired'
+            status__in=['pending',]
         ).count()
         return count
     except Exception as e:
@@ -168,7 +166,7 @@ async def _send_entry_reminders_async():
     bot = None
     try:
         users = await get_active_users_with_notifications()
-        logger.info(f"Найдено {len(users)} активных пользователей с включенными уведомлениями")
+        logger.debug(f"Найдено {len(users)} активных пользователей с включенными уведомлениями")
         success_count = 0
         error_count = 0
         sent_entry_reminder_count = 0
@@ -182,14 +180,11 @@ async def _send_entry_reminders_async():
                     user_tz = pytz.timezone(user_timezone_str)
                 except pytz.UnknownTimeZoneError:
                     logger.warning(f"Неизвестный часовой пояс у пользователя {user.telegram_id}: {user_timezone_str}. Используется UTC.")
-                    user_tz = pytz.UTC
-                
+                    user_tz = pytz.UTC      
                 user_local_time = datetime.now(user_tz)
                 current_user_hour = user_local_time.hour
                 user_local_date = user_local_time.date()
                 language = await get_user_language(user)
-
-                # Обработка часа 19:00 - напоминание об анкете
                 if current_user_hour == 19:
                     if await needs_questionnaire_reminder(user):
                         logger.info(f"Пользователь {user.telegram_id} еще не прошел анкету. Отправляем напоминание.")
@@ -209,31 +204,25 @@ async def _send_entry_reminders_async():
                         if success:
                             sent_questionnaire_reminder_count += 1
                             success_count += 1
-                            logger.info(f"Напоминание об анкете успешно отправлено пользователю {user.telegram_id}")
+                            logger.debug(f"Напоминание об анкете успешно отправлено пользователю {user.telegram_id}")
                         else:
                             error_count += 1
-                            logger.info(f"Не удалось отправить напоминание об анкете пользователю {user.telegram_id}")
-                    continue  # Переходим к следующему пользователю
-
-                # Обработка часа 21:00 - напоминание о записи в дневник
+                            logger.debug(f"Не удалось отправить напоминание об анкете пользователю {user.telegram_id}")
+                    continue
                 elif current_user_hour == 22:
                     has_entries_today = await has_entries_for_user_on_date(user, user_local_date)
                     if has_entries_today:
-                        logger.info(f"Пользователь {user.telegram_id} уже сделал запись сегодня ({user_local_date}). Напоминание о записи не отправляется.")
+                        logger.debug(f"Пользователь {user.telegram_id} уже сделал запись сегодня ({user_local_date}). Напоминание о записи не отправляется.")
                         continue
 
                     uncompleted_tasks_count = await get_uncompleted_tasks_count_for_user_today(user)
-                    # Подсчитываем серии
                     current_streak, longest_streak = await get_user_streaks(user)
                     yesterday = user_local_date - timedelta(days=1)
-
-                    # Получаем CombinedDiaryEntry за вчера
                     previous_day_text = ""
                     previous_day_analysis = {}
                     try:
                         combined_entry_yesterday = await CombinedDiaryEntry.objects.aget(user=user, date=yesterday)
                         previous_day_text = combined_entry_yesterday.text
-                        # Получаем DailyAnalysis за вчера
                         try:
                             daily_analysis_yesterday = await DailyAnalysis.objects.aget(combined_entry=combined_entry_yesterday)
                             previous_day_analysis = {
@@ -250,8 +239,6 @@ async def _send_entry_reminders_async():
                     except CombinedDiaryEntry.DoesNotExist:
                         previous_day_text = ""
                         previous_day_analysis = {}
-                    
-                    # Формируем промпт для ИИ
                     user_profile_data = await user.aget_profile_data()
                     prompt = get_prompt(
                         key='reminder_message',
@@ -262,15 +249,11 @@ async def _send_entry_reminders_async():
                         longest_streak=longest_streak,
                         previous_day_analysis=previous_day_analysis
                     )
-
-                    # Отправляем промпт в ИИ
                     api_result = await deepseek_api_service.send_prompt_and_parse(prompt, language=language)
-
                     if api_result.get('success'):
                         entry_reminder_text = api_result.get('result', {}).get('motivation_message', 
                             get_message('reminder_entry', language))
                     else:
-                        # Если ИИ не сработал, используем стандартное сообщение
                         logger.warning(f"ИИ не сгенерировал персонализированное напоминание для {user.telegram_id}. Используется стандартное. Ошибка API: {api_result.get('error')}")
                         try:
                             entry_reminder_text = get_message('reminder_entry', language)
@@ -293,8 +276,6 @@ async def _send_entry_reminders_async():
                             )
                         ]
                     ])
-                    
-                    # Отправка напоминания о записи (только для часа 21:00)
                     success = await send_message_to_user(
                         bot=bot,
                         user=user,
@@ -304,12 +285,10 @@ async def _send_entry_reminders_async():
                     if success:
                         sent_entry_reminder_count += 1
                         success_count += 1
-                        logger.info(f"Напоминание о записи успешно отправлено пользователю {user.telegram_id}")
+                        logger.debug(f"Напоминание о записи успешно отправлено пользователю {user.telegram_id}")
                     else:
                         error_count += 1
-                        logger.info(f"Не удалось отправить напоминание о записи пользователю {user.telegram_id}")
-
-                # Для других часов ничего не делаем
+                        logger.debug(f"Не удалось отправить напоминание о записи пользователю {user.telegram_id}")
                 else:
                     continue
                     
@@ -333,6 +312,6 @@ async def _send_entry_reminders_async():
         if bot:
             try:
                 await bot.session.close()
-                logger.info("Сессия бота для напоминаний закрыта")
+                logger.debug("Сессия бота для напоминаний закрыта")
             except Exception as close_error:
                 logger.error(f"Ошибка при закрытии сессии бота: {close_error}")

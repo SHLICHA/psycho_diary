@@ -38,7 +38,7 @@ class FullDayAnalysisService:
                 - daily_analysis (Optional[DailyAnalysis]): Объект анализа дня, если создан/обновлен.
                 - error (Optional[str]): Сообщение об ошибке, если есть.
         """
-        logger.info(f"[FullDayAnalysisService] Начало полного анализа дня для пользователя {user.telegram_id} за {target_date}")
+        logger.debug(f"[FullDayAnalysisService] Начало полного анализа дня для пользователя {user.telegram_id} за {target_date}")
         try:
             combined_entry = await daily_state_service.get_daily_state(user, target_date)
             if not combined_entry:
@@ -88,7 +88,7 @@ class FullDayAnalysisService:
             daily_analysis = await self._create_or_update_daily_analysis(
                 combined_entry, parsed_result, api_result
             )
-            logger.info(f"[FullDayAnalysisService] DailyAnalysis (ID: {daily_analysis.id}) создан/обновлен для {user.telegram_id} за {target_date}")
+            logger.debug(f"[FullDayAnalysisService] DailyAnalysis (ID: {daily_analysis.id}) создан/обновлен для {user.telegram_id} за {target_date}")
             user_profile_updates = parsed_result.get('user_profile_updates', {})
             if user_profile_updates:
                 update_success = await self._update_user_profile(user, user_profile_updates)
@@ -102,7 +102,7 @@ class FullDayAnalysisService:
                     old_level = user.awareness_level
                     user.awareness_level = new_level
                     await sync_to_async(user.save)(update_fields=['awareness_level'])
-                    logger.info(f"[FullDayAnalysisService] Уровень осознанности пользователя {user.telegram_id} обновлен с {old_level} до {new_level}. Причина: {reasoning}")
+                    logger.debug(f"[FullDayAnalysisService] Уровень осознанности пользователя {user.telegram_id} обновлен с {old_level} до {new_level}. Причина: {reasoning}")
             combined_entry.is_analyzed = True
             await combined_entry.asave(update_fields=['is_analyzed'])
             logger.debug(f"[FullDayAnalysisService] CombinedDiaryEntry (ID: {combined_entry.id}) помечен как проанализированный.")
@@ -116,7 +116,7 @@ class FullDayAnalysisService:
                 )
                 mock_entry.id = 0
                 await smart_prompt_manager.on_day_analyzed(user, target_date, daily_analysis, user.language)
-                logger.info(f"[FullDayAnalysisService] Подсказка для следующего дня подготовлена через SmartPromptManager")
+                logger.debug(f"[FullDayAnalysisService] Подсказка для следующего дня подготовлена через SmartPromptManager")
             except Exception as prompt_error:
                 logger.error(f"[FullDayAnalysisService] Ошибка подготовки подсказки через SmartPromptManager: {prompt_error}")
             return {
@@ -275,10 +275,10 @@ class FullDayAnalysisService:
                 update_fields = ['mood_trend', 'key_themes', 'emotional_patterns', 'insights', 'recommendations', 'overall_analysis_text', 'api_response']
                 if is_update:
                     daily_analysis.save(update_fields=update_fields)
-                    logger.info(f"[SYNC] DailyAnalysis ID {daily_analysis.id} обновлен.")
+                    logger.debug(f"[SYNC] DailyAnalysis ID {daily_analysis.id} обновлен.")
                 else:
                     daily_analysis.save()
-                    logger.info(f"[SYNC] DailyAnalysis ID {daily_analysis.id} создан.")  
+                    logger.debug(f"[SYNC] DailyAnalysis ID {daily_analysis.id} создан.")  
             return daily_analysis
         return await _create_or_update_sync()
 
@@ -329,11 +329,11 @@ class FullDayAnalysisService:
         Returns:
             bool: True, если обновление прошло успешно, иначе False.
         """
-        logger.info(f"[FullDayAnalysisService] Обновление профиля пользователя {user.telegram_id} на основе данных ИИ.")
+        logger.debug(f"[FullDayAnalysisService] Обновление профиля пользователя {user.telegram_id} на основе данных ИИ.")
         logger.debug(f"[FullDayAnalysisService] Полученные обновления: {profile_updates}")
 
         if not profile_updates or not isinstance(profile_updates, dict):
-            logger.info("[FullDayAnalysisService] Нет данных для обновления профиля пользователя.")
+            logger.debug("[FullDayAnalysisService] Нет данных для обновления профиля пользователя.")
             return True
         fields_updated = []
         try:
@@ -403,7 +403,7 @@ class FullDayAnalysisService:
                     setattr(user, field_name, final_list)
                     fields_updated.append(field_name)
             if fields_updated:
-                logger.info(f"[FullDayAnalysisService] Обновлены поля профиля пользователя {user.telegram_id}: {fields_updated}")
+                logger.debug(f"[FullDayAnalysisService] Обновлены поля профиля пользователя {user.telegram_id}: {fields_updated}")
                 await sync_to_async(user.save)(update_fields=fields_updated)
                 logger.debug(f"[FullDayAnalysisService] Изменения профиля пользователя {user.telegram_id} сохранены.")
             else:

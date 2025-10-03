@@ -18,7 +18,7 @@ class YandexSpeechKitService:
         if not YANDEX_SPEECHKIT_API_KEY:
             logger.warning("YANDEX_SPEECHKIT_API_KEY не настроен")
         else:
-            logger.info("YANDEX_SPEECHKIT_API_KEY найден")
+            logger.debug("YANDEX_SPEECHKIT_API_KEY найден")
 
     async def recognize_voice_auto(
         self,
@@ -46,10 +46,10 @@ class YandexSpeechKitService:
             duration_int = 0
             
         if duration_int > self.DURATION_THRESHOLD_SECONDS:
-            logger.info(f"Используется Long Running Recognition для аудио длительностью {duration_int} секунд")
+            logger.debug(f"Используется Long Running Recognition для аудио длительностью {duration_int} секунд")
             return await self.recognize_voice(voice_data, language, audio_format)
         else:
-            logger.info(f"Используется стандартное распознавание для аудио длительностью {duration_int} секунд")
+            logger.debug(f"Используется стандартное распознавание для аудио длительностью {duration_int} секунд")
             return await self.recognize_voice(voice_data, language, audio_format)
 
     async def recognize_voice(
@@ -335,7 +335,7 @@ class YandexSpeechKitService:
                                         total_confidence += chunk_confidence
                                         word_count += len(chunk_text.split()) if chunk_text else 0
                                 avg_confidence = total_confidence / len(chunks) if chunks else 0.0
-                                logger.info(f"Long recognition completed successfully. Operation ID: {operation_id}")
+                                logger.debug(f"Long recognition completed successfully. Operation ID: {operation_id}")
                                 return {
                                     'success': True,
                                     'error': None,

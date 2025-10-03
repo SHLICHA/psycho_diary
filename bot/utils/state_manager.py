@@ -21,31 +21,21 @@ async def send_main_menu_callback(bot_instance: Bot, user_id: int, language: str
     """
     Функция-коллбэк для отправки главного меню пользователю.
     """
-    # --- ДОБАВИМ ЛОГ ---
-    logger.info(f"send_main_menu_callback вызвана для user_id {user_id}, language {language}, bot_instance is None: {bot_instance is None}")
-    # --- КОНЕЦ ДОБАВКИ ---
+    logger.debug(f"send_main_menu_callback вызвана для user_id {user_id}, language {language}, bot_instance is None: {bot_instance is None}")
     try:
         if not bot_instance:
             logger.error(f"Bot instance is None in send_main_menu_callback for user {user_id}")
             return
-
-        from messages import get_message
-        from bot.keyboards import get_main_menu_keyboard # Убедитесь, что импорт корректен
-
         main_menu_text = get_message('main_menu', language)
-        # Попробуем получить пользователя для клавиатуры, если она принимает user
-        # user = await User.objects.aget(telegram_id=user_id) # Если нужно
-        main_menu_keyboard = get_main_menu_keyboard(language) # user=user, если нужно
-
+        main_menu_keyboard = get_main_menu_keyboard(language)
         await bot_instance.send_message(
             chat_id=user_id,
             text=main_menu_text,
             reply_markup=main_menu_keyboard
         )
-        logger.info(f"Главное меню отправлено пользователю {user_id} после таймаута FSM.")
+        logger.debug(f"Главное меню отправлено пользователю {user_id} после таймаута FSM.")
     except Exception as e:
         logger.error(f"Ошибка при отправке главного меню пользователю {user_id} после таймаута FSM: {e}", exc_info=True) # exc_info=True покажет трейсбек
-
 
 class StateManager:
     """Менеджер для работы с состояниями FSM с автоматическим таймаутом"""
@@ -60,7 +50,7 @@ class StateManager:
     def set_bot(self, bot: Bot):
         """Установка экземпляра бота для отправки сообщений"""
         self._bot_instance = bot
-        logger.info("Bot instance установлен в StateManager")
+        logger.debug("Bot instance установлен в StateManager")
     
     async def set_state(self, context: FSMContext, state: State, **data):
         """Установка состояния с автоматическим таймаутом"""
@@ -75,14 +65,10 @@ class StateManager:
                 await context.update_data(**data)
 
             self._storage_key_to_user_id[storage_key] = user_id
-
-            # Передаём user_id в _state_timeout_handler
             self._state_timers[storage_key] = asyncio.create_task(
                 self._state_timeout_handler(storage_key, context, self._timeout_seconds, user_id)
             )
-
             logger.debug(f"State {state.state} set for user {user_id} with timeout {self._timeout_seconds}s")
-
         except Exception as e:
             logger.error(f"Error setting state {state.state}: {e}")
             raise
@@ -91,42 +77,29 @@ class StateManager:
         """Обработчик таймаута состояния"""
         try:
             await asyncio.sleep(timeout)
-
             current_state = await context.get_state()
-
             await context.clear()
             language = await self._get_user_language(user_id)
-
-            # --- НОВАЯ ЛОГИКА ---
-            # 1. Отправляем сообщение о таймауте
             if self._bot_instance:
                 try:
-                    # Импортируем внутри функции
                     await self._bot_instance.send_message(
                         user_id,
                         get_message('session_expired', language)
                     )
-                    logger.info(f"State timeout notification sent to user {user_id}, previous state: {current_state}")
+                    logger.debug(f"State timeout notification sent to user {user_id}, previous state: {current_state}")
                 except Exception as e:
                     logger.error(f"Error sending timeout notification to user {user_id}: {e}")
-
-            # 2. Вызываем внешнюю функцию для возврата в главное меню (если она установлена)
-            if self._on_timeout_callback: # <-- Проверка, что коллбэк установлен
-                logger.debug(f"Вызов on_timeout_callback для user {user_id}") # --- ДОБАВИМ ЛОГ ---
+            if self._on_timeout_callback:
+                logger.debug(f"Вызов on_timeout_callback для user {user_id}")
                 try:
-                    # Передаём bot_instance, user_id и language в коллбэк
                     await self._on_timeout_callback(self._bot_instance, user_id, language)
                 except Exception as callback_error:
-                    logger.error(f"Error in on_timeout_callback for user {user_id}: {callback_error}", exc_info=True) # exc_info=True покажет трейсбек
+                    logger.error(f"Error in on_timeout_callback for user {user_id}: {callback_error}", exc_info=True) 
             else:
-                logger.warning(f"on_timeout_callback не установлен для user {user_id}") # --- ДОБАВИМ ЛОГ ---
-            # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
-
+                logger.warning(f"on_timeout_callback не установлен для user {user_id}")
             await self._cleanup_storage_data(storage_key)
-            logger.info(f"State timeout handled for user {user_id}, previous state: {current_state}")
-
+            logger.debug(f"State timeout handled for user {user_id}, previous state: {current_state}")
         except asyncio.CancelledError:
-            # Таймер был отменен - это нормально
             pass
         except Exception as e:
             logger.error(f"Error in state timeout handler for storage key {storage_key}: {e}")
@@ -134,19 +107,16 @@ class StateManager:
     async def _get_user_language(self, user_id: int) -> str:
         """Получение языка пользователя из базы данных"""
         try:
-            # Импортируем здесь чтобы избежать циклических импортов
             from users.models import User
-            
             try:
                 user = await User.objects.aget(telegram_id=user_id)
-                return user.language or 'ru'  # По умолчанию русский
+                return user.language or 'ru'
             except User.DoesNotExist:
                 logger.warning(f"User with telegram_id {user_id} not found, using default language")
                 return 'ru'
             except DatabaseError as e:
                 logger.error(f"Database error while getting user language for {user_id}: {e}")
                 return 'ru'
-                
         except ImportError:
             logger.error("Could not import User model, using default language")
             return 'ru'

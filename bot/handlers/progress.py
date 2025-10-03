@@ -132,7 +132,7 @@ async def _get_latest_weekly_analysis(user):
 @router.callback_query(F.data == "progress")
 async def show_progress(callback: CallbackQuery, user, language: str):
     """Показ прогресса."""
-    logger.info(f"[show_progress] Запрос от пользователя {user.id}")
+    logger.debug(f"[show_progress] Запрос от пользователя {user.id}")
     try:
         awareness_level_current = user.awareness_level
         user_stats = await _get_user_statistics(user)
@@ -175,7 +175,7 @@ async def show_progress(callback: CallbackQuery, user, language: str):
 @router.callback_query(F.data == "weekly_progress_list")
 async def show_weekly_progress_list(callback: CallbackQuery, user, language: str):
     """Показывает последний недельный анализ."""
-    logger.info(f"[show_weekly_progress_list] Запрос от пользователя {user.id}")
+    logger.debug(f"[show_weekly_progress_list] Запрос от пользователя {user.id}")
     try:
         latest = await _get_latest_weekly_analysis(user)
         if not latest:
@@ -239,7 +239,7 @@ async def _show_weekly_analysis_page(message, user, week_start_date: date, langu
         analysis = await get_analysis_sync()
         if not analysis:
             no_data_msg = get_message('weekly_analysis_not_found', language)
-            logger.info(f"[_show_weekly_analysis_page] Анализ не найден, отправляем сообщение.")
+            logger.debug(f"[_show_weekly_analysis_page] Анализ не найден, отправляем сообщение.")
             await safe_edit_message_text(
                 message=message,
                 text=no_data_msg,

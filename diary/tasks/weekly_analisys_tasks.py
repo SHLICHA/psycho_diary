@@ -21,28 +21,28 @@ def perform_weekly_analysis_for_user_task(self, user_id: int) -> dict:
     Celery задача для выполнения еженедельного анализа и последующего анализа профиля для одного пользователя.
     """
     
-    logger.info(f"[Celery Task] Запуск еженедельного анализа и анализа профиля для пользователя ID {user_id}")
+    logger.debug(f"[Celery Task] Запуск еженедельного анализа и анализа профиля для пользователя ID {user_id}")
     try:
         user = User.objects.get(id=user_id)
         if user.is_blocked:
-            logger.info(f"[Celery Task] Пользователь {user_id} заблокирован. Пропуск анализа.")
+            logger.debug(f"[Celery Task] Пользователь {user_id} заблокирован. Пропуск анализа.")
             return {'status': 'skipped', 'reason': 'user_blocked', 'user_id': user_id}
-        logger.info(f"[Celery Task] -> Выполнение еженедельного анализа для пользователя {user_id}...")
+        logger.debug(f"[Celery Task] -> Выполнение еженедельного анализа для пользователя {user_id}...")
         perform_weekly_sync = async_to_sync(weekly_analysis_service.perform_weekly_analysis)
         weekly_result = perform_weekly_sync(user)
         
         if weekly_result['success']:
-            logger.info(f"[Celery Task] -> Еженедельный анализ для пользователя {user_id} успешен.")
+            logger.debug(f"[Celery Task] -> Еженедельный анализ для пользователя {user_id} успешен.")
             if weekly_result.get('weekly_analysis'):
                 logger.debug(f"[Celery Task] -> Создан WeeklyAnalysis ID: {weekly_result['weekly_analysis'].id}")
         else:
             logger.warning(f"[Celery Task] -> Ошибка в еженедельном анализе для пользователя {user_id}: {weekly_result.get('message', 'Unknown error')}")
-        logger.info(f"[Celery Task] -> Выполнение анализа профиля пользователя {user_id}...")
+        logger.debug(f"[Celery Task] -> Выполнение анализа профиля пользователя {user_id}...")
         perform_profile_sync = async_to_sync(user_profile_analysis_service.perform_user_profile_analysis)
         profile_result = perform_profile_sync(user)
         
         if profile_result['success']:
-            logger.info(f"[Celery Task] -> Анализ профиля пользователя {user_id} успешен.")
+            logger.debug(f"[Celery Task] -> Анализ профиля пользователя {user_id} успешен.")
         else:
             logger.error(f"[Celery Task] -> Ошибка в анализе профиля для пользователя {user_id}: {profile_result.get('message', 'Unknown error')}")
             return {
@@ -52,7 +52,7 @@ def perform_weekly_analysis_for_user_task(self, user_id: int) -> dict:
                 'profile_message': profile_result.get('message'),
                 'user_id': user_id
             }
-        logger.info(f"[Celery Task] Еженедельный анализ и анализ профиля для пользователя {user_id} успешно завершены.")
+        logger.debug(f"[Celery Task] Еженедельный анализ и анализ профиля для пользователя {user_id} успешно завершены.")
         return {
             'status': 'completed', 
             'weekly_result': weekly_result, 
@@ -81,10 +81,10 @@ def schedule_weekly_analyses_task(self) -> dict:
     Celery задача, запускаемая ежечасно, для планирования еженедельных анализов.
     Проверяет, является ли текущее время понедельником 03:00 по часовому поясу пользователя.
     """
-    logger.info("[Celery Task] Запуск планировщика еженедельных анализов")
+    logger.debug("[Celery Task] Запуск планировщика еженедельных анализов")
     try:
         users = User.objects.filter(is_blocked=False)
-        logger.info(f"[Celery Task] Найдено {users.count()} активных пользователей для проверки.")
+        logger.debug(f"[Celery Task] Найдено {users.count()} активных пользователей для проверки.")
         tasks_scheduled = 0
         for user in users:
             try:
@@ -97,12 +97,12 @@ def schedule_weekly_analyses_task(self) -> dict:
                 is_monday = user_local_weekday == 0
                 is_correct_time = time(2, 50) <= user_local_time <= time(3, 10)
                 if is_monday and is_correct_time:
-                    logger.info(f"[Celery Task] Пора запускать еженедельный анализ для пользователя {user.telegram_id} (понедельник {user_local_time}, часовой пояс: {user_tz_str})")
+                    logger.debug(f"[Celery Task] Пора запускать еженедельный анализ для пользователя {user.telegram_id} (понедельник {user_local_time}, часовой пояс: {user_tz_str})")
                     perform_weekly_analysis_for_user_task.delay(user.id)
                     tasks_scheduled += 1  
             except Exception as user_error:
                 logger.error(f"[Celery Task] Ошибка при обработке пользователя {user.telegram_id}: {user_error}")
-        logger.info(f"[Celery Task] Планировщик завершен. Запланировано {tasks_scheduled} задач.")
+        logger.debug(f"[Celery Task] Планировщик завершен. Запланировано {tasks_scheduled} задач.")
         return {'status': 'completed', 'tasks_scheduled': tasks_scheduled}
     except Exception as e:
         logger.error(f"[Celery Task] Критическая ошибка в планировщике: {e}", exc_info=True)

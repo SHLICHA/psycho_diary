@@ -56,14 +56,14 @@ class UserMiddleware(BaseMiddleware):
                 first_name = event.from_user.first_name or ""
                 last_name = event.from_user.last_name or ""
                 user_data = event.from_user
-                logger.info(f"[Событие] Сообщения от пользователя: {username} ({telegram_id})")
+                logger.debug(f"[Событие] Сообщения от пользователя: {username} ({telegram_id})")
             elif isinstance(event, CallbackQuery):
                 telegram_id = event.from_user.id
                 username = event.from_user.username or f"user_{telegram_id}"
                 first_name = event.from_user.first_name or ""
                 last_name = event.from_user.last_name or ""
                 user_data = event.from_user
-                logger.info(f"[Событие] Callback от пользователя: {username} ({telegram_id})")
+                logger.debug(f"[Событие] Callback от пользователя: {username} ({telegram_id})")
             else:
                 logger.warning("Неизвестный тип события для определения пользователя")
                 return None
@@ -83,12 +83,12 @@ class UserMiddleware(BaseMiddleware):
                     await user.asave(update_fields=updated_fields)
                 return user
             except User.DoesNotExist:
-                logger.info("Пользователь не найден, создаем нового")
+                logger.debug("Пользователь не найден, создаем нового")
                 language = self._detect_language(event)
-                logger.info(f"Определен язык при регистрации: {language}")
+                logger.debug(f"Определен язык при регистрации: {language}")
                 detected_timezone = self._detect_timezone_from_user_data(user_data)
                 timezone_to_set = detected_timezone if detected_timezone and detected_timezone != 'UTC' else 'UTC'
-                logger.info(f"Определен/установлен часовой пояс при регистрации: {timezone_to_set}")
+                logger.debug(f"Определен/установлен часовой пояс при регистрации: {timezone_to_set}")
                 user = await User.objects.acreate(
                     telegram_id=telegram_id,
                     username=username,

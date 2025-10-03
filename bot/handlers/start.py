@@ -33,17 +33,12 @@ async def cmd_start(message: Message, user, language: str, state: FSMContext):
             await state.set_state(OnboardingStates.showing_instruction)
             await message.answer(instruction_msg, reply_markup=get_instruction_keyboard(language))         
         else:
-            # --- Изменяем эту ветку ---
-            # Получаем данные для персонализированного сообщения
             profile_data = await user.aget_profile_data()
             first_name = profile_data.get('first_name', get_message('user_default_name', language))
             awareness_level = profile_data.get('awareness_level', 1)
             entries_count = profile_data.get('entries_count', 0)
-
             from bot.services.diary_service import get_user_streaks
             current_streak, max_streak = await sync_to_async(get_user_streaks)(user)
-
-            # Формируем сообщение
             streak_info = ""
             if current_streak > 0:
                 streak_info = get_message('current_streak_info', language, current_streak=current_streak)
@@ -55,43 +50,34 @@ async def cmd_start(message: Message, user, language: str, state: FSMContext):
                      streak_info += " " + get_message('keep_going_streak', language)
             else:
                 streak_info = get_message('no_current_streak', language)
-
             max_streak_info = ""
             if max_streak > 0:
                 max_streak_info = get_message('max_streak_info', language, max_streak=max_streak)
-
             main_menu_msg = get_message('main_menu_welcome_back', language,
                                        first_name=first_name,
                                        awareness_level=awareness_level,
                                        entries_count=entries_count,
                                        streak_info=streak_info,
                                        max_streak_info=max_streak_info)
-
             await message.answer(
                 main_menu_msg,
                 reply_markup=get_main_menu_keyboard(language, user)
             )
-            # ---
     except Exception as e:
         logger.error(f"Ошибка в cmd_start для пользователя {user.id}: {e}", exc_info=True)
         await message.answer(get_message('error_generic', language))
 
 @router.callback_query(F.data == "main_menu")
-async def back_to_main_menu(callback: CallbackQuery, state: FSMContext, user, language: str): # Добавлен user
+async def back_to_main_menu(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Возврат в главное меню"""
     try:
         await state_manager.clear_state(state)
-
-        # Получаем данные для персонализированного сообщения
         profile_data = await user.aget_profile_data()
         first_name = profile_data.get('first_name', get_message('user_default_name', language))
         awareness_level = profile_data.get('awareness_level', 1)
         entries_count = profile_data.get('entries_count', 0)
-
         from bot.services.diary_service import get_user_streaks
         current_streak, max_streak = await sync_to_async(get_user_streaks)(user)
-
-        # Формируем сообщение
         streak_info = ""
         if current_streak > 0:
             streak_info = get_message('current_streak_info', language, current_streak=current_streak)
@@ -103,18 +89,15 @@ async def back_to_main_menu(callback: CallbackQuery, state: FSMContext, user, la
                  streak_info += " " + get_message('keep_going_streak', language)
         else:
             streak_info = get_message('no_current_streak', language)
-
         max_streak_info = ""
         if max_streak > 0:
             max_streak_info = get_message('max_streak_info', language, max_streak=max_streak)
-
         main_menu_msg = get_message('main_menu_welcome_back', language,
                                    first_name=first_name,
                                    awareness_level=awareness_level,
                                    entries_count=entries_count,
                                    streak_info=streak_info,
                                    max_streak_info=max_streak_info)
-
         await safe_edit_message_text(
             message=callback.message,
             text=main_menu_msg,
@@ -123,7 +106,6 @@ async def back_to_main_menu(callback: CallbackQuery, state: FSMContext, user, la
         await safe_answer_callback(callback, "")
     except Exception as e:
         logger.error(f"Ошибка при возврате в главное меню: {e}")
-        # Fallback: используем старое сообщение, если что-то пошло не так
         try:
             await safe_edit_message_text(
                 message=callback.message,

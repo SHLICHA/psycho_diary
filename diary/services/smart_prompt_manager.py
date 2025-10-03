@@ -24,13 +24,13 @@ class SmartPromptManager:
     """
     async def get_prompt_for_user(self, user: User, language: str = 'ru') -> str:
         """Показываем подсказку при создании новой записи"""
-        logger.info(f"[SmartPrompt] Получение подсказки для пользователя {user.telegram_id}")
+        logger.debug(f"[SmartPrompt] Получение подсказки для пользователя {user.telegram_id}")
         try:
             prompt = await self._get_prompt_for_date(user, date.today())
             if prompt:
-                logger.info(f"[SmartPrompt] Найдена подсказка для сегодня для {user.telegram_id}")
+                logger.debug(f"[SmartPrompt] Найдена подсказка для сегодня для {user.telegram_id}")
                 return prompt
-            logger.info(f"[SmartPrompt] Используем базовую подсказку для {user.telegram_id}")
+            logger.debug(f"[SmartPrompt] Используем базовую подсказку для {user.telegram_id}")
             return get_message('ask_entry', language)
         except Exception as e:
             logger.error(f"[SmartPrompt] Ошибка получения подсказки: {e}")
@@ -39,7 +39,7 @@ class SmartPromptManager:
         """После сохранения реальной записи - готовим подсказку через AI"""
         if entry.id == 0:
             return
-        logger.info(f"[SmartPrompt] Обработка сохраненной записи {entry.id} для {user.telegram_id}")
+        logger.debug(f"[SmartPrompt] Обработка сохраненной записи {entry.id} для {user.telegram_id}")
         
         try:
             entry_date = await entry.aentry_date()
@@ -53,14 +53,14 @@ class SmartPromptManager:
 
     async def on_day_analyzed(self, user: User, analyzed_date: date, daily_analysis: DailyAnalysis, language: str = 'ru'):
         """После анализа дня - готовим подсказку для ЗАВТРА через AI"""
-        logger.info(f"[SmartPrompt] Генерация подсказки после анализа дня {analyzed_date}")
+        logger.deb(f"[SmartPrompt] Генерация подсказки после анализа дня {analyzed_date}")
         try:
             tomorrow = analyzed_date + timedelta(days=1)
             prompt_text = await self._generate_ai_prompt_from_analysis(user, daily_analysis, language)
             
             if prompt_text:
                 await self._save_prompt(user, tomorrow, prompt_text, force_overwrite=True)
-                logger.info(f"[SmartPrompt] AI-подсказка на завтра создана после анализа дня")
+                logger.debug(f"[SmartPrompt] AI-подсказка на завтра создана после анализа дня")
             else:
                 await self._prepare_first_prompt_tomorrow(user, language) 
         except Exception as e:
@@ -71,7 +71,7 @@ class SmartPromptManager:
         try:
             entry_date = await entry.aentry_date()
             today = date.today()
-            logger.info(f"[SmartPrompt-DATE] Дата записи: {entry_date}, Сегодня: {today}")
+            logger.debug(f"[SmartPrompt-DATE] Дата записи: {entry_date}, Сегодня: {today}")
             entries_today = await self._get_entries_for_date(user, entry_date)
             days_since_last = await self._get_days_since_last_entry(user)
             analysis_context = ""
@@ -84,7 +84,7 @@ class SmartPromptManager:
             )
             if prompt_text:
                 await self._save_prompt(user, today, prompt_text)
-                logger.info(f"[SmartPrompt] AI-подсказка на сегодня создана")
+                logger.debug(f"[SmartPrompt] AI-подсказка на сегодня создана")
             else:
                 await self._prepare_next_prompt_today(user, entry, language)
         except Exception as e:
@@ -147,7 +147,7 @@ class SmartPromptManager:
                 ai_response = result.get('result', {})
                 prompt_text = ai_response.get('prompt_text')
                 if prompt_text:
-                    logger.info(f"[SmartPrompt] AI успешно сгенерировал подсказку")
+                    logger.debug(f"[SmartPrompt] AI успешно сгенерировал подсказку")
                     return prompt_text
             logger.warning(f"[SmartPrompt] AI не вернул подсказку, используем fallback")
             return None
@@ -203,11 +203,11 @@ class SmartPromptManager:
             entry_date = await entry.aentry_date()
             entries_today = await self._get_entries_for_date(user, entry_date)
             if len(entries_today) == 1:
-                prompt_text = f"📝 <b>Отлично!</b>\n\n💬 <i>Хочешь добавить что-то к тому, что написал?</i>"
+                prompt_text = get_message('add_more_prompt', language)
             else:
-                prompt_text = f"📝 <b>Продолжаем!</b>\n\n💬 <i>Как развивается твой день?</i>"
+                prompt_text = get_message('continue_prompt', language)
             await self._save_prompt(user, entry_date, prompt_text)
-            logger.info(f"[SmartPrompt] Подсказка на сегодня подготовлена для {user.telegram_id}")
+            logger.debug(f"[SmartPrompt] Подсказка на сегодня подготовлена для {user.telegram_id}")
         except Exception as e:
             logger.error(f"[SmartPrompt] Ошибка подготовки подсказки на сегодня: {e}")
 
@@ -226,7 +226,7 @@ class SmartPromptManager:
                 prompt_text = f"📝 <b>Привет, {first_name}!</b>\n\n💬 <i>Расскажи, как прошел твой день?</i>"
             if prompt_text:
                 await self._save_prompt(user, tomorrow, prompt_text)
-                logger.info(f"[SmartPrompt] Подсказка на завтра подготовлена для {user.telegram_id}")
+                logger.debug(f"[SmartPrompt] Подсказка на завтра подготовлена для {user.telegram_id}")
         except Exception as e:
             logger.error(f"[SmartPrompt] Ошибка подготовки подсказки на завтра: {e}")
 
@@ -245,8 +245,8 @@ class SmartPromptManager:
                     theme = theme_data.get('theme', 'день')
                 else:
                     theme = str(theme_data)
-                return f"📝 <b>Привет, {first_name}!</b>\n\n💬 <i>Вчерашний анализ показал важность темы '{theme}'. Как ты себя чувствуешь сегодня относительно этого?</i>"
-            return f"📝 <b>Доброе утро, {first_name}!</b>\n\n💬 <i>Как начался твой новый день?</i>"
+                return get_message('theme_followup', language, first_name=first_name, theme=theme)
+            return get_message('morning_greeting', language, first_name=first_name)
         except Exception as e:
             logger.error(f"[SmartPrompt] Ошибка генерации подсказки из анализа: {e}")
             user_profile = await user.aget_profile_data()
@@ -258,7 +258,7 @@ class SmartPromptManager:
         try:
             @sync_to_async
             def _save():
-                logger.info(f"[SmartPrompt-SAVE] Начало сохранения подсказки для {target_date}")
+                logger.debug(f"[SmartPrompt-SAVE] Начало сохранения подсказки для {target_date}")
                 
                 # Проверяем существующую подсказку
                 existing_prompt = None
@@ -267,9 +267,9 @@ class SmartPromptManager:
                         user=user, 
                         target_date=target_date,
                     )
-                    logger.info(f"[SmartPrompt-SAVE] Найдена существующая подсказка ID {existing_prompt.id}, is_used={existing_prompt.is_used}")
+                    logger.debug(f"[SmartPrompt-SAVE] Найдена существующая подсказка ID {existing_prompt.id}, is_used={existing_prompt.is_used}")
                 except NextEntryPrompt.DoesNotExist:
-                    logger.info(f"[SmartPrompt-SAVE] Существующая подсказка не найдена")
+                    logger.debug(f"[SmartPrompt-SAVE] Существующая подсказка не найдена")
                 
                 if force_overwrite or not existing_prompt or existing_prompt.is_used:
                     # СОЗДАЕМ/ОБНОВЛЯЕМ подсказку
@@ -283,17 +283,17 @@ class SmartPromptManager:
                     )
                     
                     if created:
-                        logger.info(f"[SmartPrompt-SAVE] СОЗДАНА новая подсказка ID {prompt.id} для {target_date}")
+                        logger.debug(f"[SmartPrompt-SAVE] СОЗДАНА новая подсказка ID {prompt.id} для {target_date}")
                     else:
-                        logger.info(f"[SmartPrompt-SAVE] ОБНОВЛЕНА существующая подсказка ID {prompt.id} для {target_date}")
+                        logger.debug(f"[SmartPrompt-SAVE] ОБНОВЛЕНА существующая подсказка ID {prompt.id} для {target_date}")
                         
                     return prompt
                 else:
-                    logger.info(f"[SmartPrompt-SAVE] Подсказка уже существует, пропускаем сохранение")
+                    logger.debug(f"[SmartPrompt-SAVE] Подсказка уже существует, пропускаем сохранение")
                     return existing_prompt
             
             result = await _save()
-            logger.info(f"[SmartPrompt-SAVE] Сохранение завершено успешно")
+            logger.debug(f"[SmartPrompt-SAVE] Сохранение завершено успешно")
             return result
             
         except Exception as e:

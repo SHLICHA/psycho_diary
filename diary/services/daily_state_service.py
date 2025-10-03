@@ -144,7 +144,7 @@ class DailyStateService:
         Returns:
             bool: True, если обновление прошло успешно, иначе False.
         """
-        logger.info(f"[Обновление состояния дня] Начало обновления CombinedDiaryEntry ID {combined_entry.id}")
+        logger.debug(f"[Обновление состояния дня] Начало обновления CombinedDiaryEntry ID {combined_entry.id}")
         try:
             from bot.services.diary_service import diary_service
             combined_text = await diary_service.get_combined_entry_text(combined_entry.user, combined_entry.date)
@@ -159,7 +159,7 @@ class DailyStateService:
                 latest_mood_score=latest_mood_score
             )
             if update_success:
-                logger.info(f"[Обновление состояния дня] CombinedDiaryEntry ID {combined_entry.id} успешно обновлен.")
+                logger.debug(f"[Обновление состояния дня] CombinedDiaryEntry ID {combined_entry.id} успешно обновлен.")
             else:
                 logger.error(f"[Обновление состояния дня] Не удалось обновить CombinedDiaryEntry ID {combined_entry.id}.")
             return update_success
@@ -289,7 +289,7 @@ class DailyStateService:
                         logger.debug("[Универсальное обновление] Список оценок пуст, средняя оценка установлена в 0.0")
                     fields_to_update.extend(['daily_mood_scores', 'average_mood_score'])
             if not fields_to_update:
-                logger.info(f"[Универсальное обновление] Нет полей для обновления в CombinedDiaryEntry ID {combined_entry.id}.")
+                logger.warning(f"[Универсальное обновление] Нет полей для обновления в CombinedDiaryEntry ID {combined_entry.id}.")
                 return True
             fields_to_update.append('updated_at')
             @sync_to_async

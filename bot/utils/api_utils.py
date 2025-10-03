@@ -21,21 +21,21 @@ def api_retry(max_attempts: int = 3, delay: float = 1.0):
     def decorator(func: Callable[..., Awaitable[Any]]):
         @wraps(func)
         async def wrapper(*args, **kwargs) -> Any:
-            logger.info(f"Начало retry механизма для функции {func.__name__}")
-            logger.info(f"Максимальное количество попыток: {max_attempts}")
-            logger.info(f"Задержка между попытками: {delay} секунд")
+            logger.debug(f"Начало retry механизма для функции {func.__name__}")
+            logger.debug(f"Максимальное количество попыток: {max_attempts}")
+            logger.debug(f"Задержка между попытками: {delay} секунд")
             last_exception = None
             for attempt in range(max_attempts):
                 try:
-                    logger.info(f"Попытка {attempt + 1}/{max_attempts}")
+                    logger.debug(f"Попытка {attempt + 1}/{max_attempts}")
                     result = await func(*args, **kwargs)
-                    logger.info(f"Функция {func.__name__} выполнена успешно на попытке {attempt + 1}")
+                    logger.debug(f"Функция {func.__name__} выполнена успешно на попытке {attempt + 1}")
                     return result
                 except Exception as e:
                     last_exception = e
                     logger.warning(f"Попытка {attempt + 1} не удалась: {e}")
                     if attempt < max_attempts - 1:
-                        logger.info(f"Ожидание {delay} секунд перед следующей попыткой...")
+                        logger.debug(f"Ожидание {delay} секунд перед следующей попыткой...")
                         await asyncio.sleep(delay)
                     else:
                         logger.error(f"Все {max_attempts} попыток неудачны")
@@ -60,7 +60,7 @@ def handle_api_error(func: Callable[..., Awaitable[Any]]):
     async def wrapper(*args, **kwargs) -> Any:
         try:
             result = await func(*args, **kwargs)
-            logger.info(f"Функция {func.__name__} выполнена успешно")
+            logger.debug(f"Функция {func.__name__} выполнена успешно")
             return result   
         except asyncio.TimeoutError as timeout_error:
             logger.error(f"Таймаут API вызова в функции {func.__name__}: {timeout_error}")
@@ -191,27 +191,27 @@ async def retry_api_call(
     Returns:
         Any: Результат вызова API функции (успешный или последняя ошибка из safe_api_call).
     """
-    logger.info(f"Retry вызов API функции {api_func.__name__}")
-    logger.info(f"Максимальное количество попыток: {max_attempts}")
-    logger.info(f"Задержка между попытками: {delay} секунд")
+    logger.debug(f"Retry вызов API функции {api_func.__name__}")
+    logger.debug(f"Максимальное количество попыток: {max_attempts}")
+    logger.debug(f"Задержка между попытками: {delay} секунд")
     
     last_result = None
     
     for attempt in range(max_attempts):
         try:
-            logger.info(f"Попытка {attempt + 1}/{max_attempts}")
+            logger.debug(f"Попытка {attempt + 1}/{max_attempts}")
             result = await safe_api_call(api_func, *args, **kwargs)
             if isinstance(result, dict) and result.get('success') is False:
                 last_result = result
                 logger.warning(f"Попытка {attempt + 1} завершилась ошибкой API: {result.get('error')} - {result.get('message')}")
                 if attempt < max_attempts - 1:
-                    logger.info(f"Ожидание {delay} секунд перед следующей попыткой...")
+                    logger.debug(f"Ожидание {delay} секунд перед следующей попыткой...")
                     await asyncio.sleep(delay)
                 else:
                     logger.error(f"Все {max_attempts} попыток неудачны. Возвращается последняя ошибка.")
                     return last_result 
             else:
-                logger.info(f"API функция {api_func.__name__} выполнена успешно на попытке {attempt + 1}")
+                logger.debug(f"API функция {api_func.__name__} выполнена успешно на попытке {attempt + 1}")
                 return result
         except Exception as e:
             last_result = e
@@ -268,7 +268,7 @@ def get_api_error_message(error_code: str, language: str = 'ru') -> str:
     }
     error_messages = error_messages_ru if language == 'ru' else error_messages_en
     error_message = error_messages.get(error_code, error_messages['unknown'])
-    logger.info(f"Сообщение об ошибке получено: {error_message}")
+    logger.debug(f"Сообщение об ошибке получено: {error_message}")
     return error_message
 
 def format_api_error_for_analysis(

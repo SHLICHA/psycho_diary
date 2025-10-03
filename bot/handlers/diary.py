@@ -284,7 +284,7 @@ async def request_add_comment(callback: CallbackQuery, state: FSMContext, user, 
 
         # Проверим, что у записи ещё нет комментария (дополнительная защита)
         if diary_entry.user_comment:
-            logger.info(f"Пользователь {user.telegram_id} пытается добавить комментарий к записи {entry_id}, но комментарий уже существует.")
+            logger.warning(f"Пользователь {user.telegram_id} пытается добавить комментарий к записи {entry_id}, но комментарий уже существует.")
             await safe_answer_callback(callback, get_message('comment_already_added', language), show_alert=True) # Убедись, что 'comment_already_added' добавлено в messages
             return
 
@@ -336,13 +336,13 @@ async def process_user_comment(message: Message, state: FSMContext, user, langua
         # 4. Сохранить комментарий в запись
         diary_entry.user_comment = user_comment_text
         await sync_to_async(diary_entry.save)(update_fields=['user_comment'])
-        logger.info(f"[process_user_comment] Комментарий сохранён для записи {entry_id}, пользователь {user.telegram_id}")
+        logger.debug(f"[process_user_comment] Комментарий сохранён для записи {entry_id}, пользователь {user.telegram_id}")
         combined_entry_for_day = await daily_state_service.get_daily_state(user, await diary_entry.aentry_date())
         if combined_entry_for_day:
             # Сбросим флаг анализа, так как день изменился
             combined_entry_for_day.reset_analysis_flag() # Вызываем метод модели
             await sync_to_async(combined_entry_for_day.save)(update_fields=['is_analyzed'])
-            logger.info(f"[process_user_comment] Флаг is_analyzed сброшен для CombinedDiaryEntry ID {combined_entry_for_day.id} после добавления комментария к записи {entry_id}.")
+            logger.debug(f"[process_user_comment] Флаг is_analyzed сброшен для CombinedDiaryEntry ID {combined_entry_for_day.id} после добавления комментария к записи {entry_id}.")
         else:
             logger.warning(f"[process_user_comment] CombinedDiaryEntry не найден для даты {await diary_entry.aentry_date()} при сбросе флага анализа.")
         
@@ -457,7 +457,7 @@ async def rate_analysis(callback: CallbackQuery, user, language: str):
                 return rating_obj
 
             await create_rating()
-            logger.info(f"Пользователь {user.telegram_id} поставил оценку {rating} анализу {analysis_id}")
+            logger.debug(f"Пользователь {user.telegram_id} поставил оценку {rating} анализу {analysis_id}")
 
             # Попробуем отредактировать сообщение, убрав кнопки и добавив подтверждение/оценку
             # Сначала нужно понять, какие кнопки были. Попробуем пересобрать сообщение без кнопок оценки.
@@ -499,7 +499,7 @@ async def rate_analysis(callback: CallbackQuery, user, language: str):
 
         except IntegrityError:
             # Уникальное ограничение нарушено - оценка уже поставлена
-            logger.info(f"Пользователь {user.telegram_id} уже поставил оценку анализу {analysis_id}")
+            logger.warning(f"Пользователь {user.telegram_id} уже поставил оценку анализу {analysis_id}")
             await safe_answer_callback(callback, get_message('rating_already_submitted', language), show_alert=True)
 
     except ValueError as ve:
@@ -775,7 +775,7 @@ async def reanalyze_day(callback: CallbackQuery, user, language: str):
     """
     try:
         await callback.answer(get_message('day_analysis_confirmed', language), show_alert=False) 
-        logger.info(f"[reanalyze_day] Callback подтвержден для пользователя {user.telegram_id}")
+        logger.debug(f"[reanalyze_day] Callback подтвержден для пользователя {user.telegram_id}")
         parts = callback.data.split(":")
         year, month, day = int(parts[1]), int(parts[2]), int(parts[3])
         target_date = date(year, month, day)
@@ -792,10 +792,10 @@ async def reanalyze_day(callback: CallbackQuery, user, language: str):
             combined_entry.text = combined_text
             combined_entry.entry_count = len(entries)
             await combined_entry.asave(update_fields=['text', 'entry_count'])
-            logger.info(f"[reanalyze_day] Создан CombinedDiaryEntry ID {combined_entry.id} для пересчёта.")
+            logger.debug(f"[reanalyze_day] Создан CombinedDiaryEntry ID {combined_entry.id} для пересчёта.")
         processing_msg = get_message('processing', language) + "\n\n" + get_message('task_effect_analysis_started', language)
         status_message = await callback.message.answer(processing_msg)
-        logger.info(f"[reanalyze_day] Сообщение о начале обработки отправлено пользователю {user.telegram_id}")
+        logger.debug(f"[reanalyze_day] Сообщение о начале обработки отправлено пользователю {user.telegram_id}")
         asyncio.create_task(
             _run_full_analysis_and_notify(
                 user=user,
@@ -808,7 +808,7 @@ async def reanalyze_day(callback: CallbackQuery, user, language: str):
                 day=day
             )
         )
-        logger.info(f"[reanalyze_day] Фоновая задача анализа запущена для пользователя {user.telegram_id}")
+        logger.debug(f"[reanalyze_day] Фоновая задача анализа запущена для пользователя {user.telegram_id}")
     except Exception as e:
         logger.error(f"[reanalyze_day] Критическая ошибка при запуске пересчёта анализа дня: {e}", exc_info=True)
         try:
@@ -1362,14 +1362,14 @@ async def _run_full_analysis_and_notify(
     """
     from diary.services.full_day_analysis_service import full_day_analysis_service
     try:
-        logger.info(f"[_run_full_analysis_and_notify] Начало фоновой задачи анализа дня {target_date} для пользователя {user.telegram_id}")
+        logger.debug(f"[_run_full_analysis_and_notify] Начало фоновой задачи анализа дня {target_date} для пользователя {user.telegram_id}")
         analysis_result = await full_day_analysis_service.perform_full_day_analysis(user, target_date)
         from bot.main import bot as global_bot 
         if not global_bot:
             raise RuntimeError("Глобальный экземпляр бота не найден")
         if analysis_result["success"]:
             success_msg = analysis_result["message"]
-            logger.info(f"[_run_full_analysis_and_notify] Анализ дня {target_date} для {user.telegram_id} успешен: {success_msg}")
+            logger.debug(f"[_run_full_analysis_and_notify] Анализ дня {target_date} для {user.telegram_id} успешен: {success_msg}")
             daily_analysis = analysis_result.get("daily_analysis")
             analysis_summary_text = get_message('analysis_recalculated', language)
             if daily_analysis:

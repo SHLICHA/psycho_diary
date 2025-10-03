@@ -47,7 +47,7 @@ class RateLimitMiddleware(BaseMiddleware):
                 if current_time - req_time < 60
             ]
             is_limited = len(recent_requests) >= MESSAGES_PER_MINUTE_LIMIT
-            logger.info(f"Лимит запросов: {len(recent_requests)}/{MESSAGES_PER_MINUTE_LIMIT}")
+            logger.debug(f"Лимит запросов: {len(recent_requests)}/{MESSAGES_PER_MINUTE_LIMIT}")
             return is_limited
         except Exception as e:
             logger.error(f"Ошибка при проверке лимита запросов: {e}")

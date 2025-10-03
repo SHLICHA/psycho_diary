@@ -35,7 +35,7 @@ def check_clarification_reminders():
     Celery задача для проверки и отправки напоминаний о неотвеченных уточняющих вопросах.
     Использует предвычисленное время clarification_reminder_due_at (в UTC).
     """
-    logger.info("Запущена задача check_clarification_reminders")
+    logger.debug("Запущена задача check_clarification_reminders")
     try:
         now_utc = timezone.now()
         entries_needing_reminder = DiaryEntry.objects.filter(
@@ -43,9 +43,9 @@ def check_clarification_reminders():
             clarification_answers={},
             last_reminder_sent_at__isnull=True
         ).select_related('user')
-        logger.info(f"Найдено {entries_needing_reminder.count()} записей, требующих напоминания.")
+        logger.debug(f"Найдено {entries_needing_reminder.count()} записей, требующих напоминания.")
         for entry in entries_needing_reminder:
-            logger.info(f"Отправка напоминания для записи {entry.id}, пользователь {entry.user.telegram_id}")
+            logger.debug(f"Отправка напоминания для записи {entry.id}, пользователь {entry.user.telegram_id}")
             asyncio.run(_send_reminder_async(entry))
     except Exception as e:
         logger.error(f"Ошибка в задаче check_clarification_reminders: {e}", exc_info=True)
@@ -56,7 +56,7 @@ def force_process_clarifications():
     Celery задача для принудительной обработки записей с неотвеченными уточнениями.
     Использует предвычисленное время clarification_force_process_at (в UTC).
     """
-    logger.info("Запущена задача force_process_clarifications")
+    logger.debug("Запущена задача force_process_clarifications")
     try:
         now_utc = timezone.now()
         entries_to_force_process = DiaryEntry.objects.filter(
@@ -64,7 +64,7 @@ def force_process_clarifications():
             clarification_answers={},
             analysis_processed_at__isnull=True
         ).select_related('user')
-        logger.info(f"Найдено {entries_to_force_process.count()} записей, требующих принудительной обработки.")
+        logger.debug(f"Найдено {entries_to_force_process.count()} записей, требующих принудительной обработки.")
         for entry in entries_to_force_process:
             logger.info(f"Принудительная обработка для записи {entry.id}, пользователь {entry.user.telegram_id}")
             asyncio.run(_force_process_async(entry))
@@ -84,7 +84,7 @@ async def _send_reminder_async(entry: DiaryEntry):
             text=get_message('reminder_clarification', user.language),
             reply_markup=get_skip_clarification_keyboard(user.language)
         )
-        logger.info(f"Напоминание отправлено пользователю {user.telegram_id} для записи {entry.id}.")
+        logger.debug(f"Напоминание отправлено пользователю {user.telegram_id} для записи {entry.id}.")
         entry.last_reminder_sent_at = timezone.now()
         await sync_to_async(entry.save)(update_fields=['last_reminder_sent_at'])
     except TelegramForbiddenError as e:

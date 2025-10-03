@@ -281,7 +281,7 @@ def validate_language_code(language_code: str) -> bool:
     try:
         supported_languages = ['ru', 'en']
         is_valid = language_code and language_code[:2] in supported_languages
-        logger.info(f"Код языка {'валиден' if is_valid else 'не валиден'}")
+        logger.debug(f"Код языка {'валиден' if is_valid else 'не валиден'}")
         return is_valid
     except Exception as e:
         logger.error(f"Ошибка при валидации кода языка: {e}")
@@ -299,7 +299,7 @@ def validate_telegram_id(telegram_id: int) -> bool:
     """
     try:
         is_valid = isinstance(telegram_id, int) and telegram_id > 0
-        logger.info(f"Telegram ID {'валиден' if is_valid else 'не валиден'}")
+        logger.debug(f"Telegram ID {'валиден' if is_valid else 'не валиден'}")
         return is_valid
     except Exception as e:
         logger.error(f"Ошибка при валидации Telegram ID: {e}")

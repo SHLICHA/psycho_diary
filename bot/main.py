@@ -4,17 +4,14 @@ from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from decouple import config
 
-# Настройка логирования на русском
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Импорты handlers
 from bot.handlers import all_routers
 from bot.utils.state_manager import state_manager 
-# Импорты middleware
 from bot.middlewares.user_middleware import UserMiddleware
 from bot.middlewares.language_middleware import LanguageMiddleware
 from bot.middlewares.rate_limit_middleware import RateLimitMiddleware

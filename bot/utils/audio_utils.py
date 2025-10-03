@@ -37,7 +37,7 @@ async def process_voice_message(
         voice_bytes = (await message.bot.download_file(file.file_path)).read()
         recognized_text = ""
         if duration > yandex_speechkit_service.DURATION_THRESHOLD_SECONDS:
-            logger.info(f"[{context_name}] Аудио длительностью {duration} секунд. Используется Long Running Recognition.")
+            logger.debug(f"[{context_name}] Аудио длительностью {duration} секунд. Используется Long Running Recognition.")
             try:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
                 unique_id = uuid.uuid4().hex[:8]

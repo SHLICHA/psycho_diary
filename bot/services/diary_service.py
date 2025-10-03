@@ -53,7 +53,7 @@ class DiaryService:
                         created_at=entry_datetime or datetime.now()
                     )
             diary_entry = await _create_entry()
-            logger.info(f"Текстовая запись создана: Entry ID {diary_entry.id}")
+            logger.debug(f"Текстовая запись создана: Entry ID {diary_entry.id}")
             entry_date = await diary_entry.aentry_date()
             cache.delete_many([
                 f'user_{user.id}_entries_{entry_date}',
@@ -200,7 +200,7 @@ class DiaryService:
                     combined_entry.entry_count = new_entry_count
                     combined_entry.reset_analysis_flag()
                     await combined_entry.asave(update_fields=['text', 'entry_count', 'is_analyzed'])
-                    logger.info(f"CombinedDiaryEntry ID {combined_entry.id} обновлен (text, entry_count, is_analyzed).")
+                    logger.debug(f"CombinedDiaryEntry ID {combined_entry.id} обновлен (text, entry_count, is_analyzed).")
                 else:
                     await combined_entry.adelete()                 
             except CombinedDiaryEntry.DoesNotExist:
@@ -267,7 +267,7 @@ class DiaryService:
             )
             if entries:
                 cache.set(cache_key, entries, timeout=300)
-            logger.info(f"Найдено {len(entries)} записей за {target_date}")
+            logger.debug(f"Найдено {len(entries)} записей за {target_date}")
             return entries
         except Exception as e:
             logger.error(f"Ошибка при получении записей за дату: {e}")
@@ -332,7 +332,7 @@ class DiaryService:
                         except Exception as analysis_delete_error:
                             logger.warning(f"Ошибка при удалении связанного PsychoAnalysis для записи {entry_id}: {analysis_delete_error}")
                     entry.delete()
-                    logger.info(f"Запись дневника {entry_id} успешно удалена для пользователя {user.telegram_id}.")
+                    logger.debug(f"Запись дневника {entry_id} успешно удалена для пользователя {user.telegram_id}.")
             await _delete_entry_atomic()
             return True
         except Exception as e:
@@ -445,7 +445,7 @@ class DiaryService:
         а также все связанные объекты и TherapyTask, созданные для этих записей.
         Также удаляет CombinedDiaryEntry за этот день.
         """
-        logger.info(f"[Сервис] Удаление всех записей за {target_date} для пользователя {user.telegram_id}")
+        logger.debug(f"[Сервис] Удаление всех записей за {target_date} для пользователя {user.telegram_id}")
         try:
             @sync_to_async
             def _delete_sync():
@@ -461,7 +461,7 @@ class DiaryService:
                     CombinedDiaryEntry.objects.filter(user=user, date=target_date).delete()
                 return True
             result = await _delete_sync()
-            logger.info(f"[Сервис] Удаление записей за {target_date} завершено успешно: {result}")
+            logger.debug(f"[Сервис] Удаление записей за {target_date} завершено успешно: {result}")
             return result
         except Exception as e:
             logger.error(f"[Сервис] Ошибка при удалении записей за {target_date}: {e}")

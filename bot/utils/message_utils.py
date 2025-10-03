@@ -252,7 +252,7 @@ def truncate_text(text: str, max_length: int = 1000) -> str:
     try:
         if len(text) > max_length:
             truncated_text = text[:max_length] + "..."
-            logger.info(f"Текст обрезан до {len(truncated_text)} символов")
+            logger.debug(f"Текст обрезан до {len(truncated_text)} символов")
             return truncated_text
         else:
             return text

@@ -45,35 +45,23 @@ class WeeklyAnalysisService:
                 - weekly_analysis (Optional[WeeklyAnalysis]): Объект анализа недели, если создан.
                 - error (Optional[str]): Сообщение об ошибке, если есть.
         """
-        logger.info(f"[WeeklyAnalysisService] Начало еженедельного анализа для пользователя {user.telegram_id}")
+        logger.debug(f"[WeeklyAnalysisService] Начало еженедельного анализа для пользователя {user.telegram_id}")
 
         try:
-            # 1. Определяем начало и конец недели (Пн - Вс)
-            # Неделя заканчивается в воскресенье, анализ запускается в понедельник
-            # Поэтому анализируем неделю, закончившуюся вчера (воскресенье)
-            # today_user_tz = (await user.aget_local_datetime()).date() # Асинхронный вариант
-            today_user_tz = user.get_local_datetime().date() # Синхронный вариант, так как get_local_datetime синхронный
+            today_user_tz = user.get_local_datetime().date()
             logger.debug(f"[WeeklyAnalysisService] Сегодня по часовому поясу пользователя: {today_user_tz}")
-
-            # Определяем воскресенье прошлой недели (конец анализируемой недели)
             last_sunday = today_user_tz - timedelta(days=today_user_tz.weekday() + 1)
-            # Определяем понедельник той же недели (начало анализируемой недели)
             week_start_date = last_sunday - timedelta(days=6)
-            
-            logger.info(f"[WeeklyAnalysisService] Анализируем неделю с {week_start_date} по {last_sunday}")
-
-            # 2. Проверяем, не существует ли уже анализ для этой недели
+            logger.debug(f"[WeeklyAnalysisService] Анализируем неделю с {week_start_date} по {last_sunday}")
             existing_analysis = await self._get_weekly_analysis_for_week(user, week_start_date)
             if existing_analysis:
-                logger.info(f"[WeeklyAnalysisService] Анализ для недели {week_start_date} уже существует (ID: {existing_analysis.id}). Пропускаем.")
+                logger.debug(f"[WeeklyAnalysisService] Анализ для недели {week_start_date} уже существует (ID: {existing_analysis.id}). Пропускаем.")
                 return {
                     "success": True,
                     "message": "Анализ для этой недели уже существует.",
                     "weekly_analysis": existing_analysis,
                     "error": None
                 }
-
-            # 3. Собираем контекст
             context = await self._gather_weekly_context(user, week_start_date, last_sunday)
             if not context.get('has_data'):
                  logger.warning(f"[WeeklyAnalysisService] Нет данных для анализа недели {week_start_date} у пользователя {user.telegram_id}")
@@ -84,10 +72,8 @@ class WeeklyAnalysisService:
                     "error": "no_data"
                 }
             logger.debug(f"[WeeklyAnalysisService] Контекст собран для недели {week_start_date}")
-
-            # 4. Сформировать промпт
             prompt = get_prompt(
-                key='weekly_analysis', # Нужно будет добавить в prompts.py
+                key='weekly_analysis',
                 language=user.language,
                 user_profile=context['user_profile'],
                 daily_analyses=context['daily_analyses'],
@@ -95,9 +81,6 @@ class WeeklyAnalysisService:
                 week_statistics=context['week_statistics']
             )
             logger.debug(f"[WeeklyAnalysisService] Промпт сформирован для {user.telegram_id} за неделю {week_start_date} (длина: {len(prompt)} символов)")
-
-            # 5. Вызвать DeepSeek API
-            # Увеличиваем таймаут для недельного анализа, если нужно
             api_result = await deepseek_api_service.send_prompt_and_parse(
                 prompt, 
                 language=user.language,
@@ -124,27 +107,17 @@ class WeeklyAnalysisService:
                     "weekly_analysis": weekly_analysis,
                     "error": error_msg
                 }
-
-            # 7. Парсинг результата
             parsed_result = api_result.get('result', {})
             logger.debug(f"[WeeklyAnalysisService] Распарсенный результат от API: {parsed_result}")
-            
-            # 8. Создать/сохранить WeeklyAnalysis
-            # ВАЖНО: consolidated_user_profile теперь будет браться из parsed_result
-            # и храниться в WeeklyAnalysis как есть, для последующего использования
-            # другим сервисом.
+
             weekly_analysis = await self._create_or_update_weekly_analysis(
                 user=user,
                 week_start_date=week_start_date,
                 parsed_result=parsed_result,
                 api_result=api_result,
-                context=context # Передаем для fallback значений, если ИИ не вернул полный профиль
+                context=context
             )
-            logger.info(f"[WeeklyAnalysisService] WeeklyAnalysis (ID: {weekly_analysis.id}) создан для {user.telegram_id} за неделю {week_start_date}")
-            
-            # 9. УДАЛЕНО: Обновление полей User и awareness_level здесь.
-            # Это будет сделано другим сервисом (UserProfileAnalysisService).
-
+            logger.debug(f"[WeeklyAnalysisService] WeeklyAnalysis (ID: {weekly_analysis.id}) создан для {user.telegram_id} за неделю {week_start_date}")
             return {
                 "success": True,
                 "message": "Еженедельный анализ успешно завершен.",
@@ -154,10 +127,7 @@ class WeeklyAnalysisService:
 
         except Exception as e:
             logger.error(f"[WeeklyAnalysisService] Критическая ошибка при еженедельном анализе для пользователя {user.telegram_id}: {e}", exc_info=True)
-            
-            # Попытка создать запись об ошибке в WeeklyAnalysis
             try:
-                 # Создаем минимальный контекст для ошибки
                  context = {
                     'user_profile': {
                         'username': user.username or f"user_{user.telegram_id}",
@@ -469,15 +439,13 @@ class WeeklyAnalysisService:
                     week_start_date=week_start_date,
                     summary_text=summary_text,
                     progress_insights=progress_insights,
-                    # consolidated_user_profile теперь хранит только то, что нужно для последующего этапа
-                    # или зарезервировано. Сейчас сохраняем потенциальное изменение awareness_level.
                     consolidated_user_profile=consolidated_user_profile_to_save, 
                     statistics=statistics,
                     comparison_with_previous=comparison_with_previous,
                     api_response=api_result
                  )
                  weekly_analysis.save()
-                 logger.info(f"[SYNC] WeeklyAnalysis ID {weekly_analysis.id} создан.")
+                 logger.debug(f"[SYNC] WeeklyAnalysis ID {weekly_analysis.id} создан.")
                  return weekly_analysis
         return await _create_sync()
 

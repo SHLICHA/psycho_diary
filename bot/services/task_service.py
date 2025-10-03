@@ -140,7 +140,7 @@ class TaskService:
         """
         Выполнение задания с учетом часового пояса пользователя.
         """
-        logger.info(f"Начало выполнения задания ID: {task_id} для пользователя {user.telegram_id}")
+        logger.debug(f"Начало выполнения задания ID: {task_id} для пользователя {user.telegram_id}")
         try:
             user_local_time = await user.aget_local_datetime_now()
             @sync_to_async
@@ -281,7 +281,7 @@ class TaskService:
                         text=final_message,
                         reply_markup=reply_markup
                     )
-                    logger.info(f"Сообщение отредактировано для задания {task_completion.task.id}")
+                    logger.debug(f"Сообщение отредактировано для задания {task_completion.task.id}")
                 except Exception as edit_error:
                     logger.warning(f"Не удалось отредактировать сообщение: {edit_error}. Отправляем новое.")
                     if global_bot:
@@ -297,7 +297,7 @@ class TaskService:
                         text=final_message, 
                         reply_markup=reply_markup
                     )
-                    logger.info(f"Новое сообщение отправлено для задания {task_completion.task.id}")
+                    logger.debug(f"Новое сообщение отправлено для задания {task_completion.task.id}")
         except Exception as task_error:
             logger.error(f"Критическая ошибка в _run_analysis_and_notify_user: {task_error}", exc_info=True)
             try:
@@ -392,7 +392,7 @@ class TaskService:
                         except TaskCompletion.DoesNotExist:
                             logger.debug(f"[SYNC] TaskCompletion для задания {task_id} не найден при удалении.")
                     task.delete()
-                    logger.info(f"[SYNC] Задание ID {task_id} удалено.")
+                    logger.debug(f"[SYNC] Задание ID {task_id} удалено.")
                 return True
             success = await delete_task_sync()
             return success

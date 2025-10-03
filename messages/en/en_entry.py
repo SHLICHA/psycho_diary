@@ -51,5 +51,17 @@ ENTRY_MESSAGES_EN = {
         'comment_already_added': 'A comment has already been added to this entry.',
         'ask_user_comment': 'Please enter your comment for the entry.',
         'rating_already_submitted': 'You have already rated this analysis.',
+        'add_more_prompt': '''📝 <b>Great!</b>
+
+💬 <i>Would you like to add something to what you wrote?</i>''',
+        'continue_prompt': '''📝 <b>Let's continue!</b>
+
+💬 <i>How is your day going?</i>''',
+        'theme_followup': '''📝 <b>Hi, {first_name}!</b>
+
+💬 <i>Yesterday's analysis showed the importance of the theme '{theme}'. How are you feeling today about this?</i>''',
+        'morning_greeting': '''📝 <b>Good morning, {first_name}!</b>
+
+💬 <i>How did your new day start?</i>'''
         }
 }

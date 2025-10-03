@@ -42,7 +42,7 @@ def send_morning_motivation_task():
     Отправка ежедневных утренних мотивационных сообщений.
     Запускается раз в час Celery Beat.
     """
-    logger.info("Запуск задачи отправки утренних мотивационных сообщений.")
+    logger.debug("Запуск задачи отправки утренних мотивационных сообщений.")
     return asyncio.run(_send_morning_motivation_async())
 
 async def _send_morning_motivation_async():
@@ -52,7 +52,7 @@ async def _send_morning_motivation_async():
     bot_instance = None
     try:
         users = await get_users_for_morning_motivation()
-        logger.info(f"Найдено {len(users)} активных пользователей с включенными уведомлениями для утреннего сообщения.")
+        logger.debug(f"Найдено {len(users)} активных пользователей с включенными уведомлениями для утреннего сообщения.")
         
         success_count = 0
         error_count = 0
@@ -71,7 +71,7 @@ async def _send_morning_motivation_async():
                 user_local_time = utc_now.astimezone(user_tz)
                 current_user_hour = user_local_time.hour
                 if current_user_hour == 10:
-                    logger.info(f"Время 10:00 наступило для пользователя {user.telegram_id} в часовом поясе {user_timezone_str}")
+                    logger.debug(f"Время 10:00 наступило для пользователя {user.telegram_id} в часовом поясе {user_timezone_str}")
                     try:
                         user_language = user.language or 'ru'
                         user_profile_data = await user.aget_profile_data()
@@ -131,7 +131,7 @@ async def _send_morning_motivation_async():
                         if success:
                             sent_motivation_count += 1
                             success_count += 1
-                            logger.info(f"Утреннее мотивационное сообщение успешно отправлено пользователю {user.telegram_id}")
+                            logger.debug(f"Утреннее мотивационное сообщение успешно отправлено пользователю {user.telegram_id}")
                         else:
                             error_count += 1
                             logger.info(f"Не удалось отправить утреннее сообщение пользователю {user.telegram_id} (возможно, бот заблокирован)")
@@ -139,7 +139,7 @@ async def _send_morning_motivation_async():
                         logger.error(f"Ошибка при генерации или подготовке утреннего сообщения для пользователя {user.telegram_id}: {processing_error}", exc_info=True)
                         error_count += 1
             except TelegramForbiddenError:
-                logger.info(f"Бот заблокирован пользователем {user.telegram_id} (обнаружено на уровне задачи).")
+                logger.debug(f"Бот заблокирован пользователем {user.telegram_id} (обнаружено на уровне задачи).")
                 user.is_blocked = True
                 await sync_to_async(user.save)(update_fields=['is_blocked'])
                 error_count += 1
@@ -160,6 +160,6 @@ async def _send_morning_motivation_async():
         if bot_instance:
             try:
                 await bot_instance.session.close()
-                logger.info("Сессия бота для утренних сообщений закрыта.")
+                logger.debug("Сессия бота для утренних сообщений закрыта.")
             except Exception as close_error:
                 logger.error(f"Ошибка при закрытии сессии бота утренних сообщений: {close_error}")
