@@ -180,7 +180,6 @@ class DiaryService:
                 with transaction.atomic():
                     if hasattr(entry, 'analysis'):
                         entry.analysis.delete()
-                    entry.key_points.all().delete() 
                     if hasattr(entry, 'voicetotext'):
                         entry.voicetotext.delete()             
                     TherapyTask.objects.filter(related_entry=entry).delete()

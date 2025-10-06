@@ -107,7 +107,6 @@ SETTINGS_MESSAGES_RU = {
         'btn_timezone_yakutsk': 'Asia/Yakutsk',
         'btn_timezone_vladivostok': 'Asia/Vladivostok',
         'btn_timezone_magadan': 'Asia/Magadan',
-        # Можно добавить и другие популярные мировые пояса
         'btn_timezone_new_york': 'America/New_York (EST/EDT)',
         'btn_timezone_london': 'Europe/London (GMT/BST)',
         'btn_timezone_berlin': 'Europe/Berlin (CET/CEST)',

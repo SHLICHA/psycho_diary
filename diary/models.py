@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 class DiaryEntry(models.Model):
     """Запись в дневнике"""
     user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name=_("Пользователь"), related_name='diary_entries')
-    #text = models.TextField(verbose_name=_("Текст записи"))
     text = EncryptedTextField(verbose_name=_("Текст записи"))
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата создания"))
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
@@ -39,24 +38,12 @@ class DiaryEntry(models.Model):
         verbose_name=_("Группа записей дня"),
         help_text=_("UUID для группировки записей одного дня")
     )
-    #clarification_questions_asked = models.JSONField(
-    #    default=list, 
-    #    blank=True, 
-    #    verbose_name=_("Заданные уточняющие вопросы"),
-    #    help_text=_("Список вопросов, заданных пользователю для уточнения по этой записи.")
-    #)
     clarification_questions_asked = EncryptedJSONField(
         default=list, 
         blank=True, 
         verbose_name=_("Заданные уточняющие вопросы"),
         help_text=_("Список вопросов, заданных пользователю для уточнения по этой записи.")
     )
-    #clarification_answers = models.JSONField(
-    #    default=dict, 
-    #    blank=True, 
-    #    verbose_name=_("Ответы на уточнения"),
-    #    help_text=_("Словарь ответов пользователя на уточняющие вопросы. Ключ - вопрос, значение - ответ.")
-    #)
     clarification_answers = EncryptedJSONField(
         default=dict, 
         blank=True, 
@@ -106,18 +93,12 @@ class DiaryEntry(models.Model):
         verbose_name=_("Время принудительной обработки анализа"),
         help_text=_("Время, когда был принудительно завершен анализ (например, из-за отсутствия ответов на уточнения).")
     )
-    #user_comment = models.TextField(
-    #    blank=True,
-    #    verbose_name=_("Комментарий пользователя"),
-    #    help_text=_("Комментарий, добавленный пользователем после получения анализа.")
-    #)
     user_comment = EncryptedTextField(
         blank=True,
+        null=True,
         verbose_name=_("Комментарий пользователя"),
         help_text=_("Комментарий, добавленный пользователем после получения анализа.")
     )
-
-
 
     class Meta:
         verbose_name = _("Запись дневника")
@@ -153,12 +134,9 @@ class DiaryEntry(models.Model):
             # Фолбэк на UTC
             return self.created_at.date()
 
-    # Убедимся, что асинхронная версия работает корректно
     async def aentry_date(self) -> date:
         """Асинхронная версия entry_date."""
         try:
-            # Получаем пользователя асинхронно, если нужно
-            # Но лучше использовать select_related в запросах
             user_obj = await sync_to_async(lambda: self.user)() if not hasattr(self, '_prefetched_user') else self.user
             user_timezone_str = user_obj.timezone if user_obj.timezone else 'UTC'
             if not user_timezone_str:
@@ -171,14 +149,12 @@ class DiaryEntry(models.Model):
             return localized_time.date()
         except Exception as e:
             logger.error(f"Ошибка при получении даты записи {self.id} в асинхронном свойстве: {e}")
-            # Фолбэк на UTC
             return self.created_at.date()
 
     @property
     def localized_created_at(self) -> str:
         """Локализованное время создания записи"""
         try:
-            # Аналогично для localized_created_at
             user_timezone_str = self.user.timezone if hasattr(self.user, 'timezone') and self.user.timezone else 'UTC'
             if not user_timezone_str:
                 user_timezone_str = 'UTC'
@@ -252,19 +228,11 @@ class PsychoAnalysis(models.Model):
         verbose_name=_("Запись дневника")
     )
     mood_score = models.PositiveIntegerField(verbose_name=_("Оценка настроения (1-10)"))
-    #comment = models.TextField(verbose_name=_("Комментарий"))
     comment = EncryptedTextField(verbose_name=_("Комментарий"))
-    #recommendation = models.TextField(verbose_name=_("Рекомендация"))
     recommendation = EncryptedTextField(verbose_name=_("Рекомендация"))
     processing_time = models.FloatField(verbose_name=_("Время обработки (сек)"))
     insights_extracted = models.PositiveIntegerField(verbose_name=_("Извлечено инсайтов"))
-    #analysis_text = models.TextField(verbose_name=_("Текст анализа"))
     analysis_text = EncryptedTextField(verbose_name=_("Текст анализа"))
-    #api_response = models.JSONField(
-    #    default=dict, 
-    #    blank=True, 
-    #    verbose_name=_("Ответ API DeepSeek")
-    #)
     api_response = EncryptedJSONField(
         default=dict, 
         blank=True, 
@@ -321,7 +289,6 @@ class TherapyTask(models.Model):
         verbose_name=_("Пользователь")
     )
     title = models.CharField(max_length=200, verbose_name=_("Название"))
-    #description = models.TextField(verbose_name=_("Описание"))
     description = EncryptedTextField(verbose_name=_("Описание"))
     assigned_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Назначено"))
     completed_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Выполнено"))
@@ -375,9 +342,7 @@ class TaskCompletion(models.Model):
         related_name='completion',
         verbose_name=_("Задание")
     )
-    #completion_text = models.TextField(verbose_name=_("Текст выполнения"))
     completion_text = EncryptedTextField(verbose_name=_("Текст выполнения"))
-    #feelings_text = models.TextField(verbose_name=_("Ощущения при выполнении"))
     feelings_text = EncryptedTextField(verbose_name=_("Ощущения при выполнении"))
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата выполнения"))
 
@@ -400,10 +365,6 @@ class TaskCompletionAnalysis(models.Model):
         related_name='completion_analysis',
         verbose_name=_("Выполнение задания")
     )
-    #effect_description = models.TextField(
-    #    verbose_name=_("Описание эффекта"),
-    #    help_text=_("Текстовое описание влияния выполнения задания (например, 'Повышение настроения на X баллов').")
-    #)
     effect_description = EncryptedTextField(
         verbose_name=_("Описание эффекта"),
         help_text=_("Текстовое описание влияния выполнения задания (например, 'Повышение настроения на X баллов').")
@@ -413,34 +374,18 @@ class TaskCompletionAnalysis(models.Model):
         verbose_name=_("Влияние на настроение"),
         help_text=_("Изменение оценки настроения дня после выполнения задания (может быть положительным или отрицательным).")
     )
-    #comment = models.TextField(
-    #    blank=True,
-    #    verbose_name=_("Комментарий ИИ"),
-    #    help_text=_("Краткий комментарий от ИИ по результатам анализа выполнения.")
-    #)
     comment = EncryptedTextField(
         blank=True,
         verbose_name=_("Комментарий ИИ"),
         help_text=_("Краткий комментарий от ИИ по результатам анализа выполнения.")
     )
-    #recommendation = models.TextField(
-    #    blank=True,
-    #    verbose_name=_("Рекомендация ИИ"),
-    #    help_text=_("Персональная рекомендация от ИИ, вытекающая из анализа выполнения.")
-    #)
     recommendation = EncryptedTextField(
         blank=True,
         verbose_name=_("Рекомендация ИИ"),
         help_text=_("Персональная рекомендация от ИИ, вытекающая из анализа выполнения.")
     )
     analysis_performed_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата выполнения анализа"))
-    #api_response = models.JSONField(default=dict, blank=True, verbose_name=_("Ответ API DeepSeek"))
     api_response = EncryptedJSONField(default=dict, blank=True, verbose_name=_("Ответ API DeepSeek"))
-    #detailed_analysis = models.TextField(
-    #    blank=True,
-    #    verbose_name=_("Развернутый анализ"),
-    #    help_text=_("Подробный анализ влияния выполнения задания, включая сравнение дней и обоснование оценки.")
-    #)
     detailed_analysis = EncryptedTextField(
         blank=True,
         verbose_name=_("Развернутый анализ"),
@@ -501,17 +446,10 @@ class CombinedDiaryEntry(models.Model):
         related_name='combined_entries'
     )
     date = models.DateField(verbose_name=_("Дата"))
-    #text = models.TextField(verbose_name=_("Объединенный текст всех записей дня"))
-    text = EncryptedTextField(verbose_name=_("Объединенный текст всех записей дня"))
+    text = EncryptedTextField(null=True, verbose_name=_("Объединенный текст всех записей дня"))
     entry_count = models.PositiveIntegerField(verbose_name=_("Количество записей в этот день"))
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата создания"))
     updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Дата последнего обновления"))
-    #ai_state_data = models.TextField(
-    #    blank=True, 
-    #    default="", 
-    #    verbose_name=_("Состояние дня по версии ИИ"),
-    #    help_text=_("Текстовый контекст или структурированные данные от ИИ, описывающие состояние дня.")
-    #)
     ai_state_data = EncryptedTextField(
         blank=True, 
         default="", 
@@ -523,12 +461,6 @@ class CombinedDiaryEntry(models.Model):
         verbose_name=_("Проанализирован ИИ"),
         help_text=_("Указывает, был ли день проанализирован ИИ с учетом всех записей.")
     )
-    #analysis_result = models.JSONField(
-    #    blank=True, 
-    #    default=dict, 
-    #    verbose_name=_("Результат анализа (детали)"),
-    #    help_text=_("Детальный результат финального анализа дня (например, JSON с итоговой оценкой, комментарием и т.д.).")
-    #)
     analysis_result = EncryptedJSONField(
         blank=True, 
         default=dict, 
@@ -623,30 +555,15 @@ class DailyAnalysis(models.Model):
         ],
         verbose_name=_("Тренд настроения")
     )
-    #key_themes = models.JSONField(default=list, verbose_name=_("Ключевые темы"))
     key_themes = EncryptedJSONField(default=list, verbose_name=_("Ключевые темы"))
-    #emotional_patterns = models.JSONField(default=list, verbose_name=_("Эмоциональные паттерны"))
     emotional_patterns = EncryptedJSONField(default=list, verbose_name=_("Эмоциональные паттерны"))
-    #insights = models.JSONField(default=list, verbose_name=_("Инсайты"))
     insights = EncryptedJSONField(default=list, verbose_name=_("Инсайты"))
-    #recommendations = models.JSONField(default=list, verbose_name=_("Рекомендации"))
     recommendations = EncryptedJSONField(default=list, verbose_name=_("Рекомендации"))
-    #overall_analysis_text = models.TextField(
-    #    blank=True,
-    #    verbose_name=_("Общий текстовый анализ дня"),
-    #    help_text=_("Полный текстовый анализ дня, сгенерированный ИИ.")
-    #)
     overall_analysis_text = EncryptedTextField(
         blank=True,
         verbose_name=_("Общий текстовый анализ дня"),
         help_text=_("Полный текстовый анализ дня, сгенерированный ИИ.")
     )
-    #api_response = models.JSONField(
-    #    default=dict, 
-    #    blank=True, 
-    #    verbose_name=_("Ответ API DeepSeek"),
-    #    help_text=_("Полный ответ API DeepSeek при анализе дня.")
-    #)
     api_response = EncryptedJSONField(
         default=dict, 
         blank=True, 
@@ -671,17 +588,11 @@ class WeeklyAnalysis(models.Model):
     """
     user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name=_("Пользователь"), related_name='weekly_analyses')
     week_start_date = models.DateField(verbose_name=_("Дата начала недели (Понедельник)"))
-    #summary_text = models.TextField(verbose_name=_("Краткое резюме недели от ИИ"))
     summary_text = EncryptedTextField(verbose_name=_("Краткое резюме недели от ИИ"))
-    #progress_insights = models.JSONField(default=dict, blank=True, verbose_name=_("Ключевые инсайты и выводы по прогрессу"))
     progress_insights = EncryptedJSONField(default=dict, blank=True, verbose_name=_("Ключевые инсайты и выводы по прогрессу"))
-    #consolidated_user_profile = models.JSONField(default=dict, blank=True, verbose_name=_("Обновленный/обобщенный психологический профиль"))
     consolidated_user_profile = EncryptedJSONField(default=dict, blank=True, verbose_name=_("Обновленный/обобщенный психологический профиль"))
-    #statistics = models.JSONField(default=dict, blank=True, verbose_name=_("Агрегированная статистика недели"))
     statistics = EncryptedJSONField(default=dict, blank=True, verbose_name=_("Агрегированная статистика недели"))
-    #comparison_with_previous = models.JSONField(default=dict, blank=True, verbose_name=_("Сравнение с предыдущей неделей"))
     comparison_with_previous = EncryptedJSONField(default=dict, blank=True, verbose_name=_("Сравнение с предыдущей неделей"))
-    #api_response = models.JSONField(default=dict, blank=True, verbose_name=_("Полный ответ API DeepSeek"))
     api_response = EncryptedJSONField(default=dict, blank=True, verbose_name=_("Полный ответ API DeepSeek"))
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата создания"))
 

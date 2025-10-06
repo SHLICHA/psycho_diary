@@ -62,6 +62,19 @@ ENTRY_MESSAGES_EN = {
 💬 <i>Yesterday's analysis showed the importance of the theme '{theme}'. How are you feeling today about this?</i>''',
         'morning_greeting': '''📝 <b>Good morning, {first_name}!</b>
 
-💬 <i>How did your new day start?</i>'''
+💬 <i>How did your new day start?</i>''',
+'data_not_found': '''❌ Data not found''',
+'no_comment': '''No comment''',
+'no_recommendation': '''No recommendation''',
+'session_expired': '''⏰ Session time expired (1 hour). Session automatically completed''',
+'photo_too_large': '''⚠️ Photo is too large. Maximum size - 20 MB''',
+'morning_motivation_default': 'Good morning, {first_name}! May this day be filled with joy and inspiration.',
+
+# --- NEW MESSAGES FOR VALIDATION ---
+'entry_validation_failed': 'Your entry did not pass validation.',
+'entry_not_validated_generic': 'Unfortunately, your entry does not contain enough information. Please try again.',
+
+# --- BUTTONS ---
+'btn_retry_entry': '🔄 Retry Entry',
         }
 }
