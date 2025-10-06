@@ -26,12 +26,28 @@ def get_fernet_instance():
 
 def is_raw_value_encrypted(raw_value: Union[str, bytes, None]) -> Tuple[bool, str]:
     """
-    Проверяет, является ли сырое значение из БД уже зашифрованным.
+    Надежно проверяет, является ли сырое значение из БД уже зашифрованным.
     """
     if raw_value is None or raw_value == "":
         return True, "Пустое значение"
 
     fernet_instance = get_fernet_instance()
+    
+    # Импортируем base64 здесь, чтобы избежать ошибки
+    import base64
+    
+    # Эвристика 1: Проверяем типичный префикс зашифрованных данных Fernet
+    if isinstance(raw_value, str) and raw_value.startswith('gAAAA'):
+        return True, "Строка начинается с префикса Fernet"
+    
+    # Эвристика 2: Проверяем длину и структуру (зашифрованные данные обычно длинные без пробелов)
+    if isinstance(raw_value, str) and len(raw_value) > 50 and ' ' not in raw_value:
+        # Дополнительно проверяем, что это валидный base64
+        try:
+            base64.b64decode(raw_value)
+            return True, "Длинная base64 строка без пробелов - вероятно зашифрована"
+        except:
+            pass
     
     try:
         if isinstance(raw_value, bytes):
@@ -40,30 +56,18 @@ def is_raw_value_encrypted(raw_value: Union[str, bytes, None]) -> Tuple[bool, st
             return True, "Байтовое значение успешно дешифровано"
             
         elif isinstance(raw_value, str):
-            # Эвристика 1: Проверяем типичный префикс зашифрованных данных Fernet
-            if raw_value.startswith('gAAAA'):
-                return True, "Строка начинается с префикса Fernet"
-                
-            # Эвристика 2: Проверяем длину (зашифрованные данные обычно длинные)
-            if len(raw_value) > 100 and ' ' not in raw_value:
-                return True, "Длинная строка без пробелов - вероятно зашифрована"
-            
-            # Эвристика 3: Пробуем декодировать как base64 и дешифровать
+            # Пробуем декодировать как base64 и дешифровать
             try:
                 decoded_bytes = base64.b64decode(raw_value)
-                # Проверяем, что декодированные данные имеют разумный размер
-                if 10 <= len(decoded_bytes) <= 1000:
-                    fernet_instance.decrypt(decoded_bytes)
-                    return True, "Base64 строка успешно дешифрована"
+                fernet_instance.decrypt(decoded_bytes)
+                return True, "Base64 строка успешно дешифрована"
             except (base64.binascii.Error, ValueError):
-                pass
-                
-            # Эвристика 4: Пробуем дешифровать как обычную строку
-            try:
-                fernet_instance.decrypt(raw_value.encode('utf-8'))
-                return True, "Строка успешно дешифрована"
-            except InvalidToken:
-                return False, "Строка не является зашифрованными данными"
+                # Не base64, пробуем дешифровать как обычную строку
+                try:
+                    fernet_instance.decrypt(raw_value.encode('utf-8'))
+                    return True, "Строка успешно дешифрована"
+                except InvalidToken:
+                    return False, "Строка не является зашифрованными данными"
                 
         return False, f"Неподдерживаемый тип: {type(raw_value)}"
         
@@ -102,8 +106,12 @@ class EncryptedFieldMixin:
         return self._decrypt_value(value)
 
     def _decrypt_value(self, value):
-        """Внутренний метод дешифровки, который можно вызывать явно."""
+        """Внутренний метод дешифровки с улучшенной проверкой."""
         if value is None or value == "":
+            return value
+            
+        # Сначала проверяем, нужно ли вообще дешифровать это значение
+        if not self._should_decrypt_value(value):
             return value
             
         fernet_instance = get_fernet_instance()
@@ -119,7 +127,8 @@ class EncryptedFieldMixin:
                     try:
                         decrypted_bytes = fernet_instance.decrypt(value.encode('utf-8'))
                     except InvalidToken:
-                        logger.warning(f"Не удалось дешифровать: {value[:50]}...")
+                        # Если не удалось дешифровать, вероятно это обычный текст
+                        logger.debug(f"Не удалось дешифровать значение (вероятно обычный текст): {value[:50]}...")
                         return value
             else:
                 return value
@@ -138,8 +147,47 @@ class EncryptedFieldMixin:
             return decrypted_str
 
         except Exception as e:
-            logger.error(f"Ошибка дешифровки: {e}")
+            logger.debug(f"Ошибка дешифровки (вероятно обычный текст): {e}")
             return value
+
+    def _should_decrypt_value(self, value):
+        """
+        Определяет, нужно ли пытаться дешифровать значение.
+        Возвращает True только для явно зашифрованных данных.
+        """
+        if value is None or value == "":
+            return False
+            
+        # Для байтов - всегда пробуем дешифровать
+        if isinstance(value, bytes):
+            return True
+            
+        # Для строк проверяем признаки зашифрованных данных
+        if isinstance(value, str):
+            # Признак 1: Начинается с типичного префикса Fernet
+            if value.startswith('gAAAA'):
+                return True
+                
+            # Признак 2: Длинная строка без пробелов (возможно base64)
+            if len(value) > 50 and ' ' not in value:
+                import base64
+                try:
+                    # Проверяем, что это валидный base64
+                    base64.b64decode(value)
+                    return True
+                except:
+                    return False
+                    
+            # Признак 3: Содержит только base64 символы
+            import base64
+            try:
+                base64.b64decode(value)
+                return True
+            except:
+                pass
+                
+        # Во всех остальных случаях - не дешифруем
+        return False
 
     def contribute_to_class(self, cls, name, **kwargs):
         """Добавляем дескриптор для автоматического дешифрования при доступе к полю."""
@@ -158,18 +206,15 @@ class EncryptedFieldMixin:
                 # Получаем значение из instance.__dict__
                 value = instance.__dict__.get(self.attname)
                 
-                # Если значение зашифровано (начинается с типичного префикса Fernet), дешифруем
-                if value and isinstance(value, str) and (
-                    value.startswith('gAAAA') or 
-                    len(value) > 50  # Эвристика: зашифрованные данные обычно длинные
-                ):
+                # Дешифруем только если значение явно зашифровано
+                if value and self.field._should_decrypt_value(value):
                     try:
                         decrypted_value = self.field._decrypt_value(value)
                         # Сохраняем дешифрованное значение обратно в instance.__dict__
                         instance.__dict__[self.attname] = decrypted_value
                         return decrypted_value
                     except Exception as e:
-                        logger.error(f"Ошибка автоматического дешифрования поля {self.attname}: {e}")
+                        logger.debug(f"Ошибка автоматического дешифрования поля {self.attname}: {e}")
                 
                 return value
             

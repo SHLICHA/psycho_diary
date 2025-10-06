@@ -7,6 +7,7 @@ import asyncio
 import aiohttp
 import json
 import re
+import time
 
 from typing import Dict, Any
 from prompts import get_prompt
@@ -39,6 +40,7 @@ class DeepSeekAPIService:
 
         for attempt in range(max_retries):
             try:
+                request_start_time = time.time()
                 if not DEEPSEEK_API_KEY:
                     logger.warning("[DeepSeek API] DEEPSEEK_API_KEY не настроен")
                     return {'success': False, 'error': 'api_key_missing', 'result': {}, 'raw_response': ''}
@@ -62,12 +64,16 @@ class DeepSeekAPIService:
                         if response.status == 200:
                             data = await response.json()
                             response_content = data['choices'][0]['message']['content']
+                            api_processing_time = data.get('usage', {}).get('total_tokens', 0) * 0.01
+                            request_processing_time = time.time() - request_start_time
                             result = await self._parse_analysis_response(response_content, language)
-                            logger.debug(f"[DeepSeek API] Попытка {attempt + 1} успешна.")
+                            logger.debug(f"[DeepSeek API] Попытка {attempt + 1} успешна. Время: {request_processing_time:.3f}s")
                             return {
                                 'success': True,
                                 'result': result,
-                                'raw_response': response_content
+                                'raw_response': response_content,
+                                'processing_time': request_processing_time,  # Добавляем время в ответ
+                                'api_usage': data.get('usage', {})
                             }
                         else:
                             logger.warning(f"[DeepSeek API] Попытка {attempt + 1} получила статус {response.status}. Ответ: {response_text[:200]}...")

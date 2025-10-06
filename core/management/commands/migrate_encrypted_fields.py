@@ -1,4 +1,3 @@
-# psycho_diary/core/management/commands/migrate_encrypted_fields.py
 
 import json
 import logging
@@ -7,8 +6,9 @@ from django.core.management.base import BaseCommand, CommandError
 from django.apps import apps
 from django.db import connection, transaction
 from django.db.models import Model
+from django.db.models import JSONField
 
-from core.encrypted_fields import is_raw_value_encrypted
+from core.encrypted_fields import is_raw_value_encrypted, EncryptedJSONField
 
 logger = logging.getLogger(__name__)
 
@@ -76,8 +76,80 @@ class Command(BaseCommand):
     def get_default_config(self) -> Dict[str, List[str]]:
         """ЗАМЕНИТЕ НА ВАШИ РЕАЛЬНЫЕ МОДЕЛИ"""
         return {
-            'diary.DiaryEntry': ['text'],  # ПРИМЕР
-            # 'users.User': ['first_name', 'last_name'],
+            'users.User': [
+                'personality_traits',
+                'life_facts', 
+                'hobbies',
+                'core_values',
+                'triggers',
+                'strengths',
+                'areas_for_growth',
+                'personality_insights',
+                'habits',
+                'skills',
+                'aspirations',
+                'personality_description',
+                'email'
+                           ],
+            'users.UserProfileHistory': [
+                'personality_traits',
+                'life_facts',
+                'hobbies',
+                'core_values',
+                'triggers',
+                'strengths',
+                'areas_for_growth',
+                'personality_insights',
+                'habits',
+                'skills',
+                'aspirations',
+                'personality_description'
+            ],
+            'diary.DiaryEntry': ['text', 
+                'clarification_questions_asked',
+                'clarification_answers',
+                'user_comment'],
+            'diary.PsychoAnalysis': [
+                'comment',
+                'recommendation',
+                'analysis_text',
+                'api_response'
+            ],
+            'diary.TherapyTask': [
+                'description'
+            ],
+            'diary.TaskCompletion': [
+                'completion_text',
+                'feelings_text'
+            ],
+            'diary.TaskCompletionAnalysis': [
+                'effect_description',
+                'comment',
+                'recommendation',
+                'api_response',
+                'detailed_analysis'
+            ],
+            'diary.CombinedDiaryEntry': [
+                'text',
+                'ai_state_data',
+                'analysis_result'
+            ],
+            'diary.DailyAnalysis': [
+                'key_themes',
+                'emotional_patterns',
+                'insights',
+                'recommendations',
+                'overall_analysis_text',
+                'api_response'
+            ],
+            'diary.WeeklyAnalysis': [
+                'summary_text',
+                'progress_insights',
+                'consolidated_user_profile',
+                'statistics',
+                'comparison_with_previous',
+                'api_response'
+            ]
         }
 
     def run_migrations(self, config: Dict[str, List[str]], batch_size: int, dry_run: bool):
@@ -134,7 +206,7 @@ class Command(BaseCommand):
             return cursor.fetchall()
 
     def process_rows(self, model_class: Type[Model], rows: List[tuple], field_names: List[str]) -> List[Model]:
-        """Обрабатывает строки для обновления."""
+        """Обрабатывает строки для обновления с дополнительными проверками."""
         objects_to_update = []
         
         for row in rows:
@@ -151,15 +223,20 @@ class Command(BaseCommand):
                 if not is_encrypted:
                     try:
                         field = model_class._meta.get_field(field_name)
-                        encrypted_value = field.get_prep_value(raw_value)
                         
-                        # ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: убедимся, что новое значение отличается от старого
-                        if encrypted_value != raw_value:
-                            updated_fields[field_name] = encrypted_value
-                            self.stdout.write(f"    Шифруем поле {field_name} записи {pk_value}")
-                        else:
-                            self.stdout.write(f"    ПРЕДУПРЕЖДЕНИЕ: поле {field_name} записи {pk_value} не изменилось после шифрования!")
+                        # ДОПОЛНИТЕЛЬНАЯ ЗАЩИТА: проверяем что данные действительно нужно шифровать
+                        if self._should_encrypt_value(raw_value, field):
+                            encrypted_value = field.get_prep_value(raw_value)
                             
+                            # ЕЩЕ ОДНА ПРОВЕРКА: убедимся, что шифрование изменило значение
+                            if encrypted_value != raw_value:
+                                updated_fields[field_name] = encrypted_value
+                                self.stdout.write(f"    Шифруем поле {field_name} записи {pk_value}")
+                            else:
+                                self.stdout.write(f"    ПРЕДУПРЕЖДЕНИЕ: поле {field_name} записи {pk_value} не изменилось после шифрования! Пропускаем.")
+                        else:
+                            self.stdout.write(f"    Поле {field_name} записи {pk_value} похоже уже зашифровано, пропускаем")
+                                
                     except Exception as e:
                         logger.error(f"Ошибка шифрования {field_name} записи {pk_value}: {e}")
                         self.stdout.write(f"    ОШИБКА шифрования {field_name} записи {pk_value}: {e}")
@@ -173,6 +250,40 @@ class Command(BaseCommand):
                 objects_to_update.append(obj)
 
         return objects_to_update
+    
+    def _should_encrypt_value(self, raw_value, field) -> bool:
+        """Строгая проверка, нужно ли шифровать значение."""
+        
+        # Если это JSON поле и значение - строка, проверяем не JSON ли это
+        if isinstance(field, (JSONField, EncryptedJSONField)) and isinstance(raw_value, str):
+            try:
+                # Пробуем распарсить как JSON
+                json.loads(raw_value)
+                # Если это валидный JSON - вероятно это незашифрованные данные
+                return True
+            except json.JSONDecodeError:
+                # Если не JSON, проверяем не зашифровано ли уже
+                if raw_value.startswith('gAAAA') or (len(raw_value) > 50 and ' ' not in raw_value):
+                    return False  # Уже зашифровано
+                return True  # Незашифрованный текст
+        
+        # Для текстовых полей
+        elif isinstance(raw_value, str):
+            # Проверяем явные признаки зашифрованных данных
+            if raw_value.startswith('gAAAA'):
+                return False
+            if len(raw_value) > 50 and ' ' not in raw_value:
+                # Проверяем base64
+                import base64
+                try:
+                    base64.b64decode(raw_value)
+                    return False  # Вероятно уже зашифровано
+                except:
+                    pass
+            return True
+        
+        # Для других типов (dict, list и т.д.)
+        return True
 
     def apply_changes(self, model_class: Type[Model], objects_to_update: List[Model], 
                      field_names: List[str], batch_size: int) -> int:
@@ -181,11 +292,21 @@ class Command(BaseCommand):
         
         try:
             with transaction.atomic():
-                for i in range(0, len(objects_to_update), batch_size):
-                    batch = objects_to_update[i:i + batch_size]
-                    model_class.objects.bulk_update(batch, field_names, batch_size=batch_size)
-                    self.stdout.write(f"    Обновлено {min(i + batch_size, len(objects_to_update))}/{len(objects_to_update)}")
-            return len(objects_to_update)
+                # Используем прямое SQL обновление для избежания проблем с сериализацией
+                updated_count = 0
+                for obj in objects_to_update:
+                    try:
+                        # Обновляем каждую запись отдельно через save()
+                        obj.save(update_fields=field_names)
+                        updated_count += 1
+                        if updated_count % 10 == 0:
+                            self.stdout.write(f"    Обновлено {updated_count}/{len(objects_to_update)} записей")
+                    except Exception as e:
+                        logger.error(f"Ошибка обновления записи {obj.pk}: {e}")
+                        self.stdout.write(f"    ОШИБКА обновления записи {obj.pk}: {e}")
+                
+                return updated_count
+                
         except Exception as e:
             logger.error(f"Ошибка обновления БД: {e}")
             self.stdout.write(self.style.ERROR(f"Ошибка обновления БД: {e}"))

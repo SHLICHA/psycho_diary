@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 class PsychoAnalysisService:
     """Сервис для создания и обновления объектов PsychoAnalysis."""
-    # TODO
     async def create_or_update_analysis(
         self,
         entry: DiaryEntry,
@@ -21,12 +20,14 @@ class PsychoAnalysisService:
         comment: str,
         recommendation: str,
         analysis_text: str = "Анализ записан",
-        api_response: Optional[Dict[str, Any]] = None
+        api_response: Optional[Dict[str, Any]] = None,
+        processing_time: float = None
     ) -> PsychoAnalysis:
         """
         Асинхронно создает новый объект PsychoAnalysis для записи или обновляет существующий.
         Вся логика выполняется в одной транзакции для обеспечения согласованности данных.
         """
+        logger.debug(f"📊 Создание/обновление анализа для записи {entry.id}, время: {processing_time}")
         try:
             @sync_to_async
             def _create_or_update_analysis_sync():
@@ -53,13 +54,14 @@ class PsychoAnalysisService:
                         entry.save(update_fields=['is_processed', 'processing_error'])
                         return analysis_obj
                     else:
+                        formatted_processing_time = round(processing_time, 3) if processing_time is not None else 0.0
                         analysis_data = {
                             'entry': entry,
                             'mood_score': mood_score,
                             'comment': comment,
                             'recommendation': recommendation,
                             'analysis_text': analysis_text,
-                            'processing_time': 0.0, # TODO: Получать реальное время обработки
+                            'processing_time': formatted_processing_time,
                             'insights_extracted': 0, # TODO: Получать реальное количество
                             'api_response': api_response or {}
                         }

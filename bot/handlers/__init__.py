@@ -13,6 +13,7 @@ from .profile import router as profile_router
 from .help import router as help_router
 from .onboarding import router as onboarding_router
 from .feedback import router as feedback_router
+from .database_handlers import router as database_router
 
 # Присваиваем имена
 calendar_router.name = "Calendar_router"
@@ -25,6 +26,7 @@ help_router.name = "Help_router"
 profile_router.name = "Profile_router"
 onboarding_router.name = 'Onboarding_router'
 feedback_router.name = "Feedback_router"
+database_router.name = "Database_router"
 
 
 # Создаем список всех роутеров
@@ -38,7 +40,8 @@ all_routers = [
     help_router,
     calendar_router,
     onboarding_router,
-    feedback_router
+    feedback_router,
+    database_router
 ]
 
 __all__ = [
@@ -52,5 +55,6 @@ __all__ = [
     'calendar_router',
     'all_routers',
     'onboarding_router',
-    'feedback_router'
+    'feedback_router',
+    'database_router'
 ]

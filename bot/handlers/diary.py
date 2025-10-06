@@ -4,6 +4,7 @@ Handlers для работы с дневником
 
 import asyncio
 import logging
+import time
 
 from asgiref.sync import sync_to_async
 from aiogram import Router, F
@@ -93,6 +94,7 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
         await message.answer(get_message('rate_limit', language))
         return
     try:
+
         entry_text = ""
         entry_datetime = message.date
         status_msg = await message.answer(get_message('processing', language))
@@ -125,6 +127,7 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
         all_entries_text = await diary_service.get_combined_entry_text(user, entry_date)
         ai_state_data = combined_entry.ai_state_data if combined_entry else ""
         base_user_profile = await user.aget_profile_data()
+        analysis_start_time = time.time()
         extended_user_context = {
             "first_name": base_user_profile.get('first_name', 'Пользователь'),
             "awareness_level": base_user_profile.get('awareness_level', 1),
@@ -159,14 +162,19 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
             user_areas_for_growth=extended_user_context["areas_for_growth"],
             entries_count=extended_user_context["entries_count"],
         )
+        api_start_time = time.time()
         analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
+        total_api_time = time.time() - api_start_time
+        processing_time = analysis_result.get('processing_time', 0.0)
+        logger.debug(f"🕒 Полное время API запроса: {total_api_time:.3f} секунд")
         await _process_analysis_result(
             entry=diary_entry,
             analysis_result=analysis_result,
             status_msg=status_msg,
             language=language,
             state=state,
-            user=user
+            user=user,
+            processing_time=total_api_time
         )
     except Exception as e:
         logger.error(f"Ошибка обработки записи: {e}")
@@ -229,6 +237,7 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
         awareness_level = user_profile['awareness_level']
         logger.debug(f'Профиль пользователя: {user_profile}')
         user_profile = await user.aget_profile_data()
+        clarification_analysis_start = time.time()
         extended_user_profile_for_clarification = {
             "first_name": user_profile.get('first_name', 'Пользователь'),
             "awareness_level": user_profile['awareness_level'],
@@ -253,13 +262,16 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
         )
         status_message = await message.answer(get_message('processing', language))
         analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
+        clarification_analysis_time = time.time() - clarification_analysis_start
+        logger.debug(f"🕒 Время анализа с уточнениями: {clarification_analysis_time:.3f} секунд")
         await _process_analysis_result(
             entry=diary_entry,
             analysis_result=analysis_result,
             status_msg=status_message,
             language=language,
             state=state,
-            user=user
+            user=user,
+            processing_time=clarification_analysis_time
         )
     except Exception as e:
         logger.error(f"Ошибка при обработке уточнений: {e}", exc_info=True)
@@ -1105,7 +1117,8 @@ async def _process_analysis_result(
     status_msg,
     language: str,
     state: FSMContext,
-    user: User
+    user: User,
+    processing_time: float = 0.0
 ):
     """Обрабатывает результат анализа."""
     try:
@@ -1143,7 +1156,8 @@ async def _process_analysis_result(
             comment=comment,
             recommendation=recommendation,
             analysis_text=analysis_text,
-            api_response=analysis_result.get('api_response', {})
+            api_response=analysis_result.get('api_response', {}),
+            processing_time=processing_time
         )
         combined_entry = await daily_state_service.get_daily_state(user, await entry.aentry_date())
         if combined_entry and 'updated_ai_state_data' in result_data:
