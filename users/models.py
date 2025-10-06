@@ -142,12 +142,13 @@ class UserProfileHistory(models.Model):
     core_values = EncryptedJSONField(verbose_name="Ключевые ценности")
     triggers = EncryptedJSONField(verbose_name="Триггеры")
     strengths = EncryptedJSONField(verbose_name="Сильные стороны")
-    areas_for_growth = EncryptedJSONField(verbose_name="Зоны роста")
+    areas_for_growth = EncryptedJSONField(null=True, verbose_name="Зоны роста")
     personality_insights = EncryptedJSONField(verbose_name="Глубинные инсайты о личности")
     habits = EncryptedJSONField(verbose_name="Привычки")
     skills = EncryptedJSONField(verbose_name="Навыки")
     aspirations = EncryptedJSONField(verbose_name="Стремления")
     personality_description = EncryptedJSONField(verbose_name="Текстовое описание личности")
+
     class Meta:
         verbose_name = "История профиля пользователя"
         verbose_name_plural = "Истории профилей пользователей"

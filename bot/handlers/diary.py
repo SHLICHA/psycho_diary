@@ -216,7 +216,8 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
             language=language,
             state=state,
             user=user,
-            processing_time=total_api_time
+            processing_time=total_api_time,
+            context='new_entry' # Указываем контекст
         )
     except Exception as e:
         logger.error(f"Ошибка обработки записи: {e}")
@@ -456,7 +457,8 @@ async def process_user_comment(message: Message, state: FSMContext, user, langua
             status_msg=status_message,
             language=language,
             state=state,
-            user=user
+            user=user,
+            context='comment_analysis' # Указываем контекст
         )
     except Exception as e:
         logger.error(f"[process_user_comment] Ошибка при обработке комментария пользователя {user.telegram_id}: {e}", exc_info=True)
@@ -1164,7 +1166,8 @@ async def _process_analysis_result(
     language: str,
     state: FSMContext,
     user: User,
-    processing_time: float = 0.0
+    processing_time: float = 0.0,
+    context: str = 'new_entry' # Добавляем параметр контекста с дефолтным значением 'new_entry'
 ):
     """Обрабатывает результат анализа."""
     try:
@@ -1181,7 +1184,48 @@ async def _process_analysis_result(
             suggested_task = result_data.get('suggested_task')
             needs_clarification = result_data.get('needs_clarification', False)
             clarification_questions = result_data.get('clarification_questions', [])
-            if needs_clarification and clarification_questions:
+
+            # --- НОВАЯ ЛОГИКА: ПРОВЕРКА ВАЛИДАЦИИ ОТ ИИ (только для новых записей) ---
+            # Проверяем is_valid только в контексте новой записи
+            if context == 'new_entry':
+                is_valid_ai = result_data.get('is_valid', True) # По умолчанию считаем валидным, если поле отсутствует
+                validation_comment_ai = result_data.get('validation_comment', '')
+                formatted_message_ai = result_data.get('formatted_message', '')
+
+                if not is_valid_ai:
+                    # Удаляем созданную запись
+                    success = await diary_service.delete_entry_and_update_combined(entry.id, user)
+                    if not success:
+                        logger.warning(f"Не удалось удалить невалидную запись {entry.id} для пользователя {user.telegram_id}")
+
+                    # Формируем сообщение для пользователя
+                    # Используем formatted_message от ИИ, если оно есть и не пустое
+                    if formatted_message_ai:
+                         final_message_text = formatted_message_ai
+                    else:
+                         # Резервный вариант, если formatted_message отсутствует
+                         final_message_text = f"❌ <b>Ваша запись не прошла валидацию</b>\n\n"
+                         if validation_comment_ai:
+                              final_message_text += f"💬 <i>{validation_comment_ai}</i>\n\n"
+                         else:
+                              final_message_text += f"📝 <i>{get_message('entry_not_validated_generic', language)}</i>\n\n"
+                         final_message_text += f"🔍 Пожалуйста, попробуйте снова."
+
+                    # Создаем клавиатуру с двумя кнопками друг над другом
+                    retry_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text=get_button_text('btn_retry_entry', language), callback_data='new_entry')],
+                        [InlineKeyboardButton(text=get_button_text('btn_main_menu', language), callback_data='main_menu')]
+                    ])
+
+                    # Редактируем статус-сообщение, чтобы показать результат валидации и кнопки
+                    await status_msg.edit_text(final_message_text, reply_markup=retry_keyboard)
+
+                    # Очищаем FSM состояние
+                    await state_manager.clear_state(state)
+                    return # ВАЖНО: выходим из функции, не продолжая обычный процесс
+            # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
+
+            if needs_clarification and clarification_questions and context == 'new_entry': # Убедимся, что уточнения задаются только для новых записей
                 entry.clarification_questions_asked = clarification_questions
                 await sync_to_async(entry.save)(update_fields=['clarification_questions_asked'])
                 await state_manager.update_state_data(
@@ -1196,6 +1240,9 @@ async def _process_analysis_result(
                     reply_markup=get_single_button_keyboard(language, 'main_menu', 'btn_cancel')
                 )
                 return
+
+        # Продолжаем обычный процесс обновления PsychoAnalysis и CombinedDiaryEntry
+        # только если это не невалидная новая запись
         await psycho_analysis_service.create_or_update_analysis(
             entry=entry,
             mood_score=mood_score,
@@ -1205,19 +1252,25 @@ async def _process_analysis_result(
             api_response=analysis_result.get('api_response', {}),
             processing_time=processing_time
         )
-        combined_entry = await daily_state_service.get_daily_state(user, await entry.aentry_date())
-        if combined_entry and 'updated_ai_state_data' in result_data:
-            new_state = result_data['updated_ai_state_data']
-        else:
-            new_state = analysis_text
-        await daily_state_service.update_daily_state(
-            combined_entry=combined_entry,
-            new_ai_state_data=new_state,
-            latest_mood_score=mood_score
-        )
+
+        # Обновление CombinedDiaryEntry и состояния дня
+        # Обновляем CombinedDiaryEntry и состояние дня ТОЛЬКО если это новая запись
+        # или если комментарий к записи привел к сбросу флага анализа (уже сделано в process_user_comment)
+        if context == 'new_entry':
+            combined_entry = await daily_state_service.get_daily_state(user, await entry.aentry_date())
+            if combined_entry and 'updated_ai_state_data' in result_data:
+                new_state = result_data['updated_ai_state_data']
+            else:
+                new_state = analysis_text
+            await daily_state_service.update_daily_state(
+                combined_entry=combined_entry,
+                new_ai_state_data=new_state,
+                latest_mood_score=mood_score
+            )
+
         task_info = ""
         reply_markup = get_back_keyboard(language)
-        if suggested_task and isinstance(suggested_task, dict):
+        if suggested_task and isinstance(suggested_task, dict) and context == 'new_entry': # Назначение задачи только для новых записей
             @sync_to_async
             def check_ai_tasks_limit_sync():
                 today = entry.entry_date
@@ -1244,6 +1297,7 @@ async def _process_analysis_result(
                     logger.error(f"Ошибка при создании задания от ИИ для пользователя {user.telegram_id}: {task_creation_error}")
             else:
                 logger.debug(f"Задание от ИИ для пользователя {user.telegram_id} не создано: превышен дневной лимит ({user.max_ai_tasks_per_day}).")
+
         final_text = get_message('entry_saved', language, score=mood_score, mood=get_message(f'mood_{mood_score}', language), comment=comment, recommendation=recommendation) + task_info
         back_buttons = None
         if isinstance(reply_markup, InlineKeyboardMarkup):
@@ -1259,12 +1313,14 @@ async def _process_analysis_result(
                      logger.debug(f"[DEBUG] Сохранены кнопки 'Назад': {back_buttons}")
                  else:
                      logger.debug(f"[DEBUG] Кнопки 'Назад' не найдены в последней строке. Тип клавиатуры: {type(reply_markup)}")
+
         try:
             current_analysis = await PsychoAnalysis.objects.aget(entry=entry)
             user_rating_exists = await current_analysis.user_ratings.filter(user=user).aexists()
         except PsychoAnalysis.DoesNotExist:
             user_rating_exists = False
             logger.warning(f"PsychoAnalysis для записи {entry.id} не найден при добавлении кнопок оценки в _process_analysis_result")
+
         if not user_rating_exists:
             rating_emojis = {1: "😠", 2: "😟", 3: "😐", 4: "🙂", 5: "😄"}
             rating_buttons = []
@@ -1279,12 +1335,14 @@ async def _process_analysis_result(
                  reply_markup.inline_keyboard.append(rating_buttons)
             else:
                  logger.warning(f"reply_markup не является InlineKeyboardMarkup: {type(reply_markup)} в _process_analysis_result, не добавляем кнопки оценки.")
+
         try:
             current_entry = await DiaryEntry.objects.aget(id=entry.id)
             has_user_comment = bool(current_entry.user_comment)
         except DiaryEntry.DoesNotExist:
             has_user_comment = True
             logger.warning(f"Запись {entry.id} не найдена при проверке комментария в _process_analysis_result")
+
         if not has_user_comment:
             add_comment_button = InlineKeyboardButton(
                 text=get_button_text('btn_add_comment', language),
@@ -1294,14 +1352,20 @@ async def _process_analysis_result(
                  reply_markup.inline_keyboard.append([add_comment_button])
             else:
                  logger.warning(f"reply_markup не является InlineKeyboardMarkup: {type(reply_markup)} в _process_analysis_result, не добавляем кнопку 'Добавить комментарий'.")
+
         if back_buttons and isinstance(reply_markup, InlineKeyboardMarkup):
             reply_markup.inline_keyboard.append(back_buttons)
             logger.debug(f"[DEBUG] Кнопки 'Назад' восстановлены в конец клавиатуры.")
+
         await status_msg.edit_text(final_text, reply_markup=reply_markup)
-        try:
-            asyncio.create_task(smart_prompt_manager.on_entry_saved(user, entry, language))
-        except Exception as prompt_error:
-            logger.error(f"[_process_analysis_result] Ошибка запуска генерации подсказки: {prompt_error}")
+
+        # Запускаем задачу генерации подсказки ТОЛЬКО для новых записей
+        if context == 'new_entry':
+            try:
+                asyncio.create_task(smart_prompt_manager.on_entry_saved(user, entry, language))
+            except Exception as prompt_error:
+                logger.error(f"[_process_analysis_result] Ошибка запуска генерации подсказки: {prompt_error}")
+
         await state_manager.clear_state(state)
     except Exception as e:
         logger.error(f"Ошибка в _process_analysis_result: {e}", exc_info=True)

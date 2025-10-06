@@ -5,8 +5,8 @@ FROM python:3.10-slim
 ARG DEBIAN_FRONTEND=noninteractive
 
 # Установка переменных окружения
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
 # Установка зависимостей системы
 RUN apt-get update \
@@ -23,7 +23,20 @@ WORKDIR /app
 
 # Копирование requirements.txt и установка зависимостей Python
 COPY ./requirements.txt /app/requirements.txt
+RUN pip install --upgrade pip
+
+# Устанавливаем aiogram первым
+RUN pip install --no-cache-dir aiogram==3.1.1
+
+# Удаляем конфликтующие строки
+RUN sed -i '/typing_extensions==4.15.0/d' /app/requirements.txt
+RUN sed -i '/cryptography==46.0.2/d' /app/requirements.txt
+
+# Устанавливаем остальное
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Принудительно устанавливаем cryptography поверх
+RUN pip install --no-cache-dir --force-reinstall cryptography==46.0.2
 
 # Копирование всего приложения
 COPY . /app/
