@@ -66,7 +66,14 @@ class DeepSeekAPIService:
                             response_content = data['choices'][0]['message']['content']
                             api_processing_time = data.get('usage', {}).get('total_tokens', 0) * 0.01
                             request_processing_time = time.time() - request_start_time
-                            result = await self._parse_analysis_response(response_content, language)
+                            try:
+                                result = await self._parse_analysis_response(response_content, language)
+                            except ValueError as ve: # Ловим ValueError от _parse_analysis_response
+                                logger.error(f"[DeepSeek API] Ошибка парсинга ответа API на попытке {attempt + 1}: {ve}")
+                                # Не устанавливаем success = False здесь, просто переходим к следующей итерации цикла (следующей попытке)
+                                last_exception = ve
+                                last_response_text = response_content # Сохраняем текст, вызвавший ошибку
+                                continue # Переходим к следующей попытке, если они есть
                             logger.debug(f"[DeepSeek API] Попытка {attempt + 1} успешна. Время: {request_processing_time:.3f}s")
                             return {
                                 'success': True,
@@ -109,11 +116,12 @@ class DeepSeekAPIService:
         Парсит ответ от DeepSeek.
         Сначала пытается распарсить как JSON целиком.
         Если неудачно, ищет JSON в Markdown-блоке `` `json ... ` `` и пытается распарсить его.
-        В случае любой ошибки парсинга возвращает заглушку.
+        В случае любой ошибки парсинга ВЫЗЫВАЕТ ИСКЛЮЧЕНИЕ.
         """
         logger.debug(f"[DeepSeek API] Парсинг ответа API, язык: {language}, длина: {len(response_text)}")
         try:
             import json
+            # 1. Пробуем распарсить весь response_text как JSON
             result = json.loads(response_text)
             logger.debug("[DeepSeek API] Успешный парсинг всего ответа как JSON.")
             return result
@@ -121,27 +129,32 @@ class DeepSeekAPIService:
             logger.warning("[DeepSeek API] Прямой парсинг JSON не удался. Ищем в Markdown-блоке...")
 
             import re
+            # 2. Ищем JSON-блок внутри `` `json ... ` `` или `` ` ... ` ``
+            # Используем re.DOTALL для учета переносов строк внутри блока
             potential_blocks = re.findall(r'```(?:json)?\s*(.*?)\s*```', response_text, re.DOTALL)
             if potential_blocks:
                 logger.debug(f"[DeepSeek API] Найдено {len(potential_blocks)} потенциальных JSON-блока(ов) в Markdown.")
-                for block in potential_blocks:
+                # Пробуем распарсить каждый блок, начиная с первого
+                for i, block in enumerate(potential_blocks):
                     try:
+                        # Пробуем распарсить текущий блок
                         parsed_block = json.loads(block.strip())
-                        logger.debug("[DeepSeek API] Успешный парсинг JSON-блока из Markdown.")
+                        logger.debug(f"[DeepSeek API] Успешный парсинг JSON-блока {i+1} из Markdown.")
                         return parsed_block
                     except json.JSONDecodeError as je:
-                        logger.debug(f"[DeepSeek API] Ошибка парсинга блока: {je}. Пробуем следующий блок.")
-                        continue
+                        logger.debug(f"[DeepSeek API] Ошибка парсинга блока {i+1}: {je}. Пробуем следующий блок.")
+                        continue # Переходим к следующему блоку
+
+            # 3. Если ни один блок не подошёл
             logger.warning("[DeepSeek API] Ни один JSON-блок не удалось распарсить корректно.")
+
         except Exception as e:
+            # На всякий случай, если в первом `try` произойдёт что-то неожиданное
             logger.error(f"[DeepSeek API] Неожиданная ошибка при парсинге: {e}")
-        logger.debug("[DeepSeek API] Возвращаем заглушку из-за ошибки парсинга.")
-        return {
-            'mood_score': 5,
-            'comment': 'Анализ записан' if language == 'ru' else 'Entry analyzed',
-            'recommendation': 'Продолжайте вести дневник' if language == 'ru' else 'Keep journaling',
-            'analysis': 'Текст проанализирован' if language == 'ru' else 'Text analyzed'
-        }
+
+        # 4. Если всё неудачно, ВЫЗЫВАЕМ ИСКЛЮЧЕНИЕ
+        logger.error(f"[DeepSeek API] Ни прямой JSON, ни блок Markdown не удалось распарсить корректно. Ответ API: {response_text[:500]}...") # Логируем начало ответа для отладки
+        raise ValueError("Не удалось распарсить корректный JSON из ответа API.")
     
     async def punctuate_and_format_text(
         self, 
