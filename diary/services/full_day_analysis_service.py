@@ -374,33 +374,39 @@ class FullDayAnalysisService:
                 if not isinstance(current_user_list, list):
                     logger.warning(f"[FullDayAnalysisService] Текущее значение {field_name} у пользователя не является списком. Перезаписываем.")
                     current_user_list = []    
-                current_user_set = set(item for item in current_user_list if isinstance(item, str))
-                items_to_add = set()
-                items_to_remove = set()
+                items_to_add = []
+                items_to_remove = []
                 for item in updates_for_field:
                     if isinstance(item, str):
-                        items_to_add.add(item)
+                        items_to_add.append(item)
                     elif isinstance(item, dict) and 'remove' in item:
                         item_to_remove = item['remove']
                         if isinstance(item_to_remove, str):
-                            items_to_remove.add(item_to_remove)
+                            items_to_remove.append(item_to_remove)
                         else:
                             logger.warning(f"[FullDayAnalysisService] Некорректный формат 'remove' в {field_name}: {item_to_remove}")
                     else:
                         logger.warning(f"[FullDayAnalysisService] Некорректный элемент в {field_name}: {item}")
-                if items_to_remove:
-                    new_set = current_user_set - items_to_remove
-                    if len(new_set) != len(current_user_set):
-                        current_user_set = new_set
-                        logger.debug(f"[FullDayAnalysisService] Удалены из {field_name}: {items_to_remove}")
-                if items_to_add:
-                    actually_added = items_to_add - current_user_set
-                    if actually_added:
-                        current_user_set.update(actually_added)
-                        logger.debug(f"[FullDayAnalysisService] Добавлены в {field_name}: {actually_added}")
-                final_list = list(current_user_set)
-                if set(final_list) != set(current_user_list):
-                    setattr(user, field_name, final_list)
+                new_list = [item for item in current_user_list if item not in items_to_remove]
+                for item in items_to_add:
+                    if item not in new_list:
+                        new_list.append(item)
+                try:
+                    sorted_final = sorted(new_list, key=lambda x: str(x))
+                    sorted_current = sorted(current_user_list, key=lambda x: str(x))
+                    lists_are_equal = sorted_final == sorted_current
+                except TypeError:
+                    import json
+                    try:
+                        json_final = json.dumps(new_list, sort_keys=True, default=str)
+                        json_current = json.dumps(current_user_list, sort_keys=True, default=str)
+                        lists_are_equal = json_final == json_current
+                    except (TypeError, ValueError) as json_error:
+                        logger.error(f"[FullDayAnalysisService] Ошибка сериализации при сравнении списков {field_name} для {user.telegram_id}: {json_error}. Предполагаем, что списки отличаются.")
+                        lists_are_equal = False
+
+                if not lists_are_equal:
+                    setattr(user, field_name, new_list)
                     fields_updated.append(field_name)
             if fields_updated:
                 logger.debug(f"[FullDayAnalysisService] Обновлены поля профиля пользователя {user.telegram_id}: {fields_updated}")

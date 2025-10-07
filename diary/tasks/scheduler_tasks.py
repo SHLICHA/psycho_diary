@@ -133,6 +133,7 @@ def perform_scheduled_daily_analysis(self, user_id: int, target_date_iso: str):
     Индивидуальная задача анализа дня.
     """
     logger.debug(f"--- НАЧАЛО: Индивидуальная задача анализа для пользователя {user_id}, дата {target_date_iso} ---")
+    from asgiref.sync import async_to_sync
     try:
         target_date = date.fromisoformat(target_date_iso)
         try:
@@ -181,8 +182,9 @@ def perform_scheduled_daily_analysis(self, user_id: int, target_date_iso: str):
                     from asgiref.sync import sync_to_async
                     sync_to_async(user.save)(update_fields=['auto_analysis_enabled'])
                     logger.info(f"Автоматический анализ для пользователя {user_id} отключен из-за недостатка токенов.")
-                return 
-            sync_to_async(TokenTransaction.create_and_update_balance)(
+                return
+            from asgiref.sync import sync_to_async
+            TokenTransaction.create_and_update_balance(
                 user=user,
                 amount=-cost,
                 transaction_type='feature_usage',
