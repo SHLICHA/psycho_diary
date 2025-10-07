@@ -69,6 +69,8 @@ ENTRY_MESSAGES_EN = {
 'session_expired': '''⏰ Session time expired (1 hour). Session automatically completed''',
 'photo_too_large': '''⚠️ Photo is too large. Maximum size - 20 MB''',
 'morning_motivation_default': 'Good morning, {first_name}! May this day be filled with joy and inspiration.',
+'streak_bonus_earned': '🎉 Congratulations! You reached <b>{days}</b> days in a row! Reward: <b>+{tokens}</b> tokens!',
+   
 
 # --- NEW MESSAGES FOR VALIDATION ---
 'entry_validation_failed': 'Your entry did not pass validation.',

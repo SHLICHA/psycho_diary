@@ -512,46 +512,6 @@ async def set_timezone(callback: CallbackQuery, user, language: str):
         logger.error(f"Ошибка при установке часового пояса: {e}")
         await callback.answer(get_message('error_generic', language=language), show_alert=True)
 
-@router.callback_query(F.data == "settings_change_analysis_time")
-async def change_analysis_time(callback: CallbackQuery, user, language: str):
-    """Изменение времени автоанализа"""
-    try:
-        current_time = user.preferred_analysis_time.strftime('%H:%M') if user.preferred_analysis_time else '02:00'
-        time_msg = get_message('ask_analysis_time', language, current_time=current_time)
-        reply_markup = get_analysis_time_selection_keyboard(language, current_time)
-        await callback.message.edit_text(
-            time_msg,
-            reply_markup=reply_markup
-        )
-        await callback.answer()
-    except Exception as e:
-        logger.error(f"Ошибка при показе выбора времени автоанализа: {e}")
-        await callback.answer(get_message('error_generic', language=language))
-
-@router.callback_query(F.data.startswith("set_analysis_time:"))
-async def set_analysis_time(callback: CallbackQuery, user, language: str):
-    """Установка времени автоанализа"""
-    try:
-        time_str = callback.data.split(":", 1)[1]
-        try:
-            new_time = datetime.strptime(time_str, '%H:%M').time()
-        except ValueError:
-            await callback.answer("❌ Неверный формат времени", show_alert=True)
-            return
-        user.preferred_analysis_time = new_time
-        await user.asave(update_fields=['preferred_analysis_time'])
-        success_msg = get_message('analysis_time_changed', language, time=time_str)
-        settings_msg = get_message('settings_menu', language=language)
-        reply_markup = get_settings_keyboard(user, language)
-        await callback.message.edit_text(
-            settings_msg,
-            reply_markup=reply_markup
-        )
-        await callback.answer(success_msg, show_alert=True)
-    except Exception as e:
-        logger.error(f"Ошибка при установке времени автоанализа: {e}")
-        await callback.answer(get_message('error_generic', language=language), show_alert=True)
-
 @router.callback_query(F.data == "edit_profile")
 async def show_edit_profile_menu(callback: CallbackQuery, user, language: str):
     """Показ меню редактирования профиля"""
@@ -974,7 +934,6 @@ async def anonymize_user_account(user):
         user.awareness_level = 1
         user.is_premium = False
         user.last_activity = None
-        user.preferred_analysis_time = "02:00"
         user.current_calendar_year = 2025 
         user.current_calendar_month = 1
         user.notifications_enabled = False

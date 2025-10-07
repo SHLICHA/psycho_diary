@@ -107,18 +107,14 @@ def requires_tokens(cost: int):
 
             # Списание токенов
             try:
-                user.token_balance -= cost
-                await sync_to_async(user.save)(update_fields=['token_balance'])
-                logger.debug(f"Списано {cost} токенов у пользователя {user.telegram_id}. Новый баланс: {user.token_balance}")
-
-                # Создание транзакции списания
-                transaction = await TokenTransaction.objects.acreate(
+                transaction = await sync_to_async(TokenTransaction.create_and_update_balance)(
                     user=user,
                     amount=-cost, # Отрицательное значение для списания
                     transaction_type='feature_usage', # или другой тип
                     description=f"Использование платной функции: {func.__name__}"
                 )
-                logger.debug(f"Создана транзакция списания {cost} токенов для пользователя {user.telegram_id}, функция {func.__name__}")
+                logger.debug(f"Списано {cost} токенов у пользователя {user.telegram_id} через create_and_update_balance. Новый баланс (в БД): {user.token_balance}, ID транзакции: {transaction.id}")
+
             except Exception as e:
                 logger.error(f"Критическая ошибка при списании токенов для пользователя {user.telegram_id}: {e}")
                 # Если не удалось списать токены, не вызываем функцию

@@ -565,17 +565,18 @@ class TaskService:
             analysis = await _create_analysis()
             # --- НОВОЕ: Обновление баланса и создание транзакции ---
             if tokens_awarded > 0:
-                user.token_balance += tokens_awarded
-                await sync_to_async(user.save)(update_fields=['token_balance'])
-                logger.debug(f"Пользователю {user.telegram_id} начислено {tokens_awarded} токенов за выполнение задания {task_completion.task.id}. Новый баланс: {user.token_balance}")
-                # Создание транзакции
-                await sync_to_async(TokenTransaction.objects.create)(
+                # ИСПОЛЬЗУЕМ НОВЫЙ МЕТОД из модели TokenTransaction
+                await sync_to_async(TokenTransaction.create_and_update_balance)(
                     user=user,
-                    amount=tokens_awarded,
+                    amount=tokens_awarded, # Положительное значение для начисления
                     transaction_type='task_completion',
-                    related_task_completion=task_completion,
-                    description=f"Начисление за выполнение задания '{task_completion.task.title}'"
+                    description=f"Начисление за выполнение задания '{task_completion.task.title}'",
+                    related_task_completion=task_completion # Передаём связанное выполнение задания
                 )
+                # Логирование можно оставить, но баланс теперь обновлён в методе create_and_update_balance
+                # Получить *новый* баланс из БД для лога сложнее, так как `user` в памяти не обновлён (F() выражение)
+                # Можно залогировать amount, это тоже полезно.
+                logger.debug(f"Пользователю {user.telegram_id} начислено {tokens_awarded} токенов за выполнение задания {task_completion.task.id} через TokenTransaction.create_and_update_balance.")
                 logger.debug(f"Создана транзакция начисления токенов для пользователя {user.telegram_id}, задание {task_completion.task.id}")
             # --- /НОВОЕ ---
             logger.debug(f"Анализ эффекта задания {task_completion.task.id} успешно создан: ID {analysis.id}")

@@ -6,12 +6,14 @@ import logging
 
 from asgiref.sync import sync_to_async
 from typing import List, Dict, Any, Optional
-from datetime import datetime, date, time, timedelta
+from datetime import datetime, date, time
 from django.db import transaction
 from django.db.models import F
 from django.core.cache import cache
+from typing import Dict, Any, List, Tuple
 
-from bot.utils.decorators import async_error_handler, database_retry 
+from bot.utils.decorators import async_error_handler, database_retry
+from bot.utils.diary_utils import get_user_streaks, check_and_award_streak_bonus
 from diary.models import DiaryEntry, PsychoAnalysis, CombinedDiaryEntry, TherapyTask
 from diary.services.daily_state_service import (
     get_daily_state,
@@ -20,7 +22,7 @@ from diary.services.daily_state_service import (
     update_daily_state_text_and_count,
     create_daily_state_from_entry
 )
-from users.models import User
+from users.models import User, TokenTransaction
 from asgiref.sync import sync_to_async
 
 logger = logging.getLogger(__name__)
@@ -528,55 +530,3 @@ def get_user_entries_for_date_sync(user: User, target_date: date) -> List[DiaryE
     """
     from asgiref.sync import async_to_sync
     return async_to_sync(diary_service.get_user_entries_for_date)(user, target_date)
-
-def get_user_streaks(user):
-    """
-    Подсчитывает текущую и максимальную серию дней с записями для пользователя.
-    """
-    try:
-        import pytz
-        user_timezone_str = user.timezone if user.timezone else 'UTC'
-        user_tz = pytz.timezone(user_timezone_str)
-        now = datetime.now(user_tz)
-        today = now.date()
-        # Получаем все даты, когда пользователь делал записи
-        entry_dates = DiaryEntry.objects.filter(
-            user=user
-        ).order_by('-created_at').distinct().values_list('created_at', flat=True)
-        # Преобразуем в даты в часовом поясе пользователя
-        user_entry_dates = []
-        for dt in entry_dates:
-            if dt.tzinfo is None:
-                dt = pytz.utc.localize(dt)
-            user_entry_dates.append(dt.astimezone(user_tz).date())
-        # Убираем дубликаты и сортируем по убыванию
-        unique_dates = sorted(set(user_entry_dates), reverse=True)
-        if not unique_dates:
-            return 0, 0
-        # Подсчитываем текущую серию
-        current_streak = 0
-        current_date = today
-        for entry_date in unique_dates:
-            if entry_date == current_date:
-                current_streak += 1
-                current_date -= timedelta(days=1)
-            elif entry_date < current_date:
-                break
-        # Подсчитываем максимальную серию
-        max_streak = 0
-        current_run = 0
-        prev_date = None
-        for entry_date in sorted(set(user_entry_dates)):
-            if prev_date is None:
-                current_run = 1
-            elif entry_date == prev_date + timedelta(days=1):
-                current_run += 1
-            else:
-                max_streak = max(max_streak, current_run)
-                current_run = 1
-            prev_date = entry_date
-        max_streak = max(max_streak, current_run)
-        return current_streak, max_streak
-    except Exception as e:
-        logger.error(f"Ошибка при подсчете серий пользователя {user.telegram_id}: {e}")
-        return 0, 0

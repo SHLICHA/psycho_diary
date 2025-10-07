@@ -45,20 +45,29 @@ class UserProfileHistoryAdmin(admin.ModelAdmin):
 
     def user_link(self, obj):
         """Создает ссылку на страницу редактирования пользователя в админке."""
-        if obj.user:
-            url = reverse("admin:users_user_change", args=[obj.user.pk])
-            return format_html('<a href="{}">{}</a>', url, obj.user)
+        # Проверяем, является ли obj.user действительным объектом User
+        if obj.user and hasattr(obj.user, 'pk') and hasattr(obj.user, '__str__'):
+            try:
+                # Пытаемся получить pk и строковое представление
+                user_pk = obj.user.pk
+                user_str = str(obj.user)
+                url = reverse("admin:users_user_change", args=[user_pk])
+                return format_html('<a href="{}">{}</a>', url, user_str)
+            except (AttributeError, TypeError):
+                # Если что-то пошло не так при получении pk или строкового представления
+                return f"Ошибка: {obj.user}"
         return "-"
     user_link.short_description = "Пользователь"
     user_link.admin_order_field = 'user__username' # Позволяет сортировать по имени пользователя
 
+# ... (остальные методы UserProfileHistoryAdmin)
 
 class UserProfileHistoryInline(admin.TabularInline):
     """Встроенный список истории профиля на странице пользователя."""
     model = UserProfileHistory
     extra = 0 # Не показывать пустые формы для добавления
     fields = (
-        'created_at', 'awareness_level', 
+        'created_at', 'awareness_level',
         # Можно добавить preview первых N символов из personality_description
         'get_description_preview'
     )
@@ -68,13 +77,25 @@ class UserProfileHistoryInline(admin.TabularInline):
 
     def get_description_preview(self, obj):
         """Показывает короткий preview описания личности."""
-        if obj.personality_description:
-            return obj.personality_description[:50] + "..." if len(obj.personality_description) > 50 else obj.personality_description
+        # Проверяем, является ли obj.personality_description строкой
+        if obj.personality_description and isinstance(obj.personality_description, str):
+            desc_str = obj.personality_description
+            return desc_str[:50] + "..." if len(desc_str) > 50 else desc_str
+        # Если personality_description не строка или None/пустая строка
+        elif obj.personality_description is not None:
+            # Пытаемся получить строковое представление, если это не строка и не None
+            try:
+                desc_repr = str(obj.personality_description)
+                return desc_repr[:50] + "..." if len(desc_repr) > 50 else desc_repr
+            except (TypeError, AttributeError):
+                # Если не удалось получить строку, возвращаем строковое представление типа
+                return f"[{type(obj.personality_description).__name__}]"
+        # Если personality_description пустое (None или "")
         return "-"
     get_description_preview.short_description = "Описание (превью)"
 
     def has_add_permission(self, request, obj=None):
-        """Запрещает добавление новых записей истории через inline."""
+        """Запрещает добавание новых записей истории через inline."""
         return False
 
     def has_change_permission(self, request, obj=None):
@@ -108,12 +129,13 @@ class UserAdmin(BaseUserAdmin):
         (('Telegram и Основное'), {
             'fields': (
                 'telegram_id', 'language', 'timezone', 'has_agreed_to_terms',
-                'is_premium', 'is_blocked', 'deletion_status', 'deleted_at', 'token_balance'
+                'is_premium', 'is_blocked', 'deletion_status', 'deleted_at', 'token_balance',
+                'last_streak_reward_7', 'last_streak_reward_30', 'last_streak_reward_365'
             )
         }),
         (('Активность и Настройки'), {
             'fields': (
-                'last_entry', 'last_activity', 'preferred_analysis_time',
+                'last_entry', 'last_activity',
                 'current_calendar_year', 'current_calendar_month',
                 'notifications_enabled', 'auto_analysis_enabled', 'max_ai_tasks_per_day'
             ),

@@ -137,7 +137,6 @@ MESSAGES = {
 'no_recommendation': '''No recommendation''',
 'session_expired': '''⏰ Session time expired (1 hour). Session automatically completed''',
 'photo_too_large': '''⚠️ Photo is too large. Maximum size - 20 MB''',
-'morning_motivation_default': 'Good morning, {first_name}! May this day be filled with joy and inspiration.',
 'insufficient_tokens': '❌ Insufficient tokens to perform this operation. Please top up your balance.',
 'insufficient_tokens_for_auto_analysis': '❌ Insufficient tokens for automatic daily analysis. Analysis not performed. Please top up your balance or subscribe.',
 'insufficient_tokens_for_auto_analysis_and_disabled': '❌ Insufficient tokens for automatic daily analysis. Analysis not performed. Automatic analysis has been disabled. Please top up your balance or subscribe.',

@@ -6,7 +6,7 @@ from asgiref.sync import sync_to_async
 from datetime import datetime
 from django.utils import timezone
 from django.contrib.auth.models import AbstractUser
-from django.db import models
+from django.db import models, transaction
 
 from core.encrypted_fields import EncryptedCharField, EncryptedJSONField, EncryptedTextField, EncryptedEmailField
 
@@ -43,7 +43,6 @@ class User(AbstractUser):
         verbose_name="Статус удаления"
     )
     last_activity = models.DateTimeField(null=True, blank=True, verbose_name="Последняя активность")
-    preferred_analysis_time = models.TimeField(default='02:00', verbose_name="Время анализа")
     current_calendar_year = models.PositiveIntegerField(default=2025, verbose_name="Текущий год календаря")
     current_calendar_month = models.PositiveIntegerField(default=8, verbose_name="Текущий месяц календаря")
     notifications_enabled = models.BooleanField(default=True, verbose_name="Уведомления включены")
@@ -64,6 +63,21 @@ class User(AbstractUser):
     date_of_birth = models.DateField(null=True, blank=True, verbose_name="Дата рождения")
     email = EncryptedEmailField(blank=True, verbose_name="Email")
     token_balance = models.PositiveIntegerField(default=0, verbose_name="Баланс токенов")
+    last_streak_reward_7 = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Последняя награда за 7 дней подряд (токены)",
+        help_text="Значение достигнутой серии, за которую была выдана последняя награда кратная 7."
+    )
+    last_streak_reward_30 = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Последняя награда за 30 дней подряд (токены)",
+        help_text="Значение достигнутой серии, за которую была выдана последняя награда кратная 30."
+    )
+    last_streak_reward_365 = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Последняя награда за 365 дней под ряд (токены)",
+        help_text="Значение достигнутой серии, за которую была выдана последняя награда кратная 365."
+    )    
 
     class Meta:
         verbose_name = "Пользователь"
@@ -300,3 +314,36 @@ class TokenTransaction(models.Model):
     def __str__(self):
         action = "получено" if self.amount > 0 else "потрачено"
         return f"{self.user.username} - {abs(self.amount)} токенов ({action}, {self.transaction_type})"
+    
+    @classmethod
+    def create_and_update_balance(cls, user, amount, transaction_type, description="", related_task_completion=None):
+        """
+        Создает транзакцию и обновляет баланс пользователя в одной транзакции БД.
+        """
+        with transaction.atomic(): # <-- Гарантия атомарности
+            # Создаем транзакцию
+            transaction_obj = cls.objects.create(
+                user=user,
+                amount=amount,
+                transaction_type=transaction_type,
+                description=description,
+                related_task_completion=related_task_completion
+            )
+            # Обновляем баланс пользователя
+            # Используем F() выражение для избежания гонок
+            from django.db.models import F
+            user.token_balance = F('token_balance') + amount
+            user.save(update_fields=['token_balance']) # <-- Обновляем только поле баланса
+            logger.debug(f"[TokenTransaction] Транзакция ID {transaction_obj.id} создана, баланс пользователя {user.telegram_id} обновлен на {amount}. Новый баланс (в БД): {user.token_balance}")
+            return transaction_obj
+
+    # Асинхронный вариант метода, если он нужен в асинхронных контекстах
+    @classmethod
+    async def acreate_and_update_balance(cls, user, amount, transaction_type, description="", related_task_completion=None):
+        """
+        Асинхронный аналог create_and_update_balance.
+        """
+        # sync_to_async оборачивает весь метод или его часть
+        return await sync_to_async(cls.create_and_update_balance)(
+            user, amount, transaction_type, description, related_task_completion
+        )

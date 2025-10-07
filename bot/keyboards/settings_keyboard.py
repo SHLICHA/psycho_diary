@@ -16,9 +16,6 @@ def get_settings_keyboard(user, language: str) -> InlineKeyboardMarkup:
     auto_analysis_text = get_button_text('settings_auto_analysis', language).format(
         status=get_status_text(user.auto_analysis_enabled, language)
     )
-    analysis_time_text = get_button_text('settings_analysis_time', language).format(
-        time=user.preferred_analysis_time.strftime('%H:%M') if user.preferred_analysis_time else '02:00'
-    )
     premium_text = get_button_text('settings_premium', language).format(
         status=get_status_text(user.is_premium, language)
     )
@@ -42,12 +39,6 @@ def get_settings_keyboard(user, language: str) -> InlineKeyboardMarkup:
             InlineKeyboardButton(
                 text=auto_analysis_text,
                 callback_data="settings_toggle_auto_analysis"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=analysis_time_text,
-                callback_data="settings_change_analysis_time"
             )
         ],
         [
