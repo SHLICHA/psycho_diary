@@ -291,12 +291,11 @@ class TokenTransaction(models.Model):
             ('purchase', 'Покупка'),
             ('bonus', 'Бонус'),
             ('refund', 'Возврат'),
-            # Можно добавить другие типы в будущем
         ],
         verbose_name="Тип транзакции"
     )
     related_task_completion = models.ForeignKey(
-        'diary.TaskCompletion', # Используем строку для избежания циклической зависимости
+        'diary.TaskCompletion',
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -320,8 +319,7 @@ class TokenTransaction(models.Model):
         """
         Создает транзакцию и обновляет баланс пользователя в одной транзакции БД.
         """
-        with transaction.atomic(): # <-- Гарантия атомарности
-            # Создаем транзакцию
+        with transaction.atomic():
             transaction_obj = cls.objects.create(
                 user=user,
                 amount=amount,
@@ -329,21 +327,17 @@ class TokenTransaction(models.Model):
                 description=description,
                 related_task_completion=related_task_completion
             )
-            # Обновляем баланс пользователя
-            # Используем F() выражение для избежания гонок
             from django.db.models import F
             user.token_balance = F('token_balance') + amount
-            user.save(update_fields=['token_balance']) # <-- Обновляем только поле баланса
+            user.save(update_fields=['token_balance'])
             logger.debug(f"[TokenTransaction] Транзакция ID {transaction_obj.id} создана, баланс пользователя {user.telegram_id} обновлен на {amount}. Новый баланс (в БД): {user.token_balance}")
             return transaction_obj
 
-    # Асинхронный вариант метода, если он нужен в асинхронных контекстах
     @classmethod
     async def acreate_and_update_balance(cls, user, amount, transaction_type, description="", related_task_completion=None):
         """
         Асинхронный аналог create_and_update_balance.
         """
-        # sync_to_async оборачивает весь метод или его часть
         return await sync_to_async(cls.create_and_update_balance)(
             user, amount, transaction_type, description, related_task_completion
         )
