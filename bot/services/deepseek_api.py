@@ -107,29 +107,41 @@ class DeepSeekAPIService:
     async def _parse_analysis_response(self, response_text: str, language: str) -> dict:
         """
         Парсит ответ от DeepSeek.
+        Сначала пытается распарсить как JSON целиком.
+        Если неудачно, ищет JSON в Markdown-блоке `` `json ... ` `` и пытается распарсить его.
+        В случае любой ошибки парсинга возвращает заглушку.
         """
         logger.debug(f"[DeepSeek API] Парсинг ответа API, язык: {language}, длина: {len(response_text)}")
         try:
             import json
             result = json.loads(response_text)
+            logger.debug("[DeepSeek API] Успешный парсинг всего ответа как JSON.")
             return result
         except json.JSONDecodeError:
             logger.warning("[DeepSeek API] Прямой парсинг JSON не удался. Ищем в Markdown-блоке...")
-            try:
-                import re
-                json_match = re.search(r'```(?:json)?\s*({.*?})\s*```', response_text, re.DOTALL)
-                if json_match:
-                    return json.loads(json_match.group(1))
-                else:
-                    logger.warning("[DeepSeek API] JSON-блок не найден.")
-            except Exception as e:
-                logger.error(f"[DeepSeek API] Ошибка при поиске JSON в Markdown: {e}")
-            return {
-                'mood_score': 5,
-                'comment': 'Анализ записан' if language == 'ru' else 'Entry analyzed',
-                'recommendation': 'Продолжайте вести дневник' if language == 'ru' else 'Keep journaling',
-                'analysis': 'Текст проанализирован' if language == 'ru' else 'Text analyzed'
-            }
+
+            import re
+            potential_blocks = re.findall(r'```(?:json)?\s*(.*?)\s*```', response_text, re.DOTALL)
+            if potential_blocks:
+                logger.debug(f"[DeepSeek API] Найдено {len(potential_blocks)} потенциальных JSON-блока(ов) в Markdown.")
+                for block in potential_blocks:
+                    try:
+                        parsed_block = json.loads(block.strip())
+                        logger.debug("[DeepSeek API] Успешный парсинг JSON-блока из Markdown.")
+                        return parsed_block
+                    except json.JSONDecodeError as je:
+                        logger.debug(f"[DeepSeek API] Ошибка парсинга блока: {je}. Пробуем следующий блок.")
+                        continue
+            logger.warning("[DeepSeek API] Ни один JSON-блок не удалось распарсить корректно.")
+        except Exception as e:
+            logger.error(f"[DeepSeek API] Неожиданная ошибка при парсинге: {e}")
+        logger.debug("[DeepSeek API] Возвращаем заглушку из-за ошибки парсинга.")
+        return {
+            'mood_score': 5,
+            'comment': 'Анализ записан' if language == 'ru' else 'Entry analyzed',
+            'recommendation': 'Продолжайте вести дневник' if language == 'ru' else 'Keep journaling',
+            'analysis': 'Текст проанализирован' if language == 'ru' else 'Text analyzed'
+        }
     
     async def punctuate_and_format_text(
         self, 
