@@ -15,6 +15,7 @@ from datetime import date, datetime, timedelta
 from messages import get_message, get_button_text
 from diary.models import CombinedDiaryEntry, DiaryEntry, DailyAnalysis, TherapyTask, PsychoAnalysis
 from diary.services import smart_prompt_manager, daily_state_service
+from bot.decorators.token_decorator import requires_tokens
 from bot.states.diary_states import DiaryStates
 from bot.keyboards import (
     get_single_button_keyboard,
@@ -127,7 +128,6 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
         all_entries_text = await diary_service.get_combined_entry_text(user, entry_date)
         ai_state_data = combined_entry.ai_state_data if combined_entry else ""
         base_user_profile = await user.aget_profile_data()
-        analysis_start_time = time.time()
         extended_user_context = {
             "first_name": base_user_profile.get('first_name', 'Пользователь'),
             "awareness_level": base_user_profile.get('awareness_level', 1),
@@ -165,50 +165,31 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
         api_start_time = time.time()
         analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
         total_api_time = time.time() - api_start_time
-        processing_time = analysis_result.get('processing_time', 0.0)
         logger.debug(f"🕒 Полное время API запроса: {total_api_time:.3f} секунд")
-
-        # --- НОВАЯ ЛОГИКА: ПРОВЕРКА ВАЛИДАЦИИ И ФОРМАТИРОВАННОГО СООБЩЕНИЯ ОТ ИИ ---
         result_data = analysis_result.get('result', {})
-        is_valid_ai = result_data.get('is_valid', True) # По умолчанию считаем валидным, если поле отсутствует
+        is_valid_ai = result_data.get('is_valid', True)
         validation_comment_ai = result_data.get('validation_comment', '')
-        # Извлекаем formatted_message из ответа ИИ
         formatted_message_ai = result_data.get('formatted_message', '')
-
         if not is_valid_ai:
-            # Удаляем созданную запись
             success = await diary_service.delete_entry_and_update_combined(diary_entry.id, user)
             if not success:
                 logger.warning(f"Не удалось удалить невалидную запись {diary_entry.id} для пользователя {user.telegram_id}")
-
-            # Формируем сообщение для пользователя
-            # Используем formatted_message от ИИ, если оно есть и не пустое
             if formatted_message_ai:
                  final_message_text = formatted_message_ai
             else:
-                 # Резервный вариант, если formatted_message отсутствует
                  final_message_text = f"❌ <b>Ваша запись не прошла валидацию</b>\n\n"
                  if validation_comment_ai:
                       final_message_text += f"💬 <i>{validation_comment_ai}</i>\n\n"
                  else:
                       final_message_text += f"📝 <i>{get_message('entry_not_validated_generic', language)}</i>\n\n"
                  final_message_text += f"🔍 Пожалуйста, попробуйте снова."
-
-            # Создаем клавиатуру с двумя кнопками друг над другом
             retry_keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=get_button_text('btn_retry_entry', language), callback_data='new_entry')],
                 [InlineKeyboardButton(text=get_button_text('btn_main_menu', language), callback_data='main_menu')]
             ])
-
-            # Редактируем статус-сообщение, чтобы показать результат валидации и кнопки
             await status_msg.edit_text(final_message_text, reply_markup=retry_keyboard)
-
-            # Очищаем FSM состояние
             await state_manager.clear_state(state)
-            return # ВАЖНО: выходим из функции, не вызывая _process_analysis_result
-        # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
-
-        # Если валидация пройдена, продолжаем обычный процесс
+            return
         await _process_analysis_result(
             entry=diary_entry,
             analysis_result=analysis_result,
@@ -217,7 +198,7 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
             state=state,
             user=user,
             processing_time=total_api_time,
-            context='new_entry' # Указываем контекст
+            context='new_entry'
         )
     except Exception as e:
         logger.error(f"Ошибка обработки записи: {e}")
@@ -226,7 +207,7 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
                 await status_msg.edit_text(get_message('error_processing', language))
             except Exception as edit_error:
                 logger.error(f"Не удалось отредактировать сообщение об ошибке: {edit_error}")
-        await state_manager.clear_state(state) # Убедимся, что состояние очищено при критической ошибке
+        await state_manager.clear_state(state)
 
 @router.message(DiaryStates.asking_clarifying_questions, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
 async def process_clarification_answers(message: Message, state: FSMContext, user, language: str):
@@ -280,8 +261,6 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
         diary_entry.clarification_answers = clarification_answers_dict
         await sync_to_async(diary_entry.save)(update_fields=['clarification_answers'])
         user_profile = await user.aget_profile_data()
-        first_name = user_profile.get('first_name', 'Пользователь')
-        awareness_level = user_profile['awareness_level']
         logger.debug(f'Профиль пользователя: {user_profile}')
         user_profile = await user.aget_profile_data()
         clarification_analysis_start = time.time()
@@ -825,6 +804,7 @@ async def entry_next(callback: CallbackQuery, user, language: str):
         await safe_answer_callback(callback, get_message('error_generic', language))
 
 @router.callback_query(F.data.startswith("reanalyze_day:"))
+@requires_tokens(cost=1)
 async def reanalyze_day(callback: CallbackQuery, user, language: str):
     """
     Запускает пересчёт (полный анализ) дня.

@@ -18,7 +18,7 @@ from prompts.get_prompt import get_prompt
 from messages import get_message
 from diary.services import daily_state_service
 from diary.models import DiaryEntry, TherapyTask, TaskCompletion, TaskCompletionAnalysis
-from users.models import User
+from users.models import User, TokenTransaction
 from bot.services.deepseek_api import deepseek_api_service
 from bot.utils.message_utils import safe_edit_message_text
 from bot.keyboards import get_back_keyboard
@@ -211,7 +211,7 @@ class TaskService:
                 use_edit = True
                 message_to_edit = status_message
             if isinstance(analysis_result, dict) and analysis_result.get('invalid'):
-                validation_comment = analysis_result.get('validation_comment', 'Выполнение задания не засчитано из-за недостаточной содержательности.')
+                validation_comment = analysis_result.get('validation_comment', get_message('task_completion_invalid_default_comment', user.language))
                 language = user.language
                 final_message = get_message(
                     'task_completion_invalid_formatted', 
@@ -244,24 +244,34 @@ class TaskService:
                 parsed_result = analysis_result.api_response.get('result', {})
                 formatted_message = parsed_result.get('formatted_message')
                 if formatted_message:
+                    tokens_awarded = analysis_result.tokens_awarded
                     final_message = formatted_message
+                    if tokens_awarded > 0:
+                        updated_user = await User.objects.aget(telegram_id=user.telegram_id)
+                        tokens_info = get_message('task_tokens_awarded', language, tokens=tokens_awarded, balance=updated_user.token_balance)
+                        if tokens_info not in final_message:
+                            final_message += f"\n\n{tokens_info}"
                 else:
                     effect_description = analysis_result.effect_description or get_message('no_effect_description', language)
-                    mood_impact_score_raw = analysis_result.mood_impact_score
-                    if mood_impact_score_raw is not None:
+                    mood_impact_score = analysis_result.mood_impact_score
+                    if mood_impact_score is not None:
                         try:
-                            mood_impact_score = int(mood_impact_score_raw)
-                            if mood_impact_score > 0:
-                                mood_impact_display = f"+{mood_impact_score}"
+                            mood_impact_score_int = int(mood_impact_score)
+                            if mood_impact_score_int > 0:
+                                mood_impact_display = f"🔺 +{mood_impact_score_int}"
+                            elif mood_impact_score_int < 0:
+                                mood_impact_display = f"🔻 {mood_impact_score_int}"
                             else:
-                                mood_impact_display = str(mood_impact_score)
+                                mood_impact_display = f"➡️ {mood_impact_score_int}"
                         except (ValueError, TypeError):
                             mood_impact_display = "N/A"
                     else:
-                        mood_impact_display = "N/A"   
+                        mood_impact_display = "N/A"
                     comment_for_user = analysis_result.comment or get_message('no_comment', language)
                     recommendation_for_user = analysis_result.recommendation or get_message('no_recommendation', language)
-                    final_message = get_message(
+                    tokens_awarded = analysis_result.tokens_awarded
+                    updated_user = await User.objects.aget(telegram_id=user.telegram_id)
+                    main_analysis_text = get_message(
                         'task_effect_analysis_result_formatted',
                         language,
                         effect_description=effect_description,
@@ -269,6 +279,12 @@ class TaskService:
                         comment=comment_for_user,
                         recommendation=recommendation_for_user
                     )
+                    if tokens_awarded > 0:
+                        tokens_info = get_message('task_tokens_awarded', language, tokens=tokens_awarded, balance=updated_user.token_balance)
+                        final_message = f"{main_analysis_text}\n\n{tokens_info}"
+                    else:
+                        final_message = main_analysis_text
+
                 reply_markup = get_back_keyboard(language)
             else:
                 language = user.language
@@ -479,6 +495,7 @@ class TaskService:
                     comment="",
                     recommendation="",
                     detailed_analysis="",
+                    tokens_awarded=0, # --- НОВОЕ ---
                     api_response=api_result
                 )
                 return analysis
@@ -498,8 +515,6 @@ class TaskService:
                 }
             effect_desc = parsed_result.get('effect_description', 'Эффект задания проанализирован.')
             mood_impact_score_raw = parsed_result.get('mood_impact_score')
-            effect_desc = parsed_result.get('effect_description', 'Эффект задания проанализирован.')
-            mood_impact_score_raw = parsed_result.get('mood_impact_score')
             mood_impact_score = None
             if mood_impact_score_raw is not None:
                 try:
@@ -510,6 +525,17 @@ class TaskService:
             comment_from_api = parsed_result.get('comment', '')
             recommendation_from_api = parsed_result.get('recommendation', '')
             detailed_analysis_from_api = parsed_result.get('detailed_analysis', '')
+            # --- НОВОЕ: Обработка tokens_awarded ---
+            tokens_awarded_raw = parsed_result.get('tokens_awarded', 0)
+            try:
+                tokens_awarded = int(tokens_awarded_raw)
+                if not (0 <= tokens_awarded <= 3):
+                    logger.warning(f"Некорректное количество токенов из API: {tokens_awarded_raw}. Используем 0.")
+                    tokens_awarded = 0
+            except (ValueError, TypeError):
+                logger.warning(f"Некорректный формат tokens_awarded из API: {tokens_awarded_raw}. Используем 0.")
+                tokens_awarded = 0
+            # --- /НОВОЕ ---
             @sync_to_async
             def _mark_previous_analyses_obsolete():
                 with transaction.atomic():
@@ -529,6 +555,7 @@ class TaskService:
                 'comment': comment_from_api,
                 'recommendation': recommendation_from_api,
                 'detailed_analysis': detailed_analysis_from_api,
+                'tokens_awarded': tokens_awarded, # --- НОВОЕ ---
                 'is_obsolete': False,
                 'api_response': api_result
             }
@@ -536,6 +563,21 @@ class TaskService:
             def _create_analysis():
                 return TaskCompletionAnalysis.objects.create(**analysis_data)
             analysis = await _create_analysis()
+            # --- НОВОЕ: Обновление баланса и создание транзакции ---
+            if tokens_awarded > 0:
+                user.token_balance += tokens_awarded
+                await sync_to_async(user.save)(update_fields=['token_balance'])
+                logger.debug(f"Пользователю {user.telegram_id} начислено {tokens_awarded} токенов за выполнение задания {task_completion.task.id}. Новый баланс: {user.token_balance}")
+                # Создание транзакции
+                await sync_to_async(TokenTransaction.objects.create)(
+                    user=user,
+                    amount=tokens_awarded,
+                    transaction_type='task_completion',
+                    related_task_completion=task_completion,
+                    description=f"Начисление за выполнение задания '{task_completion.task.title}'"
+                )
+                logger.debug(f"Создана транзакция начисления токенов для пользователя {user.telegram_id}, задание {task_completion.task.id}")
+            # --- /НОВОЕ ---
             logger.debug(f"Анализ эффекта задания {task_completion.task.id} успешно создан: ID {analysis.id}")
             return analysis
         except Exception as e:
@@ -549,6 +591,7 @@ class TaskService:
                     comment="",
                     recommendation="",
                     detailed_analysis="",
+                    tokens_awarded=0, # --- НОВОЕ ---
                     api_response={'error': 'critical_exception', 'details': str(e)}
                 )
                 return analysis

@@ -40,6 +40,7 @@ MESSAGES = {
         'btn_back_to_edit_day': '🔙 Назад к редактированию',
         'btn_skip': '''⏭ Пропустить''',
         'btn_main_menu': '🔙 В главное меню',
+        'btn_recharge_tokens': '💰 Пополнить баланс',
 
         # === Уведомления ===
         'reminder_entry': '📝 Не забудь сделать запись в дневник сегодня!',
@@ -69,6 +70,8 @@ MESSAGES = {
 'session_expired': '''⏰ Время сессии истекло (1 час). Сессия автоматически завершена.''',
 'photo_too_large': '''⚠️ Фото слишком большое. Максимальный размер - 20 МБ''',
 'morning_motivation_default': 'Доброе утро, {first_name}! Пусть этот день будет наполнен радостью и вдохновением.',
+'insufficient_tokens': '❌ Недостаточно токенов для выполнения этой операции. Пожалуйста, пополните баланс.',
+'insufficient_tokens_for_auto_analysis_and_disabled': '❌ Недостаточно токенов для автоматического анализа дня. Анализ не выполнен. Автоматический анализ отключен. Пожалуйста, пополните баланс или оформите подписку.',
     },
     'en': {
         # === Mood scores ===
@@ -103,6 +106,7 @@ MESSAGES = {
         'btn_back_to_edit_day': '🔙 Back to editing',
         'btn_skip': '''⏭ Skip''',
         'btn_main_menu': '🔙 Main menu',
+        'btn_recharge_tokens': '💰 Recharge Balance',
         
         # === Notifications ===
         'reminder_entry': '📝 Don\'t forget to make an entry in your diary today!',
@@ -134,6 +138,10 @@ MESSAGES = {
 'session_expired': '''⏰ Session time expired (1 hour). Session automatically completed''',
 'photo_too_large': '''⚠️ Photo is too large. Maximum size - 20 MB''',
 'morning_motivation_default': 'Good morning, {first_name}! May this day be filled with joy and inspiration.',
+'insufficient_tokens': '❌ Insufficient tokens to perform this operation. Please top up your balance.',
+'insufficient_tokens_for_auto_analysis': '❌ Insufficient tokens for automatic daily analysis. Analysis not performed. Please top up your balance or subscribe.',
+'insufficient_tokens_for_auto_analysis_and_disabled': '❌ Insufficient tokens for automatic daily analysis. Analysis not performed. Automatic analysis has been disabled. Please top up your balance or subscribe.',
+     
     }
 }
 

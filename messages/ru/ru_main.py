@@ -60,6 +60,7 @@ MAIN_MESSAGES_RU = {
 
 📊 <b>Уровень осознанности:</b> {awareness_level}
 📝 <b>Всего записей:</b> {entries_count}
+💰 <b>Токены:</b> {token_balance}
 
 {streak_info}
 {max_streak_info}

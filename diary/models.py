@@ -396,6 +396,11 @@ class TaskCompletionAnalysis(models.Model):
         verbose_name=_("Устаревший анализ"),
         help_text=_("Помечает анализ как устаревший, если задание было выполнено повторно.")
     )
+    tokens_awarded = models.IntegerField(
+        default=0,
+        verbose_name=_("Начисленные токены"),
+        help_text=_("Количество токенов, начисленных за выполнение задания.")
+    )
 
     class Meta:
         verbose_name = _("Анализ выполнения задания")

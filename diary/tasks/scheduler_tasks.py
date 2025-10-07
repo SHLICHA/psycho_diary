@@ -81,14 +81,47 @@ def schedule_daily_analyses(self):
             try:
                 logger.debug(f"Обработка пользователя {user.telegram_id} ({user.username})")
                 user_local_time = _get_user_local_time(user)
+                # Определяем "вчерашнюю" дату по пользовательскому времени
                 yesterday_date_user_tz = (user_local_time - timedelta(days=1)).date()
                 logger.debug(f"  Локальное время пользователя: {user_local_time}")
                 logger.debug(f"  Вчерашняя дата по часовому поясу пользователя: {yesterday_date_user_tz}")
 
-                if not _is_analysis_time_reached(user, yesterday_date_user_tz):
-                    logger.debug(f"  Момент анализа для {yesterday_date_user_tz} еще не наступил для пользователя {user.telegram_id}. Пропуск.")
+                # --- ИЗМЕНЕНО: Проверка наступления 0:30 пользовательского времени ---
+                # Цель: анализ дня `yesterday_date_user_tz` должен быть запущен ПОСЛЕ 00:30 *этого* дня (yesterday_date_user_tz) по пользовательскому времени.
+                # Это означает, что в момент `00:30` следующего дня (yesterday_date_user_tz + 1 день) по пользовательскому времени
+                # задача `schedule_daily_analyses` (запускаемая по расписанию, например, каждый час) должна увидеть,
+                # что пора запускать анализ вчерашнего дня (yesterday_date_user_tz).
+                # Но так как мы проверяем *после* наступления 00:30 *в этот день*, то проверяем, что *текущее* локальное время >= 00:30 *этого* дня.
+                # target_date_for_check = yesterday_date_user_tz + timedelta(days=1) # Это "сегодня" по пользовательскому времени
+                # preferred_analysis_time = time(0, 30) # Новое фиксированное время
+                # analysis_trigger_moment_user_tz_naive = datetime.combine(target_date_for_check, preferred_analysis_time)
+                # analysis_trigger_moment_user_tz = user_tz.localize(analysis_trigger_moment_user_tz_naive)
+                # analysis_trigger_moment_utc = analysis_trigger_moment_user_tz.astimezone(pytz.utc)
+                # now_utc = timezone.now()
+                # is_time_to_analyze = now_utc >= analysis_trigger_moment_utc
+
+                # Упрощенная логика: проверяем, что *сейчас* (в момент запуска schedule_daily_analyses) уже >= 00:30 *вчерашнего* дня + 1 (т.е. сегодняшнего) по пользовательскому времени
+                # Это эквивалентно: текущее локальное время >= 00:30 *сегодня* по пользовательскому времени
+                today_user_tz = user_local_time.date() # Это "сегодня" в пользовательском часовом поясе
+                analysis_time_for_today_user_tz_naive = datetime.combine(today_user_tz, time(0, 30))
+                user_tz_str = user.timezone if user.timezone else 'UTC'
+                try:
+                    user_tz = pytz.timezone(user_tz_str)
+                except pytz.UnknownTimeZoneError:
+                    logger.warning(f"Неизвестный часовой пояс '{user_tz_str}' для пользователя {user.id}. Используется UTC.")
+                    user_tz = pytz.utc
+                analysis_time_for_today_user_tz = user_tz.localize(analysis_time_for_today_user_tz_naive)
+                analysis_time_for_today_utc = analysis_time_for_today_user_tz.astimezone(pytz.utc)
+
+                is_time_to_analyze = utc_now >= analysis_time_for_today_utc
+                # --- /ИЗМЕНЕНО ---
+
+                if not is_time_to_analyze: # --- ИЗМЕНЕНО: условие ---
+                    logger.debug(f"  Момент анализа (00:30 пользовательского времени) для дня {yesterday_date_user_tz} еще не наступил для пользователя {user.telegram_id}. Пропуск.")
                     continue
-                logger.debug(f"  Момент анализа для {yesterday_date_user_tz} наступил для пользователя {user.telegram_id}. Проверка записей...")
+                logger.debug(f"  Момент анализа (00:30 пользовательского времени) для дня {yesterday_date_user_tz} наступил для пользователя {user.telegram_id}. Проверка записей...")
+
+
                 entries_yesterday = async_to_sync(diary_service.get_user_entries_for_date)(user, yesterday_date_user_tz)
                 if not entries_yesterday:
                     try:
@@ -157,8 +190,75 @@ def perform_scheduled_daily_analysis(self, user_id: int, target_date_iso: str):
         except User.DoesNotExist:
             logger.error(f"Пользователь с ID {user_id} не найден для анализа {target_date_iso}")
             return
+        # --- НОВОЕ: Проверка и списание токенов для периодического анализа ---
+        cost = 1 # Стоимость периодического анализа
+        if not user.is_premium:
+            current_balance = user.token_balance
+            if current_balance < cost:
+                logger.info(f"Недостаточно токенов для автоматического анализа дня у пользователя {user_id}. Баланс: {current_balance}, Стоимость: {cost}")
+                # Опционально: отправить сообщение пользователю, если уведомления включены
+                if user.notifications_enabled:
+                    from bot.main import bot as global_bot
+                    if global_bot:
+                        from messages import get_message
+                        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                        from aiogram.enums import ParseMode
+                        language = user.language or 'ru'
+                        # --- ИЗМЕНЕНО: Сообщение включает информацию о выключении анализа ---
+                        message_text = get_message('insufficient_tokens_for_auto_analysis_and_disabled', language)
+                        # --- /ИЗМЕНЕНО ---
+                        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                            [
+                                InlineKeyboardButton(
+                                    text=get_message('btn_main_menu', language), # Кнопка "В главное меню"
+                                    callback_data="main_menu"
+                                ),
+                                InlineKeyboardButton(
+                                    text=get_message('btn_recharge_tokens', language), # Кнопка "Пополнить баланс"
+                                    callback_data="recharge_tokens" # или другой callback
+                                )
+                            ]
+                        ])
+                        try:
+                            asyncio.run(
+                                global_bot.send_message(
+                                    chat_id=user.telegram_id,
+                                    text=message_text,
+                                    reply_markup=keyboard,
+                                    parse_mode=ParseMode.HTML
+                                )
+                            )
+                        except Exception as msg_error:
+                            logger.error(f"Не удалось отправить сообщение о недостатке токенов пользователю {user_id}: {msg_error}")
+                # --- НОВОЕ: Выключение auto_analysis_enabled ---
+                if user.auto_analysis_enabled: # Только если было включено
+                    user.auto_analysis_enabled = False
+                    from asgiref.sync import sync_to_async
+                    sync_to_async(user.save)(update_fields=['auto_analysis_enabled'])
+                    logger.info(f"Автоматический анализ для пользователя {user_id} отключен из-за недостатка токенов.")
+                # --- /НОВОЕ ---
+                return # Не запускаем анализ, выходим
+            # Списание токена
+            user.token_balance -= cost
+            # Используем sync_to_async для асинхронного вызова синхронного метода save
+            from asgiref.sync import sync_to_async
+            sync_to_async(user.save)(update_fields=['token_balance'])
+            logger.debug(f"Списано {cost} токенов у пользователя {user_id} за автоматический анализ дня {target_date_iso}. Новый баланс: {user.token_balance}")
+
+            # Создание транзакции списания
+            from users.models import TokenTransaction
+            from asgiref.sync import sync_to_async
+            sync_to_async(TokenTransaction.objects.create)(
+                user=user,
+                amount=-cost, # Отрицательное значение для списания
+                transaction_type='feature_usage', # или 'daily_analysis'
+                description=f"Автоматический полный анализ дня за {target_date_iso}"
+            )
+            logger.debug(f"Создана транзакция списания {cost} токенов для пользователя {user_id} за автоматический анализ дня {target_date_iso}")
+        # --- /НОВОЕ ---
         logger.debug(f"  Вызов full_day_analysis_service.perform_full_day_analysis для пользователя {user_id}...")
         try:
+            # Теперь вызываем без логики списания
             analysis_result_dict = async_to_sync(full_day_analysis_service.perform_full_day_analysis)(user, target_date)
             success = analysis_result_dict.get("success", False)
             message = analysis_result_dict.get("message", "Неизвестный результат")
@@ -173,6 +273,7 @@ def perform_scheduled_daily_analysis(self, user_id: int, target_date_iso: str):
         logger.error(f"Критическая ошибка в perform_scheduled_daily_analysis для пользователя {user_id}, дата {target_date_iso}: {e}", exc_info=True)
     finally:
         logger.debug(f"--- ЗАВЕРШЕНИЕ: Индивидуальная задача анализа для пользователя {user_id}, дата {target_date_iso} ---")
+
 
 @sync_to_async
 def get_users_with_utc_timezone():

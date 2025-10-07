@@ -54,8 +54,9 @@ TASK_EFFECT_ANALYSIS_PROMPT = {
     *   **Ориентированной на пользователя:** Не пиши "Предложить пользователю..." или "ИИ должен...". Пиши напрямую: "Попробуй...", "Обрати внимание...", "Ты можешь...".
     *   **Персонализированной:** Используй знания о пользователе (ценности, сильные стороны) для персонализации.
     *   **Примеры хороших рекомендаций:** "Попробуй завести отдельный список приятных мелочей, замеченных сегодня", "Подумай, как можно по-другому взглянуть на эту ситуацию завтра", "Продолжай наблюдать за этим чувством в течение дня". *Опираясь на `Ключевые ценности` и `Сильные стороны`, предложи конкретные и значимые действия. Сделай это с поддержкой и мотивацией.*
-11. **Предоставь развернутый анализ** (detailed_analysis) — обоснование твоей оценки и выводов. Объясни, почему ты пришел к такому эффекту и оценке влияния на настроение. Ссылаясь на элементы из текстов дней, выполнения и ощущений. *Сравнивай новые данные с уже известными `Фактами о жизни`, `Чертами характера`, `Триггерами` и `Сильными сторонами`. Делай это дружелюбно и с заботой.*
-12. **Создай красивое форматированное сообщение** (formatted_message) для пользователя в формате HTML с эмодзи. Используй эту структуру:
+11. **Определи количество начисляемых токенов** (tokens_awarded) — целое число от 0 до 3, в зависимости от сложности задания (task_complexity) и качества выполнения (completion_text, feelings_text). 3 - отличное выполнение, 0 - бессмысленное или отсутствующее.
+12. **Предоставь развернутый анализ** (detailed_analysis) — обоснование твоей оценки и выводов. Объясни, почему ты пришел к такому эффекту и оценке влияния на настроение. Ссылаясь на элементы из текстов дней, выполнения и ощущений. *Сравнивай новые данные с уже известными `Фактами о жизни`, `Чертами характера`, `Триггерами` и `Сильными сторонами`. Делай это дружелюбно и с заботой.*
+13. **Создай красивое форматированное сообщение** (formatted_message) для пользователя в формате HTML с эмодзи. Используй эту структуру:
 
 <b>🎯 Результат выполнения задания</b>
 
@@ -78,6 +79,7 @@ TASK_EFFECT_ANALYSIS_PROMPT = {
   "mood_impact_score": 3,
   "comment": "Я заметил, что после выполнения задания ты стал более осознанно подходить к своим эмоциональным реакциям, что положительно сказалось на твоем общем состоянии.",
   "recommendation": "Попробуй применять эту технику осознанности в повседневных ситуациях, особенно когда чувствуешь напряжение или тревогу.",
+  "tokens_awarded": 2,
   "detailed_analysis": "Сравнивая день назначения и день выполнения, я вижу значительный прогресс...",
   "formatted_message": "<b>🎯 Результат выполнения задания</b>\\n\\n💫 <b>Эффект:</b> Твое выполнение задания помогло тебе лучше осознать свои эмоции и научиться управлять ими в сложных ситуациях.\\n\\n😊 <b>Влияние на настроение:</b> 🔺 +3\\n\\n💭 <b>Комментарий:</b> Я заметил, что после выполнения задания ты стал более осознанно подходить к своим эмоциональным реакциям, что положительно сказалось на твоем общем состоянии.\\n\\n🌟 <b>Рекомендация:</b> Попробуй применять эту технику осознанности в повседневных ситуациях, особенно когда чувствуешь напряжение или тревогу.\\n\\n<i>Ты отлично справился с заданием! Продолжай в том же духе! 💪</i>"
 }}
@@ -138,8 +140,9 @@ User's Feelings During Completion (what feelings, thoughts, reactions arose): {f
     *   **User-oriented:** Do not write "Suggest to the user..." or "The AI should...". Write directly: "Try...", "Pay attention...", "You can...".
     *   **Personalized:** Use knowledge of the user (values, strengths) to personalize it.
     *   **Examples of good recommendations:** "Try keeping a separate list of pleasant little things you noticed today", "Think about how you could look at this situation differently tomorrow", "Continue to observe this feeling throughout the day". *Based on `Core Values` and `Strengths`, suggest specific and meaningful actions. Make it supportive and motivating.*
-11. **Provide a detailed analysis** (detailed_analysis) - justification for your assessment and conclusions. Explain why you came to this effect and mood impact score. Referencing elements from the day texts, completion, and feelings. *Compare new data with already known `Life Facts`, `Personality Traits`, `Triggers`, and `Strengths`. Do it in a friendly and caring way.*
-12. **Create a beautiful formatted message** (formatted_message) for the user in HTML format with emojis. Use this structure:
+11. **Determine the number of tokens awarded** (tokens_awarded) — an integer from 0 to 3, depending on the task complexity (task_complexity) and the quality of completion (completion_text, feelings_text). 3 - excellent completion, 0 - meaningless or absent.
+12. **Provide a detailed analysis** (detailed_analysis) - justification for your assessment and conclusions. Explain why you came to this effect and mood impact score. Referencing elements from the day texts, completion, and feelings. *Compare new data with already known `Life Facts`, `Personality Traits`, `Triggers`, and `Strengths`. Do it in a friendly and caring way.*
+13. **Create a beautiful formatted message** (formatted_message) for the user in HTML format with emojis. Use this structure:
 
 <b>🎯 Task Completion Result</b>
 
@@ -162,6 +165,7 @@ User's Feelings During Completion (what feelings, thoughts, reactions arose): {f
   "mood_impact_score": 3,
   "comment": "I noticed that after completing the task, you became more mindful of your emotional reactions, which positively affected your overall state.",
   "recommendation": "Try applying this mindfulness technique in everyday situations, especially when you feel tension or anxiety.",
+  "tokens_awarded": 2,
   "detailed_analysis": "Comparing the assignment day and completion day, I see significant progress...",
   "formatted_message": "<b>🎯 Task Completion Result</b>\\n\\n💫 <b>Effect:</b> Your completion of the task helped you better understand your emotions and learn to manage them in difficult situations.\\n\\n😊 <b>Mood Impact:</b> 🔺 +3\\n\\n💭 <b>Comment:</b> I noticed that after completing the task, you became more mindful of your emotional reactions, which positively affected your overall state.\\n\\n🌟 <b>Recommendation:</b> Try applying this mindfulness technique in everyday situations, especially when you feel tension or anxiety.\\n\\n<i>You did great with the task! Keep up the good work! 💪</i>"
 }}

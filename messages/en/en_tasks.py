@@ -147,8 +147,10 @@ Please complete the task more thoroughly and meaningfully.''',
     'tasks_limit_max_reached': 'Maximum tasks limit reached',
     'tasks_limit_min_reached': 'Minimum tasks limit reached',
 
-'task_completion_invalid_formatted': '''<b>⚠️ Needs a Little Work</b>\n\n{validation_comment}\n\n<i>Try to describe the task completion in more detail - what exactly you did, what thoughts and feelings arose.</i>''',
-'task_effect_analysis_result_formatted': '''<b>🎯 Task Completion Result</b>\n\n💫 <b>Effect:</b> {effect_description}\n\n😊 <b>Mood Impact:</b> {mood_impact}\n\n💭 <b>Comment:</b> {comment}\n\n🌟 <b>Recommendation:</b> {recommendation}\n\n<i>You did great with the task! Keep up the good work! 💪</i>''',
-'task_analysis_error_formatted': '''<b>❌ An Error Occurred</b>\n\nUnfortunately, we couldn't analyze the task completion.\nTry completing the task again or come back to it later.''',
+    'task_completion_invalid_formatted': '''<b>⚠️ Needs a Little Work</b>\n\n{validation_comment}\n\n<i>Try to describe the task completion in more detail - what exactly you did, what thoughts and feelings arose.</i>''',
+    'task_completion_invalid_default_comment': 'Try to describe it in more detail, I believe in you!',
+    'task_effect_analysis_result_formatted': '''<b>🎯 Task Completion Result</b>\n\n💫 <b>Effect:</b> {effect_description}\n\n😊 <b>Mood Impact:</b> {mood_impact}\n\n💭 <b>Comment:</b> {comment}\n\n🌟 <b>Recommendation:</b> {recommendation}\n\n<i>You did great with the task! Keep up the good work! 💪</i>''',
+    'task_analysis_error_formatted': '''<b>❌ An Error Occurred</b>\n\nUnfortunately, we couldn't analyze the task completion.\nTry completing the task again or come back to it later.''',
+    'task_tokens_awarded': '🎉 You earned <b>{tokens}</b> tokens for completing the task! Your balance: <b>{balance}</b>.',
 }
 }

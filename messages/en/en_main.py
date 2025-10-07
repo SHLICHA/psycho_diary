@@ -64,6 +64,7 @@ Would you like to attach a screenshot for better understanding?''',
 
 📊 <b>Awareness level:</b> {awareness_level}
 📝 <b>Total entries:</b> {entries_count}
+💰 <b>Tokens:</b> {token_balance}
 
 {streak_info}
 {max_streak_info}

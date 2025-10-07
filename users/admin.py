@@ -4,7 +4,7 @@ from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from django.urls import reverse
 
-from .models import Feedback, User, CityTimezone, UserProfileHistory
+from .models import Feedback, User, CityTimezone, UserProfileHistory, TokenTransaction
 
 @admin.register(UserProfileHistory)
 class UserProfileHistoryAdmin(admin.ModelAdmin):
@@ -89,7 +89,7 @@ class UserAdmin(BaseUserAdmin):
     # Настройка отображения в списке пользователей
     list_display = (
         'username', 'telegram_id', 'first_name', 'last_name', 
-        'awareness_level', 'is_premium', 'is_blocked', 'created_at'
+        'awareness_level', 'is_premium', 'token_balance', 'is_blocked', 'created_at'
     )
     list_filter = (
         'is_premium', 'is_blocked', 'language', 'created_at', 'last_activity',
@@ -102,17 +102,13 @@ class UserAdmin(BaseUserAdmin):
     fieldsets = (
         # Стандартные поля AbstractUser
         (None, {'fields': ('username', 'password')}),
-        (('Персональная информация'), {'fields': ('first_name', 'last_name', 'email')}),
-        (('Права доступа'), {
-            'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions'),
-        }),
         (('Важные даты'), {'fields': ('last_login', 'created_at', 'updated_at')}),
         
         # Новые поля для Telegram бота
         (('Telegram и Основное'), {
             'fields': (
                 'telegram_id', 'language', 'timezone', 'has_agreed_to_terms',
-                'is_premium', 'is_blocked', 'deletion_status', 'deleted_at'
+                'is_premium', 'is_blocked', 'deletion_status', 'deleted_at', 'token_balance'
             )
         }),
         (('Активность и Настройки'), {
@@ -242,3 +238,17 @@ class FeedbackAdmin(admin.ModelAdmin):
     def mark_as_replied(self, request, queryset):
         updated = queryset.filter(status__in=['new', 'processed']).update(status='replied')
         self.message_user(request, f"Помечено как отвеченные: {updated} обращений")
+
+@admin.register(TokenTransaction)
+class TokenTransactionAdmin(admin.ModelAdmin):
+    list_display = ('user', 'amount', 'transaction_type', 'related_task_completion', 'created_at')
+    list_filter = ('transaction_type', 'created_at', 'user')
+    search_fields = ('user__username', 'user__telegram_id', 'description')
+    readonly_fields = ('created_at',) # created_at не редактируется
+    ordering = ('-created_at',)
+    list_per_page = 25 # Удобно для просмотра списка
+
+    def get_queryset(self, request):
+        # Оптимизируем запрос, предзагрузив связанные объекты, если часто просматриваем через related_task_completion
+        qs = super().get_queryset(request)
+        return qs.select_related('user', 'related_task_completion')

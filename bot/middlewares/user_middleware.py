@@ -10,7 +10,7 @@ from aiogram.types import TelegramObject, Message, CallbackQuery
 from messages import get_message
 from bot.keyboards.onboarding_keyboards import get_start_onboarding_keyboard
 from bot.utils.callback_utils import safe_answer_callback
-from users.models import User
+from users.models import User, TokenTransaction
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,17 @@ class UserMiddleware(BaseMiddleware):
                     language=language,
                     timezone=timezone_to_set,
                 )
-                logger.info(f"Новый пользователь создан: {user.username} ({user.telegram_id}) с языком {language} и часовым поясом {timezone_to_set} (по умолчанию)")
+                welcome_tokens = 10
+                user.token_balance += welcome_tokens
+                await user.asave(update_fields=['token_balance'])
+                logger.info(f"Новый пользователь создан: {user.username} ({user.telegram_id}) с языком {language} и часовым поясом {timezone_to_set} (по умолчанию). Начислено {welcome_tokens} приветственных токенов.")
+                await TokenTransaction.objects.acreate(
+                    user=user,
+                    amount=welcome_tokens,
+                    transaction_type='bonus',
+                    description='Приветственные токены при регистрации'
+                )
+                logger.debug(f"Создана транзакция начисления приветственных токенов для пользователя {user.telegram_id}")
                 return user
         except Exception as e:
             logger.error(f"Ошибка при создании/загрузке пользователя: {e}", exc_info=True)

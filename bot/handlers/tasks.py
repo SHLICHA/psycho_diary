@@ -502,32 +502,27 @@ async def view_detailed_task_analysis(callback: CallbackQuery, user, language: s
         except TherapyTask.DoesNotExist:
             await safe_answer_callback(callback, get_message('task_not_found', language), show_alert=True)
             return
-
         if task.status != 'completed':
              await safe_answer_callback(callback, get_message('task_not_completed_for_analysis', language), show_alert=True)
              return
-
         try:
             completion = await TaskCompletion.objects.aget(task=task)
         except TaskCompletion.DoesNotExist:
             await safe_answer_callback(callback, get_message('task_completion_not_found', language), show_alert=True)
-            # --- ИСПРАВЛЕНО: Используем клавиатуру истории ---
             await safe_edit_message_text(
                 message=callback.message,
                 text=get_message('task_completion_not_found', language),
-                reply_markup=get_task_history_main_keyboard(language) # <-- Заменено
+                reply_markup=get_task_history_main_keyboard(language)
             )
             return
-
         try:
             analysis = await TaskCompletionAnalysis.objects.aget(completion=completion, is_obsolete=False)
         except TaskCompletionAnalysis.DoesNotExist:
             await safe_answer_callback(callback, get_message('task_analysis_not_found', language), show_alert=True)
-            # --- ИСПРАВЛЕНО: Используем клавиатуру истории ---
             await safe_edit_message_text(
                 message=callback.message,
                 text=get_message('task_analysis_not_found', language),
-                reply_markup=get_task_history_main_keyboard(language) # <-- Заменено
+                reply_markup=get_task_history_main_keyboard(language)
             )
             return
         except TaskCompletionAnalysis.MultipleObjectsReturned:
@@ -535,12 +530,19 @@ async def view_detailed_task_analysis(callback: CallbackQuery, user, language: s
             if not analysis:
                  await safe_answer_callback(callback, get_message('task_analysis_error', language), show_alert=True)
                  return
-
+        tokens_awarded = analysis.tokens_awarded
+        user_balance = user.token_balance
         if analysis.detailed_analysis:
             header = get_message('detailed_task_analysis_header', language).format(task_title=task.title)
             analysis_text = f"<b>{header}</b>\n\n{analysis.detailed_analysis}"
+            if tokens_awarded > 0:
+                tokens_msg = get_message('task_tokens_awarded', language, tokens=tokens_awarded, balance=user_balance)
+                analysis_text += f"\n\n{tokens_msg}"
         else:
             analysis_text = get_message('task_analysis_no_details', language).format(task_title=task.title)
+            if tokens_awarded > 0:
+                tokens_msg = get_message('task_tokens_awarded', language, tokens=tokens_awarded, balance=user_balance)
+                analysis_text += f"\n\n{tokens_msg}"
         reply_markup = get_task_history_main_keyboard(language)
         await safe_edit_message_text(
             message=callback.message,

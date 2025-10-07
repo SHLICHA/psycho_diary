@@ -53,7 +53,7 @@ class SmartPromptManager:
 
     async def on_day_analyzed(self, user: User, analyzed_date: date, daily_analysis: DailyAnalysis, language: str = 'ru'):
         """После анализа дня - готовим подсказку для ЗАВТРА через AI"""
-        logger.deb(f"[SmartPrompt] Генерация подсказки после анализа дня {analyzed_date}")
+        logger.debug(f"[SmartPrompt] Генерация подсказки после анализа дня {analyzed_date}")
         try:
             tomorrow = analyzed_date + timedelta(days=1)
             prompt_text = await self._generate_ai_prompt_from_analysis(user, daily_analysis, language)

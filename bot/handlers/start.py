@@ -37,6 +37,7 @@ async def cmd_start(message: Message, user, language: str, state: FSMContext):
             first_name = profile_data.get('first_name', get_message('user_default_name', language))
             awareness_level = profile_data.get('awareness_level', 1)
             entries_count = profile_data.get('entries_count', 0)
+            token_balance = user.token_balance
             from bot.services.diary_service import get_user_streaks
             current_streak, max_streak = await sync_to_async(get_user_streaks)(user)
             streak_info = ""
@@ -57,6 +58,7 @@ async def cmd_start(message: Message, user, language: str, state: FSMContext):
                                        first_name=first_name,
                                        awareness_level=awareness_level,
                                        entries_count=entries_count,
+                                       token_balance=token_balance,
                                        streak_info=streak_info,
                                        max_streak_info=max_streak_info)
             await message.answer(
@@ -70,13 +72,15 @@ async def cmd_start(message: Message, user, language: str, state: FSMContext):
 @router.callback_query(F.data == "main_menu")
 async def back_to_main_menu(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Возврат в главное меню"""
+    from bot.services.diary_service import get_user_streaks
     try:
         await state_manager.clear_state(state)
         profile_data = await user.aget_profile_data()
         first_name = profile_data.get('first_name', get_message('user_default_name', language))
         awareness_level = profile_data.get('awareness_level', 1)
         entries_count = profile_data.get('entries_count', 0)
-        from bot.services.diary_service import get_user_streaks
+        token_balance = user.token_balance
+        
         current_streak, max_streak = await sync_to_async(get_user_streaks)(user)
         streak_info = ""
         if current_streak > 0:
@@ -96,6 +100,7 @@ async def back_to_main_menu(callback: CallbackQuery, state: FSMContext, user, la
                                    first_name=first_name,
                                    awareness_level=awareness_level,
                                    entries_count=entries_count,
+                                   token_balance=token_balance,
                                    streak_info=streak_info,
                                    max_streak_info=max_streak_info)
         await safe_edit_message_text(

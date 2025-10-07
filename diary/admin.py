@@ -735,6 +735,7 @@ class TaskCompletionAnalysisAdmin(admin.ModelAdmin):
         'analysis_performed_at',
         'detailed_analysis',
         'api_response',
+        'tokens_awarded'
     )
 
     def get_task_title(self, obj):

@@ -35,6 +35,7 @@ async def show_user_profile(callback: CallbackQuery, user, language: str):
             auto_analysis_status='✅' if user.auto_analysis_enabled else '❌',
             premium_status='✅' if user.is_premium else '❌',
             awareness_level=user.awareness_level,
+            token_balance = user.token_balance,
             registration_date=user.created_at.strftime('%d.%m.%Y') if user.created_at else '',
             last_entry=user.last_entry.strftime('%d.%m.%Y %H:%M') if user.last_entry else ''
         )

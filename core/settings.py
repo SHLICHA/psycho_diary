@@ -104,7 +104,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CELERY_BEAT_SCHEDULE = {
     'run-daily-analysis-check': {
         'task': 'diary.tasks.scheduler_tasks.schedule_daily_analyses',
-        'schedule': crontab(minute=0),
+        'schedule': crontab(minute=30),
     },
     'send-timezone-reminder': {
         'task': 'diary.tasks.scheduler_tasks.send_timezone_reminder',

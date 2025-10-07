@@ -14,6 +14,7 @@ PROFILE_MESSAGES_EN = {
 👑 <b>Premium:</b> {premium_status}
 📊 <b>Awareness Level:</b> {awareness_level}/10
 📅 <b>Registration Date:</b> {registration_date}
+💰 <b>Your tokens:</b> {token_balance}
 📝 <b>Last Entry:</b> {last_entry}''',
     'last_analysis': '''\n🕒 <b>Last profile analysis:</b> {last_analysis_date}''',
     'psychological_portrait': '''🧠 <b>Your psychological portrait</b>\n\n''',
@@ -46,5 +47,6 @@ PROFILE_MESSAGES_EN = {
     'profile_field_empty_list': '(List is empty)',
     'profile_field_empty_dict': '(Dictionary is empty)',
     'profile_field_empty_string': '(Field is empty)',
+    'profile_tokens': '💰 Your tokens: {balance}',
     }
 }

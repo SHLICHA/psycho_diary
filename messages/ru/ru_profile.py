@@ -14,6 +14,7 @@ PROFILE_MESSAGES_RU = {
 👑 <b>Премиум:</b> {premium_status}
 📊 <b>Уровень осознанности:</b> {awareness_level}/10
 📅 <b>Дата регистрации:</b> {registration_date}
+💰 <b>Ваши токены:</b> {token_balance}
 📝 <b>Последняя запись:</b> {last_entry}''',
     'last_analysis': '''\n🕒 <b>Последний анализ профиля:</b> {last_analysis_date}''',
     'psychological_portrait': '''🧠 <b>Ваш психологический портрет</b>\n\n''',
@@ -46,5 +47,6 @@ PROFILE_MESSAGES_RU = {
     'profile_field_empty_list': '(Список пуст)',
     'profile_field_empty_dict': '(Словарь пуст)',
     'profile_field_empty_string': '(Поле пустое)',
+    'profile_tokens': '💰 Ваши токены: {balance}',
     }
 }

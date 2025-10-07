@@ -63,6 +63,7 @@ class User(AbstractUser):
     personality_description = EncryptedTextField(blank=True, default="", verbose_name="Текстовое описание личности")
     date_of_birth = models.DateField(null=True, blank=True, verbose_name="Дата рождения")
     email = EncryptedEmailField(blank=True, verbose_name="Email")
+    token_balance = models.PositiveIntegerField(default=0, verbose_name="Баланс токенов")
 
     class Meta:
         verbose_name = "Пользователь"
@@ -262,3 +263,40 @@ class Feedback(models.Model):
                 .order_by('-created_at')[:limit]
             )
         return await sync_to_async(get_feedbacks)()
+    
+class TokenTransaction(models.Model):
+    """
+    Модель для хранения транзакций внутренней валюты (токенов).
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="Пользователь")
+    amount = models.IntegerField(verbose_name="Количество токенов (может быть отрицательным)")
+    transaction_type = models.CharField(
+        max_length=20,
+        choices=[
+            ('task_completion', 'Выполнение задания'),
+            ('purchase', 'Покупка'),
+            ('bonus', 'Бонус'),
+            ('refund', 'Возврат'),
+            # Можно добавить другие типы в будущем
+        ],
+        verbose_name="Тип транзакции"
+    )
+    related_task_completion = models.ForeignKey(
+        'diary.TaskCompletion', # Используем строку для избежания циклической зависимости
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Связанное выполнение задания"
+    )
+    description = models.TextField(blank=True, verbose_name="Описание")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
+
+    class Meta:
+        verbose_name = "Транзакция токенов"
+        verbose_name_plural = "Транзакции токенов"
+        db_table = "users_token_transaction"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        action = "получено" if self.amount > 0 else "потрачено"
+        return f"{self.user.username} - {abs(self.amount)} токенов ({action}, {self.transaction_type})"
