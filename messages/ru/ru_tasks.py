@@ -144,6 +144,10 @@ TASKS_MESSAGES_RU = {
     'task_settings_menu': 'Настройки заданий\n\nМаксимум заданий в день: {max_tasks}',
     'tasks_limit_increased': 'Лимит заданий увеличен до {new_limit}',
     'tasks_limit_decreased': 'Лимит заданий уменьшен до {new_limit}',
+    'awareness_level_insufficient_for_tasks_current': (
+            'Ваш уровень осознанности ({current_level}) недостаточен. Макс. заданий: {current_max_tasks}. '
+            'Ведите дневник для роста! 📓'
+        ),
     'tasks_limit_max_reached': 'Достигнут максимальный лимит заданий',
     'tasks_limit_min_reached': 'Достигнут минимальный лимит заданий',
 
@@ -152,5 +156,6 @@ TASKS_MESSAGES_RU = {
     'task_effect_analysis_result_formatted': '''<b>🎯 Результат выполнения задания</b>\n\n💫 <b>Эффект:</b> {effect_description}\n\n😊 <b>Влияние на настроение:</b> {mood_impact}\n\n💭 <b>Комментарий:</b> {comment}\n\n🌟 <b>Рекомендация:</b> {recommendation}\n\n<i>Ты отлично справился с заданием! Продолжай в том же духе! 💪</i>''',
     'task_analysis_error_formatted': '''<b>❌ Произошла ошибка</b>\n\nК сожалению, не удалось проанализировать выполнение задания.\nПопробуй выполнить задание еще раз или вернись к нему позже.''',
     'task_tokens_awarded': '🎉 Вы заработали <b>{tokens}</b> токенов за выполнение задания! Ваш баланс: <b>{balance}</b>.',
+
     }
 }

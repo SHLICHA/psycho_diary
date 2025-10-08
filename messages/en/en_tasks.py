@@ -144,6 +144,10 @@ Please complete the task more thoroughly and meaningfully.''',
     'task_settings_menu': 'Task Settings\n\nMax tasks per day: {max_tasks}',
     'tasks_limit_increased': 'Tasks limit increased to {new_limit}',
     'tasks_limit_decreased': 'Tasks limit decreased to {new_limit}',
+    'awareness_level_insufficient_for_tasks_current': (
+            'Your awareness level ({current_level}) insufficient. Max tasks: {current_max_tasks}. '
+            'Keep a diary to grow! 📓'
+        ),
     'tasks_limit_max_reached': 'Maximum tasks limit reached',
     'tasks_limit_min_reached': 'Minimum tasks limit reached',
 

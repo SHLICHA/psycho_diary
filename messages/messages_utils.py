@@ -93,6 +93,7 @@ MESSAGES = {
 
 Наши с вами мысли и чувства — важная часть пути к пониманию себя. Готов(а) погрузиться в размышления? Напишите первое сообщение! 💭''',
         'btn_therapy_chat': '💬 Пообщаться',  
+        'btn_remove': '''🗑️ Убрать'''
     },
     'en': {
         # === Mood scores ===
@@ -181,7 +182,8 @@ Hi! I'm here to listen and support. Share what troubles, pleases, or worries you
 • <i>Each of your messages costs <b>1 token</b>.</i>
 
 Our thoughts and feelings are an important part of the path to understanding ourselves. Ready to dive into reflection? Write your first message! 💭''',
-          'btn_therapy_chat': '💬 Talk to Psychologist',
+        'btn_therapy_chat': '💬 Talk to Psychologist',
+        'btn_remove': '''🗑️ Remove'''
     }
 }
 

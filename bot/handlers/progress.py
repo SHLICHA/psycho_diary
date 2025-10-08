@@ -7,14 +7,21 @@ import pytz
 from datetime import date, datetime, timedelta
 from datetime import time as dtime
 from django.db.models.functions import TruncDate
-from aiogram import F, Router
-from aiogram.types import CallbackQuery
+from aiogram import Bot, F, Router
+from aiogram.types import CallbackQuery, InputFile, BufferedInputFile
 from asgiref.sync import sync_to_async
 
 from diary.models import WeeklyAnalysis, DiaryEntry, TaskCompletion, TherapyTask
 from messages import get_message
-from bot.keyboards import get_back_keyboard, get_weekly_navigation_keyboard, get_progress_keyboard_without_weekly, get_progress_keyboard_with_weekly
+from bot.keyboards import (
+    get_back_keyboard,
+    get_weekly_navigation_keyboard,
+    get_progress_keyboard_without_weekly,
+    get_progress_keyboard_with_weekly,
+    get_single_button_keyboard
+)
 from bot.utils.message_utils import safe_edit_message_text
+from bot.utils.mood_chart import generate_mood_chart_image
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -142,6 +149,23 @@ async def show_progress(callback: CallbackQuery, user, language: str):
         tasks_completion_percentage = user_stats['tasks_completion_percentage']
         streak_days = user_stats['streak_days']
         streak_reset_warning = user_stats['streak_reset_warning']
+        comparison_text = ""
+        latest_weekly_analysis = await _get_latest_weekly_analysis(user)
+        if latest_weekly_analysis and latest_weekly_analysis.comparison_with_previous:
+            comparison_data = latest_weekly_analysis.comparison_with_previous
+            progress_comment = comparison_data.get('progress_comment')
+            mood_comparison = comparison_data.get('mood_comparison')
+            consistency_comparison = comparison_data.get('consistency_comparison')
+            parts = []
+            if progress_comment:
+                parts.append(progress_comment)
+            if mood_comparison:
+                if not progress_comment:
+                     parts.insert(0, mood_comparison)
+                else:
+                     parts.append(f"({mood_comparison})")
+            if parts:
+                comparison_text = get_message('dynamics', language) + ' '.join(parts)
         progress_msg = get_message('progress_title', language,
                                    awareness_level=awareness_level_current,
                                    entries_count=total_entries,
@@ -150,8 +174,12 @@ async def show_progress(callback: CallbackQuery, user, language: str):
                                    tasks_completion_percentage=tasks_completion_percentage,
                                    streak_days=streak_days,
                                    streak_reset_warning=streak_reset_warning)
+        progress_msg += comparison_text
         has_analyses = await _has_weekly_analyses(user)
-        reply_markup = get_progress_keyboard_with_weekly(language) if has_analyses else get_progress_keyboard_without_weekly(language)
+        if has_analyses:
+             reply_markup = get_progress_keyboard_with_weekly(language)
+        else:
+             reply_markup = get_progress_keyboard_without_weekly(language)
         success = await safe_edit_message_text(
             message=callback.message,
             text=progress_msg,
@@ -223,6 +251,40 @@ async def navigate_weekly_analysis(callback: CallbackQuery, user, language: str)
         )
         await callback.answer()
 
+@router.callback_query(F.data == "show_mood_chart_week")
+async def send_mood_chart_week(callback: CallbackQuery, user, language: str, bot: Bot):
+    """Отправляет изображение с графиком настроения за последние 7 дней."""
+    try:
+        chart_image_buffer = await generate_mood_chart_image(user, days=14)
+        chart_input_file = BufferedInputFile(chart_image_buffer.getvalue(), filename='mood_chart.png')
+        dismiss_kb = get_single_button_keyboard(
+            language=language,
+            button_callback_data="delete_current_chart",
+            button_text="btn_remove"
+        )
+
+        sent_message = await callback.message.answer_photo(
+            photo=chart_input_file,
+            caption=get_message('mood_chart_caption', language, days=14),
+            reply_markup=dismiss_kb
+        )
+        await callback.answer()
+        logger.debug(f"[send_mood_chart_week] График отправлен в сообщении ID {sent_message.message_id} пользователю {user.telegram_id}")
+    except Exception as e:
+        logger.error(f"[send_mood_chart_week] Ошибка генерации/отправки графика: {e}", exc_info=True)
+        await callback.answer(get_message('error_generic', language), show_alert=True)
+
+
+@router.callback_query(F.data == "delete_current_chart")
+async def delete_chart_message(callback: CallbackQuery, bot: Bot):
+    """Удаляет текущее сообщение (предположительно, с графиком)."""
+    try:
+        message_to_delete = callback.message
+        await bot.delete_message(chat_id=message_to_delete.chat.id, message_id=message_to_delete.message_id)
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"[delete_chart_message] Ошибка при удалении сообщения: {e}", exc_info=True)
+
 async def _show_weekly_analysis_page(message, user, week_start_date: date, language: str):
     """Вспомогательная функция для отображения анализа конкретной недели."""
     logger.debug(f"[_show_weekly_analysis_page] Попытка показа анализа для недели {week_start_date} пользователя {user.id}")
@@ -286,3 +348,4 @@ async def _show_weekly_analysis_page(message, user, week_start_date: date, langu
             text=error_msg,
             reply_markup=get_progress_keyboard_without_weekly(language)
         )
+

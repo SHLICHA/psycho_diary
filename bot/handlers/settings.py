@@ -10,6 +10,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from datetime import datetime, timezone
+from aiogram.exceptions import TelegramBadRequest
 
 from messages import get_message
 from bot.states.settings_states import SettingsStates
@@ -211,7 +212,33 @@ async def show_task_settings(callback: CallbackQuery, user, language: str):
 async def increase_tasks_limit(callback: CallbackQuery, user, language: str):
     """Увеличение лимита заданий"""
     try:
-        if user.max_ai_tasks_per_day < 5:  # Максимум 5 заданий в день
+        awareness_level = user.awareness_level
+        max_allowed = 5
+        if awareness_level < 8:
+            max_allowed = 1
+        elif awareness_level == 8:
+            max_allowed = 2
+        elif awareness_level == 9:
+            max_allowed = 3
+        new_limit_proposed = user.max_ai_tasks_per_day + 1
+        if new_limit_proposed > max_allowed:
+            alert_message = get_message('awareness_level_insufficient_for_tasks_current', language=language, current_level=awareness_level, current_max_tasks=max_allowed)
+            await callback.answer(alert_message, show_alert=True)
+            task_settings_msg = get_message('task_settings_menu', language=language).format(
+                max_tasks=user.max_ai_tasks_per_day
+            )
+            try:
+                await callback.message.edit_text(
+                    task_settings_msg,
+                    reply_markup=get_task_settings_keyboard(user, language)
+                )
+            except TelegramBadRequest as e:
+                if "message is not modified" in str(e).lower():
+                    logger.debug(f"Сообщение настроек задач не изменилось для user {user.telegram_id}, редактирование проигнорировано.")
+                else:
+                    logger.error(f"TelegramBadRequest при редактировании сообщения настроек задач: {e}")
+            return
+        if user.max_ai_tasks_per_day < max_allowed:
             user.max_ai_tasks_per_day += 1
             await user.asave(update_fields=['max_ai_tasks_per_day'])
             success_msg = get_message('tasks_limit_increased', language=language).format(
@@ -220,7 +247,7 @@ async def increase_tasks_limit(callback: CallbackQuery, user, language: str):
         else:
             success_msg = get_message('tasks_limit_max_reached', language=language)
         await callback.answer(success_msg)
-        
+
         task_settings_msg = get_message('task_settings_menu', language=language).format(
             max_tasks=user.max_ai_tasks_per_day
         )
@@ -236,7 +263,7 @@ async def increase_tasks_limit(callback: CallbackQuery, user, language: str):
 async def decrease_tasks_limit(callback: CallbackQuery, user, language: str):
     """Уменьшение лимита заданий"""
     try:
-        if user.max_ai_tasks_per_day > 1:  # Минимум 1 задание в день
+        if user.max_ai_tasks_per_day > 1:
             user.max_ai_tasks_per_day -= 1
             await user.asave(update_fields=['max_ai_tasks_per_day'])
             success_msg = get_message('tasks_limit_decreased', language=language).format(
@@ -245,8 +272,6 @@ async def decrease_tasks_limit(callback: CallbackQuery, user, language: str):
         else:
             success_msg = get_message('tasks_limit_min_reached', language=language)
         await callback.answer(success_msg)
-        
-        # Обновляем сообщение с настройками заданий
         from bot.keyboards import get_task_settings_keyboard
         task_settings_msg = get_message('task_settings_menu', language=language).format(
             max_tasks=user.max_ai_tasks_per_day

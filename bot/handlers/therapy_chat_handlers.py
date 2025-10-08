@@ -134,10 +134,21 @@ async def handle_therapy_message(message: Message, user, language: str, bot, sta
         is_valid = service_result.get('is_valid', False)
         ai_response_text = service_result.get('response_text', get_message('no_comment', language))
 
-        updated_history = current_history_list + [
+        new_pair = [
             {'role': 'Пользователь', 'content': user_message_text},
             {'role': 'ИИ', 'content': ai_response_text}
         ]
+        updated_history = current_history_list + new_pair
+
+        # --- Ограничение истории последними 10 парами (20 элементами) ---
+        # Каждая пара состоит из 2 элементов: {'role': 'Пользователь', ...} и {'role': 'ИИ', ...}
+        MAX_HISTORY_PAIRS = 10
+        MAX_HISTORY_ITEMS = MAX_HISTORY_PAIRS * 2
+        if len(updated_history) > MAX_HISTORY_ITEMS:
+            # Сохраняем только последние MAX_HISTORY_ITEMS элементов
+            updated_history = updated_history[-MAX_HISTORY_ITEMS:]
+        # --- Конец ограничения ---
+
         await state_manager.update_state_data(state, therapy_history=updated_history)
 
         # Редактируем сообщение "идет анализ", заменяя его на ответ ИИ (пока без клавиатуры)

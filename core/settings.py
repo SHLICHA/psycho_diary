@@ -174,26 +174,40 @@ LOGGING = {
             '()': 'colorlog.ColoredFormatter',
             'format': '%(log_color)s%(asctime)s %(levelname)s %(name)s [%(filename)s:%(lineno)d - %(funcName)s] %(message)s',
         },
+        'file_formatter': {
+            'format': '%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s - %(message)s'
+        },
     },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
             'formatter': 'colored',
         },
+        'file': {
+            'class': 'logging.FileHandler',
+            'filename': 'bot_debug.log',
+            'formatter': 'file_formatter',
+            'level': 'DEBUG',
+        },
     },
     'root': {
-        'handlers': ['console'],
+        'handlers': ['console', 'file'],
         'level': config('LOG_LEVEL', default='INFO'),
     },
     'loggers': {
         'django': {
-            'handlers': ['console'],
+            'handlers': ['console', 'file'],
             'level': 'INFO',
             'propagate': False,
         },
         'bot': {
-            'handlers': ['console'],
+            'handlers': ['console', 'file'],
             'level': os.getenv('LOGGING_LEVEL'),
+            'propagate': False,
+        },
+        'aiogram.event': {
+            'handlers': ['console', 'file'],
+            'level': 'WARNING',
             'propagate': False,
         },
     },

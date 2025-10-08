@@ -40,5 +40,8 @@ PROGRESS_MESSAGES_RU = {
 'btn_next_week': '⏭ След. неделя',
 'btn_prev_week': '⏮ Пред. неделя',
 'btn_weekly_progress': '📊 Прогресс по неделям',
+'btn_mood_chart': '📈 График настроения',
+'mood_chart_caption': 'Ваша динамика настроения за последние {days} дней.',
+'dynamics': '''\n\n📊 <b>Динамика:</b> '''
     }
 }

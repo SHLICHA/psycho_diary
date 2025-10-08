@@ -42,5 +42,8 @@ Mood Trend: {mood_trend_display}
 'btn_next_week': '⏭ Next Week',
 'btn_prev_week': '⏮ Prev. Week',
 'btn_weekly_progress': '📊 Weekly Progress',
+'btn_mood_chart': '📈 Mood Chart',
+'mood_chart_caption': 'Your mood dynamics for the last {days} days.',
+'dynamics': '''\n\n📊 <b>Dynamics:</b> '''
     }
 }

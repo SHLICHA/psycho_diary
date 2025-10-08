@@ -15,6 +15,12 @@ def get_progress_keyboard_with_weekly(language: str) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
+                text=get_button_text('btn_mood_chart', language),
+                callback_data="show_mood_chart_week"
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 text=get_button_text('btn_back', language),
                 callback_data="main_menu"
             )
