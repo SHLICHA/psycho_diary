@@ -37,12 +37,3 @@ def expire_tasks_sync():
     except Exception as e:
         logger.error(f"Критическая ошибка в задаче обновления статуса просроченных заданий: {e}", exc_info=True)
         return f"Критическая ошибка: {e}"
-
-@shared_task
-def expire_tasks():
-    """
-    Обновление статуса просроченных заданий.
-    Запускается каждую минуту Celery Beat.
-    """
-    logger.debug("Запуск задачи обновления статуса просроченных заданий.")
-    return expire_tasks_sync()

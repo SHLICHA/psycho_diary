@@ -40,7 +40,7 @@ async def send_main_menu_callback(bot_instance: Bot, user_id: int, language: str
 class StateManager:
     """Менеджер для работы с состояниями FSM с автоматическим таймаутом"""
     
-    def __init__(self, timeout_seconds: int = 3600, on_timeout_callback: Optional[Callable[[Bot, int, str], Awaitable[None]]] = None): # bot_instance, user_id, language
+    def __init__(self, timeout_seconds: int = 2400, on_timeout_callback: Optional[Callable[[Bot, int, str], Awaitable[None]]] = None): # bot_instance, user_id, language
         self._timeout_seconds = timeout_seconds
         self._state_timers: Dict[str, asyncio.Task] = {}
         self._bot_instance: Optional[Bot] = None

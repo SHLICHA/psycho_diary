@@ -41,6 +41,7 @@ MESSAGES = {
         'btn_skip': '''⏭ Пропустить''',
         'btn_main_menu': '🔙 В главное меню',
         'btn_recharge_tokens': '💰 Пополнить баланс',
+        'btn_end_chat': '''⏹️ Завершить чат''',
 
         # === Уведомления ===
         'reminder_entry': '📝 Не забудь сделать запись в дневник сегодня!',
@@ -70,8 +71,28 @@ MESSAGES = {
 'session_expired': '''⏰ Время сессии истекло (1 час). Сессия автоматически завершена.''',
 'photo_too_large': '''⚠️ Фото слишком большое. Максимальный размер - 20 МБ''',
 'morning_motivation_default': 'Доброе утро, {first_name}! Пусть этот день будет наполнен радостью и вдохновением.',
-'insufficient_tokens': '❌ Недостаточно токенов для выполнения этой операции. Пожалуйста, пополните баланс.',
+'insufficient_tokens': '❌ Недостаточно токенов для выполнения этой операции. Пожалуйста, пополните баланс или оформите подписку.',
 'insufficient_tokens_for_auto_analysis_and_disabled': '❌ Недостаточно токенов для автоматического анализа дня. Анализ не выполнен. Автоматический анализ отключен. Пожалуйста, пополните баланс или оформите подписку.',
+        'therapy_chat_welcome_premium': '''💬 <b>Вход в психологический чат</b> 🧠
+
+Привет! Я здесь, чтобы выслушать и поддержать. Поделитесь, что вас беспокоит, радует или тревожит — не бойтесь быть собой. 
+
+<b>Важно знать:</b>
+• <i>Ваша переписка с ИИ <u>не сохраняется</u> после завершения сеанса.</i>
+• <i>Я знаю основную информацию о вас из вашего <u>профиля</u>.</i>
+
+Наши с вами мысли и чувства — важная часть пути к пониманию себя. Готов(а) погрузиться в размышления? Напишите первое сообщение! 💭''',
+        'therapy_chat_welcome_paid': '''💬 <b>Вход в психологический чат</b> 🧠
+
+Привет! Я здесь, чтобы выслушать и поддержать. Поделитесь, что вас беспокоит, радует или тревожит — не бойтесь быть собой. 
+
+<b>Важно знать:</b>
+• <i>Ваша переписка с ИИ <u>не сохраняется</u> после завершения сеанса.</i>
+• <i>Я знаю основную информацию о вас из вашего <u>профиля</u>.</i>
+• <i>Каждое ваше сообщение стоит <b>1 токен</b>.</i>
+
+Наши с вами мысли и чувства — важная часть пути к пониманию себя. Готов(а) погрузиться в размышления? Напишите первое сообщение! 💭''',
+        'btn_therapy_chat': '💬 Пообщаться',  
     },
     'en': {
         # === Mood scores ===
@@ -107,6 +128,7 @@ MESSAGES = {
         'btn_skip': '''⏭ Skip''',
         'btn_main_menu': '🔙 Main menu',
         'btn_recharge_tokens': '💰 Recharge Balance',
+        'btn_end_chat': '''⏹️ End Chat''',
         
         # === Notifications ===
         'reminder_entry': '📝 Don\'t forget to make an entry in your diary today!',
@@ -140,7 +162,26 @@ MESSAGES = {
 'insufficient_tokens': '❌ Insufficient tokens to perform this operation. Please top up your balance.',
 'insufficient_tokens_for_auto_analysis': '❌ Insufficient tokens for automatic daily analysis. Analysis not performed. Please top up your balance or subscribe.',
 'insufficient_tokens_for_auto_analysis_and_disabled': '❌ Insufficient tokens for automatic daily analysis. Analysis not performed. Automatic analysis has been disabled. Please top up your balance or subscribe.',
-     
+        'therapy_chat_welcome_premium': '''💬 <b>Entering the Therapy Chat</b> 🧠
+
+Hi! I'm here to listen and support. Share what troubles, pleases, or worries you — don't be afraid to be yourself. 
+
+<b>Important to know:</b>
+• <i>Your chat history with the AI is <u>not saved</u> after the session ends.</i>
+• <i>I know basic information about you from your <u>profile</u>.</i>
+
+Our thoughts and feelings are an important part of the path to understanding ourselves. Ready to dive into reflection? Write your first message! 💭''',
+        'therapy_chat_welcome_paid': '''💬 <b>Entering the Therapy Chat</b> 🧠
+
+Hi! I'm here to listen and support. Share what troubles, pleases, or worries you — don't be afraid to be yourself. 
+
+<b>Important to know:</b>
+• <i>Your chat history with the AI is <u>not saved</u> after the session ends.</i>
+• <i>I know basic information about you from your <u>profile</u>.</i>
+• <i>Each of your messages costs <b>1 token</b>.</i>
+
+Our thoughts and feelings are an important part of the path to understanding ourselves. Ready to dive into reflection? Write your first message! 💭''',
+          'btn_therapy_chat': '💬 Talk to Psychologist',
     }
 }
 

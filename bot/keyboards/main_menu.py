@@ -29,6 +29,12 @@ def get_main_menu_keyboard(language: str, user=None) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
+                text=get_button_text('btn_therapy_chat', language),
+                callback_data="start_therapy_chat" # Новая callback_data
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 text=get_button_text('btn_progress', language),
                 callback_data="progress"
             )
