@@ -12,6 +12,7 @@ from .templates.comment_analysis import COMMENT_ANALYSIS_PROMPT
 from .templates.morning_motivation import MORNING_MOTIVATION_PROMPT
 from .templates.reminder_message import REMINDER_MESSAGE_PROMPT
 from .templates.therapy_chat_prompt import THERAPY_CHAT_PROMPT
+from .templates.profile_change_analysis import PROFILE_CHANGE_ANALYSIS_PROMPT
 from .get_prompt import get_prompt
 
 __all__ = [
@@ -28,5 +29,6 @@ __all__ = [
     'comment_analysis',
     'morning_motivation',
     'therapy_chat_prompt',
+    'profile_change_analysis',
     'get_prompt'
 ]
