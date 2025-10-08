@@ -43,7 +43,13 @@ Mood Trend: {mood_trend_display}
 'btn_prev_week': '⏮ Prev. Week',
 'btn_weekly_progress': '📊 Weekly Progress',
 'btn_mood_chart': '📈 Mood Chart',
+'btn_detailed_progress': 'Detailed Progress',
 'mood_chart_caption': 'Your mood dynamics for the last {days} days.',
-'dynamics': '''\n\n📊 <b>Dynamics:</b> '''
+'dynamics': '''\n\n📊 <b>Dynamics:</b> ''',
+'weekly_analysis_not_performed_yet': '''\n\nℹ️ <b>Progress analysis is performed once a week.</b> Continue keeping a diary, and over time you will see your changes here.''',
+'changes': '''<b>Changes:</b> {summary}''',
+'key_changes': '''<b>Key changes:</b>\n{changes_list}''',
+'stable_traits': '''<b>Stable traits:</b>\n{stable_list}''',
+'detailed_progress': '''📋 <b>Detailed progress for {week_start_date} - {week_end_date}</b>\n\n{changes_text}'''   
     }
 }

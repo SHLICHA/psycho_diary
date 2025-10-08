@@ -12,6 +12,7 @@ from asgiref.sync import async_to_sync
 from users.models import User
 from diary.services.weekly_analysis_service import weekly_analysis_service
 from diary.services.user_profile_analysis_service import user_profile_analysis_service
+from diary.services.user_profile_change_analysis_service import perform_profile_change_analysis
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ def perform_weekly_analysis_for_user_task(self, user_id: int) -> dict:
     Celery задача для выполнения еженедельного анализа и последующего анализа профиля для одного пользователя.
     """
     
-    logger.debug(f"[Celery Task] Запуск еженедельного анализа и анализа профиля для пользователя ID {user_id}")
+    logger.debug(f"[Celery Task] Запуск еженедельного анализа, анализа профиля и анализа изменений профиля для пользователя ID {user_id}")
     try:
         user = User.objects.get(id=user_id)
         if user.is_blocked:
@@ -31,12 +32,56 @@ def perform_weekly_analysis_for_user_task(self, user_id: int) -> dict:
         perform_weekly_sync = async_to_sync(weekly_analysis_service.perform_weekly_analysis)
         weekly_result = perform_weekly_sync(user)
         
+        weekly_analysis_obj = weekly_result.get('weekly_analysis')
+        if not weekly_analysis_obj:
+            # Если WeeklyAnalysis не был создан (например, уже существовал и был возвращён),
+            # нужно его получить отдельно для передачи в следующие шаги.
+            # Логика получения week_start_date должна быть аналогична weekly_analysis_service
+            from datetime import datetime, timedelta
+            import pytz
+            user_tz_str = user.timezone or 'UTC'
+            try:
+                user_tz = pytz.timezone(user_tz_str)
+            except pytz.UnknownTimeZoneError:
+                user_tz = pytz.UTC
+                logger.warning(f"Неверный часовой пояс для пользователя {user.id}: {user_tz_str}. Используем UTC.")
+            today_user_tz = datetime.now(user_tz).date()
+            last_sunday = today_user_tz - timedelta(days=today_user_tz.weekday() + 1)
+            week_start_date = last_sunday - timedelta(days=6)
+            from diary.models import WeeklyAnalysis
+            weekly_analysis_obj = WeeklyAnalysis.objects.filter(user=user, week_start_date=week_start_date).first()
+            # Если и сейчас не нашли (хотя weekly_result.success == True), значит что-то не так
+            if not weekly_analysis_obj:
+                 logger.error(f"[Celery Task] Не удалось получить объект WeeklyAnalysis после выполнения weekly_analysis_service для пользователя {user_id}.")
+                 return {
+                    'status': 'failed', 
+                    'reason': 'weekly_analysis_object_not_found', 
+                    'weekly_result': weekly_result,
+                    'user_id': user_id
+                }
+
+
         if weekly_result['success']:
             logger.debug(f"[Celery Task] -> Еженедельный анализ для пользователя {user_id} успешен.")
-            if weekly_result.get('weekly_analysis'):
-                logger.debug(f"[Celery Task] -> Создан WeeklyAnalysis ID: {weekly_result['weekly_analysis'].id}")
+            if weekly_analysis_obj:
+                logger.debug(f"[Celery Task] -> Используется WeeklyAnalysis ID: {weekly_analysis_obj.id}")
         else:
             logger.warning(f"[Celery Task] -> Ошибка в еженедельном анализе для пользователя {user_id}: {weekly_result.get('message', 'Unknown error')}")
+            # Возвращаем результат, даже если weekly не удался, т.к. profile_change_analysis может быть полезен
+            # Но обычно, если weekly не удался, дальше не идём.
+            # ВОЗМОЖНО, стоит остановить выполнение, если weekly_result['success'] == False
+            # Пока оставим как есть, но можно пересмотреть.
+            # Пока что предположим, что weekly_result['success'] == True, иначе weekly_analysis_obj не был бы получен.
+            # Но на всякий случай проверим.
+            if not weekly_analysis_obj:
+                 logger.error(f"[Celery Task] WeeklyAnalysis не создан или не найден, не могу продолжить. Пользователь {user_id}")
+                 return {
+                    'status': 'failed', 
+                    'reason': 'weekly_analysis_object_missing', 
+                    'weekly_result': weekly_result,
+                    'user_id': user_id
+                }
+
         logger.debug(f"[Celery Task] -> Выполнение анализа профиля пользователя {user_id}...")
         perform_profile_sync = async_to_sync(user_profile_analysis_service.perform_user_profile_analysis)
         profile_result = perform_profile_sync(user)
@@ -45,18 +90,35 @@ def perform_weekly_analysis_for_user_task(self, user_id: int) -> dict:
             logger.debug(f"[Celery Task] -> Анализ профиля пользователя {user_id} успешен.")
         else:
             logger.error(f"[Celery Task] -> Ошибка в анализе профиля для пользователя {user_id}: {profile_result.get('message', 'Unknown error')}")
+            # Важно: даже если анализ профиля не удался, мы всё равно можем попробовать анализ изменений,
+            # так как он использует текущий (потенциально частично обновлённый) профиль и историю.
+            # Поэтому не возвращаем ошибку здесь.
+
+        logger.debug(f"[Celery Task] -> Выполнение анализа изменений профиля пользователя {user_id}...")
+        # Вызываем новый сервис
+        perform_profile_change_sync = async_to_sync(perform_profile_change_analysis)
+        profile_change_result = perform_profile_change_sync(user, weekly_analysis_obj, num_snapshots_to_compare=3) # Указываем количество слепков
+
+        if profile_change_result['success']:
+            logger.debug(f"[Celery Task] -> Анализ изменений профиля для пользователя {user_id} успешен.")
+        else:
+            logger.error(f"[Celery Task] -> Ошибка в анализе изменений профиля для пользователя {user_id}: {profile_change_result.get('message', 'Unknown error')}")
+            # Возвращаем статус с ошибкой в анализе изменений, но успехом в основных анализах
             return {
-                'status': 'completed_with_profile_error', 
+                'status': 'completed_with_change_error', 
                 'weekly_result': weekly_result, 
-                'profile_error': profile_result.get('error'), 
-                'profile_message': profile_result.get('message'),
+                'profile_result': profile_result,
+                'profile_change_error': profile_change_result.get('error'), 
+                'profile_change_message': profile_change_result.get('message'),
                 'user_id': user_id
             }
-        logger.debug(f"[Celery Task] Еженедельный анализ и анализ профиля для пользователя {user_id} успешно завершены.")
+
+        logger.debug(f"[Celery Task] Полный цикл анализа (недельный, профиль, изменения) для пользователя {user_id} успешно завершён.")
         return {
             'status': 'completed', 
             'weekly_result': weekly_result, 
             'profile_result': profile_result,
+            'profile_change_result': profile_change_result, # Добавим результат и этого шага
             'user_id': user_id
         }
     except User.DoesNotExist:

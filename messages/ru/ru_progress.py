@@ -41,7 +41,13 @@ PROGRESS_MESSAGES_RU = {
 'btn_prev_week': '⏮ Пред. неделя',
 'btn_weekly_progress': '📊 Прогресс по неделям',
 'btn_mood_chart': '📈 График настроения',
+'btn_detailed_progress': 'Подробный прогресс',
 'mood_chart_caption': 'Ваша динамика настроения за последние {days} дней.',
-'dynamics': '''\n\n📊 <b>Динамика:</b> '''
+'dynamics': '''\n\n📊 <b>Динамика:</b> ''',
+'weekly_analysis_not_performed_yet': '\n\nℹ️ <b>Анализ прогресса производится раз в неделю.</b> Продолжайте вести дневник, и со временем вы увидите свои изменения здесь.',
+'changes': '''<b>Изменения:</b> {summary}''',
+'key_changes': '''<b>Ключевые изменения:</b>\n{changes_list}''',
+'stable_traits': '''<b>Стабильные черты:</b>\n{stable_list}''',
+'detailed_progress': '''📋 <b>Подробный прогресс за {week_start_date} - {week_end_date}</b>\n\n{changes_text}'''
     }
 }

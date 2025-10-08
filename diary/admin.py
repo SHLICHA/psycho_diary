@@ -762,7 +762,7 @@ class WeeklyAnalysisAdmin(admin.ModelAdmin):
             'fields': ('user', 'week_start_date', 'summary_text')
         }),
         ('Инсайты и Прогресс', {
-            'fields': ('progress_insights', 'comparison_with_previous'),
+            'fields': ('progress_insights', 'comparison_with_previous', 'profile_changes_summary'),
             'classes': ('collapse',),
         }),
         ('Профиль и Статистика', {

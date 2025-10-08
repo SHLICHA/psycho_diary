@@ -600,6 +600,7 @@ class WeeklyAnalysis(models.Model):
     comparison_with_previous = EncryptedJSONField(default=dict, blank=True, verbose_name=_("Сравнение с предыдущей неделей"))
     api_response = EncryptedJSONField(default=dict, blank=True, verbose_name=_("Полный ответ API DeepSeek"))
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Дата создания"))
+    profile_changes_summary = EncryptedJSONField(default=dict, blank=True, verbose_name=_("Резюме изменений профиля"))
 
     class Meta:
         verbose_name = _("Еженедельный анализ")

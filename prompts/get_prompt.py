@@ -16,7 +16,8 @@ from . import (
     COMMENT_ANALYSIS_PROMPT,
     MORNING_MOTIVATION_PROMPT,
     REMINDER_MESSAGE_PROMPT,
-    THERAPY_CHAT_PROMPT
+    THERAPY_CHAT_PROMPT,
+    PROFILE_CHANGE_ANALYSIS_PROMPT
 )
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,8 @@ PROMPTS = {
     'en': {}
 }
 
+PROMPTS['ru']['profile_change_analysis'] = PROFILE_CHANGE_ANALYSIS_PROMPT['ru']
+PROMPTS['en']['profile_change_analysis'] = PROFILE_CHANGE_ANALYSIS_PROMPT['en']
 PROMPTS['ru']['therapy_chat'] = THERAPY_CHAT_PROMPT['ru']
 PROMPTS['en']['therapy_chat'] = THERAPY_CHAT_PROMPT['en']
 PROMPTS['ru']['reminder_message'] = REMINDER_MESSAGE_PROMPT['ru']

@@ -149,13 +149,17 @@ async def show_progress(callback: CallbackQuery, user, language: str):
         tasks_completion_percentage = user_stats['tasks_completion_percentage']
         streak_days = user_stats['streak_days']
         streak_reset_warning = user_stats['streak_reset_warning']
-        comparison_text = ""
+
+        # --- НОВОЕ: Получение последнего WeeklyAnalysis ---
         latest_weekly_analysis = await _get_latest_weekly_analysis(user)
+
+        # --- Формирование текста сравнения с предыдущей неделей (если есть) ---
+        comparison_text = ""
         if latest_weekly_analysis and latest_weekly_analysis.comparison_with_previous:
             comparison_data = latest_weekly_analysis.comparison_with_previous
             progress_comment = comparison_data.get('progress_comment')
             mood_comparison = comparison_data.get('mood_comparison')
-            consistency_comparison = comparison_data.get('consistency_comparison')
+
             parts = []
             if progress_comment:
                 parts.append(progress_comment)
@@ -164,8 +168,15 @@ async def show_progress(callback: CallbackQuery, user, language: str):
                      parts.insert(0, mood_comparison)
                 else:
                      parts.append(f"({mood_comparison})")
+
             if parts:
-                comparison_text = get_message('dynamics', language) + ' '.join(parts)
+                comparison_text = f"\n\n📊 <b>Динамика:</b> {' '.join(parts)}"
+
+        # --- Формирование информационного сообщения, если WeeklyAnalysis ещё не проводилось ---
+        no_analysis_info = ""
+        if not latest_weekly_analysis:
+             no_analysis_info = get_message('weekly_analysis_not_performed_yet', language)
+
         progress_msg = get_message('progress_title', language,
                                    awareness_level=awareness_level_current,
                                    entries_count=total_entries,
@@ -174,12 +185,21 @@ async def show_progress(callback: CallbackQuery, user, language: str):
                                    tasks_completion_percentage=tasks_completion_percentage,
                                    streak_days=streak_days,
                                    streak_reset_warning=streak_reset_warning)
+
+        # Добавляем информационное сообщение, если анализов нет
+        progress_msg += no_analysis_info
+        # Добавляем текст сравнения (если есть)
         progress_msg += comparison_text
+        # УБРАНО: отображение profile_changes_summary в основном сообщении
+
         has_analyses = await _has_weekly_analyses(user)
+        # --- ОБНОВЛЯЕМ КЛАВИАТУРУ: добавляем кнопку "Подробный прогресс" ---
         if has_analyses:
-             reply_markup = get_progress_keyboard_with_weekly(language)
+             # Предположим, у нас есть новая клавиатура, которая включает кнопку "Подробный прогресс"
+             reply_markup = get_progress_keyboard_with_weekly(language) # Новая функция в keyboards
         else:
              reply_markup = get_progress_keyboard_without_weekly(language)
+
         success = await safe_edit_message_text(
             message=callback.message,
             text=progress_msg,
@@ -349,3 +369,63 @@ async def _show_weekly_analysis_page(message, user, week_start_date: date, langu
             reply_markup=get_progress_keyboard_without_weekly(language)
         )
 
+@router.callback_query(F.data == "weekly_details")
+async def show_detailed_progress(callback: CallbackQuery, user, language: str):
+    """Показывает подробности изменений профиля из последнего WeeklyAnalysis."""
+    logger.debug(f"[show_detailed_progress] Запрос от пользователя {user.id}")
+    try:
+        latest_weekly_analysis = await _get_latest_weekly_analysis(user)
+
+        if not latest_weekly_analysis:
+            no_data_msg = get_message('weekly_analysis_not_found', language)
+            await safe_edit_message_text(
+                message=callback.message,
+                text=no_data_msg,
+                reply_markup=get_back_keyboard(language)
+            )
+            await callback.answer()
+            return
+        changes_text = ""
+        if latest_weekly_analysis.profile_changes_summary:
+            changes_summary = latest_weekly_analysis.profile_changes_summary
+            summary = changes_summary.get('summary', '')
+            key_changes = changes_summary.get('key_changes', [])
+            stable_traits = changes_summary.get('stable_traits', [])
+
+            parts = []
+            if summary:
+                parts.append(get_message('changes', language, summary=summary))
+            if key_changes:
+                changes_list = "\n".join([f"🔸 {change}" for change in key_changes])
+                parts.append(get_message('key_changes', language, changes_list=changes_list))
+            if stable_traits:
+                stable_list = "\n".join([f"🔹 {trait}" for trait in stable_traits])
+                parts.append(get_message('stable_traits', language, stable_list=stable_list))
+
+            if parts:
+                changes_text = "\n\n".join(parts)
+        else:
+             changes_text = get_message('no_profile_changes_found', language)
+        week_start_date = latest_weekly_analysis.week_start_date.strftime("%d.%m.%Y")
+        week_end_date = (latest_weekly_analysis.week_start_date + timedelta(days=6)).strftime("%d.%m.%Y")
+        details_msg = get_message(
+            'detailed_progress',
+            language,
+            week_start_date=week_start_date,
+            week_end_date=week_end_date,
+            changes_text=changes_text)
+        await safe_edit_message_text(
+            message=callback.message,
+            text=details_msg,
+            reply_markup=get_single_button_keyboard(language, 'progress', 'btn_back')
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"[show_detailed_progress] Критическая ошибка: {e}", exc_info=True)
+        error_msg = get_message('error_generic', language)
+        await safe_edit_message_text(
+            message=callback.message,
+            text=error_msg,
+            reply_markup=get_back_keyboard(language)
+        )
+        await callback.answer()
