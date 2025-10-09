@@ -5,7 +5,7 @@
 import logging
 
 from asgiref.sync import sync_to_async
-from datetime import date
+from datetime import date, datetime
 from calendar import monthrange
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -55,9 +55,15 @@ async def get_month_calendar_with_navigation(user, year: int, month: int, curren
     buttons.append(weekday_buttons)
     try:
         days_data = await get_days_with_entries_and_mood_async(user, year, month)
+        recovered_days_set = await get_recovered_days_for_month_async(user, year, month)
+        # --- ЛОГИРОВАНИЕ ---
+        logger.debug(f"[Calendar] days_data: {days_data}")
+        logger.debug(f"[Calendar] recovered_days_set: {recovered_days_set}")
+        # ---
     except Exception as e:
         logger.error(f"Ошибка при асинхронном получении дней с настроением: {e}")
         days_data = {}
+        recovered_days_set = set() # На случай ошибки
     user_local_date = user.get_local_datetime().date()
     first_day_weekday = date(year, month, 1).weekday()
     days_in_month = monthrange(year, month)[1]
@@ -67,9 +73,16 @@ async def get_month_calendar_with_navigation(user, year: int, month: int, curren
     today = user.get_local_datetime().date()
     for day in range(1, days_in_month + 1):
         day_text = str(day)
-        if year == user_local_date.year and month == user_local_date.month and day == user_local_date.day:
+        is_today = year == user_local_date.year and month == user_local_date.month and day == user_local_date.day
+        has_recovered_entry = day in recovered_days_set
+        has_mood_data = day in days_data
+
+        if is_today:
             day_text = f"🔹{day}🔹"
-        elif day in days_data:
+        elif has_mood_data:
+            # Есть данные о настроении (значит, были настоящие записи)
+            # Восстановленные записи не влияют на CombinedDiaryEntry, поэтому has_recovered_entry не может быть True здесь
+            # Но на всякий случай, если логика изменится, оставим проверку
             avg_mood_score = days_data[day]
             if avg_mood_score is not None and avg_mood_score > 0:
                 if avg_mood_score >= 8:
@@ -85,6 +98,15 @@ async def get_month_calendar_with_navigation(user, year: int, month: int, curren
                 day_text = f"{mood_emoji}{day}"
             else:
                 day_text = f"📝{day}"
+        elif has_recovered_entry:
+            # Нет данных о настроении (нет CombinedDiaryEntry), но день восстановлен
+            # Используем символ, например, 🔄, ⬅️, или 📅. Выберем что-то поменьше.
+            # Например, символ "возврат" в виде стрелки влево: ◀️
+            # Или просто точку или тире: • или -
+            # Или серую стрелочку: ◲ (не уверен, что отобразится)
+            # Попробуем тонкую стрелку влево: ◀️
+            # Или просто точку: •
+            day_text = f"🔄{day}" # Или f"• {day}" или f"{day}•"
         day_buttons.append(
             InlineKeyboardButton(
                 text=day_text,
@@ -481,3 +503,59 @@ async def get_days_with_entries_and_mood_async(user, year: int, month: int) -> d
     except Exception as e:
         logger.error(f"Ошибка при получении оценок настроения: {e}", exc_info=True)
         return {}
+    
+async def get_recovered_days_for_month_async(user, year: int, month: int) -> set:
+    """
+    Асинхронно получает множество дней в заданном месяце,
+    в которых у пользователя есть восстановленные записи (is_recovered_streak=True).
+    """
+    @sync_to_async
+    def get_recovered_dates_sync():
+        from diary.models import DiaryEntry
+        import pytz
+        user_timezone_str = user.timezone if user.timezone else 'UTC'
+        user_tz = pytz.timezone(user_timezone_str)
+
+        logger.debug(f"[get_recovered_days_for_month_async] Часовой пояс пользователя: {user_tz}")
+
+        # Определяем начало и конец месяца в часовом поясе пользователя
+        start_date_local = date(year, month, 1)
+        end_date_local = date(year, month, monthrange(year, month)[1])
+
+        # Локализуем в начале и конце дня в часовом поясе пользователя
+        start_of_month_user_tz = user_tz.localize(datetime.combine(start_date_local, datetime.min.time()))
+        end_of_month_user_tz = user_tz.localize(datetime.combine(end_date_local, datetime.max.time()))
+
+        # Преобразуем в UTC для фильтрации в БД
+        start_of_month_utc = start_of_month_user_tz.astimezone(pytz.utc)
+        end_of_month_utc = end_of_month_user_tz.astimezone(pytz.utc)
+
+        logger.debug(f"[get_recovered_days_for_month_async] Диапазон UTC: {start_of_month_utc} - {end_of_month_utc}")
+
+        # Фильтруем записи
+        recovered_entries = DiaryEntry.objects.filter(
+            user=user,
+            is_recovered_streak=True,
+            created_at__gte=start_of_month_utc,
+            created_at__lte=end_of_month_utc
+        ).distinct().values_list('created_at', flat=True)
+
+        recovered_days_set = set()
+        for dt in recovered_entries:
+            if dt.tzinfo is None:
+                dt = pytz.utc.localize(dt)
+            entry_date_local = dt.astimezone(user_tz).date()
+            # Убедимся, что дата попадает в нужный месяц/год (на случай сдвига из-за часового пояса)
+            if entry_date_local.year == year and entry_date_local.month == month:
+                recovered_days_set.add(entry_date_local.day)
+
+        logger.debug(f"[get_recovered_days_for_month_async] Найдены восстановленные дни: {recovered_days_set}")
+        return recovered_days_set
+
+    try:
+        result = await get_recovered_dates_sync()
+        logger.debug(f"[get_recovered_days_for_month_async] Возвращаем: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"Ошибка при получении восстановленных дней для {user.telegram_id} за {year}-{month:02d}: {e}", exc_info=True)
+        return set()

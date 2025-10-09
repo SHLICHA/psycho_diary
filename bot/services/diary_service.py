@@ -262,7 +262,8 @@ class DiaryService:
                 .filter(
                     user=user,
                     created_at__gte=start_of_day_utc,
-                    created_at__lte=end_of_day_utc
+                    created_at__lte=end_of_day_utc,
+                    is_recovered_streak=False
                 )
                 .order_by('created_at')
             )
