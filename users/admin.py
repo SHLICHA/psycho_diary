@@ -4,7 +4,7 @@ from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from django.urls import reverse
 
-from .models import Feedback, User, CityTimezone, UserProfileHistory, TokenTransaction
+from .models import Feedback, User, CityTimezone, UserProfileHistory, TokenTransaction, Payment
 
 @admin.register(UserProfileHistory)
 class UserProfileHistoryAdmin(admin.ModelAdmin):
@@ -122,8 +122,8 @@ class UserAdmin(BaseUserAdmin):
     # Определяем fieldsets, объединяя поля AbstractUser и наши новые поля
     fieldsets = (
         # Стандартные поля AbstractUser
-        (None, {'fields': ('username', 'password')}),
-        (('Важные даты'), {'fields': ('last_login', 'created_at', 'updated_at')}),
+        (None, {'fields': ('username', 'password', 'email')}),
+        (('Важные даты'), {'fields': ('last_login', 'created_at', 'updated_at', 'premium_expires_at')}),
         
         # Новые поля для Telegram бота
         (('Telegram и Основное'), {
@@ -274,3 +274,56 @@ class TokenTransactionAdmin(admin.ModelAdmin):
         # Оптимизируем запрос, предзагрузив связанные объекты, если часто просматриваем через related_task_completion
         qs = super().get_queryset(request)
         return qs.select_related('user', 'related_task_completion')
+    
+@admin.register(Payment)
+class PaymentAdmin(admin.ModelAdmin):
+    list_display = (
+        'id',
+        'yookassa_payment_id',
+        'user_link',
+        'amount_rub',
+        'payment_type',
+        'status',
+        'tokens_granted',
+        'subscription_days_granted',
+        'created_at',
+        'updated_at',
+    )
+    list_filter = (
+        'status',
+        'payment_type',
+        'created_at',
+    )
+    search_fields = (
+        'yookassa_payment_id',
+        'user__telegram_id',
+        'user__username',
+    )
+    readonly_fields = (
+        'yookassa_payment_id',
+        'created_at',
+        'updated_at',
+    )
+    ordering = ['-created_at']
+
+    def user_link(self, obj):
+        """Создаёт ссылку на пользователя в админке."""
+        if obj.user:
+            url = reverse("admin:users_user_change", args=[obj.user.id])
+            return format_html('<a href="{}">{}</a>', url, obj.user)
+        return "-"
+    user_link.short_description = 'Пользователь'
+    user_link.admin_order_field = 'user__username'
+
+    # Опционально: можно добавить фильтр по пользователю
+    def changelist_view(self, request, extra_context=None):
+        # Позволяет фильтровать платежи по пользователю через URL
+        # Например: /admin/users/payment/?user__id__exact=123
+        if 'user__id__exact' in request.GET:
+            user_id = request.GET.get('user__id__exact')
+            # Добавим заголовок, чтобы было понятно, что фильтр активен
+            user = User.objects.filter(id=user_id).first()
+            if user:
+                extra_context = extra_context or {}
+                extra_context['subtitle'] = f"Платежи пользователя: {user}"
+        return super().changelist_view(request, extra_context=extra_context)

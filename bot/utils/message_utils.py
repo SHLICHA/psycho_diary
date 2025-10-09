@@ -323,11 +323,7 @@ async def send_message_to_user(
             reply_markup=reply_markup,
             disable_notification=disable_notification
         )
-        if user.is_blocked:
-            user.is_blocked = False
-            await user.asave(update_fields=['is_blocked'])
-            logger.info(f"Пользователь {user.telegram_id} разблокировал бота")
-        return True  
+        return True
     except TelegramBadRequest as e:
         error_message = str(e).lower()
         if "chat not found" in error_message or "bot was blocked" in error_message:

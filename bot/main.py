@@ -16,6 +16,7 @@ from bot.middlewares.user_middleware import UserMiddleware
 from bot.middlewares.language_middleware import LanguageMiddleware
 from bot.middlewares.rate_limit_middleware import RateLimitMiddleware
 from bot.middlewares.analytics_middleware import AnalyticsMiddleware
+from bot.middlewares.premium_check_middleware import PremiumCheckMiddleware
 
 async def main():
     """Основная функция запуска бота"""
@@ -67,6 +68,12 @@ async def main():
     dp.message.middleware(analytics_middleware)
     dp.callback_query.middleware(analytics_middleware)
     logger.info("AnalyticsMiddleware зарегистрирован")
+
+    # 5. PremiumCheckMiddleware - проверка подписки
+    premium_check_middleware = PremiumCheckMiddleware()
+    dp.message.middleware(premium_check_middleware)
+    dp.callback_query.middleware(premium_check_middleware)
+    logger.info("PremiumCheckMiddleware зарегистрирован")    
     
     logger.info("Все middleware зарегистрированы")
     

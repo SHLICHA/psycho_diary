@@ -62,5 +62,8 @@ Mood Trend: {mood_trend_display}
         'btn_restore_streak_for_date': '🔄 Restore {date}',
         # --- Buttons ---
         'btn_confirm': '✅ Confirm',
+        'morning_motivation_restore_single_day': '📅 <b>Day {date} missed</b>!\nKeep your streak going! Restore it in the "Progress" section.',
+        'morning_motivation_restore_two_days': '📅 <b>Days {dates} missed</b>!\nKeep your streak going! Restore them in the "Progress" section.',
+   
     }
 }

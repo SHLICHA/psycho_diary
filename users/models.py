@@ -3,7 +3,7 @@ import logging
 import json
 
 from asgiref.sync import sync_to_async
-from datetime import datetime
+from datetime import datetime, timedelta
 from django.utils import timezone
 from django.contrib.auth.models import AbstractUser
 from django.db import models, transaction
@@ -30,6 +30,10 @@ class User(AbstractUser):
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
     is_premium = models.BooleanField(default=False, verbose_name="Премиум статус")
+    premium_expires_at = models.DateTimeField(
+        null=True, blank=True,
+        verbose_name="Подписка действует до"
+    )
     is_blocked = models.BooleanField(default=False, verbose_name="Бот заблокирован")
     deleted_at = models.DateTimeField(null=True, blank=True, verbose_name="Дата удаления")
     deletion_status = models.CharField(
@@ -87,6 +91,12 @@ class User(AbstractUser):
     def __str__(self):
         return f"{self.username} ({self.telegram_id})"
     
+    def is_premium_active(self) -> bool:
+        """Проверяет, активна ли подписка на текущий момент."""
+        if not self.is_premium or not self.premium_expires_at:
+            return False
+        return self.premium_expires_at > timezone.now()
+    
     def get_profile_data(self):
         """
         Получение данных профиля пользователя для API.
@@ -142,6 +152,42 @@ class User(AbstractUser):
         except Exception as e:
             logger.error(f"Ошибка при получении локального времени пользователя {self.telegram_id}: {e}")
             return timezone.now()
+        
+    async def process_payment(self, payment: 'Payment'):
+        """Активирует подписку или начисляет токены после успешной оплаты."""
+        if payment.status != 'succeeded':
+            return
+
+        from django.utils import timezone
+        update_fields = []
+
+        # --- Подписка ---
+        if payment.subscription_days_granted > 0:
+            now = timezone.now()
+            if self.premium_expires_at and self.premium_expires_at > now:
+                new_expires = self.premium_expires_at + timedelta(days=payment.subscription_days_granted)
+            else:
+                new_expires = now + timedelta(days=payment.subscription_days_granted)
+            self.premium_expires_at = new_expires
+            self.is_premium = True
+            update_fields.extend(['premium_expires_at', 'is_premium'])
+
+        # --- Токены ---
+        if payment.tokens_granted > 0:
+            self.token_balance += payment.tokens_granted
+            update_fields.append('token_balance')
+
+            # Создаём запись в TokenTransaction
+            from users.models import TokenTransaction
+            await TokenTransaction.acreate_and_update_balance(
+                user=self,
+                amount=payment.tokens_granted,
+                transaction_type='purchase',
+                description=f"Покупка токенов (платёж {payment.id})"
+            )
+
+        if update_fields:
+            await self.asave(update_fields=update_fields)
 
 class UserProfileHistory(models.Model):
     """
@@ -341,3 +387,39 @@ class TokenTransaction(models.Model):
         return await sync_to_async(cls.create_and_update_balance)(
             user, amount, transaction_type, description, related_task_completion
         )
+    
+class Payment(models.Model):
+    PAYMENT_TYPES = [
+        ('subscription_month', 'Подписка (месяц)'),
+        ('subscription_year', 'Подписка (год)'),
+        ('tokens_custom', 'Токены (произвольно)'),
+        ('tokens_10', 'Токены (10 шт)'),
+        ('tokens_100', 'Токены (100 шт)'),
+        ('tokens_200', 'Токены (200 шт)'),
+        ('tokens_500', 'Токены (500 шт)'),
+    ]
+
+    STATUS_CHOICES = [
+        ('pending', 'Ожидает оплаты'),
+        ('succeeded', 'Успешно'),
+        ('canceled', 'Отменён'),
+        ('failed', 'Ошибка'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='payments')
+    yookassa_payment_id = models.CharField(max_length=100, unique=True, verbose_name="ID платежа в ЮKassa")
+    amount_rub = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Сумма (RUB)")
+    payment_type = models.CharField(max_length=20, choices=PAYMENT_TYPES)
+    tokens_granted = models.PositiveIntegerField(default=0, verbose_name="Начислено токенов")
+    subscription_days_granted = models.PositiveIntegerField(default=0, verbose_name="Дней подписки")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "users_payment"
+        verbose_name = "Платёж"
+        verbose_name_plural = "Платежи"
+
+    def __str__(self):
+        return f"Платёж {self.yookassa_payment_id} ({self.status}) для {self.user}"

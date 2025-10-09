@@ -128,8 +128,8 @@ CELERY_BEAT_SCHEDULE = {
     },
     'send-morning-motivation-hourly': {
         'task': 'diary.tasks.morning_motivations.send_morning_motivation_task',
-        #'schedule': crontab(minute=0)
-        'schedule': 30,
+        'schedule': crontab(minute=0)
+        #'schedule': 30,
     },
     'expire_task': { # Добавьте эту задачу
         'task': 'diary.tasks.task_expiration.expire_tasks', # Убедитесь в правильном пути
@@ -155,6 +155,18 @@ DEEPSEEK_API_KEY = config('DEEPSEEK_API_KEY')
 TELEGRAM_BOT_TOKEN = config('TELEGRAM_BOT_TOKEN')
 DEVELOPER_CHAT_ID = os.getenv('DEVELOPER_CHAT_ID')
 CRYPTOGRAPHY_KEY = os.getenv('CRYPTOGRAPHY_KEY')
+
+YOOKASSA_SHOP_ID = os.getenv('YOOKASSA_SHOP_ID')
+YOOKASSA_SECRET_KEY = os.getenv('YOOKASSA_SECRET_KEY')
+BOT_USERNAME = os.getenv('BOT_USERNAME')
+
+PREMIUM_PRICE_MONTH = int(os.getenv('PREMIUM_PRICE_MONTH', 300))
+PREMIUM_PRICE_YEAR = int(os.getenv('PREMIUM_PRICE_YEAR', 2000))
+TOKEN_PRICE_PER_UNIT = int(os.getenv('TOKEN_PRICE_PER_UNIT', 5))
+TOKEN_PACK_10 = int(os.getenv('TOKEN_PACK_10', 50))
+TOKEN_PACK_100 = int(os.getenv('TOKEN_PACK_100', 450))
+TOKEN_PACK_200 = int(os.getenv('TOKEN_PACK_200', 800))
+TOKEN_PACK_500 = int(os.getenv('TOKEN_PACK_500', 2000))
 
 CACHES = {
     "default": {

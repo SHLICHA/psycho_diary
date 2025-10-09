@@ -60,5 +60,8 @@ PROGRESS_MESSAGES_RU = {
         'btn_restore_streak_for_date': '🔄 Восстановить {date}',
         # --- Кнопки ---
         'btn_confirm': '✅ Подтвердить',
+        'morning_motivation_restore_single_day': '📅 <b>Пропущен день {date}</b>!\nНе прерывайте свою серию! Восстановите его в разделе "Прогресс".',
+        'morning_motivation_restore_two_days': '📅 <b>Пропущены дни {dates}</b>!\nНе прерывайте свою серию! Восстановите их в разделе "Прогресс".',
+    
     }
 }

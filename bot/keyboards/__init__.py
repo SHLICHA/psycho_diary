@@ -88,6 +88,13 @@ from .progress_keyboards import (
 from .profile_keyboards import (
     get_profile_keyboard
 )
+# Клавиатуры оплаты
+from .payments_keyboards import (
+    get_purchase_options_keyboard,
+    get_manage_premium_keyboard,
+    get_token_purchase_options_keyboard,
+    get_token_custom_amount_keyboard
+)
 __all__ = [
     # Основные клавиатуры
     'get_single_button_keyboard',
@@ -158,5 +165,11 @@ __all__ = [
     ' get_restore_date_selection_keyboard',
 
     # Клавиатуры профиля
-    'get_profile_keyboard'
+    'get_profile_keyboard',
+
+    # Клавиатуры оплаты
+    'get_purchase_options_keyboard',
+    'get_manage_premium_keyboard',
+    'get_token_purchase_options_keyboard',
+    'get_token_custom_amount_keyboard'
 ]

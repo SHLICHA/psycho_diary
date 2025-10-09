@@ -20,6 +20,7 @@ from diary.models import CombinedDiaryEntry, DailyAnalysis
 from messages import get_message, get_button_text
 from core.settings import TELEGRAM_BOT_TOKEN
 from bot.services.deepseek_api import deepseek_api_service
+from bot.utils.diary_utils import get_recoverable_gap_info
 from prompts.get_prompt import get_prompt
 
 logger = logging.getLogger(__name__)
@@ -77,7 +78,7 @@ async def _send_morning_motivation_async():
                 
                 user_local_time = utc_now.astimezone(user_tz)
                 current_user_hour = user_local_time.hour
-                if current_user_hour == 14:
+                if current_user_hour == 10:
                     logger.debug(f"Время 10:00 наступило для пользователя {user.telegram_id} в часовом поясе {user_timezone_str}")
                     try:
                         user_language = user.language or 'ru'
@@ -128,7 +129,21 @@ async def _send_morning_motivation_async():
                         else:
                             motivation_text_base = get_message('morning_motivation_default', user_language, first_name=first_name)
                             logger.warning(f"ИИ не сгенерировал сообщение для {user.telegram_id}. Используется стандартное. Ошибка API: {api_result.get('error')}")
+                        dates_to_restore = await get_recoverable_gap_info(user)
+                        restore_available = dates_to_restore is not None
 
+                        restore_text = ""
+                        if restore_available and dates_to_restore:
+                            # Форматируем даты для сообщения
+                            formatted_dates = [dt.strftime("%d.%m") for dt in dates_to_restore]
+                            # Используем разные сообщения в зависимости от количества дней
+                            if len(formatted_dates) == 1:
+                                restore_text = get_message('morning_motivation_restore_single_day', user_language, date=formatted_dates[0])
+                            else: # len == 2
+                                # Объединяем даты, например, "07.10 и 08.10"
+                                dates_str = " и ".join(formatted_dates)
+                                restore_text = get_message('morning_motivation_restore_two_days', user_language, dates=dates_str)
+                            restore_text = f"\n\n{restore_text}" # Добавляем отступ
                         additional_text = ""
                         additional_button_callback = None
                         additional_button_text_key = None
@@ -148,7 +163,7 @@ async def _send_morning_motivation_async():
                             additional_button_callback = "settings_toggle_auto_analysis"
                             additional_button_text_key = 'btn_morning_motivation_enable_auto_analysis'
 
-                        motivation_text = motivation_text_base + additional_text
+                        motivation_text = motivation_text_base + restore_text + additional_text
 
                         keyboard_buttons = [
                             [

@@ -27,7 +27,10 @@ from bot.keyboards import (
     get_edit_profile_keyboard,
     get_account_deletion_confirmation_keyboard,
     get_account_deletion_menu_keyboard,
-    get_task_settings_keyboard
+    get_task_settings_keyboard,
+    get_premium_keyboard,
+    get_manage_premium_keyboard,
+    get_purchase_options_keyboard
     )
 from bot.services import deepseek_api_service
 from bot.utils.state_manager import state_manager
@@ -157,25 +160,6 @@ async def toggle_auto_analysis(callback: CallbackQuery, user, language: str):
             )     
     except Exception as e:
         logger.error(f"Ошибка при переключении автоанализа: {e}")
-        await callback.answer(get_message('error_generic', language=language))
-
-@router.callback_query(F.data == "settings_premium")
-async def show_premium(callback: CallbackQuery, user, language: str):
-    """Показ премиум функций"""
-    try:
-        if user.is_premium:
-            premium_msg = get_message('settings_premium', language=language).format(
-                status=get_message('status_enabled', language=language)
-            )
-        else:
-            premium_msg = get_message('premium_benefits', language=language)
-        await callback.message.edit_text(
-            premium_msg,
-            reply_markup=get_premium_keyboard(language)
-        )
-        await callback.answer()
-    except Exception as e:
-        logger.error(f"Ошибка при показе премиум функций: {e}")
         await callback.answer(get_message('error_generic', language=language))
 
 @router.callback_query(F.data == "premium_subscribe")

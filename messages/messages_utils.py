@@ -99,7 +99,16 @@ MESSAGES = {
 
 Наши с вами мысли и чувства — важная часть пути к пониманию себя. Готов(а) погрузиться в размышления? Напишите первое сообщение! 💭''',
         'btn_therapy_chat': '💬 Пообщаться',  
-        'btn_remove': '''🗑️ Убрать'''
+        'btn_remove': '''🗑️ Убрать''',
+
+        'btn_purchase_tokens': '💎 Купить токены',
+        'btn_purchase_subscription': '👑 Купить подписку',
+        'btn_manage_subscription': 'Управление подпиской',
+        'btn_renew_subscription': '🔄 Продлить подписку',
+        'btn_enter_email_for_receipt': '📧 Ввести email для чека',
+        'ask_email_for_receipt': '''📧 <b>Введите ваш email для чека</b>\n\nТребуется для соблюдения ФЗ-54 «О применении ККТ». На этот email будет отправлен чек об оплате.''',
+        'email_invalid_format': '❌ Неверный формат email. Пожалуйста, введите реальный email для получения чека.',
+        'payment_email_saved': '✅ Email сохранён. Продолжаем оформление платежа...'
     },
     'en': {
         # === Mood scores ===
@@ -195,7 +204,16 @@ Hi! I'm here to listen and support. Share what troubles, pleases, or worries you
 
 Our thoughts and feelings are an important part of the path to understanding ourselves. Ready to dive into reflection? Write your first message! 💭''',
         'btn_therapy_chat': '💬 Talk to Psychologist',
-        'btn_remove': '''🗑️ Remove'''
+        'btn_remove': '''🗑️ Remove''',
+
+        'btn_purchase_tokens': '💎 Buy tokens',
+        'btn_purchase_subscription': '👑 Buy subscription',
+        'btn_manage_subscription': 'Manage subscription',
+        'btn_renew_subscription': '🔄 Renew subscription',
+        'btn_enter_email_for_receipt': '📧 Enter email for receipt',
+        'ask_email_for_receipt': '''📧 <b>Enter your email for receipt</b>\n\nRequired for compliance with Federal Law-54 "On the use of cash register equipment". The receipt will be sent to this email.''',
+        'email_invalid_format': '❌ Invalid email format. Please enter a real email to receive the receipt.',
+        'payment_email_saved': '✅ Email saved. Continuing with payment processing...'
     }
 }
 
