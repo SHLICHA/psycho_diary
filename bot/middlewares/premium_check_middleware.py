@@ -50,7 +50,7 @@ class PremiumCheckMiddleware(BaseMiddleware):
         else:
             # is_premium True, но нет даты окончания (старая логика, например)
             # Считаем, что не активна
-            logger.warning(f"У пользователя {user.telegram_id} is_premium=True, но нет даты окончания подписки.")
+            logger.debug(f"У пользователя {user.telegram_id} is_premium=True, но нет даты окончания подписки.")
             data['is_premium_active'] = False
 
         # Продолжаем выполнение
