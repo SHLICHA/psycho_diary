@@ -82,7 +82,8 @@ from .progress_keyboards import (
     get_weekly_analysis_keyboard,
     get_progress_keyboard_without_weekly,
     get_weekly_navigation_keyboard,
-    get_progress_keyboard_with_weekly
+    get_progress_keyboard_with_weekly,
+    get_restore_date_selection_keyboard
 )
 from .profile_keyboards import (
     get_profile_keyboard
@@ -154,6 +155,7 @@ __all__ = [
     'get_progress_keyboard_without_weekly',
     'get_weekly_navigation_keyboard',
     'get_progress_keyboard_with_weekly',
+    ' get_restore_date_selection_keyboard',
 
     # Клавиатуры профиля
     'get_profile_keyboard'

@@ -47,6 +47,12 @@ MESSAGES = {
         'reminder_entry': '📝 Не забудь сделать запись в дневник сегодня!',
         'reminder_task': '🎯 У тебя есть невыполненное задание!',
         'morning_greeting': '🌅 Доброе утро! Готов вести дневник сегодня?',
+        'morning_motivation_recharge_preamble': '''\n\n------------\n💰 <b>Хочешь автоматический анализ дня?</b>\n\n''',
+        'morning_motivation_recharge_text': '''Пополните баланс или оформите подписку, чтобы получать автоматический полный анализ дня. Это поможет объединить данные из разных записей и обновить ваш психологический профиль для более точного понимания себя.''',
+        'morning_motivation_enable_auto_analysis_preamble': '''\n\n------------\n🔄 <b>Включите автоматический анализ?</b>\n\n''',
+        'morning_motivation_enable_auto_analysis_text': '''У вас есть подписка или токены, но автоматический анализ дня отключен. Включите его, чтобы получать персонализированные инсайты и отслеживать свой прогресс.''',
+        'btn_morning_motivation_recharge': '💰 Пополнить баланс или оформить подписку',
+        'btn_morning_motivation_enable_auto_analysis': '⚙️ Включить автоанализ',        
         'evening_greeting': '🌇 Добрый вечер! Как прошёл твой день?',
         # === Специальные сообщения ===
         'insight_discovered': '💡 <b>Новый инсайт!</b>\n\nЯ заметил, что у тебя часто встречается тема "{insight}". Это может быть важно для понимания твоих паттернов.',
@@ -135,6 +141,12 @@ MESSAGES = {
         'reminder_entry': '📝 Don\'t forget to make an entry in your diary today!',
         'reminder_task': '🎯 You have an incomplete task!',
         'morning_greeting': '🌅 Good morning! Ready to keep a diary today?',
+        'morning_motivation_recharge_preamble': '''\n\n------------\n💰 <b>Want automatic day analysis?</b>\n\n''',
+        'morning_motivation_recharge_text': '''Recharge your balance or subscribe to get automatic full day analysis. This will help combine data from different entries and update your psychological profile for a better understanding of yourself.''',
+        'morning_motivation_enable_auto_analysis_preamble': '''\n\n------------\n🔄 <b>Enable automatic analysis?</b>\n\n''',
+        'morning_motivation_enable_auto_analysis_text': '''You have a subscription or tokens, but automatic daily analysis is disabled. Enable it to receive personalized insights and track your progress.''',
+        'btn_morning_motivation_recharge': '💰 Recharge Balance or Subscribe',
+        'btn_morning_motivation_enable_auto_analysis': '⚙️ Enable Auto Analysis',
         'evening_greeting': '🌇 Good evening! How was your day?',
         
         # === Special messages ===

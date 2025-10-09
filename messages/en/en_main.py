@@ -70,6 +70,10 @@ Would you like to attach a screenshot for better understanding?''',
 {max_streak_info}
 
 Ready to share your thoughts?''',
-        'user_default_name': '''Friend'''
+        'user_default_name': '''Friend''',
+        'streak_restore_hint': 'Keep your streak going! Missed a day? Restore it in the "Progress" section.',
+        'streak_restore_hint_single_day': '📅 <b>Day {date} missed</b>!\nKeep your streak going! Restore it in the "Progress" section.',
+        'streak_restore_hint_two_days': '📅 <b>Days {dates} missed</b>!\nKeep your streak going! Restore them in the "Progress" section.',
+
     }
 }

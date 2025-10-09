@@ -22,6 +22,7 @@ from bot.utils.message_utils import (
 from bot.utils.callback_utils import safe_answer_callback
 from bot.utils.state_manager import state_manager
 from bot.utils.audio_utils import process_voice_message
+from bot.services.diary_service import get_user_streaks
 from messages import get_message, get_button_text
 
 logger = logging.getLogger(__name__)
@@ -193,8 +194,7 @@ async def handle_therapy_message(message: Message, user, language: str, bot, sta
             entries_count = profile_data.get('entries_count', 0)
             token_balance = user.token_balance
 
-            from bot.services.diary_service import get_user_streaks
-            current_streak, max_streak = await sync_to_async(get_user_streaks)(user)
+            current_streak, max_streak = await get_user_streaks(user)
 
             streak_info = ""
             if current_streak > 0:

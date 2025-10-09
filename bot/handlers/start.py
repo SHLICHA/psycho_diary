@@ -18,6 +18,7 @@ from bot.keyboards import (
 from bot.utils.message_utils import safe_edit_message_text
 from bot.utils.callback_utils import safe_answer_callback
 from bot.utils.state_manager import state_manager
+from bot.utils.diary_utils import get_user_streaks, get_recoverable_gap_info
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -38,8 +39,9 @@ async def cmd_start(message: Message, user, language: str, state: FSMContext):
             awareness_level = profile_data.get('awareness_level', 1)
             entries_count = profile_data.get('entries_count', 0)
             token_balance = user.token_balance
-            from bot.services.diary_service import get_user_streaks
-            current_streak, max_streak = await sync_to_async(get_user_streaks)(user)
+            current_streak, max_streak = await get_user_streaks(user)
+            dates_to_restore = await get_recoverable_gap_info(user)
+            restore_available = dates_to_restore is not None
             streak_info = ""
             if current_streak > 0:
                 streak_info = get_message('current_streak_info', language, current_streak=current_streak)
@@ -61,6 +63,17 @@ async def cmd_start(message: Message, user, language: str, state: FSMContext):
                                        token_balance=token_balance,
                                        streak_info=streak_info,
                                        max_streak_info=max_streak_info)
+            if restore_available and dates_to_restore:
+                # Форматируем даты для сообщения
+                formatted_dates = [dt.strftime("%d.%m") for dt in dates_to_restore]
+                # Можем использовать разные сообщения в зависимости от количества дней
+                if len(formatted_dates) == 1:
+                    restore_hint = get_message('streak_restore_hint_single_day', language, date=formatted_dates[0])
+                else: # len == 2
+                    # Объединяем даты, например, "07.10 и 08.10"
+                    dates_str = " и ".join(formatted_dates)
+                    restore_hint = get_message('streak_restore_hint_two_days', language, dates=dates_str)
+                main_menu_msg += f"\n\n{restore_hint}"
             await message.answer(
                 main_menu_msg,
                 reply_markup=get_main_menu_keyboard(language, user)
@@ -72,7 +85,7 @@ async def cmd_start(message: Message, user, language: str, state: FSMContext):
 @router.callback_query(F.data == "main_menu")
 async def back_to_main_menu(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Возврат в главное меню"""
-    from bot.services.diary_service import get_user_streaks
+    
     try:
         await state_manager.clear_state(state)
         profile_data = await user.aget_profile_data()
@@ -81,7 +94,9 @@ async def back_to_main_menu(callback: CallbackQuery, state: FSMContext, user, la
         entries_count = profile_data.get('entries_count', 0)
         token_balance = user.token_balance
         
-        current_streak, max_streak = await sync_to_async(get_user_streaks)(user)
+        current_streak, max_streak = await get_user_streaks(user)
+        dates_to_restore = await get_recoverable_gap_info(user)
+        restore_available = dates_to_restore is not None
         streak_info = ""
         if current_streak > 0:
             streak_info = get_message('current_streak_info', language, current_streak=current_streak)
@@ -103,6 +118,17 @@ async def back_to_main_menu(callback: CallbackQuery, state: FSMContext, user, la
                                    token_balance=token_balance,
                                    streak_info=streak_info,
                                    max_streak_info=max_streak_info)
+        if restore_available and dates_to_restore:
+             # Форматируем даты для сообщения
+             formatted_dates = [dt.strftime("%d.%m") for dt in dates_to_restore]
+             # Можем использовать разные сообщения в зависимости от количества дней
+             if len(formatted_dates) == 1:
+                 restore_hint = get_message('streak_restore_hint_single_day', language, date=formatted_dates[0])
+             else: # len == 2
+                 # Объединяем даты, например, "07.10 и 08.10"
+                 dates_str = " и ".join(formatted_dates)
+                 restore_hint = get_message('streak_restore_hint_two_days', language, dates=dates_str)
+             main_menu_msg += f"\n\n{restore_hint}"
         await safe_edit_message_text(
             message=callback.message,
             text=main_menu_msg,

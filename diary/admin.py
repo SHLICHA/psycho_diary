@@ -21,7 +21,7 @@ class DiaryEntryAdmin(admin.ModelAdmin):
     """
     list_display = (
         'id', 'user_link', 'short_text', 'entry_date', 'word_count', 
-        'is_processed', 'has_analysis', 'created_at'
+        'is_processed', 'has_analysis', 'created_at', 'is_recovered_streak'
     )
     list_filter = (
         'is_processed', 'language', 'created_at', 'updated_at',
@@ -45,7 +45,7 @@ class DiaryEntryAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
         (_('Статус обработки'), {
-            'fields': ('is_processed', 'processing_error')
+            'fields': ('is_processed', 'processing_error', 'is_recovered_streak')
         }),
         (_('Группировка'), {
             'fields': ('is_primary', 'parent_entry'),

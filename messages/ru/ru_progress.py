@@ -48,6 +48,17 @@ PROGRESS_MESSAGES_RU = {
 'changes': '''<b>Изменения:</b> {summary}''',
 'key_changes': '''<b>Ключевые изменения:</b>\n{changes_list}''',
 'stable_traits': '''<b>Стабильные черты:</b>\n{stable_list}''',
-'detailed_progress': '''📋 <b>Подробный прогресс за {week_start_date} - {week_end_date}</b>\n\n{changes_text}'''
+'detailed_progress': '''📋 <b>Подробный прогресс за {week_start_date} - {week_end_date}</b>\n\n{changes_text}''',
+        'restore_streak_info': '''Вы пропустили один или два дня подряд. Вы можете восстановить серию, создав пустую запись за пропущенный день. Это будет стоить <b>{tokens_cost}</b> токенов.''',
+        'restore_streak_confirm': '''Вы уверены, что хотите восстановить серию за <b>{tokens_cost}</b> токенов?''',
+        'restore_streak_success': '''Серия восстановлена! Запись за <b>{date}</b> создана.''',
+        'restore_streak_success_multiple': '''Серия восстановлена! Записи за <b>{dates}</b> созданы.''',
+        'restore_streak_no_tokens': '''Недостаточно токенов для восстановления серии.''',
+        'restore_streak_unavailable': '''Восстановление серии в данный момент невозможно.''',
+        'restore_streak_cost_info': '''(стоимость: {tokens_cost} токенов)''',
+        'btn_restore_streak': '🔄 Восстановить серию',
+        'btn_restore_streak_for_date': '🔄 Восстановить {date}',
+        # --- Кнопки ---
+        'btn_confirm': '✅ Подтвердить',
     }
 }

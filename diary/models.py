@@ -99,6 +99,11 @@ class DiaryEntry(models.Model):
         verbose_name=_("Комментарий пользователя"),
         help_text=_("Комментарий, добавленный пользователем после получения анализа.")
     )
+    is_recovered_streak = models.BooleanField(
+        default=False,
+        verbose_name=_("Запись восстановления серии"),
+        help_text=_("Указывает, что эта запись создана для восстановления пропущенного дня в серии.")
+    )    
 
     class Meta:
         verbose_name = _("Запись дневника")

@@ -24,17 +24,24 @@ from prompts.get_prompt import get_prompt
 
 logger = logging.getLogger(__name__)
 
-@sync_to_async
-def get_users_for_morning_motivation():
+async def aget_users_for_morning_motivation():
     """
-    Получение активных пользователей с включенными уведомлениями, не заблокированных.
+    Асинхронное получение активных пользователей с включенными уведомлениями, не заблокированных.
+    Предзагружает необходимые поля для эффективности и избегания lazy loading в асинхронной функции.
     """
-    return list(User.objects.filter(
-        notifications_enabled=True,
-        is_blocked=False,
-        deletion_status='active',
-        deleted_at__isnull=True
-    ))
+    from asgiref.sync import sync_to_async
+    @sync_to_async
+    def _get_users_sync():
+        return list(User.objects.filter(
+            notifications_enabled=True,
+            is_blocked=False,
+            deletion_status='active',
+            deleted_at__isnull=True
+        ).only(
+            'telegram_id', 'timezone', 'language', 'is_premium', 'token_balance', 'auto_analysis_enabled',
+            'first_name', 'username', 'awareness_level', 'is_blocked', 'deletion_status', 'deleted_at'
+        ))
+    return await _get_users_sync()
 
 @shared_task
 def send_morning_motivation_task():
@@ -51,7 +58,7 @@ async def _send_morning_motivation_async():
     """
     bot_instance = None
     try:
-        users = await get_users_for_morning_motivation()
+        users = await aget_users_for_morning_motivation()
         logger.debug(f"Найдено {len(users)} активных пользователей с включенными уведомлениями для утреннего сообщения.")
         
         success_count = 0
@@ -70,11 +77,24 @@ async def _send_morning_motivation_async():
                 
                 user_local_time = utc_now.astimezone(user_tz)
                 current_user_hour = user_local_time.hour
-                if current_user_hour == 10:
+                if current_user_hour == 14:
                     logger.debug(f"Время 10:00 наступило для пользователя {user.telegram_id} в часовом поясе {user_timezone_str}")
                     try:
                         user_language = user.language or 'ru'
-                        user_profile_data = await user.aget_profile_data()
+                        from asgiref.sync import sync_to_async
+                        @sync_to_async
+                        def get_entries_count():
+                            return user.diary_entries.count()
+                        entries_count = await get_entries_count()
+                        user_profile_data = {
+                            'first_name': user.first_name or user.username or f'Пользователь {user.telegram_id}',
+                            'awareness_level': user.awareness_level,
+                            'is_premium': user.is_premium,
+                            'entries_count': entries_count,
+                            'username': user.username,
+                            'language': user.language,
+                            'telegram_id': user.telegram_id
+                        }
                         first_name = user.first_name or user.username or f"Пользователь {user.telegram_id}"
                         target_analysis_date = user_local_time.date() - timedelta(days=1)
                         previous_day_analysis_data = {}
@@ -103,25 +123,56 @@ async def _send_morning_motivation_async():
                         )
                         api_result = await deepseek_api_service.send_prompt_and_parse(prompt, language=user_language)
                         if api_result.get('success'):
-                            motivation_text = api_result.get('result', {}).get('motivation_message', 
+                            motivation_text_base = api_result.get('result', {}).get('motivation_message',
                                 get_message('morning_motivation_default', user_language, first_name=first_name))
                         else:
-                            motivation_text = get_message('morning_motivation_default', user_language, first_name=first_name)
+                            motivation_text_base = get_message('morning_motivation_default', user_language, first_name=first_name)
                             logger.warning(f"ИИ не сгенерировал сообщение для {user.telegram_id}. Используется стандартное. Ошибка API: {api_result.get('error')}")
-                        motivation_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+
+                        additional_text = ""
+                        additional_button_callback = None
+                        additional_button_text_key = None
+
+                        if not user.is_premium and user.token_balance <= 0:
+                            additional_text = (
+                                get_message('morning_motivation_recharge_preamble', user_language) +
+                                get_message('morning_motivation_recharge_text', user_language)
+                            )
+                            additional_button_callback = "premium_subscribe"
+                            additional_button_text_key = 'btn_morning_motivation_recharge'
+                        elif not user.auto_analysis_enabled and (user.is_premium or user.token_balance > 0):
+                            additional_text = (
+                                get_message('morning_motivation_enable_auto_analysis_preamble', user_language) +
+                                get_message('morning_motivation_enable_auto_analysis_text', user_language)
+                            )
+                            additional_button_callback = "settings_toggle_auto_analysis"
+                            additional_button_text_key = 'btn_morning_motivation_enable_auto_analysis'
+
+                        motivation_text = motivation_text_base + additional_text
+
+                        keyboard_buttons = [
                             [
                                 InlineKeyboardButton(
                                     text=get_button_text('btn_new_entry', user_language),
                                     callback_data="new_entry"
                                 )
-                            ],
-                            [
-                                 InlineKeyboardButton(
-                                    text=get_button_text('btn_main_menu', user_language),
-                                    callback_data="main_menu"
-                                )
                             ]
+                        ]
+                        if additional_button_callback and additional_button_text_key:
+                             keyboard_buttons.append([
+                                InlineKeyboardButton(
+                                    text=get_button_text(additional_button_text_key, user_language),
+                                    callback_data=additional_button_callback
+                                )
+                             ])
+                        keyboard_buttons.append([
+                             InlineKeyboardButton(
+                                text=get_button_text('btn_main_menu', user_language),
+                                callback_data="main_menu"
+                            )
                         ])
+
+                        motivation_keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
                         success = await send_message_to_user(
                             bot=bot_instance,
                             user=user,

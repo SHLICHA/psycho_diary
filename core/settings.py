@@ -128,7 +128,8 @@ CELERY_BEAT_SCHEDULE = {
     },
     'send-morning-motivation-hourly': {
         'task': 'diary.tasks.morning_motivations.send_morning_motivation_task',
-        'schedule': crontab(minute=0)
+        #'schedule': crontab(minute=0)
+        'schedule': 30,
     },
     'expire_task': { # Добавьте эту задачу
         'task': 'diary.tasks.task_expiration.expire_tasks', # Убедитесь в правильном пути

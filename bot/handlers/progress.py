@@ -18,10 +18,12 @@ from bot.keyboards import (
     get_weekly_navigation_keyboard,
     get_progress_keyboard_without_weekly,
     get_progress_keyboard_with_weekly,
-    get_single_button_keyboard
+    get_single_button_keyboard,
+    get_restore_date_selection_keyboard
 )
 from bot.utils.message_utils import safe_edit_message_text
 from bot.utils.mood_chart import generate_mood_chart_image
+from bot.utils.diary_utils import get_recoverable_gap_info, attempt_restore_streak
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -54,7 +56,7 @@ async def _get_user_statistics(user) -> dict:
     try:
         @sync_to_async
         def _count_entries():
-            return DiaryEntry.objects.filter(user=user).count()
+            return DiaryEntry.objects.filter(user=user, is_recovered_streak=False).count()
         stats['entries_count'] = await _count_entries()
         @sync_to_async
         def _count_tasks_completed():
@@ -136,6 +138,11 @@ async def _get_latest_weekly_analysis(user):
         logger.error(f"Ошибка при получении последнего недельного анализа для пользователя {user.id}: {e}")
         return None
 
+async def _should_show_restore_button(user) -> bool:
+    """Проверяет, нужно ли показывать кнопку восстановления."""
+    recoverable_dates = await get_recoverable_gap_info(user)
+    return recoverable_dates is not None
+
 @router.callback_query(F.data == "progress")
 async def show_progress(callback: CallbackQuery, user, language: str):
     """Показ прогресса."""
@@ -149,11 +156,7 @@ async def show_progress(callback: CallbackQuery, user, language: str):
         tasks_completion_percentage = user_stats['tasks_completion_percentage']
         streak_days = user_stats['streak_days']
         streak_reset_warning = user_stats['streak_reset_warning']
-
-        # --- НОВОЕ: Получение последнего WeeklyAnalysis ---
         latest_weekly_analysis = await _get_latest_weekly_analysis(user)
-
-        # --- Формирование текста сравнения с предыдущей неделей (если есть) ---
         comparison_text = ""
         if latest_weekly_analysis and latest_weekly_analysis.comparison_with_previous:
             comparison_data = latest_weekly_analysis.comparison_with_previous
@@ -193,12 +196,14 @@ async def show_progress(callback: CallbackQuery, user, language: str):
         # УБРАНО: отображение profile_changes_summary в основном сообщении
 
         has_analyses = await _has_weekly_analyses(user)
+        show_restore_btn = await _should_show_restore_button(user)
         # --- ОБНОВЛЯЕМ КЛАВИАТУРУ: добавляем кнопку "Подробный прогресс" ---
         if has_analyses:
-             # Предположим, у нас есть новая клавиатура, которая включает кнопку "Подробный прогресс"
-             reply_markup = get_progress_keyboard_with_weekly(language) # Новая функция в keyboards
+             # Используем обновленную клавиатуру с флагом
+             reply_markup = get_progress_keyboard_with_weekly(language, show_restore_button=show_restore_btn)
         else:
-             reply_markup = get_progress_keyboard_without_weekly(language)
+             # Используем обновленную клавиатуру с флагом
+             reply_markup = get_progress_keyboard_without_weekly(language, show_restore_button=show_restore_btn)
 
         success = await safe_edit_message_text(
             message=callback.message,
@@ -304,6 +309,98 @@ async def delete_chart_message(callback: CallbackQuery, bot: Bot):
         await callback.answer()
     except Exception as e:
         logger.error(f"[delete_chart_message] Ошибка при удалении сообщения: {e}", exc_info=True)
+
+@router.callback_query(F.data == "restore_streak")
+async def handle_restore_streak_request(callback: CallbackQuery, user, language: str):
+    """Обрабатывает запрос на восстановление серии."""
+    logger.debug(f"[handle_restore_streak_request] Запрос от пользователя {user.id}")
+    try:
+        # Проверяем, доступно ли восстановление
+        recoverable_dates = await get_recoverable_gap_info(user)
+        if not recoverable_dates:
+             # Если по какой-то причине стало недоступно, обновляем экран прогресса
+             await show_progress(callback, user, language)
+             await callback.answer()
+             return
+
+        # Если доступна одна дата, сразу пробуем восстановить
+        if len(recoverable_dates) == 1:
+            message_text = get_message('restore_streak_info', language, tokens_cost=10) # Предполагаемая стоимость
+        elif len(recoverable_dates) == 2:
+            message_text = get_message('restore_streak_info', language, tokens_cost=10) # Предполагаемая стоимость
+        else:
+            # Логическая ошибка, функция не должна возвращать больше 2
+            logger.error(f"[handle_restore_streak_request] get_recoverable_gap_info вернула более 2 дат: {recoverable_dates}")
+            error_msg = get_message('error_generic', language)
+            await safe_edit_message_text(
+                message=callback.message,
+                text=error_msg,
+                reply_markup=get_back_keyboard(language)
+            )
+            await callback.answer()
+            return
+
+        keyboard = get_restore_date_selection_keyboard(language, recoverable_dates)
+        await safe_edit_message_text(
+            message=callback.message,
+            text=message_text,
+            reply_markup=keyboard
+        )
+
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"[handle_restore_streak_request] Критическая ошибка: {e}", exc_info=True)
+        error_msg = get_message('error_generic', language)
+        await safe_edit_message_text(
+            message=callback.message,
+            text=error_msg,
+            reply_markup=get_back_keyboard(language)
+        )
+        await callback.answer()
+
+@router.callback_query(F.data.startswith("restore_streak_confirm:"))
+async def handle_restore_streak_confirm(callback: CallbackQuery, user, language: str):
+    """Обрабатывает подтверждение восстановления для конкретной даты."""
+    logger.debug(f"[handle_restore_streak_confirm] Callback от пользователя {user.id}: {callback.data}")
+    try:
+        # Извлекаем дату из callback_data
+        parts = callback.data.split(":", 1)
+        if len(parts) != 2:
+            raise ValueError("Некорректный формат callback_data для подтверждения восстановления")
+        date_str = parts[1]
+        try:
+            target_date = date.fromisoformat(date_str)
+        except ValueError:
+            raise ValueError(f"Некорректный формат даты в callback_data: {date_str}")
+
+        # Проверяем, можно ли восстановить именно эту дату
+        recoverable_dates = await get_recoverable_gap_info(user)
+        if not recoverable_dates or target_date not in recoverable_dates:
+            # Если дата больше не доступна, обновляем экран
+            message_text = get_message('restore_streak_unavailable', language)
+            # Обновляем экран прогресса
+            await show_progress(callback, user, language)
+            # Отправляем сообщение об ошибке
+            await callback.message.answer(text=message_text)
+            await callback.answer()
+            return
+
+        result = await attempt_restore_streak(user, target_date)
+        message_text = get_message(result['message_key'], language, **result['message_kwargs'])
+        # Обновляем экран прогресса
+        await show_progress(callback, user, language)
+        # Отправляем сообщение с результатом операции как show_alert
+        await callback.answer(text=message_text, show_alert=True)
+
+        await callback.answer()
+    except (ValueError, Exception) as e:
+        logger.error(f"[handle_restore_streak_confirm] Ошибка: {e}", exc_info=True)
+        error_msg = get_message('error_generic', language)
+        # Обновляем экран прогресса
+        await show_progress(callback, user, language)
+        # Отправляем сообщение об ошибке
+        await callback.message.answer(text=error_msg)
+        await callback.answer()
 
 async def _show_weekly_analysis_page(message, user, week_start_date: date, language: str):
     """Вспомогательная функция для отображения анализа конкретной недели."""

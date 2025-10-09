@@ -50,6 +50,17 @@ Mood Trend: {mood_trend_display}
 'changes': '''<b>Changes:</b> {summary}''',
 'key_changes': '''<b>Key changes:</b>\n{changes_list}''',
 'stable_traits': '''<b>Stable traits:</b>\n{stable_list}''',
-'detailed_progress': '''📋 <b>Detailed progress for {week_start_date} - {week_end_date}</b>\n\n{changes_text}'''   
+'detailed_progress': '''📋 <b>Detailed progress for {week_start_date} - {week_end_date}</b>\n\n{changes_text}''',
+        'restore_streak_info': '''You missed one or two days in a row. You can restore your streak by creating a blank entry for the missed day. This will cost <b>{tokens_cost}</b> tokens.''',
+        'restore_streak_confirm': '''Are you sure you want to restore your streak for <b>{tokens_cost}</b> tokens?''',
+        'restore_streak_success': '''Streak restored! Entry for <b>{date}</b> created.''',
+        'restore_streak_success_multiple': '''Streak restored! Entries for <b>{dates}</b> created.''',
+        'restore_streak_no_tokens': '''Not enough tokens to restore the streak.''',
+        'restore_streak_unavailable': '''Streak restoration is currently unavailable.''',
+        'restore_streak_cost_info': '''(cost: {tokens_cost} tokens)''',
+        'btn_restore_streak': '🔄 Restore Streak',
+        'btn_restore_streak_for_date': '🔄 Restore {date}',
+        # --- Buttons ---
+        'btn_confirm': '✅ Confirm',
     }
 }
