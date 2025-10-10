@@ -16,9 +16,6 @@ def get_settings_keyboard(user, language: str) -> InlineKeyboardMarkup:
     auto_analysis_text = get_button_text('settings_auto_analysis', language).format(
         status=get_status_text(user.auto_analysis_enabled, language)
     )
-    premium_text = get_button_text('settings_premium', language).format(
-        status=get_status_text(user.is_premium, language)
-    )
     tasks_limit_text = get_button_text('settings_tasks_limit', language).format(
         limit=user.max_ai_tasks_per_day
     )
@@ -49,26 +46,8 @@ def get_settings_keyboard(user, language: str) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
-                text=premium_text,
-                callback_data="settings_premium"
-            )
-        ],
-        [
-            InlineKeyboardButton(
                 text=tasks_limit_text,
                 callback_data="settings_tasks"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_edit_profile', language),
-                callback_data="edit_profile"
-            )
-        ],
-                [
-            InlineKeyboardButton(
-                text=get_button_text('delete_account', language),
-                callback_data="delete_account"
             )
         ],
         [
@@ -93,24 +72,6 @@ def get_language_selection_keyboard(language: str) -> InlineKeyboardMarkup:
             InlineKeyboardButton(
                 text="🇬🇧 English",
                 callback_data="set_language:en"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_back', language),
-                callback_data="settings"
-            )
-        ]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-def get_premium_keyboard(language: str) -> InlineKeyboardMarkup:
-    """Клавиатура премиум функций"""
-    buttons = [
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_subscribe', language),
-                callback_data="premium_subscribe"
             )
         ],
         [

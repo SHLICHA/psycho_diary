@@ -38,15 +38,12 @@ from .common_keyboards import (
 from .settings_keyboard import (
     get_settings_keyboard,
     get_language_selection_keyboard,
-    get_premium_keyboard,
     get_common_timezones_keyboard,
     get_timezone_selection_method_keyboard,
     get_multiple_city_timezones_keyboard,
     get_city_timezone_confirmation_keyboard,
     get_analysis_time_selection_keyboard,
-    get_edit_profile_keyboard,
-    get_account_deletion_confirmation_keyboard,
-    get_account_deletion_menu_keyboard,
+
     get_task_settings_keyboard
 )
 
@@ -86,10 +83,14 @@ from .progress_keyboards import (
     get_restore_date_selection_keyboard
 )
 from .profile_keyboards import (
-    get_profile_keyboard
+    get_profile_keyboard,
+    get_edit_profile_keyboard,
+    get_account_deletion_confirmation_keyboard,
+    get_account_deletion_menu_keyboard
 )
 # Клавиатуры оплаты
 from .payments_keyboards import (
+    get_premium_keyboard,
     get_purchase_options_keyboard,
     get_manage_premium_keyboard,
     get_token_purchase_options_keyboard,
@@ -125,7 +126,6 @@ __all__ = [
     # Клавиатуры настроек
     'get_settings_keyboard',
     'get_language_selection_keyboard',
-    'get_premium_keyboard',
     'get_common_timezones_keyboard',
     'get_timezone_selection_method_keyboard',
     'get_multiple_city_timezones_keyboard',
@@ -171,5 +171,6 @@ __all__ = [
     'get_purchase_options_keyboard',
     'get_manage_premium_keyboard',
     'get_token_purchase_options_keyboard',
-    'get_token_custom_amount_keyboard'
+    'get_token_custom_amount_keyboard',
+    'get_premium_keyboard',
 ]

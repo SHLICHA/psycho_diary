@@ -93,7 +93,7 @@ async def handle_subscription_purchase(callback: CallbackQuery, user, language: 
             )
             await callback.message.edit_text(
                 get_message('ask_email_for_receipt', language),
-                reply_markup=get_single_button_keyboard(language, 'cancel_payment', 'btn_cancel_payment')
+                reply_markup=get_single_button_keyboard(language, 'user_profile', 'btn_cancel')
             )
             await callback.answer()
             return
@@ -213,7 +213,7 @@ async def handle_token_purchase(callback: CallbackQuery, state: FSMContext, user
             )
             await callback.message.edit_text(
                 get_message('ask_email_for_receipt', language),
-                reply_markup=get_single_button_keyboard(language, 'cancel_payment', 'btn_cancel_payment')
+                reply_markup=get_single_button_keyboard(language, 'cancel_payment', 'btn_cancel')
             )
             await callback.answer()
             return
@@ -261,7 +261,7 @@ async def process_custom_token_amount(message: Message, state: FSMContext, user,
             )
             await message.answer(
                 get_message('ask_email_for_receipt', language),
-                reply_markup=get_single_button_keyboard(language, 'cancel_payment', 'btn_cancel_payment')
+                reply_markup=get_single_button_keyboard(language, 'cancel_payment', 'btn_cancel')
             )
             return
 

@@ -8,7 +8,7 @@ Here you can customize the diary for yourself:''',
         'settings_auto_analysis': '📈 Auto-analysis: {status}',
         'settings_premium': '👑 Premium: {status}',
         
-        'language_changed': '✅ Language successfully changed to {language}',
+        'language_changed': '✅ Language successfully changed',
         'notifications_enabled': '✅ Notifications enabled',
         'notifications_disabled': '✅ Notifications disabled',
 

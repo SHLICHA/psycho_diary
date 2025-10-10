@@ -1,5 +1,6 @@
 ONBOARDING_MESSAGES_EN = {
     'en': {     
+        "onboarding_welcome_extended": '👋 Welcome to the psychological diary bot!\n\nHere you can:\n\n📝 Keep a diary (text or voice)\n🔍 Get automatic entry analysis\n🎯 Complete personal tasks from the AI\n📊 Track your progress and mood\n🧠 Develop awareness and understand yourself better\n\n💡 Full day analysis is available in the archive the next day. The psychological portrait is formed over time (usually after about a week of use).\n\n💳 Subscription and tokens help support the bot\'s operation. Read more about them and other features in the <b>Help</b> -> <b>How to start</b> and <b>Why do I need a subscription and tokens</b> sections. You can also view payment and transaction history there.\n\n⚠️ The bot does not replace professional consultation. AI analysis results are for informational purposes only.',
         'onboarding_welcome': '👋 Welcome to the psychological diary bot!',
         'onboarding_instruction': (
             '📝 This bot helps you keep a digital diary and get automatic psychological analysis from AI.\n\n'

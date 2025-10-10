@@ -119,6 +119,133 @@ async def show_contact_help(callback: CallbackQuery, language: str = 'ru'):
         logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ КОНТАКТНОЙ ПОМОЩИ: {e}", exc_info=True)
         await callback.answer("Ошибка при показе контактной помощи")
 
+@router.callback_query(F.data == "help_subscription_and_tokens")
+async def show_subscription_and_tokens_help(callback: CallbackQuery, language: str = 'ru'):
+    """Помощь по подписке и токенам"""
+    try:
+        subscription_help_msg = get_message('help_subscription_and_tokens_text', language=language)
+        keyboard = get_help_section_keyboard(language)
+        await callback.message.edit_text(
+            subscription_help_msg,
+            reply_markup=keyboard
+        )
+    except Exception as e:
+        logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ ПОМОЩИ ПО ПОДПИСКЕ И ТОКЕНАМ: {e}", exc_info=True)
+        await callback.answer("Ошибка при показе помощи по подписке и токенам")
+
+@router.callback_query(F.data == "help_guide")
+async def show_guide_menu(callback: CallbackQuery, language: str = 'ru'):
+    """Показывает подменю руководства"""
+    try:
+        guide_msg = get_message('help_guide_text', language=language)
+        # Импортируем новую клавиатуру
+        from bot.keyboards.help_keyboard import get_help_guide_section_keyboard
+        keyboard = get_help_guide_section_keyboard(language)
+        await callback.message.edit_text(
+            guide_msg,
+            reply_markup=keyboard
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ ПОДМЕНЮ РУКОВОДСТВА: {e}", exc_info=True)
+        await callback.answer("Ошибка при показе подменю руководства")
+
+@router.callback_query(F.data == "help_guide_writing_entries")
+async def show_guide_writing_entries(callback: CallbackQuery, language: str = 'ru'):
+    """Показывает руководство по написанию записей"""
+    try:
+        writing_entries_msg = get_message('help_writing_entries_text', language=language) # Используем существующий текст
+        from bot.keyboards.help_keyboard import get_help_guide_section_keyboard # Клавиатура возврата к подменю руководства
+        keyboard = get_help_guide_section_keyboard(language)
+        await callback.message.edit_text(
+            writing_entries_msg,
+            reply_markup=keyboard
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ РУКОВОДСТВА ПО НАПИСАНИЮ ЗАПИСЕЙ: {e}", exc_info=True)
+        await callback.answer("Ошибка при показе руководства по написанию записей")
+
+@router.callback_query(F.data == "help_guide_tasks")
+async def show_guide_tasks(callback: CallbackQuery, language: str = 'ru'):
+    """Показывает руководство по заданиям"""
+    try:
+        tasks_help_msg = get_message('help_tasks_text', language=language) # Используем существующий текст
+        from bot.keyboards.help_keyboard import get_help_guide_section_keyboard
+        keyboard = get_help_guide_section_keyboard(language)
+        await callback.message.edit_text(
+            tasks_help_msg,
+            reply_markup=keyboard
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ РУКОВОДСТВА ПО ЗАДАНИЯМ: {e}", exc_info=True)
+        await callback.answer("Ошибка при показе руководства по заданиям")
+
+@router.callback_query(F.data == "help_guide_progress")
+async def show_guide_progress(callback: CallbackQuery, language: str = 'ru'):
+    """Показывает руководство по прогрессу"""
+    try:
+        progress_help_msg = get_message('help_progress_text', language=language) # Используем существующий текст
+        from bot.keyboards.help_keyboard import get_help_guide_section_keyboard
+        keyboard = get_help_guide_section_keyboard(language)
+        await callback.message.edit_text(
+            progress_help_msg,
+            reply_markup=keyboard
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ РУКОВОДСТВА ПО ПРОГРЕССУ: {e}", exc_info=True)
+        await callback.answer("Ошибка при показе руководства по прогрессу")
+
+@router.callback_query(F.data == "help_guide_profile")
+async def show_guide_profile(callback: CallbackQuery, language: str = 'ru'):
+    """Показывает руководство по профилю"""
+    try:
+        profile_help_msg = get_message('help_profile_text', language=language) # Используем существующий текст
+        from bot.keyboards.help_keyboard import get_help_guide_section_keyboard
+        keyboard = get_help_guide_section_keyboard(language)
+        await callback.message.edit_text(
+            profile_help_msg,
+            reply_markup=keyboard
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ РУКОВОДСТВА ПО ПРОФИЛЮ: {e}", exc_info=True)
+        await callback.answer("Ошибка при показе руководства по профилю")
+
+@router.callback_query(F.data == "help_guide_settings")
+async def show_guide_settings(callback: CallbackQuery, language: str = 'ru'):
+    """Показывает руководство по настройкам"""
+    try:
+        settings_help_msg = get_message('help_settings_text', language=language) # Используем существующий текст
+        from bot.keyboards.help_keyboard import get_help_guide_section_keyboard
+        keyboard = get_help_guide_section_keyboard(language)
+        await callback.message.edit_text(
+            settings_help_msg,
+            reply_markup=keyboard
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ РУКОВОДСТВА ПО НАСТРОЙКАМ: {e}", exc_info=True)
+        await callback.answer("Ошибка при показе руководства по настройкам")
+
+@router.callback_query(F.data == "help_guide_therapy_chat")
+async def show_guide_therapy_chat(callback: CallbackQuery, language: str = 'ru'):
+    """Показывает руководство по чату с психологом"""
+    try:
+        chat_help_msg = get_message('help_therapy_chat_text', language=language) # Используем существующий текст
+        from bot.keyboards.help_keyboard import get_help_guide_section_keyboard
+        keyboard = get_help_guide_section_keyboard(language)
+        await callback.message.edit_text(
+            chat_help_msg,
+            reply_markup=keyboard
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ РУКОВОДСТВА ПО ЧАТУ С ПСИХОЛОГОМ: {e}", exc_info=True)
+        await callback.answer("Ошибка при показе руководства по чату с психологом")
+
 @router.callback_query(F.data == "help_back_to_main")
 async def back_to_main_help(callback: CallbackQuery, language: str):
     """Возврат к основной помощи"""
@@ -132,3 +259,4 @@ async def back_to_main_help(callback: CallbackQuery, language: str):
     except Exception as e:
         logger.error(f"Ошибка при возврате к основной помощи: {e}")
         await callback.answer(get_message('error_generic', language=language))
+

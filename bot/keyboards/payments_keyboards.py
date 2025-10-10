@@ -27,7 +27,7 @@ def get_purchase_options_keyboard(language: str) -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(
                 text=get_button_text('btn_back', language),
-                callback_data="settings"
+                callback_data="user_profile"
             )
         ]
     ]
@@ -51,7 +51,7 @@ def get_manage_premium_keyboard(language: str) -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(
                 text=get_button_text('btn_back', language),
-                callback_data="settings"
+                callback_data="user_profile"
             )
         ]
     ]
@@ -106,6 +106,24 @@ def get_token_custom_amount_keyboard(language: str) -> InlineKeyboardMarkup:
             InlineKeyboardButton(
                 text=get_button_text('btn_back', language),
                 callback_data="purchase_tokens:start"
+            )
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_premium_keyboard(language: str) -> InlineKeyboardMarkup:
+    """Клавиатура премиум функций"""
+    buttons = [
+        [
+            InlineKeyboardButton(
+                text=get_button_text('btn_subscribe', language),
+                callback_data="premium_subscribe"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=get_button_text('btn_back', language),
+                callback_data="user_profile"
             )
         ]
     ]

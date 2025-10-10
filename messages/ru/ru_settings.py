@@ -9,7 +9,7 @@ SETTINGS_MESSAGES_RU = {
         'settings_premium': '👑 Премиум: {status}',
         
         'btn_enter_city': '🏙 Ввести город',
-        'language_changed': '✅ Язык успешно изменен на {language}',
+        'language_changed': '✅ Язык успешно изменен',
         'notifications_enabled': '✅ Уведомления включены',
         'notifications_disabled': '✅ Уведомления отключены',
 

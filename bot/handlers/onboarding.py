@@ -28,48 +28,29 @@ logger = logging.getLogger(__name__)
 
 @router.callback_query(F.data == "onboarding_start")
 async def start_onboarding(callback: CallbackQuery, state: FSMContext, user, language: str):
-    """Начинает процесс онбординга: показывает приветствие."""
+    """
+    Начинает процесс онбординга: показывает расширенное приветствие и соглашение.
+    """
     try:
-        welcome_msg = get_message('onboarding_welcome', language)
-        await callback.message.answer(welcome_msg)
-        await show_onboarding_instruction(callback, state, user, language)
-        await safe_answer_callback(callback, "")
-    except Exception as e:
-        logger.error(f"Ошибка при запуске онбординга для пользователя {user.telegram_id}: {e}")
-        await safe_answer_callback(callback, get_message('error_generic', language))
+        # Получаем расширенное приветственное сообщение
+        welcome_msg = get_message('onboarding_welcome_extended', language) # <-- Используем новый ключ
 
-async def show_onboarding_instruction(callback: CallbackQuery, state: FSMContext, user, language: str):
-    """Показывает инструкцию."""
-    try:
-        instruction_msg = get_message('onboarding_instruction', language)
-        await state.set_state(OnboardingStates.showing_instruction)
-        await safe_edit_message_text(
-            message=callback.message,
-            text=instruction_msg,
-            reply_markup=get_instruction_keyboard(language)
-        )
-    except Exception as e:
-        logger.error(f"Ошибка при показе инструкции для пользователя {user.telegram_id}: {e}")
-        try:
-            await callback.message.answer(instruction_msg, reply_markup=get_instruction_keyboard(language))
-        except Exception as send_error:
-            logger.error(f"Не удалось отправить сообщение с инструкцией: {send_error}")
-
-@router.callback_query(F.data == "onboarding_next_to_agreement")
-async def show_onboarding_agreement(callback: CallbackQuery, state: FSMContext, user, language: str):
-    """Показывает соглашение."""
-    try:
-        agreement_msg = get_message('onboarding_agreement', language)
+        # Устанавливаем состояние "показ соглашения", так как это следующий шаг после нового сообщения
         await state.set_state(OnboardingStates.showing_agreement)
+
+        # Редактируем текущее сообщение (где была нажата кнопка "onboarding_start"),
+        # добавляя новое приветствие и клавиатуру соглашения
         await safe_edit_message_text(
             message=callback.message,
-            text=agreement_msg,
-            reply_markup=get_agreement_keyboard(language)
+            text=welcome_msg,
+            reply_markup=get_agreement_keyboard(language) # <-- Используем клавиатуру соглашения
         )
         await safe_answer_callback(callback, "")
     except Exception as e:
-        logger.error(f"Ошибка при показе соглашения для пользователя {user.telegram_id}: {e}", exc_info=True)
-        await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
+        logger.error(f"Ошибка при запуске онбординга для пользователя {user.telegram_id}: {e}", exc_info=True)
+        # В случае ошибки, всё равно пытаемся отправить сообщение об ошибке и закрыть состояние
+        await safe_answer_callback(callback, get_message('error_generic', language))
+        await state.clear() # <-- Очищаем состояние, если что-то пошло не так
 
 @router.callback_query(F.data == "onboarding_agree")
 async def handle_agreement_accept(callback: CallbackQuery, state: FSMContext, user, language: str):
@@ -105,24 +86,6 @@ async def handle_agreement_decline(callback: CallbackQuery, state: FSMContext, u
     except Exception as e:
         logger.error(f"Ошибка при обработке отказа пользователя {user.telegram_id}: {e}")
         await safe_answer_callback(callback, get_message('error_generic', language))
-
-@router.callback_query(F.data == "start_questionnaire_from_menu")
-async def start_questionnaire_from_main_menu(callback: CallbackQuery, state: FSMContext, user, language: str):
-    """
-    Запускает анкетирование из главного меню по кнопке "Анкета".
-    """
-    try:
-        logger.info(f"Пользователь {user.telegram_id} запустил анкетирование из главного меню.")
-        current_state = await state.get_state()
-        if current_state:
-            await state.clear()
-        welcome_msg = get_message('onboarding_welcome', language)
-        await callback.message.answer(welcome_msg)
-        await start_questionnaire(callback, state, user, language)
-        await callback.answer()
-    except Exception as e:
-        logger.error(f"Ошибка при запуске анкетирования из главного меню для пользователя {user.telegram_id}: {e}", exc_info=True)
-        await callback.answer(get_message('error_generic', language), show_alert=True)
 
 @router.message(OnboardingStates.collecting_profile_data)
 async def process_questionnaire_answer(message: Message, state: FSMContext, user, language: str):
