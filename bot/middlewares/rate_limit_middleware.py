@@ -2,13 +2,20 @@
 Middleware для ограничения частоты запросов (rate limiting)
 """
 
+"""
+Middleware для ограничения частоты запросов (rate limiting)
+"""
+
 import logging
 import time
 from typing import Any, Awaitable, Callable, Dict
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject, Message
+from aiogram.fsm.context import FSMContext # Импортируем FSMContext
 from core.constants import MESSAGES_PER_MINUTE_LIMIT
 from django.core.cache import cache
+
+from bot.states.onboarding_states import OnboardingStates # Импортируем состояния онбординга
 
 logger = logging.getLogger(__name__)
 
@@ -22,14 +29,30 @@ class RateLimitMiddleware(BaseMiddleware):
         handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
         event: TelegramObject,
         data: Dict[str, Any]
-    ) -> Any:  
+    ) -> Any:
         if isinstance(event, Message):
             user = data.get('user')
             language = data.get('language', 'ru')
+            # --- НОВАЯ ЛОГИКА: Проверка состояния ---
+            fsm_context: FSMContext = data.get('state') # Получаем FSMContext из data
+            current_state = await fsm_context.get_state() if fsm_context else None
+            # Проверяем, находится ли пользователь в состоянии онбординга
+            # Можно проверить конкретное состояние или все состояния из группы
+            if current_state and current_state.startswith('OnboardingStates:'):
+            # Или, если нужно исключить только collecting_profile_data:
+            # if current_state == 'OnboardingStates:collecting_profile_data':
+                logger.debug(f"Пропуск проверки лимита для пользователя {user.telegram_id} в состоянии {current_state}")
+                await self._record_request(user.telegram_id) # Можно записать запрос, можно и нет
+                result = await handler(event, data)
+                return result
+            # --- /НОВАЯ ЛОГИКА ---
+            
             if user:
                 if await self._is_rate_limited(user.telegram_id):
                     await self._send_rate_limit_message(event, language)
                     logger.warning(f"Превышен лимит запросов для пользователя {user.telegram_id}")
+                    # handler не вызывается, если лимит превышен
+                    return # ВАЖНО: возвращаем None, чтобы не вызывать handler
                 await self._record_request(user.telegram_id)
         result = await handler(event, data)
         return result
