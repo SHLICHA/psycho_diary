@@ -9,7 +9,7 @@ I will be your digital psychologist who will remember your features and understa
 Let's start?''',
         
         'welcome_back': '👋 Welcome back, {username}! Good to see you again.',
-
+        'welcome_back_reactivated': 'Welcome back, {first_name}! 🎉\n\nWe are glad you are back! Keep working on yourself — it’s an important and valuable journey. You are doing great!',
     
         # Для обработки удаления
         'entry_delete_cancelled': "Deletion cancelled.",

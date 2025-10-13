@@ -6,7 +6,6 @@ from typing import Any, Awaitable, Callable, Dict, Set
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject, Message, CallbackQuery
 
-
 from messages import get_message
 from bot.keyboards.onboarding_keyboards import get_start_onboarding_keyboard
 from bot.utils.callback_utils import safe_answer_callback
@@ -31,8 +30,36 @@ class UserMiddleware(BaseMiddleware):
         data: Dict[str, Any]
     ) -> Any:
         user_obj = None
+        was_reactivated = False  # <-- Флаг
         if isinstance(event, (Message, CallbackQuery)):
+            # --- ПОЛУЧАЕМ СТАТУС is_blocked ДО ОБНОВЛЕНИЯ ---
+            if isinstance(event, Message):
+                telegram_id = event.from_user.id
+            elif isinstance(event, CallbackQuery):
+                telegram_id = event.from_user.id
+            else:
+                telegram_id = None
+
+            was_blocked_before = False
+            if telegram_id:
+                try:
+                    existing_user = await User.objects.aget(telegram_id=telegram_id)
+                    was_blocked_before = existing_user.is_blocked
+                    logger.debug(f"[Middleware] Пользователь {telegram_id} был заблокирован до: {was_blocked_before}")
+                except User.DoesNotExist:
+                    was_blocked_before = False
+            # --- КОНЕЦ ПОЛУЧЕНИЯ СТАТУСА ---
+
             user_obj = await self._get_or_create_user(event)
+
+            # --- ПРОВЕРЯЕМ, БЫЛ ЛИ РАЗБЛОКИРОВАН ---
+            if user_obj and was_blocked_before and not user_obj.is_blocked:
+                was_reactivated = True
+                logger.info(f"Пользователь {user_obj.telegram_id} автоматически разблокирован через взаимодействие с ботом.")
+            else:
+                logger.debug(f"[Middleware] Пользователь {user_obj.telegram_id if user_obj else 'N/A'} разблокирован: {False if not user_obj else not user_obj.is_blocked}, был заблокирован: {was_blocked_before}")
+            # --- КОНЕЦ ПРОВЕРКИ ---
+
             if user_obj:
                 data['user'] = user_obj
                 if not getattr(user_obj, 'has_agreed_to_terms', False):
@@ -44,11 +71,16 @@ class UserMiddleware(BaseMiddleware):
             else:
                 logger.warning("Пользователь не был создан/загружен")
                 
+        # --- ПЕРЕДАЁМ ФЛАГ В DATA ---
+        data['was_blocked_and_reactivated'] = was_reactivated
+        logger.debug(f"[Middleware] Установлен флаг was_blocked_and_reactivated: {was_reactivated}")
+        # --- КОНЕЦ ---
+                
         result = await handler(event, data)
         return result
         
     async def _get_or_create_user(self, event: TelegramObject) -> User:
-        """Получение или создание пользователя (без изменений)"""
+        """Получение или создание пользователя"""
         try:
             if isinstance(event, Message):
                 telegram_id = event.from_user.id
@@ -73,13 +105,18 @@ class UserMiddleware(BaseMiddleware):
                 if user.username != username:
                     user.username = username
                     updated_fields.append('username')
-                if not user.first_name:  # Только если first_name пустой (новый пользователь)
-                    if user.first_name != first_name:  # first_name из Telegram
-                        user.first_name = first_name
-                        updated_fields.append('first_name')
+                if user.first_name != first_name:
+                    user.first_name = first_name
+                    updated_fields.append('first_name')
                 if user.last_name != last_name:
                     user.last_name = last_name
                     updated_fields.append('last_name')
+                # --- НОВОЕ: Автоматическая разблокировка при взаимодействии ---
+                if user.is_blocked:
+                    user.is_blocked = False
+                    updated_fields.append('is_blocked')
+                    logger.debug(f"Пользователь {user.telegram_id} разблокирован в _get_or_create_user.")
+                # --- КОНЕЦ НОВОГО ---
                 if updated_fields:
                     await user.asave(update_fields=updated_fields)
                 return user
