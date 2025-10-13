@@ -30,6 +30,28 @@ def is_valid_email(email: str) -> bool:
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return re.match(pattern, email) is not None
 
+@router.message(F.text == "/pay")
+async def cmd_pay(message: Message, user, language: str):
+    """
+    Обработчик команды /pay — открывает меню оплаты.
+    """
+    try:
+        if user.is_premium_active():
+            premium_msg = get_message('settings_premium', language=language)
+            expires_at = user.premium_expires_at.strftime('%d.%m.%Y %H:%M') if user.premium_expires_at else 'Неизвестно'
+            premium_msg += f"\n\nДата окончания подписки: {expires_at}"
+            keyboard = get_manage_premium_keyboard(language)
+        else:
+            premium_msg = get_message('premium_benefits', language=language)
+            keyboard = get_purchase_options_keyboard(language)
+        await message.answer(
+            premium_msg,
+            reply_markup=keyboard
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при выполнении команды /pay: {e}", exc_info=True)
+        await message.answer(get_message('error_generic', language=language))
+
 @router.callback_query(F.data == "settings_premium")
 async def show_premium(callback: CallbackQuery, user, language: str):
     """Показ премиум функций или вариантов покупки"""

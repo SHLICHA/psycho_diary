@@ -303,6 +303,7 @@ async def send_message_to_user(
 ) -> bool:
     """
     Безопасная отправка сообщения пользователю с обработкой исключений.
+    Автоматически обновляет флаг is_blocked при блокировке/разблокировке.
     
     Args:
         bot: Экземпляр бота
@@ -323,17 +324,20 @@ async def send_message_to_user(
             reply_markup=reply_markup,
             disable_notification=disable_notification
         )
+        # Если сообщение отправлено, но флаг is_blocked был True, сбрасываем его
+        if user.is_blocked:
+            await User.mark_unblocked(user.telegram_id)  # Предполагаем, что такой метод есть
+            logger.info(f"Пользователь {user.telegram_id} автоматически разблокирован (успешная отправка)")
         return True
     except TelegramBadRequest as e:
         error_message = str(e).lower()
-        if "chat not found" in error_message or "bot was blocked" in error_message:
-            if not user.is_blocked:
-                user.is_blocked = True
-                await user.asave(update_fields=['is_blocked'])
-                logger.info(f"Пользователь {user.telegram_id} заблокировал бота")
-            return False
-        elif "chat unavailable" in error_message:
-            logger.warning(f"Чат пользователя {user.telegram_id} недоступен: {e}")
+        # Проверяем, заблокировал ли пользователь бота или чат больше не существует
+        if "bot was blocked" in error_message or \
+           "user is deactivated" in error_message or \
+           "chat not found" in error_message or \
+           "forbidden" in error_message:
+            await User.mark_blocked(user.telegram_id)  # Предполагаем, что такой метод есть
+            logger.info(f"Пользователь {user.telegram_id} заблокировал бота или чат недоступен: {e}")
             return False
         else:
             logger.error(f"TelegramBadRequest при отправке сообщения пользователю {user.telegram_id}: {e}")

@@ -126,7 +126,7 @@ class DeepSeekAPIService:
             logger.debug("[DeepSeek API] Успешный парсинг всего ответа как JSON.")
             return result
         except json.JSONDecodeError:
-            logger.warning("[DeepSeek API] Прямой парсинг JSON не удался. Ищем в Markdown-блоке...")
+            logger.debug("[DeepSeek API] Прямой парсинг JSON не удался. Ищем в Markdown-блоке...")
 
             import re
             # 2. Ищем JSON-блок внутри `` `json ... ` `` или `` ` ... ` ``

@@ -12,6 +12,13 @@ def get_profile_keyboard(language: str, show_psychology_button: bool = False) ->
                 callback_data="view_psychology_profile"
             )
         ])
+
+    buttons.append([
+        InlineKeyboardButton(
+            text=get_button_text('btn_view_transaction_history', language),
+            callback_data="view_transaction_history"
+        )
+    ])
     
     buttons.append(
         [
@@ -27,6 +34,12 @@ def get_profile_keyboard(language: str, show_psychology_button: bool = False) ->
                 callback_data="edit_profile"
             )
         ])
+    buttons.append([
+        InlineKeyboardButton(
+            text=get_button_text('btn_export_data', language),  # <-- НОВАЯ КНОПКА
+            callback_data="export_user_data"
+        )
+    ])
     buttons.append([
             InlineKeyboardButton(
                 text=get_button_text('delete_account', language),

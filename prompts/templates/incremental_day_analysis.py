@@ -30,14 +30,25 @@ INCREMENTAL_DAY_ANALYSIS_PROMPT = {
 
 ### 🧠 ИНСТРУКЦИЯ
 
-1.  **ПРОВЕРЬ ВАЛИДНОСТЬ новой записи.** Определи, содержит ли `new_entry_text` осмысленную информацию, относящуюся к описанию эмоций, мыслей, событий или переживаний пользователя. Учитывай `Уровень осознанности` и `Факты о жизни` для оценки соответствия. Если текст:
-    *   Состоит из бессмысленного набора символов или букв (например, "ыфва ыва ыва", "123 321 123").
-    *   Содержит исключительно эмодзи без контекста.
-    *   Является короткой бессвязной фразой без пояснений.
-    *   Не отражает попытку описать день или переживания.
-    установи `is_valid` в `false`. В `validation_comment` напиши краткий, дружелюбный и поддерживающий комментарий, объясняющий, *почему* текст не прошёл валидацию, и предложи пользователю попробовать снова: "Попробуй описать подробнее, я в тебя верю!" или "Расскажи, что именно тебя тревожит или радует?". Не используй слово "недействительно".
+1.  **ПРОВЕРЬ ВАЛИДНОСТЬ новой записи.** Определи, содержит ли `new_entry_text` **осмысленную попытку описать день, эмоции, мысли или события**, даже если они кажутся рутинными, повторяющимися или негативными. Учитывай `Уровень осознанности` и `Факты о жизни` для оценки соответствия.
 
-    В `formatted_message` сформируй **красивое, отформатированное сообщение** для пользователя **в формате HTML с эмодзи**, которое будет показано ему, если `is_valid` = `false`. Используй следующую структуру (или аналогичную, но с тем же смыслом и оформлением):
+    **ЗАПИСЬ СЧИТАЕТСЯ НЕВАЛИДНОЙ ТОЛЬКО ЕСЛИ:**
+    *   Она состоит из **бессмысленного набора символов, букв или цифр** без слов (например, "ыфва ыва", "12345", "......").
+    *   Содержит **исключительно эмодзи без какого-либо текстового контекста**.
+    *   Является **технической ошибкой** (например, пустое сообщение, "test", "привет бот", "1").
+    *   Не содержит **никакой информации**, связанной с внутренним состоянием, событиями или переживаниями пользователя.
+
+    **ВАЖНО:**
+    *   **Рутинные, повторяющиеся или короткие записи — ВАЛИДНЫ**, если они честно отражают опыт пользователя (например, "Опять всё то же", "День прошёл как обычно", "Работа, устал").
+    *   **Негативные или скудные описания — ВАЛИДНЫ**, если они выражают реальное состояние ("Ничего не хочу", "Всё плохо", "Сижу дома").
+    *   Не отклоняй запись только потому, что она **похожа на предыдущие** — это может быть важным паттерном.
+
+    Если запись **невалидна**, установи `is_valid` в `false`. В `validation_comment` напиши краткий, дружелюбный и поддерживающий комментарий, объясняющий, *почему* текст не прошёл валидацию, и предложи пользователю попробовать снова:  
+    *"Попробуй описать подробнее, я в тебя верю!"*  
+    *"Расскажи, что именно тебя тревожит или радует?"*  
+    **Не используй слово "недействительно".**
+
+    В `formatted_message` сформируй **красивое, отформатированное сообщение** для пользователя **в формате HTML с эмодзи**, которое будет показано ему, если `is_valid` = `false`. Используй следующую структуру:
 
     <b>❌ Ваша запись не прошла валидацию</b>
 
@@ -132,14 +143,25 @@ Areas for Growth: {user_areas_for_growth}
 
 ### 🧠 INSTRUCTIONS
 
-1.  **VALIDATE the new entry.** Determine if `new_entry_text` contains meaningful information related to describing the user's emotions, thoughts, events, or experiences. Consider the `Awareness Level` and `Life Facts` for assessment. If the text:
-    *   Is a meaningless set of characters or letters (e.g., "abc abc abc", "123 321 123").
-    *   Contains only emojis without context.
-    *   Is a short disconnected phrase without explanation.
-    *   Does not reflect an attempt to describe the day or feelings.
-    set `is_valid` to `false`. In `validation_comment`, write a brief, friendly, and supportive comment explaining *why* the text did not pass validation and encourage the user to try again: "Try to describe it in more detail, I believe in you!" or "Tell me what specifically is troubling or pleasing you?". Do not use the word "invalid".
+1.  **VALIDATE the new entry.** Determine if `new_entry_text` contains a **meaningful attempt to describe the day, emotions, thoughts, or events**, even if they seem routine, repetitive, or negative. Consider the `Awareness Level` and `Life Facts` for assessment.
 
-    In `formatted_message`, generate a **beautiful, formatted message** for the user **in HTML format with emojis**, which will be shown to them if `is_valid` = `false`. Use the following structure (or a similar one, but with the same meaning and formatting):
+    **AN ENTRY IS CONSIDERED INVALID ONLY IF:**
+    *   It consists of a **meaningless string of characters, letters, or digits** without words (e.g., "abc abc", "12345", "......").
+    *   It contains **only emojis with no textual context**.
+    *   It is a **technical test or error** (e.g., empty message, "test", "hi bot", "1").
+    *   It provides **no information** related to the user's internal state, events, or experiences.
+
+    **IMPORTANT:**
+    *   **Routine, repetitive, or brief entries are VALID** if they honestly reflect the user’s experience (e.g., "Same as always", "Another ordinary day", "Work, tired").
+    *   **Negative or minimal descriptions are VALID** if they express a real state ("I don’t want anything", "Everything’s bad", "Staying home").
+    *   Do **not reject** an entry just because it **resembles previous ones** — this could be an important pattern.
+
+    If the entry is **invalid**, set `is_valid` to `false`. In `validation_comment`, write a brief, friendly, and supportive comment explaining *why* the text did not pass validation and encourage the user to try again:  
+    *"Try to describe it in more detail, I believe in you!"*  
+    *"Tell me what specifically is troubling or pleasing you?"*  
+    **Do not use the word "invalid".**
+
+    In `formatted_message`, generate a **beautiful, formatted message** for the user **in HTML format with emojis**, which will be shown to them if `is_valid` = `false`. Use the following structure:
 
     <b>❌ Your entry did not pass validation</b>
 

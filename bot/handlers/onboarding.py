@@ -185,8 +185,8 @@ async def finish_questionnaire(message, state: FSMContext, user, language: str, 
             def save_profile_updates():
                 try:
                     new_first_name = profile_updates.get('first_name')
-                    if new_first_name and new_first_name != user.first_name:
-                        user.first_name = new_first_name
+                    if new_first_name and new_first_name != user.first_name and isinstance(new_first_name, str):
+                        user.first_name = new_first_name.strip()
                     new_traits = profile_updates.get('personality_traits', {})
                     if new_traits and isinstance(new_traits, dict):
                         user.personality_traits = user.personality_traits or {}
@@ -202,7 +202,10 @@ async def finish_questionnaire(message, state: FSMContext, user, language: str, 
                             new_set = set(item for item in new_items if isinstance(item, str))
                             updated_set = current_set.union(new_set)
                             setattr(user, field_name, list(updated_set))
-                    user.save(update_fields=['first_name', 'personality_traits', 'core_values', 'hobbies', 'triggers', 'life_facts', 'strengths', 'areas_for_growth'])
+                    update_fields_list = ['personality_traits', 'core_values', 'hobbies', 'triggers', 'life_facts', 'strengths', 'areas_for_growth']
+                    if new_first_name and new_first_name != user.first_name and isinstance(new_first_name, str):
+                        update_fields_list.append('first_name')
+                    user.save(update_fields=update_fields_list)
                     logger.debug(f"Профиль пользователя {user.telegram_id} успешно обновлен на основе анкеты.")
                     return True
                 except Exception as e:

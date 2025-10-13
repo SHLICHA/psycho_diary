@@ -16,4 +16,6 @@ app.autodiscover_tasks(packages=['core', 'diary', 'diary.tasks'])
 # (Опционально) Для мониторинга состояния воркеров
 @app.task(bind=True)
 def debug_task(self):
-    print(f'Request: {self.request!r}')
+    request_info = self.request
+    if request_info.args or request_info.kwargs or any(v for k, v in request_info.items() if k not in ['args', 'kwargs']):
+        print(f'Request: {request_info!r}')

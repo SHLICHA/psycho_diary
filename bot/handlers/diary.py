@@ -337,10 +337,10 @@ async def request_add_comment(callback: CallbackQuery, state: FSMContext, user, 
         logger.error(f"[request_add_comment] Ошибка при запросе комментария от пользователя {user.telegram_id}: {e}", exc_info=True)
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
-@router.message(DiaryStates.waiting_for_user_comment, F.content_type.in_({ContentType.TEXT}))
+@router.message(DiaryStates.waiting_for_user_comment, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
 async def process_user_comment(message: Message, state: FSMContext, user, language: str):
     """
-    Обрабатывает комментарий пользователя и отправляет его на анализ ИИ.
+    Обрабатывает комментарий пользователя (текст или голос) и отправляет его на анализ ИИ.
     """
     status_message = None
     try:
@@ -362,39 +362,69 @@ async def process_user_comment(message: Message, state: FSMContext, user, langua
             await state_manager.clear_state(state)
             return
 
-        # 3. Получить текст комментария
-        user_comment_text = message.text.strip()
-        if not user_comment_text:
-             await message.answer(get_message('invalid_input', language))
-             return
+        # 3. Уже есть комментарий?
+        if diary_entry.user_comment:
+            logger.warning(f"Пользователь {user.telegram_id} пытается добавить комментарий к записи {entry_id}, но комментарий уже существует.")
+            await message.answer(get_message('comment_already_added', language))
+            await state_manager.clear_state(state)
+            return
 
-        # 4. Сохранить комментарий в запись
+        # 4. Обработка контента
+        user_comment_text = ""
+        status_message = await message.answer(get_message('processing', language))
+
+        if message.content_type == ContentType.VOICE:
+            success, recognized_text, error_message = await process_voice_message(
+                message=message,
+                context_name="User Comment",
+                language=language,
+                status_msg=status_message
+            )
+            if not success:
+                await status_message.edit_text(f"{get_message('error_processing', language)}: {error_message}")
+                await state_manager.clear_state(state)
+                return
+            user_comment_text = recognized_text
+
+        elif message.content_type == ContentType.TEXT:
+            user_comment_text = message.text.strip()
+            if not user_comment_text:
+                await status_message.edit_text(get_message('invalid_input', language))
+                await state_manager.clear_state(state)
+                return
+
+        else:
+            logger.warning(f"[process_user_comment] Неподдерживаемый тип контента: {message.content_type}")
+            await status_message.edit_text(get_message('invalid_input', language))
+            await state_manager.clear_state(state)
+            return
+
+        # 5. Сохранить комментарий
         diary_entry.user_comment = user_comment_text
         await sync_to_async(diary_entry.save)(update_fields=['user_comment'])
         logger.debug(f"[process_user_comment] Комментарий сохранён для записи {entry_id}, пользователь {user.telegram_id}")
+
+        # 6. Сбросить флаг анализа дня
         combined_entry_for_day = await daily_state_service.get_daily_state(user, await diary_entry.aentry_date())
         if combined_entry_for_day:
-            # Сбросим флаг анализа, так как день изменился
-            combined_entry_for_day.reset_analysis_flag() # Вызываем метод модели
+            combined_entry_for_day.reset_analysis_flag()
             await sync_to_async(combined_entry_for_day.save)(update_fields=['is_analyzed'])
-            logger.debug(f"[process_user_comment] Флаг is_analyzed сброшен для CombinedDiaryEntry ID {combined_entry_for_day.id} после добавления комментария к записи {entry_id}.")
+            logger.debug(f"[process_user_comment] Флаг is_analyzed сброшен для CombinedDiaryEntry ID {combined_entry_for_day.id}")
         else:
-            logger.warning(f"[process_user_comment] CombinedDiaryEntry не найден для даты {await diary_entry.aentry_date()} при сбросе флага анализа.")
-        
-        # 5. Подготовить данные для промпта
-        # Загрузить предыдущий анализ
+            logger.warning(f"[process_user_comment] CombinedDiaryEntry не найден для даты {await diary_entry.aentry_date()}")
+
+        # 7. Подготовить данные для промпта
         try:
             previous_analysis = await PsychoAnalysis.objects.aget(entry=diary_entry)
             previous_comment = previous_analysis.comment or "Нет комментария"
             previous_recommendation = previous_analysis.recommendation or "Нет рекомендации"
             previous_analysis_text = previous_analysis.analysis_text or "Анализ не предоставлен"
         except PsychoAnalysis.DoesNotExist:
-            logger.warning(f"[process_user_comment] Предыдущий анализ не найден для записи {entry_id}, используем заглушки.")
+            logger.warning(f"[process_user_comment] Предыдущий анализ не найден для записи {entry_id}")
             previous_comment = "Нет комментария"
             previous_recommendation = "Нет рекомендации"
             previous_analysis_text = "Анализ не предоставлен"
 
-        # Подготовить уточнения (если были)
         clarification_questions = "\n".join(diary_entry.clarification_questions_asked) if diary_entry.clarification_questions_asked else "Нет уточняющих вопросов."
         clarification_answers_dict = diary_entry.clarification_answers
         clarification_answers_str = "\n".join([f"{q}: {a}" for q, a in clarification_answers_dict.items()]) if clarification_answers_dict else "Нет ответов на уточнения."
@@ -415,7 +445,7 @@ async def process_user_comment(message: Message, state: FSMContext, user, langua
             "aspirations": user.aspirations
         }
 
-        # 6. Сгенерировать промт
+        # 8. Сгенерировать промт и отправить на анализ
         prompt = get_prompt(
             key='comment_analysis',
             language=language,
@@ -428,7 +458,7 @@ async def process_user_comment(message: Message, state: FSMContext, user, langua
             clarification_questions=clarification_questions,
             clarification_answers=clarification_answers_str,
         )
-        status_message = await message.answer(get_message('processing', language))
+
         analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
         await state_manager.clear_state(state)
         await _process_analysis_result(
@@ -438,8 +468,9 @@ async def process_user_comment(message: Message, state: FSMContext, user, langua
             language=language,
             state=state,
             user=user,
-            context='comment_analysis' # Указываем контекст
+            context='comment_analysis'
         )
+
     except Exception as e:
         logger.error(f"[process_user_comment] Ошибка при обработке комментария пользователя {user.telegram_id}: {e}", exc_info=True)
         if status_message:

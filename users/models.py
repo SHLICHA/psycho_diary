@@ -189,6 +189,16 @@ class User(AbstractUser):
         if update_fields:
             await self.asave(update_fields=update_fields)
 
+    @classmethod
+    async def mark_blocked(cls, telegram_id: int):
+        """Отмечает пользователя как заблокировавшего бота."""
+        await cls.objects.filter(telegram_id=telegram_id).aupdate(is_blocked=True)
+
+    @classmethod
+    async def mark_unblocked(cls, telegram_id: int):
+        """Отмечает пользователя как разблокировавшего бота."""
+        await cls.objects.filter(telegram_id=telegram_id).aupdate(is_blocked=False)
+
 class UserProfileHistory(models.Model):
     """
     История изменений психологического профиля пользователя.

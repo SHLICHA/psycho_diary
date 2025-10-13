@@ -73,9 +73,10 @@ class UserMiddleware(BaseMiddleware):
                 if user.username != username:
                     user.username = username
                     updated_fields.append('username')
-                if user.first_name != first_name:
-                    user.first_name = first_name
-                    updated_fields.append('first_name')
+                if not user.first_name:  # Только если first_name пустой (новый пользователь)
+                    if user.first_name != first_name:  # first_name из Telegram
+                        user.first_name = first_name
+                        updated_fields.append('first_name')
                 if user.last_name != last_name:
                     user.last_name = last_name
                     updated_fields.append('last_name')

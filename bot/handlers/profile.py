@@ -4,6 +4,7 @@ Handlers для работы с профилем
 """
 
 import re
+import os
 import logging
 
 from aiogram import Router, F
@@ -22,11 +23,20 @@ from bot.keyboards import (
     get_main_menu_keyboard
     )
 from bot.utils.state_manager import state_manager
+from bot.services.export_service import generate_user_docx
 from diary.models import *
-from users.models import UserProfileHistory
+from users.models import UserProfileHistory, TokenTransaction, Payment
 
 router = Router()
 logger = logging.getLogger(__name__)
+
+def _filter_remove_items(items_list):
+    """
+    Фильтрует список, удаляя элементы вида {"remove": ...}.
+    """
+    if not items_list:
+        return []
+    return [item for item in items_list if not (isinstance(item, dict) and 'remove' in item)]
 
 @router.callback_query(F.data == "user_profile")
 async def show_user_profile(callback: CallbackQuery, user, language: str):
@@ -60,7 +70,7 @@ async def show_user_profile(callback: CallbackQuery, user, language: str):
             if last_profile_history:
                 profile_msg += get_message(
                     key='last_analysis',
-                    language=user.user.language,
+                    language=user.language,
                     last_analysis_date=last_profile_history.created_at.strftime('%d.%m.%Y %H:%M') if last_profile_history else ''
                     )
         except Exception as e:
@@ -149,6 +159,74 @@ async def show_psychology_profile(callback: CallbackQuery, user, language: str):
         error_msg = get_message('error_generic', language=language)
         await callback.message.edit_text(error_msg, reply_markup=get_single_button_keyboard(language, 'user_profile', 'btn_back'))
         await callback.answer(error_msg, show_alert=True)
+
+@router.callback_query(F.data == "view_transaction_history")
+async def show_transaction_history(callback: CallbackQuery, user, language: str):
+    """Показывает последние 10 транзакций и платежей пользователя."""
+    try:
+        from asgiref.sync import sync_to_async
+        @sync_to_async
+        def get_combined_history():
+            # Получаем последние TokenTransaction
+            token_txs = list(
+                TokenTransaction.objects.filter(user=user)
+                .order_by('-created_at')[:10]
+            )
+            # Получаем последние Payment
+            payments = list(
+                Payment.objects.filter(user=user)
+                .order_by('-created_at')[:10]
+            )
+            # Объединяем и сортируем по дате (новые сверху)
+            combined = []
+            for tx in token_txs:
+                action = "➕" if tx.amount > 0 else "➖"
+                amount = abs(tx.amount)
+                combined.append({
+                    'date': tx.created_at,
+                    'text': get_message(
+                        'transaction_item_token',
+                        language,
+                        action=action,
+                        amount=amount,
+                        type=get_message(f'transaction_type_{tx.transaction_type}', language, default=tx.get_transaction_type_display()),
+                        description=tx.description or ''
+                    )
+                })
+            for p in payments:
+                combined.append({
+                    'date': p.created_at,
+                    'text': get_message(
+                        'transaction_item_payment',
+                        language,
+                        amount_rub=p.amount_rub,
+                        type=get_message(f'payment_type_{p.payment_type}', language, default=p.get_payment_type_display()),
+                        status=get_message(f'payment_status_{p.status}', language, default=p.get_status_display())
+                    )
+                })
+            # Сортируем по дате (новые первыми)
+            combined.sort(key=lambda x: x['date'], reverse=True)
+            # Берём первые 10
+            combined = combined[:10]
+            return combined
+
+        history = await get_combined_history()
+
+        if not history:
+            history_msg = get_message('no_transaction_history', language)
+        else:
+            history_lines = [item['text'] for item in history]
+            history_msg = get_message('transaction_history_title', language) + "\n\n" + "\n".join(history_lines)
+
+        keyboard = get_single_button_keyboard(language, 'user_profile', 'btn_back')
+        await callback.message.edit_text(
+            history_msg,
+            reply_markup=keyboard
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка при показе истории транзакций: {e}", exc_info=True)
+        await callback.answer(get_message('error_generic', language=language), show_alert=True)
 
 @router.callback_query(F.data.startswith("view_profile_field:"))
 async def show_profile_field(callback: CallbackQuery, user, language: str):
@@ -321,7 +399,14 @@ async def edit_profile_dob(callback: CallbackQuery, state: FSMContext, user, lan
 async def edit_profile_hobbies(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование увлечений"""
     try:
-        current_hobbies = ', '.join(user.hobbies) if user.hobbies else ''
+        current_hobbies_list = _filter_remove_items(user.hobbies)
+        if len(current_hobbies_list) != len(user.hobbies or []):
+            user.hobbies = current_hobbies_list
+            await user.asave(update_fields=['hobbies'])
+            logger.debug(f"Очищены 'remove' элементы из hobbies пользователя {user.telegram_id}")
+
+        current_hobbies = ', '.join(current_hobbies_list) if current_hobbies_list else ''
+        
         await state_manager.set_state(state, SettingsStates.waiting_for_hobbies_input)
         ask_msg = get_message('ask_new_hobbies', language)
         if current_hobbies:
@@ -343,7 +428,14 @@ async def edit_profile_hobbies(callback: CallbackQuery, state: FSMContext, user,
 async def edit_profile_life_facts(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование фактов о жизни"""
     try:
-        current_facts = ', '.join(user.life_facts) if user.life_facts else ''
+        current_facts_list = _filter_remove_items(user.life_facts)
+        if len(current_facts_list) != len(user.life_facts or []):
+            user.life_facts = current_facts_list
+            await user.asave(update_fields=['life_facts'])
+            logger.debug(f"Очищены 'remove' элементы из life_facts пользователя {user.telegram_id}")
+
+        current_facts = ', '.join(current_facts_list) if current_facts_list else ''
+        
         await state_manager.set_state(state, SettingsStates.waiting_for_life_facts_input)
         ask_msg = get_message('ask_new_life_facts', language)
         if current_facts:
@@ -619,6 +711,46 @@ async def cancel_account_deletion(callback: CallbackQuery, user, language: str, 
     except Exception as e:
         logger.error(f"Ошибка при отмене удаления аккаунта: {e}")
         await callback.answer(get_message('error_generic', language=language))
+
+@router.callback_query(F.data == "export_user_data")
+async def handle_export_user_data(callback: CallbackQuery, user, language: str):
+    """
+    Обработчик экспорта данных пользователя в .docx
+    """
+    try:
+        # Отправляем уведомление
+        status_msg = await callback.message.answer(get_message('export_status_preparing', language))
+
+        # Генерируем файл
+        file_path = await generate_user_docx(user)
+
+        # Удаляем уведомление
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass  # Если не удалось удалить — не страшно
+
+        # Открываем файл и отправляем
+        with open(file_path, 'rb') as f:
+            file_data = f.read()
+
+        from aiogram.types import BufferedInputFile
+        input_file = BufferedInputFile(file_data, filename='export.docx')
+
+        await callback.message.answer_document(
+            document=input_file,
+            caption=get_message('export_caption', language)
+        )
+        try:
+            os.remove(file_path)
+        except Exception:
+            pass
+
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка при экспорте данных пользователя {user.telegram_id}: {e}", exc_info=True)
+        await callback.message.answer(get_message('export_error', language))
+        await callback.answer()
 
 async def anonymize_user_account(user):
     """

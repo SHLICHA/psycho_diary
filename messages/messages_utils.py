@@ -69,7 +69,7 @@ MESSAGES = {
 • Расширенная статистика
 • Приоритетная поддержка
 
-💳 Подписка стоит 299₽/месяц''',
+💳 Подписка стоит 300₽/месяц''',
 
 'data_not_found': '''❌ Данные не найдены''',
 'no_comment': '''Нет комментария''',
@@ -104,7 +104,7 @@ MESSAGES = {
         'btn_purchase_tokens': '💎 Купить токены',
         'btn_purchase_subscription': '👑 Купить подписку',
         'btn_manage_subscription': '💰 Управление подпиской',
-        'btn_renew_subscription': '🔄 Продлить подписку',
+        'btn_renew_subscription': '🔄 Продлить подписку (300₽)',
         'btn_enter_email_for_receipt': '📧 Ввести email для чека',
         'ask_email_for_receipt': '''📧 <b>Введите ваш email для чека</b>\n\nТребуется для соблюдения ФЗ-54 «О применении ККТ». На этот email будет отправлен чек об оплате.''',
         'email_invalid_format': '❌ Неверный формат email. Пожалуйста, введите реальный email для получения чека.',

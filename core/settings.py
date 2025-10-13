@@ -135,6 +135,11 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'diary.tasks.task_expiration.expire_tasks', # Убедитесь в правильном пути
         'schedule': 60.0,
      },
+    'run-garbage-collection-hourly': {
+        'task': 'diary.tasks.garbage_collector_task.run_garbage_collection',
+        'schedule': crontab(minute=30, hour='*'),  # Каждый час
+        #'schedule': 30,
+    },     
        # 5 минут, или 600 (10 мин), или 1800 (30 мин) - зависит от того, как часто вы хотите проверять
     #'send-test-morning-motivation-every-minute-during-test': { # Имя задачи
     #     'task': 'diary.tasks.test_morning.send_entry_reminders',
@@ -211,6 +216,21 @@ LOGGING = {
         'django': {
             'handlers': ['console', 'file'],
             'level': 'INFO',
+            'propagate': False,
+        },
+        'celery': {
+            'handlers': ['console'],
+            'level': 'WARNING',  # Только предупреждения и ошибки
+            'propagate': False,
+        },
+        'celery.task': {
+            'handlers': ['console'],
+            'level': 'WARNING',  # Только предупреждения и ошибки
+            'propagate': False,
+        },
+        'celery.redirected': {
+            'handlers': ['console'],
+            'level': 'WARNING',
             'propagate': False,
         },
         'bot': {

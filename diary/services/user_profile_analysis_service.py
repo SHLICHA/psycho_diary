@@ -224,6 +224,7 @@ class UserProfileAnalysisService:
     async def _update_user_profile_from_analysis(self, user: User, parsed_result: Dict[str, Any]) -> bool:
         """
         Обновляет поля профиля пользователя на основе результата анализа ИИ.
+        Обрабатывает пометки {"remove": ...} в списках и словарях.
 
         Args:
             user: Объект пользователя.
@@ -244,22 +245,87 @@ class UserProfileAnalysisService:
 
         try:
             profile_updates = parsed_result
-            list_and_dict_field_names = [
-                'personality_traits', 'life_facts', 'hobbies', 'core_values', 
+            # Поля, которые являются списками
+            list_field_names = [
+                'life_facts', 'hobbies', 'core_values', 
                 'triggers', 'strengths', 'areas_for_growth', 
-                'personality_insights', 'habits', 'skills', 'aspirations'
+                'habits', 'skills', 'aspirations'
             ]
-            
-            for field_name in list_and_dict_field_names:
+            # Поля, которые являются словарями
+            dict_field_names = [
+                'personality_traits', 'personality_insights'
+            ]
+
+            # --- Обработка списковых полей ---
+            for field_name in list_field_names:
                 updates_for_field = profile_updates.get(field_name)
                 if updates_for_field is None:
-                    continue 
-                if isinstance(updates_for_field, (dict, list)):
-                    updates_to_apply[field_name] = updates_for_field
-                    fields_updated.append(field_name)
-                    logger.debug(f"[UserProfileAnalysisService] Подготовлено обновление для поля '{field_name}'")
-                else:
-                    logger.warning(f"[UserProfileAnalysisService] Некорректный формат для поля '{field_name}': {type(updates_for_field)}. Ожидается dict или list.")
+                    continue
+                if not isinstance(updates_for_field, list):
+                    logger.warning(f"[UserProfileAnalysisService] Некорректный формат для поля '{field_name}': {type(updates_for_field)}. Ожидается list.")
+                    continue
+
+                current_list = getattr(user, field_name, [])
+                if not isinstance(current_list, list):
+                    current_list = []
+                
+                new_list = []
+                for item in updates_for_field:
+                    if isinstance(item, dict) and 'remove' in item:
+                        # Удалить значение из текущего списка
+                        val_to_remove = item['remove']
+                        if val_to_remove in current_list:
+                            current_list.remove(val_to_remove)
+                            logger.debug(f"[UserProfileAnalysisService] Удалено '{val_to_remove}' из '{field_name}'")
+                    elif isinstance(item, (str, int, float, bool)):
+                        # Добавить значение в новый список
+                        new_list.append(item)
+                    else:
+                        logger.warning(f"[UserProfileAnalysisService] Неподдерживаемый элемент в '{field_name}': {item}. Пропущен.")
+
+                # Объединяем оставшиеся элементы из current_list с новыми
+                final_list = current_list + new_list
+                # Убираем дубликаты, сохранив порядок
+                seen = set()
+                unique_final_list = []
+                for item in final_list:
+                    if item not in seen:
+                        seen.add(item)
+                        unique_final_list.append(item)
+
+                updates_to_apply[field_name] = unique_final_list
+                fields_updated.append(field_name)
+                logger.debug(f"[UserProfileAnalysisService] Обновлено поле '{field_name}': {unique_final_list}")
+
+            # --- Обработка словарных полей ---
+            for field_name in dict_field_names:
+                updates_for_field = profile_updates.get(field_name)
+                if updates_for_field is None:
+                    continue
+                if not isinstance(updates_for_field, dict):
+                    logger.warning(f"[UserProfileAnalysisService] Некорректный формат для поля '{field_name}': {type(updates_for_field)}. Ожидается dict.")
+                    continue
+
+                current_dict = getattr(user, field_name, {})
+                if not isinstance(current_dict, dict):
+                    current_dict = {}
+
+                new_dict = current_dict.copy()
+                for key, value in updates_for_field.items():
+                    if isinstance(value, dict) and 'remove' in value:
+                        # Удалить ключ из текущего словаря
+                        if key in new_dict:
+                            del new_dict[key]
+                            logger.debug(f"[UserProfileAnalysisService] Удалён ключ '{key}' из '{field_name}'")
+                    else:
+                        # Обновить/добавить ключ
+                        new_dict[key] = value
+
+                updates_to_apply[field_name] = new_dict
+                fields_updated.append(field_name)
+                logger.debug(f"[UserProfileAnalysisService] Обновлено поле '{field_name}': {new_dict}")
+
+            # --- Обработка строковых полей ---
             new_personality_description = profile_updates.get('personality_description')
             if isinstance(new_personality_description, str):
                 updates_to_apply['personality_description'] = new_personality_description
@@ -267,6 +333,8 @@ class UserProfileAnalysisService:
                 logger.debug("[UserProfileAnalysisService] Подготовлено обновление для поля 'personality_description'")
             elif new_personality_description is not None:
                  logger.warning(f"[UserProfileAnalysisService] Некорректный формат для поля 'personality_description': {type(new_personality_description)}. Ожидается str.")
+
+            # --- Сохранение обновлений ---
             if fields_updated:
                 logger.debug(f"[UserProfileAnalysisService] Обновлены поля профиля пользователя {user.telegram_id}: {fields_updated}")
                 
