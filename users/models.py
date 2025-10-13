@@ -162,6 +162,7 @@ class User(AbstractUser):
         update_fields = []
 
         # --- Подписка ---
+        was_premium_before = self.is_premium # Сохраняем предыдущее состояние
         if payment.subscription_days_granted > 0:
             now = timezone.now()
             if self.premium_expires_at and self.premium_expires_at > now:
@@ -170,6 +171,14 @@ class User(AbstractUser):
                 new_expires = now + timedelta(days=payment.subscription_days_granted)
             self.premium_expires_at = new_expires
             self.is_premium = True
+            # --- Включаем автоанализ при активации подписки ---
+            # Проверяем, была ли подписка активна до этого.
+            # Если нет, значит это новая активация, и можно включить автоанализ.
+            if not was_premium_before:
+                self.auto_analysis_enabled = True
+                update_fields.append('auto_analysis_enabled')
+                logger.info(f"[User.process_payment] Автоанализ включен для пользователя {self.telegram_id} после активации подписки.")
+            # --- Конец изменения ---
             update_fields.extend(['premium_expires_at', 'is_premium'])
 
         # --- Токены ---

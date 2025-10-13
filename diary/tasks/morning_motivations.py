@@ -30,7 +30,6 @@ async def aget_users_for_morning_motivation():
     Асинхронное получение активных пользователей с включенными уведомлениями, не заблокированных.
     Предзагружает необходимые поля для эффективности и избегания lazy loading в асинхронной функции.
     """
-    from asgiref.sync import sync_to_async
     @sync_to_async
     def _get_users_sync():
         return list(User.objects.filter(
@@ -89,7 +88,7 @@ async def _send_morning_motivation_async():
                         user_profile_data = {
                             'first_name': user.first_name or user.username or f'Пользователь {user.telegram_id}',
                             'awareness_level': user.awareness_level,
-                            'is_premium': user.is_premium,
+                            'date_of_birth': user.date_of_birth,
                             'entries_count': entries_count,
                             'username': user.username,
                             'language': user.language,
@@ -145,6 +144,26 @@ async def _send_morning_motivation_async():
                                 dates_str = " и ".join(formatted_dates)
                                 restore_text = get_message('morning_motivation_restore_two_days', user_language, dates=dates_str)
                             restore_text = f"\n\n{restore_text}" # Добавляем отступ
+                        is_user_premium_active = await sync_to_async(user.is_premium_active)()
+
+                        if is_user_premium_active: # Используем результат асинхронного вызова
+                            # Если подписка активна, проверяем, сколько дней осталось до окончания
+                            # Переводим время окончания подписки в локальный часовой пояс пользователя
+                            # Обратите внимание: premium_expires_at уже должен быть в UTC, мы переводим его в локальный
+                            expires_local_dt = user.premium_expires_at.astimezone(user_tz)
+                            expires_local_date = expires_local_dt.date()
+                            user_local_date = user_local_time.date()
+
+                            days_until_expiry = (expires_local_date - user_local_date).days
+
+                            # Если осталось 3, 2 или 1 день, добавляем напоминание
+                            if 1 <= days_until_expiry <= 3:
+                                expiry_message_key = f'premium_expires_in_{days_until_expiry}_days'
+                                # Используем преамбулу для стилистического выделения
+                                restore_text += (
+                                    get_message('morning_motivation_premium_expiry_preamble', user_language) +
+                                    get_message(expiry_message_key, user_language)
+                                )
 
                         additional_text = ""
                         additional_button_callback = None

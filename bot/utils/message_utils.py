@@ -6,7 +6,7 @@ import logging
 from typing import Optional, Callable, Any, Awaitable
 from aiogram import Bot
 from aiogram.types import Message
-from aiogram.exceptions import TelegramBadRequest, TelegramAPIError
+from aiogram.exceptions import TelegramBadRequest, TelegramAPIError, TelegramForbiddenError
 
 from bot.utils.callback_utils import is_message_not_modified_error 
 from users.models import User
@@ -304,40 +304,49 @@ async def send_message_to_user(
     """
     Безопасная отправка сообщения пользователю с обработкой исключений.
     Автоматически обновляет флаг is_blocked при блокировке/разблокировке.
-    
+
     Args:
         bot: Экземпляр бота
         user: Пользователь (модель User)
         text: Текст сообщения
         reply_markup: Клавиатура сообщения
         disable_notification: Отключить уведомление
-        
+
     Returns:
         bool: True если сообщение отправлено успешно, False в противном случае
     """
     try:
-        if user.is_blocked:
-            return False
         await bot.send_message(
             chat_id=user.telegram_id,
             text=text,
             reply_markup=reply_markup,
             disable_notification=disable_notification
         )
-        # Если сообщение отправлено, но флаг is_blocked был True, сбрасываем его
-        if user.is_blocked:
-            await User.mark_unblocked(user.telegram_id)  # Предполагаем, что такой метод есть
-            logger.info(f"Пользователь {user.telegram_id} автоматически разблокирован (успешная отправка)")
+        await User.mark_unblocked(user.telegram_id)
+        logger.debug(f"Пользователь {user.telegram_id} помечен как разблокированный (успешная отправка).")
         return True
-    except TelegramBadRequest as e:
+    except TelegramForbiddenError as e:
         error_message = str(e).lower()
-        # Проверяем, заблокировал ли пользователь бота или чат больше не существует
-        if "bot was blocked" in error_message or \
+        if "bot was blocked by the user" in error_message or \
            "user is deactivated" in error_message or \
            "chat not found" in error_message or \
            "forbidden" in error_message:
-            await User.mark_blocked(user.telegram_id)  # Предполагаем, что такой метод есть
+            await User.mark_blocked(user.telegram_id)
             logger.info(f"Пользователь {user.telegram_id} заблокировал бота или чат недоступен: {e}")
+            return False
+        else:
+            logger.error(f"TelegramForbiddenError (не блокировка) при отправке сообщения пользователю {user.telegram_id}: {e}")
+            return False
+    except TelegramBadRequest as e:
+        # Обработка других ошибок запроса
+        error_message = str(e).lower()
+        if "bot was blocked by the user" in error_message or \
+           "user is deactivated" in error_message or \
+           "chat not found" in error_message or \
+           "forbidden" in error_message:
+            # Хотя Forbidden ловится выше, на всякий случай
+            await User.mark_blocked(user.telegram_id)
+            logger.info(f"Пользователь {user.telegram_id} заблокировал бота или чат недоступен (BadRequest): {e}")
             return False
         else:
             logger.error(f"TelegramBadRequest при отправке сообщения пользователю {user.telegram_id}: {e}")

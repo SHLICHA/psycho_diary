@@ -6,7 +6,7 @@ WEEKLY_ANALYSIS_PROMPT = {
 **Профиль пользователя (для контекста):**
 Имя: {user_profile[first_name]}
 Уровень осознанности: {user_profile[awareness_level]}/10
-Премиум: {user_profile[is_premium]}
+Дата рождения: {user_profile[date_of_birth]}
 Черты характера: {user_profile[personality_traits]}
 Факты о жизни: {user_profile[life_facts]}
 Увлечения: {user_profile[hobbies]}
@@ -103,7 +103,7 @@ WEEKLY_ANALYSIS_PROMPT = {
 **User Profile (for context):**
 Name: {user_profile[first_name]}
 Awareness Level: {user_profile[awareness_level]}/10
-Premium: {user_profile[is_premium]}
+Date of birth: {user_profile[date_of_birth]}
 Personality Traits: {user_profile[personality_traits]}
 Life Facts: {user_profile[life_facts]}
 Hobbies: {user_profile[hobbies]}

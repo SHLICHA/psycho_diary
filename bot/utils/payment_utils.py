@@ -11,6 +11,7 @@ from yookassa import Configuration, Payment as YooPayment
 from users.models import Payment, User
 from bot.utils.message_utils import send_message_to_user
 from bot.utils.state_manager import state_manager # <-- ИМПОРТИРУЕМ state_manager
+from messages import get_message, get_button_text
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ async def create_yookassa_payment(
         "amount": {"value": f"{amount:.2f}", "currency": "RUB"},
         "confirmation": {
             "type": "redirect",
-            "return_url": f"https://t.me/{settings.BOT_USERNAME}"
+            "return_url": f"https://t.me/{settings.BOT_USERNAME}" # <-- ИСПРАВЛЕНО: убран лишний пробел
         },
         "capture": True,
         "description": description,
@@ -58,7 +59,7 @@ async def create_yookassa_payment(
 
 async def track_payment_status(yookassa_payment_id: str, payment_id: int, user_id: int):
     logger.info(f"Отслеживание платежа {yookassa_payment_id} для {user_id}")
-    user = await User.objects.aget(telegram_id=user_id)
+    # user = await User.objects.aget(telegram_id=user_id) # <-- ЗАГРУЖАЕМ НАЧАЛЬНЫЙ ОБЪЕКТ, МОЖЕТ БЫТЬ НЕАКТУАЛЬНО ПОЗЖЕ
 
     # --- ПОЛУЧАЕМ bot через state_manager ---
     bot = state_manager._bot_instance
@@ -73,6 +74,11 @@ async def track_payment_status(yookassa_payment_id: str, payment_id: int, user_i
             if not yoo_payment:
                 continue
 
+            # db_payment = await Payment.objects.aget(id=payment_id) # <-- МОЖЕТ БЫТЬ НЕАКТУАЛЬНО ПОЗЖЕ
+            # if yoo_payment.status == db_payment.status:
+            #     continue
+
+            # Получаем обновлённый статус платежа из БД
             db_payment = await Payment.objects.aget(id=payment_id)
             if yoo_payment.status == db_payment.status:
                 continue
@@ -81,27 +87,49 @@ async def track_payment_status(yookassa_payment_id: str, payment_id: int, user_i
             await db_payment.asave()
 
             if yoo_payment.status == "succeeded":
-                await user.process_payment(db_payment)
-                # --- ОТПРАВЛЯЕМ НОВОЕ СООБЩЕНИЕ ---
+                # Перед обработкой получаем свежий объект пользователя
+                user_before_processing = await User.objects.aget(telegram_id=user_id)
+                auto_analysis_was_enabled_before = user_before_processing.auto_analysis_enabled
+
+                # Обрабатываем оплату
+                await user_before_processing.process_payment(db_payment)
+
+                # После обработки получаем обновлённый объект пользователя
+                user_after_processing = await User.objects.aget(telegram_id=user_id)
+                auto_analysis_is_now_enabled = user_after_processing.auto_analysis_enabled
+                user_language = user_after_processing.language or 'ru'
+
+                success_message = get_message('payment_successful', user_language) + "\n\n" # "✅ Платёж успешно обработан!"
+                # Проверяем, был ли активирована подписка (а не просто токены) и включился ли автоанализ
+                if db_payment.subscription_days_granted > 0 and auto_analysis_is_now_enabled and not auto_analysis_was_enabled_before:
+                    success_message += get_message('auto_analysis_enabled_on_subscription', user_language) + "\n\n"
+                success_message += get_message('thank_you_for_support', user_language) # "Спасибо за поддержку!"
+
                 await send_message_to_user(
                     bot,
-                    user,
-                    "✅ Платёж успешно обработан!",
+                    user_after_processing, # Используем обновлённый объект
+                    success_message,
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="🔙 Назад", callback_data="settings")]
+                        [InlineKeyboardButton(text=get_button_text('btn_back', user_language), callback_data="main_menu")]
                     ])
                 )
                 return
             elif yoo_payment.status in ("canceled", "failed"):
+                # Получаем пользователя для отправки сообщения
+                user_on_failure = await User.objects.aget(telegram_id=user_id)
+                user_language = user_on_failure.language or 'ru'
                 # --- ОТПРАВЛЯЕМ НОВОЕ СООБЩЕНИЕ ---
-                await send_message_to_user(bot, user, "❌ Платёж не прошёл.")
+                await send_message_to_user(bot, user_on_failure, get_message('payment_failed', user_language), language=user_language) # Предполагаем, что 'payment_failed' есть
                 return
         except Exception as e:
             logger.error(f"Ошибка при отслеживании платежа {yookassa_payment_id}: {e}", exc_info=True)
 
     # --- ОТПРАВЛЯЕМ НОВОЕ СООБЩЕНИЕ по таймауту ---
+    # Получаем пользователя для отправки сообщения
+    user_on_timeout = await User.objects.aget(telegram_id=user_id)
+    user_language = user_on_timeout.language or 'ru'
     await send_message_to_user(
         bot,
-        user,
-        "⌛ Время ожидания оплаты истекло. Если вы оплатили, перезапустите бота: /start"
+        user_on_timeout,
+        get_message('payment_timeout', user_language) # Предполагаем, что 'payment_timeout' есть, например, "Время ожидания оплаты истекло..."
     )

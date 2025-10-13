@@ -71,5 +71,19 @@ MAIN_MESSAGES_RU = {
         'streak_restore_hint': 'Не прерывайте свою серию! Пропустили день? Восстановите её в разделе "Прогресс".',
         'streak_restore_hint_single_day': '📅 <b>Пропущен день {date}</b>!\nНе прерывайте свою серию! Восстановите его в разделе "Прогресс".',
         'streak_restore_hint_two_days': '📅 <b>Пропущены дни {dates}</b>!\nНе прерывайте свою серию! Восстановите их в разделе "Прогресс".',
+        'premium_days_remaining': 'Осталось дней: <b>{days}</b>',
+        'premium_expired': '👑 Подписка <b>истекла</b>',
+        'premium_active_info': '👑 <b>Подписка активна</b>\n{days_info}',
+        'main_menu_welcome_back_with_premium': '''👋 Привет, <b>{first_name}</b>!
+
+📊 <b>Уровень осознанности:</b> {awareness_level}
+📝 <b>Всего записей:</b> {entries_count}
+💰 <b>Токены:</b> {token_balance}
+{premium_info}
+
+{streak_info}
+{max_streak_info}
+
+Готов(а) поделиться мыслями?''',
     }
 }

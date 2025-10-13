@@ -64,13 +64,17 @@ MESSAGES = {
 
 ✨ <b>Что входит:</b>
 • Еженедельные отчеты
-• Графики эмоций
 • Персональные рекомендации
-• Расширенная статистика
+• Автоматический анализ
+• Неограниченный чат
 • Приоритетная поддержка
 
 💳 Подписка стоит 300₽/месяц''',
-
+'auto_analysis_enabled_on_subscription': '''🔄 <b>Автоматический анализ дня включён!</b> Теперь вы будете получать ежедневные персонализированные инсайты и обновления вашего психологического профиля.''',
+        'payment_successful': '✅ Платёж успешно обработан!',
+        'thank_you_for_support': 'Спасибо за поддержку!',
+        'payment_failed': '❌ Платёж не прошёл.',
+        'payment_timeout': '⌛ Время ожидания оплаты истекло. Если вы оплатили, перезапустите бота: /start',
 'data_not_found': '''❌ Данные не найдены''',
 'no_comment': '''Нет комментария''',
 'no_recommendation': '''Нет рекомендации''',
@@ -124,6 +128,12 @@ MESSAGES = {
         'broadcast_error': '❌ Ошибка при рассылке',
         'broadcast_failed_cancel': 'Не удалось отменить рассылку',
         'broadcast_prefix': 'Сообщение от администратора',
+'btn_morning_motivation_renew_subscription': '🔄 Продлить подписку',
+'btn_morning_motivation_manage_subscription': '💰 Управление подпиской',
+'morning_motivation_premium_expiry_preamble': '''\n\n------------\n⏰ <b>Подписка скоро заканчивается!</b>\n\n''',
+'premium_expires_in_3_days': 'Ваша подписка PRO закончится через <b>3 дня</b>. Не забудьте продлить, чтобы не потерять доступ к премиум-функциям.',
+'premium_expires_in_2_days': 'Ваша подписка PRO закончится через <b>2 дня</b>. Продлите её, чтобы продолжить пользоваться всеми возможностями.',
+'premium_expires_in_1_days': 'Ваша подписка PRO <b>заканчивается завтра</b>! Продлите её прямо сейчас.',
     },
     'en': {
         # === Mood scores ===
@@ -190,7 +200,11 @@ MESSAGES = {
 • Priority support
 
 💳 Subscription costs $4.99/month''',
-
+'auto_analysis_enabled_on_subscription': '''🔄 <b>Automatic daily analysis enabled!</b> You will now receive daily personalized insights and updates to your psychological profile.''',
+        'payment_successful': '✅ Payment processed successfully!',
+        'thank_you_for_support': 'Thank you for your support!',
+        'payment_failed': '❌ Payment failed.',
+        'payment_timeout': '⌛ Payment timeout. If you have paid, please restart the bot: /start',
 'data_not_found': '''❌ Data not found''',
 'no_comment': '''No comment''',
 'no_recommendation': '''No recommendation''',
@@ -244,6 +258,12 @@ Our thoughts and feelings are an important part of the path to understanding our
         'broadcast_error': '❌ Broadcast error',
         'broadcast_failed_cancel': 'Failed to cancel broadcast',
         'broadcast_prefix': 'Message from admin',
+'btn_morning_motivation_renew_subscription': '🔄 Renew Subscription',
+'btn_morning_motivation_manage_subscription': '💰 Manage Subscription',
+'morning_motivation_premium_expiry_preamble': '''\n\n------------\n⏰ <b>Your subscription is ending soon!</b>\n\n''',
+'premium_expires_in_3_days': 'Your PRO subscription will end in <b>3 days</b>. Remember to renew to keep access to premium features.',
+'premium_expires_in_2_days': 'Your PRO subscription will end in <b>2 days</b>. Renew it to continue enjoying all features.',
+'premium_expires_in_1_days': 'Your PRO subscription <b>ends tomorrow</b>! Renew it now.',
     }
 }
 

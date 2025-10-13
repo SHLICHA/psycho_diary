@@ -188,7 +188,7 @@ class WeeklyAnalysisService:
             'username': user.username or f"user_{user.telegram_id}",
             'first_name': user.first_name or "",
             'awareness_level': user.awareness_level,
-            'is_premium': user.is_premium,
+            'date_of_birth': user.date_of_birth,
             "personality_traits": user.personality_traits,
             "life_facts": user.life_facts,
             "hobbies": user.hobbies,

@@ -74,6 +74,19 @@ Ready to share your thoughts?''',
         'streak_restore_hint': 'Keep your streak going! Missed a day? Restore it in the "Progress" section.',
         'streak_restore_hint_single_day': '📅 <b>Day {date} missed</b>!\nKeep your streak going! Restore it in the "Progress" section.',
         'streak_restore_hint_two_days': '📅 <b>Days {dates} missed</b>!\nKeep your streak going! Restore them in the "Progress" section.',
+        'premium_days_remaining': 'Days remaining: <b>{days}</b>',
+        'premium_expired': '👑 Subscription <b>expired</b>',
+        'premium_active_info': '👑 <b>Subscription active</b>\n{days_info}',
+        'main_menu_welcome_back_with_premium': '''👋 Hi, <b>{first_name}</b>!
 
+📊 <b>Awareness level:</b> {awareness_level}
+📝 <b>Total entries:</b> {entries_count}
+💰 <b>Tokens:</b> {token_balance}
+{premium_info}
+
+{streak_info}
+{max_streak_info}
+
+Ready to share your thoughts?''',
     }
 }

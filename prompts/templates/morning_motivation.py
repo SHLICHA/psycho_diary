@@ -7,7 +7,7 @@ MORNING_MOTIVATION_PROMPT = {
 
 **Профиль пользователя:**
 {user_profile}
-*Включает имя, уровень осознанности, премиум-статус, психологический портрет: черты характера, факты о жизни, увлечения, ценности, триггеры, сильные стороны, зоны роста, привычки, навыки, стремления.*
+*Включает имя, уровень осознанности, дата рождения, психологический портрет: черты характера, факты о жизни, увлечения, ценности, триггеры, сильные стороны, зоны роста, привычки, навыки, стремления.*
 
 **Анализ предыдущего дня (если есть):**
 {previous_day_analysis}
@@ -51,7 +51,7 @@ MORNING_MOTIVATION_PROMPT = {
 
 **User Profile:**
 {user_profile}
-*Includes name, awareness level, premium status, psychological profile: personality traits, life facts, hobbies, core values, triggers, strengths, areas for growth, habits, skills, aspirations.*
+*Includes name, awareness level, day of birth, psychological profile: personality traits, life facts, hobbies, core values, triggers, strengths, areas for growth, habits, skills, aspirations.*
 
 **Previous day analysis (if any):**
 {previous_day_analysis}

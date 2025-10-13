@@ -6,7 +6,7 @@ USER_PROFILE_ANALYSIS_PROMPT = {
 **Текущий психологический профиль пользователя (данные в формате JSON-строк):**
 Имя: {user_profile[first_name]}
 Уровень осознанности: {user_profile[awareness_level]}/10
-Премиум: {user_profile[is_premium]}
+Дата рождения: {user_profile[date_of_birth]}
 
 **Текстовое описание личности (Текущее):**
 {user_profile[personality_description]}
@@ -39,7 +39,7 @@ USER_PROFILE_ANALYSIS_PROMPT = {
     *   Это должно быть **новое, цельное, человекочитаемое описание личности** пользователя на русском языке.
     *   Объедини ключевые черты, ценности, сильные стороны, зоны роста, привычки, стремления и инсайты в связный рассказ.
     *   Учитывай уровень осознанности.
-    *   Объем: 3-5 абзацев. Избегай списков и форматирования.
+    **   Объем: 3-5 абзацев, **обязательно** не более 4000 символов. Избегай списков и форматирования.
 3.  **Обнови все структурированные поля профиля**:
     *   Пересмотри и при необходимости обнови **все** следующие поля:
         *   `personality_traits` (dict): Только значимые черты (вес 0.1-1.0).
@@ -58,7 +58,7 @@ USER_PROFILE_ANALYSIS_PROMPT = {
         *   Чтобы **удалить** элемент: используй формат `{{"remove": "старый_факт"}}`.
     *   Для `personality_traits` и `personality_insights` (словари):
         *   Предоставь обновленный словарь с актуальными ключами и значениями.
-4.  **НЕ ВКЛЮЧАЙ `awareness_level`, `first_name`, `is_premium`** в свой ответ.
+4.  **НЕ ВКЛЮЧАЙ `awareness_level`, `first_name`, `date_of_birth`** в свой ответ.
 
 ### 📤 ОТВЕТ В СТРОГОМ ФОРМАТЕ JSON
 
@@ -121,7 +121,7 @@ USER_PROFILE_ANALYSIS_PROMPT = {
 **User's Current Psychological Profile (data as JSON strings):**
 Name: {user_profile[first_name]}
 Awareness Level: {user_profile[awareness_level]}/10
-Premium: {user_profile[is_premium]}
+Date of birth: {user_profile[date_of_birth]}
 
 **Personality Description (Current):**
 {user_profile[personality_description]}
@@ -154,7 +154,7 @@ Aspirations (JSON): {user_profile[aspirations]}
     *   This should be a **new, cohesive, human-readable description of the user's personality** in English.
     *   Synthesize key traits, values, strengths, areas for growth, habits, aspirations, and insights into a coherent narrative.
     *   Consider the awareness level.
-    *   Length: 3-5 paragraphs. Avoid lists and formatting.
+    *   Length: 3-5 paragraphs, **strictly** no more than 4000 characters. Avoid lists and formatting.
 3.  **Update all structured profile fields**:
     *   Re-evaluate and update **all** the following fields if necessary:
         *   `personality_traits` (dict): Only significant traits (weight 0.1-1.0).
@@ -173,7 +173,7 @@ Aspirations (JSON): {user_profile[aspirations]}
         *   To **remove** an item: use the format `{{"remove": "old_fact"}}`.
     *   For `personality_traits` and `personality_insights` (dictionaries):
         *   Provide an updated dictionary with current keys and values.
-4.  **DO NOT INCLUDE `awareness_level`, `first_name`, `is_premium`** in your response.
+4.  **DO NOT INCLUDE `awareness_level`, `first_name`, `date_of_birth`** in your response.
 
 ### 📤 RESPONSE IN STRICT JSON FORMAT
 

@@ -153,7 +153,7 @@ class UserProfileAnalysisService:
             'username': user.username or f"user_{user.telegram_id}",
             'first_name': user.first_name or "",
             'awareness_level': user.awareness_level,
-            'is_premium': user.is_premium,
+            'date_of_birth': user.date_of_birth,
             "personality_traits": json.dumps(user.personality_traits, cls=DjangoJSONEncoder, ensure_ascii=False),
             "life_facts": json.dumps(user.life_facts, cls=DjangoJSONEncoder, ensure_ascii=False),
             "hobbies": json.dumps(user.hobbies, cls=DjangoJSONEncoder, ensure_ascii=False),

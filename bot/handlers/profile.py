@@ -47,6 +47,34 @@ async def show_user_profile(callback: CallbackQuery, user, language: str):
             (user.life_facts and isinstance(user.life_facts, list) and user.life_facts) or
             user.personality_description
         )
+
+        # --- НОВОЕ: Получение даты последней записи из DiaryEntry ---
+        last_entry_date_str = ""
+        try:
+            # Получаем последнюю запись по дате создания (или по другому полю, если нужно учитывать редактирование)
+            # Используем sync_to_async для асинхронного вызова ORM
+            @sync_to_async
+            def get_last_entry_date():
+                last_entry = DiaryEntry.objects.filter(user=user).order_by('-created_at').first()
+                if last_entry:
+                    # Используем свойство entry_date, которое учитывает часовой пояс пользователя
+                    return last_entry.entry_date # Это date, форматирование делаем позже
+                return None
+
+            last_entry_date_obj = await get_last_entry_date()
+            if last_entry_date_obj:
+                 # last_entry_date_obj - это объект date
+                 last_entry_date_str = last_entry_date_obj.strftime('%d.%m.%Y')
+                 # Если нужно время: last_entry_date_str = last_entry.entry_date.strftime('%d.%m.%Y %H:%M')
+                 # Но для этого нужно получить сам объект entry, а не только дату, что менее эффективно.
+                 # Если время из самой записи обязательно, то нужно получать DiaryEntry целиком.
+                 # Пока используем только дату из entry_date.
+        except Exception as e:
+            logger.error(f"Не удалось получить дату последней записи из DiaryEntry для пользователя {user.telegram_id}: {e}")
+            last_entry_date_str = "" # В случае ошибки, отображаем пусто
+
+        # --- КОНЕЦ НОВОГО ---
+
         profile_msg = get_message(
             key='profile_title',
             language=user.language,
@@ -58,9 +86,10 @@ async def show_user_profile(callback: CallbackQuery, user, language: str):
             auto_analysis_status='✅' if user.auto_analysis_enabled else '❌',
             premium_status='✅' if user.is_premium else '❌',
             awareness_level=user.awareness_level,
-            token_balance = user.token_balance,
+            token_balance=user.token_balance, # <-- Исправлено: убран пробел
             registration_date=user.created_at.strftime('%d.%m.%Y') if user.created_at else '',
-            last_entry=user.last_entry.strftime('%d.%m.%Y %H:%M') if user.last_entry else ''
+            # last_entry=user.last_entry.strftime('%d.%m.%Y %H:%M') if user.last_entry else '' # <-- УБРАНО
+            last_entry=last_entry_date_str # <-- ИСПОЛЬЗУЕМ НОВОЕ ЗНАЧЕНИЕ
         )
         try:
             @sync_to_async
@@ -68,11 +97,13 @@ async def show_user_profile(callback: CallbackQuery, user, language: str):
                 return UserProfileHistory.objects.filter(user=user).order_by('-created_at').first()
             last_profile_history = await _get_last_profile_history_sync()
             if last_profile_history:
+                # --- ИСПРАВЛЕНО: Убрано время из last_analysis_date ---
                 profile_msg += get_message(
                     key='last_analysis',
                     language=user.language,
-                    last_analysis_date=last_profile_history.created_at.strftime('%d.%m.%Y %H:%M') if last_profile_history else ''
+                    last_analysis_date=last_profile_history.created_at.strftime('%d.%m.%Y') # <-- Только дата
                     )
+                # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
         except Exception as e:
             logger.debug(f"Не удалось получить дату последнего анализа профиля: {e}")
         await callback.message.edit_text(

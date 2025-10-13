@@ -117,6 +117,7 @@ CELERY_BEAT_SCHEDULE = {
     'schedule-weekly-analyses': {
         'task': 'diary.tasks.weekly_analisys_tasks.schedule_weekly_analyses_task',
         'schedule': crontab(minute=0),
+        #'schedule': 120,
     },
     'check-clarification-reminders': {
         'task': 'diary.tasks.reminder_ask_questions.check_clarification_reminders',

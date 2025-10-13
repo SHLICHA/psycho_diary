@@ -11,10 +11,12 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from django.conf import settings
+from django.utils import timezone
 from asgiref.sync import sync_to_async
 
 from messages import get_message, get_button_text
-from users.models import User
+from diary.models import DiaryEntry
+from users.models import User, Payment
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -162,3 +164,113 @@ async def cancel_broadcast(callback: CallbackQuery, state: FSMContext):
         await callback.answer(get_message('broadcast_failed_cancel', language), show_alert=True)
     finally:
         await callback.answer()
+
+async def get_admin_stats():
+    """
+    Асинхронная функция для сбора статистики администратора.
+    Возвращает словарь с метриками.
+    """
+    now = timezone.now()
+    # seven_days_ago = now - timedelta(days=7) # Пока не используется, можно убрать
+
+    stats = {}
+
+    # --- Пользователи ---
+    # Всего (активных в системе, не удалённых)
+    active_in_system_users = User.objects.filter(deletion_status='active', is_superuser=False)
+    stats['total_users'] = await active_in_system_users.acount()
+
+    # Активные (незаблокированные, не удалённые)
+    active_users_query = active_in_system_users.filter(is_blocked=False)
+    stats['active_users'] = await active_users_query.acount()
+
+    # Заблокированы (is_blocked = True, не удалённые)
+    stats['blocked_users'] = await active_in_system_users.filter(is_blocked=True).acount()
+
+    # Подсчёт премиум пользователей через sync_to_async
+    @sync_to_async
+    def count_premium_users():
+        # Получаем всех активных (незаблокированных, не удалённых) пользователей
+        users_qs = active_users_query # Используем запрос для незаблокированных
+        count = 0
+        for user in users_qs.iterator(): # Используем iterator для потенциально большого количества записей
+            if user.is_premium_active(): # Вызов синхронного метода
+                count += 1
+        return count
+
+    stats['premium_users'] = await count_premium_users()
+
+    # С токенами (незаблокированные, не удалённые, token_balance > 0)
+    stats['users_with_tokens'] = await active_users_query.filter(token_balance__gt=0).acount()
+
+    # --- Платежи ---
+    # Считаем количество успешных платежей по типам
+    successful_payments = Payment.objects.filter(status='succeeded')
+
+    stats['subscriptions_30_count'] = await successful_payments.filter(payment_type='subscription_month').acount()
+    stats['subscriptions_year_count'] = await successful_payments.filter(payment_type='subscription_year').acount()
+    stats['tokens_10_count'] = await successful_payments.filter(payment_type='tokens_10').acount()
+    stats['tokens_100_count'] = await successful_payments.filter(payment_type='tokens_100').acount()
+    stats['tokens_200_count'] = await successful_payments.filter(payment_type='tokens_200').acount()
+    stats['tokens_500_count'] = await successful_payments.filter(payment_type='tokens_500').acount()
+    stats['custom_tokens_count'] = await successful_payments.filter(payment_type='tokens_custom').acount()
+
+    # --- Записи ---
+    # Учитываем, что записи могут быть у удалённых пользователей, но для общей статистики
+    # логично исключить их, или посчитать отдельно.
+    # Берём записи только от активных (незаблокированных, не удалённых) пользователей
+    user_active_ids = await sync_to_async(list)(active_users_query.values_list('id', flat=True))
+    total_entries_query = DiaryEntry.objects.filter(user_id__in=user_active_ids)
+    stats['total_entries'] = await total_entries_query.acount()
+    stats['real_entries'] = await total_entries_query.filter(is_recovered_streak=False).acount()
+    stats['recovered_entries'] = await total_entries_query.filter(is_recovered_streak=True).acount()
+
+    return stats
+
+# Обработчик команды /stats
+@router.message(Command("stats"))
+async def cmd_admin_stats(message: Message):
+    """
+    Отправляет администратору сводную статистику.
+    """
+    # --- Проверка на администратора ---
+    if not is_admin:
+        await message.answer("❌ У вас нет прав для просмотра статистики.")
+        return
+    # ---
+
+    try:
+        stats = await get_admin_stats()
+
+        # Формируем сообщение
+        response = f"""
+📊 <b>Статистика приложения</b> (на {timezone.now().strftime('%d.%m.%Y %H:%M')})
+
+<b>Пользователи:</b>
+• Всего (активных в системе): {stats['total_users']}
+• Активных (незаблокированных): {stats['active_users']}
+• Заблокировано: {stats['blocked_users']}
+• С активной подпиской: {stats['premium_users']}
+• С токенами: {stats['users_with_tokens']}
+
+<b>Платежи (успешные):</b>
+• Подписки (30 дней): {stats['subscriptions_30_count']} шт.
+• Подписки (год): {stats['subscriptions_year_count']} шт.
+• Токены (10 шт.): {stats['tokens_10_count']} шт.
+• Токены (100 шт.): {stats['tokens_100_count']} шт.
+• Токены (200 шт.): {stats['tokens_200_count']} шт.
+• Токены (500 шт.): {stats['tokens_500_count']} шт.
+• Токены (кастом): {stats['custom_tokens_count']} шт.
+
+<b>Записи:</b>
+• Всего (от незаблокированных пользователей): {stats['total_entries']}
+• "Настоящие": {stats['real_entries']}
+• Восстановленные: {stats['recovered_entries']}
+
+        """
+
+        await message.answer(response, parse_mode='HTML')
+
+    except Exception as e:
+        logger.error(f"Ошибка при сборе статистики администратора: {e}", exc_info=True)
+        await message.answer("❌ Ошибка при сборе статистики.")
