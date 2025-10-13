@@ -291,11 +291,27 @@ async def show_profile_field(callback: CallbackQuery, user, language: str):
             else:
                 field_text = f"<b>{field_display_name}</b>" + get_message('profile_field_empty_list', language)
         elif isinstance(field_value, dict):
-            if field_value:
-                dict_items = [f"  <b>{k}</b>: {v}" for k, v in field_value.items()]
-                field_text = f"<b>{field_display_name}</b>" + " ".join(dict_items)
+            if field_key == 'personality_insights':
+                if field_value:
+                    # Форматируем каждую пару "ключ: значение" на отдельной строке
+                    # Ключи не переводим, используем как есть, и делаем их жирными
+                    dict_lines = []
+                    for k, v in field_value.items():
+                        # Используем ключ как есть, оборачиваем в <b>
+                        line = f"💭<b>{k.capitalize()}</b>:\n{v}"
+                        dict_lines.append(line)
+                    # Разделяем каждую пару двумя переносами строки
+                    field_text = f"<b>{field_display_name}</b>\n\n" + "\n\n".join(dict_lines)
+                else:
+                    field_text = f"<b>{field_display_name}</b>" + get_message('profile_field_empty_dict', language)
+            # --- КОНЕЦ НОВОГО ---
             else:
-                field_text = f"<b>{field_display_name}</b>" + get_message('profile_field_empty_dict', language)
+                # --- СТАНДАРТНАЯ ЛОГИКА ---
+                if field_value:
+                    dict_items = [f"  <b>{k}</b>: {v}" for k, v in field_value.items()]
+                    field_text = f"<b>{field_display_name}</b>" + " ".join(dict_items)
+                else:
+                    field_text = f"<b>{field_display_name}</b>" + get_message('profile_field_empty_dict', language)
         elif isinstance(field_value, str):
             if field_value.strip():
                 field_text = f"<b>{field_display_name}</b>{field_value.strip()}"
@@ -353,7 +369,7 @@ async def edit_profile_name(callback: CallbackQuery, state: FSMContext, user, la
     try:
         await state_manager.set_state(state, SettingsStates.waiting_for_name_input)
         ask_msg = get_message('ask_new_name', language)
-        reply_markup = get_single_button_keyboard(language, 'settings', 'btn_back')
+        reply_markup = get_single_button_keyboard(language, 'edit_profile', 'btn_back')
         await callback.message.edit_text(
             ask_msg,
             reply_markup=reply_markup
@@ -369,7 +385,7 @@ async def edit_profile_email(callback: CallbackQuery, state: FSMContext, user, l
     try:
         await state_manager.set_state(state, SettingsStates.waiting_for_email_input)
         ask_msg = get_message('ask_new_email', language)
-        reply_markup = get_single_button_keyboard(language, 'settings', 'btn_back')
+        reply_markup = get_single_button_keyboard(language, 'edit_profile', 'btn_back')
         await callback.message.edit_text(
             ask_msg,
             reply_markup=reply_markup
@@ -385,7 +401,7 @@ async def edit_profile_dob(callback: CallbackQuery, state: FSMContext, user, lan
     try:
         await state_manager.set_state(state, SettingsStates.waiting_for_date_of_birth_input)
         ask_msg = get_message('ask_new_dob', language)
-        reply_markup = get_single_button_keyboard(language, 'settings', 'btn_back')
+        reply_markup = get_single_button_keyboard(language, 'edit_profile', 'btn_back')
         await callback.message.edit_text(
             ask_msg,
             reply_markup=reply_markup
@@ -414,7 +430,7 @@ async def edit_profile_hobbies(callback: CallbackQuery, state: FSMContext, user,
                 key='current_hobbies',
                 language=language,
                 current_hobbies=current_hobbies)
-        reply_markup = get_single_button_keyboard(language, 'settings', 'btn_back')
+        reply_markup = get_single_button_keyboard(language, 'edit_profile', 'btn_back')
         await callback.message.edit_text(
             ask_msg,
             reply_markup=reply_markup
@@ -444,7 +460,7 @@ async def edit_profile_life_facts(callback: CallbackQuery, state: FSMContext, us
                 language=language,
                 current_facts=current_facts
             )
-        reply_markup = get_single_button_keyboard(language, 'settings', 'btn_back')
+        reply_markup = get_single_button_keyboard(language, 'edit_profile', 'btn_back')
         await callback.message.edit_text(
             ask_msg,
             reply_markup=reply_markup
@@ -701,7 +717,7 @@ async def cancel_account_deletion(callback: CallbackQuery, user, language: str, 
     try:
         cancel_msg = get_message('account_deletion_cancelled', language)
         await callback.message.edit_text(cancel_msg)
-        settings_msg = get_message('settings_menu', language=language)
+        settings_msg = get_message('user_profile', language=language)
         await callback.message.edit_text(
             settings_msg,
             reply_markup=get_main_menu_keyboard(user, language)
