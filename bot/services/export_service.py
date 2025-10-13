@@ -188,20 +188,35 @@ async def generate_user_docx(user: User) -> str:
     if tasks or completions:
         doc.add_heading('ЗАДАНИЯ И ВЫПОЛНЕНИЯ', level=1)
 
+        # Группируем выполнения по заданиям
+        completion_map = {}
+        for comp in completions:
+            task_id = comp.task.id
+            if task_id not in completion_map:
+                completion_map[task_id] = []
+            completion_map[task_id].append(comp)
+
         for task in tasks:
             date_str = task.assigned_at.strftime('%d.%m.%Y %H:%M')
-            doc.add_heading(f'Задание: {task.title} ({date_str})', level=2)
+            doc.add_heading(f'Задание: {task.title}', level=2)
+            doc.add_paragraph(f'Дата: {date_str}')
             doc.add_paragraph(f'Описание: {task.description}')
             doc.add_paragraph(f'Статус: {task.get_status_display()}')
             doc.add_paragraph(f'Тип: {task.get_type_display()}')
             doc.add_paragraph(f'Сложность: {task.get_complexity_display()}')
-            doc.add_paragraph()
 
-        for comp in completions:
-            date_str = comp.created_at.strftime('%d.%m.%Y %H:%M')
-            doc.add_heading(f'Выполнение задания: {comp.task.title} ({date_str})', level=2)
-            doc.add_paragraph(f'Текст выполнения: {comp.completion_text}')
-            doc.add_paragraph(f'Ощущения: {comp.feelings_text}')
+            # Проверяем, есть ли выполнения для этого задания
+            task_completions = completion_map.get(task.id, [])
+            if task_completions:
+                doc.add_heading('Выполнение', level=3)
+                for comp in task_completions:
+                    comp_date_str = comp.created_at.strftime('%d.%m.%Y %H:%M')
+                    doc.add_paragraph(f'Дата выполнения: {comp_date_str}')
+                    doc.add_paragraph(f'Текст выполнения: {comp.completion_text}')
+                    doc.add_paragraph(f'Ощущения: {comp.feelings_text}')
+            else:
+                doc.add_paragraph('Выполнение: не выполнено')
+
             doc.add_paragraph()
 
     # Сохраняем документ

@@ -111,7 +111,19 @@ MESSAGES = {
         'payment_email_saved': '✅ Email сохранён. Продолжаем оформление платежа...',
         'category': '''Категория''',
         'context': '''Контекст''',
-        'not_specified': '''Не указано'''
+        'not_specified': '''Не указано''',
+        'broadcast_select_type': '📢 Выберите тип рассылки:',
+        'broadcast_important_btn': '🔴 Важная (всем)',
+        'broadcast_regular_btn': '🔵 Информационная',
+        'broadcast_cancel_btn': '❌ Отмена',
+        'broadcast_type_selected_important': '🔴 Важная, всем пользователям',
+        'broadcast_type_selected_regular': '🔵 Информационная, только подписавшимся',
+        'broadcast_enter_message': '📢 Введите сообщение для рассылки {broadcast_type}:',
+        'broadcast_cancelled': '❌ Рассылка отменена',
+        'broadcast_success': '✅ Рассылка завершена\nТип: {broadcast_type}\nДоставлено: {success}\nНе удалось: {failed}',
+        'broadcast_error': '❌ Ошибка при рассылке',
+        'broadcast_failed_cancel': 'Не удалось отменить рассылку',
+        'broadcast_prefix': 'Сообщение от администратора',
     },
     'en': {
         # === Mood scores ===
@@ -219,7 +231,19 @@ Our thoughts and feelings are an important part of the path to understanding our
         'payment_email_saved': '✅ Email saved. Continuing with payment processing...',
         'category': '''Category''',
         'context': '''Context''',
-        'not_specified': '''Not specified'''
+        'not_specified': '''Not specified''',
+        'broadcast_select_type': '📢 Select broadcast type:',
+        'broadcast_important_btn': '🔴 Important (to all)',
+        'broadcast_regular_btn': '🔵 Informational',
+        'broadcast_cancel_btn': '❌ Cancel',
+        'broadcast_type_selected_important': '🔴 Important, to all users',
+        'broadcast_type_selected_regular': '🔵 Informational, to subscribers only',
+        'broadcast_enter_message': '📢 Enter broadcast message {broadcast_type}:',
+        'broadcast_cancelled': '❌ Broadcast cancelled',
+        'broadcast_success': '✅ Broadcast completed\nType: {broadcast_type}\nDelivered: {success}\nFailed: {failed}',
+        'broadcast_error': '❌ Broadcast error',
+        'broadcast_failed_cancel': 'Failed to cancel broadcast',
+        'broadcast_prefix': 'Message from admin',
     }
 }
 

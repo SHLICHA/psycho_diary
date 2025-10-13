@@ -16,8 +16,10 @@ from .feedback import router as feedback_router
 from .database_handlers import router as database_router
 from .therapy_chat_handlers import router as chat_router
 from .payments import router as payment_router
+from .admin import router as admin_router
 
 # Присваиваем имена
+admin_router.name = 'Admin_router'
 calendar_router.name = "Calendar_router"
 start_router.name = "Start_router"
 diary_router.name = "Diary_router"
@@ -35,6 +37,7 @@ payment_router.name = "Payment_router"
 
 # Создаем список всех роутеров
 all_routers = [
+    admin_router,
     start_router,
     diary_router,
     tasks_router,
@@ -51,6 +54,7 @@ all_routers = [
 ]
 
 __all__ = [
+    'admin_router',
     'start_router',
     'diary_router',
     'tasks_router',

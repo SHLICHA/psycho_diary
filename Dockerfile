@@ -31,10 +31,12 @@ RUN pip install --no-cache-dir aiogram==3.1.1
 # Удаляем конфликтующие строки
 RUN sed -i '/typing_extensions==4.15.0/d' /app/requirements.txt
 RUN sed -i '/cryptography==46.0.2/d' /app/requirements.txt
+RUN sed -i '/python-docx==1.2.0/d' /app/requirements.txt
 
 # Устанавливаем остальное
 RUN pip install --no-cache-dir -r requirements.txt
 
+RUN pip install --no-cache-dir python-docx==1.2.0
 # Принудительно устанавливаем cryptography поверх
 RUN pip install --no-cache-dir --force-reinstall cryptography==46.0.2
 
