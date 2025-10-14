@@ -58,6 +58,7 @@ PROFILE_MESSAGES_EN = {
         'transaction_type_bonus': 'Bonus',
         'transaction_type_refund': 'Refund',
         'transaction_type_feature_usage': 'Feature Usage',
+        'transaction_type_streak_restore': 'Streak Restore Bonus',
         'payment_type_subscription_month': 'Subscription (month)',
         'payment_type_subscription_year': 'Subscription (year)',
         'payment_type_tokens_custom': 'Tokens (custom)',

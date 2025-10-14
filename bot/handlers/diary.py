@@ -6,6 +6,7 @@ import asyncio
 import logging
 import time
 
+from django.utils import timezone
 from asgiref.sync import sync_to_async
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, ContentType, InlineKeyboardMarkup, InlineKeyboardButton
@@ -1238,8 +1239,29 @@ async def _process_analysis_result(
             # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
 
             if needs_clarification and clarification_questions and context == 'new_entry': # Убедимся, что уточнения задаются только для новых записей
+                from django.utils import timezone
+                from datetime import timedelta
+
+                now_utc = timezone.now()
+                # Устанавливаем все необходимые поля перед сохранением
                 entry.clarification_questions_asked = clarification_questions
-                await sync_to_async(entry.save)(update_fields=['clarification_questions_asked'])
+                entry.clarification_asked_at = now_utc
+                # Время напоминания: 15 минут после задания вопросов (или 5, если хотите соответствовать частоте Celery)
+                # Для исходной логики (15 мин напоминание) используем 15 минут.
+                entry.clarification_reminder_due_at = now_utc + timedelta(minutes=10) # <-- Используем 15 минут
+                # Время принудительной обработки: например, 24 часа после задания вопросов
+                entry.clarification_force_process_at = now_utc + timedelta(minutes=20) # <-- Используем 24 часа
+
+                # Сохраняем все измененные поля в одной транзакции
+                await sync_to_async(entry.save)(
+                    update_fields=[
+                        'clarification_questions_asked',
+                        'clarification_asked_at',
+                        'clarification_reminder_due_at',
+                        'clarification_force_process_at'
+                    ]
+                )
+
                 await state_manager.update_state_data(
                     state,
                     clarifying_entry_id=entry.id,

@@ -34,19 +34,28 @@ def check_clarification_reminders():
     """
     Celery задача для проверки и отправки напоминаний о неотвеченных уточняющих вопросах.
     Использует предвычисленное время clarification_reminder_due_at (в UTC).
+    Теперь фильтрует без clarification_answers и проверяет его в Python.
     """
-    logger.debug("Запущена задача check_clarification_reminders")
+    logger.info("Запущена задача check_clarification_reminders")
     try:
         now_utc = timezone.now()
-        entries_needing_reminder = DiaryEntry.objects.filter(
+        # Убираем clarification_answers={} из фильтра
+        potential_entries_needing_reminder = DiaryEntry.objects.filter(
             clarification_reminder_due_at__lte=now_utc,
-            clarification_answers={},
             last_reminder_sent_at__isnull=True
         ).select_related('user')
-        logger.debug(f"Найдено {entries_needing_reminder.count()} записей, требующих напоминания.")
-        for entry in entries_needing_reminder:
-            logger.debug(f"Отправка напоминания для записи {entry.id}, пользователь {entry.user.telegram_id}")
-            asyncio.run(_send_reminder_async(entry))
+
+        logger.debug(f"Найдено {potential_entries_needing_reminder.count()} потенциальных записей для напоминания.")
+
+        for entry in potential_entries_needing_reminder:
+            # Проверяем clarification_answers в Python после загрузки
+            # from_db_value уже вызвана, и clarification_answers - это Python dict/list
+            if entry.clarification_answers == {}: # или == dict(), если default=dict
+                logger.debug(f"Отправка напоминания для записи {entry.id}, пользователь {entry.user.telegram_id}, clarification_answers пустой.")
+                asyncio.run(_send_reminder_async(entry))
+            else:
+                logger.debug(f"Пропуск напоминания для записи {entry.id}, clarification_answers не пустой: {entry.clarification_answers}")
+
     except Exception as e:
         logger.error(f"Ошибка в задаче check_clarification_reminders: {e}", exc_info=True)
 
@@ -55,19 +64,27 @@ def force_process_clarifications():
     """
     Celery задача для принудительной обработки записей с неотвеченными уточнениями.
     Использует предвычисленное время clarification_force_process_at (в UTC).
+    Теперь фильтрует без clarification_answers и проверяет его в Python.
     """
     logger.debug("Запущена задача force_process_clarifications")
     try:
         now_utc = timezone.now()
-        entries_to_force_process = DiaryEntry.objects.filter(
+        # Убираем clarification_answers={} из фильтра
+        potential_entries_to_force_process = DiaryEntry.objects.filter(
             clarification_force_process_at__lte=now_utc,
-            clarification_answers={},
             analysis_processed_at__isnull=True
         ).select_related('user')
-        logger.debug(f"Найдено {entries_to_force_process.count()} записей, требующих принудительной обработки.")
-        for entry in entries_to_force_process:
-            logger.info(f"Принудительная обработка для записи {entry.id}, пользователь {entry.user.telegram_id}")
-            asyncio.run(_force_process_async(entry))
+
+        logger.debug(f"Найдено {potential_entries_to_force_process.count()} потенциальных записей для принудительной обработки.")
+
+        for entry in potential_entries_to_force_process:
+            # Проверяем clarification_answers в Python после загрузки
+            if entry.clarification_answers == {}: # или == dict(), если default=dict
+                logger.info(f"Принудительная обработка для записи {entry.id}, пользователь {entry.user.telegram_id}, clarification_answers пустой.")
+                asyncio.run(_force_process_async(entry))
+            else:
+                logger.debug(f"Пропуск принудительной обработки для записи {entry.id}, clarification_answers не пустой: {entry.clarification_answers}")
+
     except Exception as e:
         logger.error(f"Ошибка в задаче force_process_clarifications: {e}", exc_info=True)
 

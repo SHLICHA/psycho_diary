@@ -5,6 +5,7 @@ Middleware для сбора аналитики
 import logging
 import time
 from typing import Any, Awaitable, Callable, Dict
+from asgiref.sync import sync_to_async
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject, Message, CallbackQuery
 from django.utils import timezone
@@ -45,14 +46,25 @@ class AnalyticsMiddleware(BaseMiddleware):
             if not activity_type:
                 return
             processing_time = time.time() - start_time
+            now = timezone.now() # Получаем время один раз
+            
+            # Создаём запись в UserActivity
             await UserActivity.objects.acreate(
                 user=user,
                 activity_type=activity_type,
                 metadata={
                     'processing_time': round(processing_time, 3),
-                    'timestamp': timezone.now().isoformat(),
+                    'timestamp': now.isoformat(), # Используем 'now'
                 }
             )
+            
+            # Обновляем поле last_activity в модели User
+            # Используем F() выражение или update для избежания гонки, если несколько запросов одновременно
+            # Но для простоты и частоты использования можно сделать отдельный запрос
+            # Если last_activity обновляется часто, update_fields=['last_activity'] минимизирует запись
+            user.last_activity = now
+            await sync_to_async(user.save)(update_fields=['last_activity']) # Обновляем только это поле
+
         except Exception as e:
             logger.error(f"Ошибка при сборе аналитики: {e}")
     

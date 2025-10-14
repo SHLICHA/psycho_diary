@@ -121,11 +121,11 @@ CELERY_BEAT_SCHEDULE = {
     },
     'check-clarification-reminders': {
         'task': 'diary.tasks.reminder_ask_questions.check_clarification_reminders',
-        'schedule': 300.0, # 300 секунд = 5 минут
+        'schedule': 600, # 300 секунд = 5 минут
     },
     'force-process-clarifications': { # Добавьте эту задачу
         'task': 'diary.tasks.reminder_ask_questions.force_process_clarifications', # Убедитесь в правильном пути
-        'schedule': 300.0, # 5 минут, или 600 (10 мин), или 1800 (30 мин) - зависит от того, как часто вы хотите проверять
+        'schedule': 60, # 5 минут, или 600 (10 мин), или 1800 (30 мин) - зависит от того, как часто вы хотите проверять
     },
     'send-morning-motivation-hourly': {
         'task': 'diary.tasks.morning_motivations.send_morning_motivation_task',
@@ -221,12 +221,12 @@ LOGGING = {
         },
         'celery': {
             'handlers': ['console'],
-            'level': 'INFO',  # Только предупреждения и ошибки
+            'level': 'WARNING',  # Только предупреждения и ошибки
             'propagate': False,
         },
         'celery.task': {
             'handlers': ['console'],
-            'level': 'INFO',  # Только предупреждения и ошибки
+            'level': 'WARNING',  # Только предупреждения и ошибки
             'propagate': False,
         },
         'celery.redirected': {

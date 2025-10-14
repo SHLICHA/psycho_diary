@@ -58,6 +58,7 @@ PROFILE_MESSAGES_RU = {
         'transaction_type_bonus': 'Бонус',
         'transaction_type_refund': 'Возврат',
         'transaction_type_feature_usage': 'Использование функции',
+        'transaction_type_streak_restore': 'Бонус за восстановление серии',
         'payment_type_subscription_month': 'Подписка (месяц)',
         'payment_type_subscription_year': 'Подписка (год)',
         'payment_type_tokens_custom': 'Токены (произвольно)',

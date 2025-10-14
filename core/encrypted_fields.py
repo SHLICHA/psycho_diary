@@ -85,6 +85,7 @@ class EncryptedFieldMixin:
         Шифрует значение перед сохранением в БД.
         Возвращает base64 строку.
         """
+        logger.debug(f"[EncryptedFieldMixin] get_prep_value вызван для {self.name} с value={value}, type={type(value)}") # Добавим логирование
         if value is None or value == "":
             return value
 
@@ -99,7 +100,29 @@ class EncryptedFieldMixin:
         encrypted_bytes = fernet_instance.encrypt(value_bytes)
         
         # Конвертируем байты в base64 строку
-        return base64.b64encode(encrypted_bytes).decode('ascii')
+        result = base64.b64encode(encrypted_bytes).decode('ascii')
+        logger.debug(f"[EncryptedFieldMixin] get_prep_value зашифровал {value} в {result}") # Логируем результат
+        return result
+
+    def get_db_prep_lookup(self, lookup_type, value, connection, prepared=False):
+        """
+        Подготавливает значение для поиска (фильтрации), шифруя его.
+        Работает только для lookup_type 'exact' и 'iexact'.
+        """
+        logger.debug(f"[EncryptedFieldMixin] get_db_prep_lookup вызван: lookup_type={lookup_type}, value={value}, type={type(value)}, field_name={self.name}") # Добавим логирование
+        if lookup_type in ('exact', 'iexact'):
+            encrypted_value = self.get_prep_value(value) # Вызывает наш get_prep_value
+            logger.debug(f"[EncryptedFieldMixin] Значение '{value}' зашифровано в '{encrypted_value}' для поиска (lookup).") # Логируем зашифрованное значение
+            prepared_encrypted_value = connection.ops.get_db_prep_value(
+                encrypted_value, connection, prepared=False
+            )
+            logger.debug(f"[EncryptedFieldMixin] Зашифрованное значение подготовлено к SQL (lookup): {prepared_encrypted_value}") # Логируем подготовленное значение
+            return (prepared_encrypted_value,)
+        else:
+            logger.warning(f"[EncryptedFieldMixin] Lookup '{lookup_type}' is not supported for EncryptedFieldMixin.")
+            raise NotImplementedError(
+                f"Lookup '{lookup_type}' is not supported for EncryptedFieldMixin."
+            )
 
     def from_db_value(self, value, expression, connection):
         """Дешифрует значение при загрузке из БД."""

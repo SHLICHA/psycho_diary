@@ -10,6 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from datetime import timedelta
 from django.conf import settings
 from django.utils import timezone
 from asgiref.sync import sync_to_async
@@ -171,7 +172,7 @@ async def get_admin_stats():
     Возвращает словарь с метриками.
     """
     now = timezone.now()
-    # seven_days_ago = now - timedelta(days=7) # Пока не используется, можно убрать
+    seven_days_ago = now - timedelta(days=7) # Вычисляем дату 7 дней назад
 
     stats = {}
 
@@ -184,10 +185,15 @@ async def get_admin_stats():
     active_users_query = active_in_system_users.filter(is_blocked=False)
     stats['active_users'] = await active_users_query.acount()
 
+    # Активные за последние 7 дней (незаблокированные, не удалённые, last_activity >= 7 дней назад)
+    stats['active_users_last_7_days'] = await active_users_query.filter( # Добавляем новый счётчик
+        last_activity__gte=seven_days_ago
+    ).acount()
+
     # Заблокированы (is_blocked = True, не удалённые)
     stats['blocked_users'] = await active_in_system_users.filter(is_blocked=True).acount()
 
-    # Подсчёт премиум пользователей через sync_to_async
+    # Считаем количество премиум пользователей через sync_to_async
     @sync_to_async
     def count_premium_users():
         # Получаем всех активных (незаблокированных, не удалённых) пользователей
@@ -234,7 +240,7 @@ async def cmd_admin_stats(message: Message):
     Отправляет администратору сводную статистику.
     """
     # --- Проверка на администратора ---
-    if not is_admin:
+    if not is_admin(message.from_user.id): # Проверяем через вызов функции
         await message.answer("❌ У вас нет прав для просмотра статистики.")
         return
     # ---
@@ -249,6 +255,7 @@ async def cmd_admin_stats(message: Message):
 <b>Пользователи:</b>
 • Всего (активных в системе): {stats['total_users']}
 • Активных (незаблокированных): {stats['active_users']}
+• Активных за последние 7 дней: {stats['active_users_last_7_days']}
 • Заблокировано: {stats['blocked_users']}
 • С активной подпиской: {stats['premium_users']}
 • С токенами: {stats['users_with_tokens']}
