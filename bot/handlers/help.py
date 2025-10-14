@@ -166,6 +166,23 @@ async def show_guide_writing_entries(callback: CallbackQuery, language: str = 'r
         logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ РУКОВОДСТВА ПО НАПИСАНИЮ ЗАПИСЕЙ: {e}", exc_info=True)
         await callback.answer("Ошибка при показе руководства по написанию записей")
 
+@router.callback_query(F.data == "help_referral_program")
+async def show_referral_help(callback: CallbackQuery, language: str = 'ru'):
+    """Помощь по реферальной программе"""
+    try:
+        referral_help_msg = get_message('help_referral_program_text', language=language)
+        # Используем клавиатуру для отдельных разделов помощи
+        from bot.keyboards.help_keyboard import get_help_section_keyboard
+        keyboard = get_help_section_keyboard(language)
+        await callback.message.edit_text(
+            referral_help_msg,
+            reply_markup=keyboard
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ ПОМОЩИ ПО РЕФЕРАЛЬНОЙ ПРОГРАММЕ: {e}", exc_info=True)
+        await callback.answer("Ошибка при показе помощи по реферальной программе")
+
 @router.callback_query(F.data == "help_guide_tasks")
 async def show_guide_tasks(callback: CallbackQuery, language: str = 'ru'):
     """Показывает руководство по заданиям"""

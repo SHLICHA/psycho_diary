@@ -28,6 +28,12 @@ def get_help_keyboard(language: str) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
+                text=get_button_text('help_referral_program', language),
+                callback_data="help_referral_program"
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 text=get_button_text('help_faq', language),
                 callback_data="help_faq"
             )

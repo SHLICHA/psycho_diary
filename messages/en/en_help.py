@@ -356,6 +356,19 @@ Usually within 24 hours
 If you need urgent help,
 contact a doctor or emergency services''',
 
+'help_referral_program_text': '''👥 <b>Referral Program</b>
+
+You can invite friends and receive <b>15 tokens</b> for each invited user who registers and starts using the bot.
+
+<b>How it works:</b>
+1. Tap "Get referral link" in the profile menu.
+2. Share your link with friends.
+3. When a friend clicks your link and registers — you receive 15 tokens.
+
+<b>Important:</b> Tokens are awarded only for <b>new</b> users who <b>had not been registered</b> in the bot before clicking the link. Repeated clicks on the link do not grant bonuses.
+
+<b>Checking:</b> You can track your token balance in your profile.''',
+
         # Help buttons
         'help_faq': '❓ FAQ',
         'help_how_to_start': '🚀 How to start',
@@ -370,5 +383,6 @@ contact a doctor or emergency services''',
         'help_contact': '📞 Contacts',
         'btn_back_to_help': '🔙 Back to help',
         'help_guide': '📖 Guide',
+        'help_referral_program': '👥 Referral Program',
     }
 }
