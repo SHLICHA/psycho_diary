@@ -38,7 +38,7 @@ async def aget_users_for_morning_motivation():
             deletion_status='active',
             deleted_at__isnull=True
         ).only(
-            'telegram_id', 'timezone', 'language', 'is_premium', 'token_balance', 'auto_analysis_enabled',
+            'telegram_id', 'timezone', 'language', 'date_of_birth', 'token_balance', 'auto_analysis_enabled',
             'first_name', 'username', 'awareness_level', 'is_blocked', 'deletion_status', 'deleted_at'
         ))
     return await _get_users_sync()

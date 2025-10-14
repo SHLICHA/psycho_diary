@@ -73,5 +73,19 @@ PROFILE_MESSAGES_EN = {
         'export_status_preparing': '⏳ Preparing data for export...',
         'export_caption': '📄 Your data for the last 30 days.',
         'export_error': '❌ Error exporting data.',
+    'btn_get_referral_link': '🎁 Get referral link',
+    'btn_share_referral_link': '📤 Share link',
+'referral_share_text': 'Hi! I recommend trying this bot for keeping a psychological diary. It helps you understand yourself better and develop awareness. Follow the link',
+'referral_link_display_text': '''🎁 <b>Your referral link</b>
+
+Share this link with friends. For each person who registers and starts using the bot, you will receive <b>15 tokens</b>!
+
+<b>How it works:</b>
+1. Click the "Share link" button below
+2. Choose with whom you want to share (private chat, group, channel)
+3. Telegram will send the predefined text and link
+
+<b>Your link:</b> will be sent when sharing.''',
+    'no_referral_link_error': '❌ You do not have an active referral link yet.',
     }
 }

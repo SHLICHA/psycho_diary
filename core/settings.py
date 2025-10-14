@@ -221,12 +221,12 @@ LOGGING = {
         },
         'celery': {
             'handlers': ['console'],
-            'level': 'WARNING',  # Только предупреждения и ошибки
+            'level': 'INFO',  # Только предупреждения и ошибки
             'propagate': False,
         },
         'celery.task': {
             'handlers': ['console'],
-            'level': 'WARNING',  # Только предупреждения и ошибки
+            'level': 'INFO',  # Только предупреждения и ошибки
             'propagate': False,
         },
         'celery.redirected': {

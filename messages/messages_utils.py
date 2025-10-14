@@ -134,6 +134,13 @@ MESSAGES = {
 'premium_expires_in_3_days': 'Ваша подписка PRO закончится через <b>3 дня</b>. Не забудьте продлить, чтобы не потерять доступ к премиум-функциям.',
 'premium_expires_in_2_days': 'Ваша подписка PRO закончится через <b>2 дня</b>. Продлите её, чтобы продолжить пользоваться всеми возможностями.',
 'premium_expires_in_1_days': 'Ваша подписка PRO <b>заканчивается завтра</b>! Продлите её прямо сейчас.',
+'reply_feedback_prompt': (
+    '✍️ Ответ на обращение #{feedback_id} от {username} ({created_at}):\n\n'
+    'Сообщение:\n{message_text}\n\n'
+    'Введите ваш ответ:'
+),
+'btn_cancel_reply': '❌ Отменить',
+'error_feedback_reply_start': '❌ Ошибка при обработке обращения',
     },
     'en': {
         # === Mood scores ===
@@ -264,6 +271,13 @@ Our thoughts and feelings are an important part of the path to understanding our
 'premium_expires_in_3_days': 'Your PRO subscription will end in <b>3 days</b>. Remember to renew to keep access to premium features.',
 'premium_expires_in_2_days': 'Your PRO subscription will end in <b>2 days</b>. Renew it to continue enjoying all features.',
 'premium_expires_in_1_days': 'Your PRO subscription <b>ends tomorrow</b>! Renew it now.',
+'reply_feedback_prompt': (
+    '✍️ Reply to feedback #{feedback_id} from {username} ({created_at}):\n\n'
+    'Message:\n{message_text}\n\n'
+    'Enter your reply:'
+),
+'btn_cancel_reply': '❌ Cancel',
+'error_feedback_reply_start': '❌ Error processing feedback',
     }
 }
 

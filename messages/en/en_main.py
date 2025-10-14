@@ -88,5 +88,8 @@ Ready to share your thoughts?''',
 {max_streak_info}
 
 Ready to share your thoughts?''',
+
+'unexpected_text_message': '''💬 It seems you'd like to chat with me!\n\nIf you want to have a conversation on any topic — tap "💬 Talk to Psychologist" in the main menu.\n\nIf you'd like to make a diary entry for analysis and inclusion in your psychological profile — choose "📝 New Entry".''',
+'unexpected_voice_message': '''💬 Voice message received!\n\nTo have it analyzed as a diary entry — choose "📝 New Entry".\n\nIf you just want to talk — tap "💬 Talk to Psychologist".''',
     }
 }

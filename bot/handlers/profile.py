@@ -324,18 +324,13 @@ async def show_profile_field(callback: CallbackQuery, user, language: str):
         elif isinstance(field_value, dict):
             if field_key == 'personality_insights':
                 if field_value:
-                    # Форматируем каждую пару "ключ: значение" на отдельной строке
-                    # Ключи не переводим, используем как есть, и делаем их жирными
                     dict_lines = []
                     for k, v in field_value.items():
-                        # Используем ключ как есть, оборачиваем в <b>
                         line = f"💭<b>{k.capitalize()}</b>:\n{v}"
                         dict_lines.append(line)
-                    # Разделяем каждую пару двумя переносами строки
                     field_text = f"<b>{field_display_name}</b>\n\n" + "\n\n".join(dict_lines)
                 else:
                     field_text = f"<b>{field_display_name}</b>" + get_message('profile_field_empty_dict', language)
-            # --- КОНЕЦ НОВОГО ---
             else:
                 # --- СТАНДАРТНАЯ ЛОГИКА ---
                 if field_value:
@@ -798,6 +793,68 @@ async def handle_export_user_data(callback: CallbackQuery, user, language: str):
         logger.error(f"Ошибка при экспорте данных пользователя {user.telegram_id}: {e}", exc_info=True)
         await callback.message.answer(get_message('export_error', language))
         await callback.answer()
+
+@router.callback_query(F.data == "get_referral_link")
+async def show_referral_link(callback: CallbackQuery, user, language: str):
+    """Показывает реферальную ссылку пользователя."""
+    try:
+        if not user.referral_link:
+            error_msg = get_message('no_referral_link_error', language)
+            await callback.answer(error_msg, show_alert=True)
+            return
+
+        bot_username = os.getenv("TELEGRAM_BOT_USERNAME", "your_bot_username")
+        if bot_username == "your_bot_username":
+             logger.warning("TELEGRAM_BOT_USERNAME не установлен в .env. Используется значение по умолчанию.")
+
+        # Формируем ссылку
+        referral_link_url = f"https://t.me/{bot_username}?start={user.referral_link}"
+
+        # Подготовим текст сообщения, которое будет *показано* пользователю (не в интерфейсе шаринга)
+        # Можно использовать существующее сообщение referral_link_info или создать новое.
+        # Пока используем существующее, но в нём нужно заменить {referral_link} на полную ссылку.
+        # Изменим сообщение referral_link_info, чтобы оно не включало <code> тег самой ссылки,
+        # так как она будет в интерфейсе шаринга.
+        # Лучше создать отдельное сообщение для отображения в боте.
+        # Пусть будет referral_link_display_text
+
+        # Текст для отображения в боте
+        display_msg = get_message('referral_link_display_text', language)
+
+        # Текст для интерфейса шаринга (берём из сообщений)
+        share_text_raw = get_message('referral_share_text', language)
+        # Заменяем {url} на actual referral_link_url в Python
+        share_text_formatted = share_text_raw.format(url=referral_link_url)
+
+        # Формируем URL для кнопки share
+        import urllib.parse
+        encoded_text = urllib.parse.quote_plus(share_text_formatted)
+        share_url = f"https://t.me/share/url?url={referral_link_url}&text={encoded_text}"
+
+        # Создаём клавиатуру с кнопкой share и кнопкой назад
+        share_button = InlineKeyboardButton(
+            text=get_button_text('btn_share_referral_link', language), # Используем сообщение для текста кнопки
+            url=share_url
+        )
+        back_button = InlineKeyboardButton(
+            text=get_button_text('btn_back', language),
+            callback_data="user_profile" # Возвращаем в меню профиля
+        )
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[share_button], [back_button]])
+
+        # Отправляем сообщение с инструкцией и кнопкой
+        # Вместо ссылки в теле сообщения, теперь будет только текст и кнопка share
+        # Поэтому используем referral_link_info_for_share или новый ключ, например, referral_link_display_text
+        info_msg = display_msg
+        await callback.message.edit_text(
+            info_msg,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка при показе реферальной ссылки: {e}", exc_info=True)
+        await callback.answer(get_message('error_generic', language=language), show_alert=True)
 
 async def anonymize_user_account(user):
     """

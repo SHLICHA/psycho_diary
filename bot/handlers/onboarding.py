@@ -123,6 +123,25 @@ async def skip_questionnaire(callback: CallbackQuery, state: FSMContext, user, l
         logger.error(f"Ошибка при пропуске анкетирования пользователем {user.telegram_id}: {e}")
         await safe_answer_callback(callback, get_message('error_generic', language))
 
+@router.callback_query(F.data == "start_questionnaire_from_menu")
+async def start_questionnaire_from_menu(callback: CallbackQuery, state: FSMContext, user, language: str):
+    """
+    Обработчик для запуска анкетирования из главного меню.
+    Предполагается, что пользователь уже согласился с условиями.
+    """
+    try:
+        questionnaire_data = {
+            "current_question": 1,
+            "answers": {}
+        }
+        await state_manager.set_state(state, OnboardingStates.collecting_profile_data)
+        await state_manager.update_state_data(state, **questionnaire_data)
+        await ask_next_question(callback.message, state, user, language)
+        await safe_answer_callback(callback, "")
+    except Exception as e:
+        logger.error(f"Ошибка при запуске анкетирования из меню для пользователя {user.telegram_id}: {e}")
+        await safe_answer_callback(callback, get_message('error_generic', language))
+
 async def start_questionnaire(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Начинает процесс анкетирования."""
     try:
@@ -178,19 +197,41 @@ async def finish_questionnaire(message, state: FSMContext, user, language: str, 
             q7_answer=answers.get(7, "")
         )
         api_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
+        # --- НОВОЕ: Определяем имя из ответов ДО вызова save_profile_updates ---
+        new_first_name_from_answers = answers.get(1) # <-- Получаем имя из ответов на анкету
+        new_first_name_from_ai = api_result.get('result', {}).get('user_profile_updates', {}).get('first_name') if api_result.get('success') else None
+
+        # Приоритет: имя из ответа на анкету (если не пустое), затем из ИИ
+        final_first_name_to_set = None
+        if new_first_name_from_answers and isinstance(new_first_name_from_answers, str) and new_first_name_from_answers.strip():
+            final_first_name_to_set = new_first_name_from_answers.strip()
+        elif new_first_name_from_ai and isinstance(new_first_name_from_ai, str) and new_first_name_from_ai.strip():
+            final_first_name_to_set = new_first_name_from_ai.strip()
+        # --- КОНЕЦ НОВОГО ---
+
         if api_result.get('success'):
             parsed_result = api_result.get('result', {})
             profile_updates = parsed_result.get('user_profile_updates', {})
             @sync_to_async
             def save_profile_updates():
                 try:
-                    new_first_name = profile_updates.get('first_name')
-                    if new_first_name and new_first_name != user.first_name and isinstance(new_first_name, str):
-                        user.first_name = new_first_name.strip()
+                    # --- УБРАНО: получение new_first_name_from_answers и new_first_name_from_ai отсюда ---
+                    # --- НОВОЕ: используем final_first_name_to_set, вычисленное в асинхронной части ---
+                    update_fields_list = ['personality_traits', 'core_values', 'hobbies', 'triggers', 'life_facts', 'strengths', 'areas_for_growth']
+
+                    # Проверяем, нужно ли обновлять first_name
+                    if final_first_name_to_set and final_first_name_to_set != user.first_name:
+                        user.first_name = final_first_name_to_set
+                        update_fields_list.append('first_name') # <-- Добавляем в список обновляемых полей
+                        logger.debug(f"first_name обновлено на '{final_first_name_to_set}' для пользователя {user.telegram_id}.")
+                    # --- КОНЕЦ НОВОГО ---
+
+                    # --- Остальная логика обновления из profile_updates (как было) ---
                     new_traits = profile_updates.get('personality_traits', {})
                     if new_traits and isinstance(new_traits, dict):
                         user.personality_traits = user.personality_traits or {}
                         user.personality_traits.update({k: v for k, v in new_traits.items() if isinstance(v, (int, float)) and 0 <= v <= 1})
+
                     list_fields = ['core_values', 'hobbies', 'triggers', 'life_facts', 'strengths', 'areas_for_growth']
                     for field_name in list_fields:
                         new_items = profile_updates.get(field_name, [])
@@ -202,10 +243,9 @@ async def finish_questionnaire(message, state: FSMContext, user, language: str, 
                             new_set = set(item for item in new_items if isinstance(item, str))
                             updated_set = current_set.union(new_set)
                             setattr(user, field_name, list(updated_set))
-                    update_fields_list = ['personality_traits', 'core_values', 'hobbies', 'triggers', 'life_facts', 'strengths', 'areas_for_growth']
-                    if new_first_name and new_first_name != user.first_name and isinstance(new_first_name, str):
-                        update_fields_list.append('first_name')
-                    user.save(update_fields=update_fields_list)
+                    # --- Конец остальной логики ---
+
+                    user.save(update_fields=update_fields_list) # <-- Сохраняем с обновленным списком
                     logger.debug(f"Профиль пользователя {user.telegram_id} успешно обновлен на основе анкеты.")
                     return True
                 except Exception as e:
@@ -234,7 +274,12 @@ async def finish_questionnaire(message, state: FSMContext, user, language: str, 
                 pass
     finally:
         try:
-            welcome_back_msg = get_message('welcome_back', language, username=user.first_name or "Пользователь")
-            await message.answer(welcome_back_msg, reply_markup=get_main_menu_keyboard(language))
+            final_display_name = user.first_name or user.username or f"Пользователь {user.telegram_id}"
+            if save_success and final_first_name_to_set:
+                final_display_name = final_first_name_to_set
+            welcome_back_msg = get_message('welcome_back', language, username=final_display_name)
+            await message.answer(welcome_back_msg, reply_markup=get_main_menu_keyboard(language, user=user))
         except Exception as menu_error:
             logger.error(f"Ошибка при переходе в главное меню после анкеты для пользователя {user.telegram_id}: {menu_error}")
+
+

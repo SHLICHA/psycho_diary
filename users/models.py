@@ -1,6 +1,7 @@
 import pytz
 import logging
 import json
+import secrets
 
 from asgiref.sync import sync_to_async
 from datetime import datetime, timedelta
@@ -33,6 +34,22 @@ class User(AbstractUser):
     premium_expires_at = models.DateTimeField(
         null=True, blank=True,
         verbose_name="Подписка действует до"
+    )
+    invited_by = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Пригласивший пользователь",
+        help_text="Пользователь, который пригласил этого пользователя по реферальной ссылке."
+    )
+    referral_link = models.CharField(
+        max_length=255,
+        unique=True, # Должна быть уникальной
+        null=True,
+        blank=True,
+        verbose_name="Реферальная ссылка",
+        help_text="Уникальная ссылка для приглашения других пользователей."
     )
     is_blocked = models.BooleanField(default=False, verbose_name="Бот заблокирован")
     deleted_at = models.DateTimeField(null=True, blank=True, verbose_name="Дата удаления")
@@ -91,6 +108,12 @@ class User(AbstractUser):
     def __str__(self):
         return f"{self.username} ({self.telegram_id})"
     
+    def save(self, *args, **kwargs):
+        # Генерация реферальной ссылки при первом сохранении, если её нет
+        if not self.referral_link:
+            self.referral_link = f"ref_{self.telegram_id}_{secrets.token_urlsafe(8)}"
+        super().save(*args, **kwargs)
+
     def is_premium_active(self) -> bool:
         """Проверяет, активна ли подписка на текущий момент."""
         if not self.is_premium or not self.premium_expires_at:
@@ -289,6 +312,7 @@ class Feedback(models.Model):
     message = models.TextField()
     is_voice = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+    photo_file_id = models.CharField(max_length=255, null=True, blank=True, verbose_name="ID файла фото в Telegram")
     admin_response = models.TextField(null=True, blank=True)
     status = models.CharField(
         max_length=20,

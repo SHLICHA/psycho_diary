@@ -123,14 +123,14 @@ class UserAdmin(BaseUserAdmin):
     fieldsets = (
         # Стандартные поля AbstractUser
         (None, {'fields': ('username', 'password', 'email')}),
-        (('Важные даты'), {'fields': ('last_login', 'created_at', 'updated_at', 'premium_expires_at')}),
+        (('Важные даты'), {'fields': ('last_login', 'created_at', 'updated_at', 'premium_expires_at', 'referral_link')}),
         
         # Новые поля для Telegram бота
         (('Telegram и Основное'), {
             'fields': (
                 'telegram_id', 'language', 'timezone', 'has_agreed_to_terms',
                 'is_premium', 'is_blocked', 'deletion_status', 'deleted_at', 'token_balance',
-                'last_streak_reward_7', 'last_streak_reward_30', 'last_streak_reward_365'
+                'last_streak_reward_7', 'last_streak_reward_30', 'last_streak_reward_365', 'invited_by',
             )
         }),
         (('Активность и Настройки'), {

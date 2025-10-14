@@ -36,6 +36,12 @@ def get_profile_keyboard(language: str, show_psychology_button: bool = False) ->
         ])
     buttons.append([
         InlineKeyboardButton(
+            text=get_button_text('btn_get_referral_link', language),
+            callback_data="get_referral_link" # <-- Новый callback_data
+        )
+    ])
+    buttons.append([
+        InlineKeyboardButton(
             text=get_button_text('btn_export_data', language),  # <-- НОВАЯ КНОПКА
             callback_data="export_user_data"
         )

@@ -2,6 +2,8 @@
 Middleware для регистрации пользователей и контроля доступа (онбординг)
 """
 import logging
+import re
+
 from typing import Any, Awaitable, Callable, Dict, Set
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject, Message, CallbackQuery
@@ -18,6 +20,13 @@ ALLOWED_DURING_ONBOARDING_PREFIXES: Set[str] = {
     "onboarding_",
 }
 
+REFERRAL_PATTERN = re.compile(r'^start\s+ref_(\d+)_([a-zA-Z0-9_-]+)$')
+
+class UserMiddleware(BaseMiddleware):
+    """
+    Middleware для автоматической регистрации пользователей и контроля доступа на основе согласия.
+    """
+    
 class UserMiddleware(BaseMiddleware):
     """
     Middleware для автоматической регистрации пользователей и контроля доступа на основе согласия.
@@ -30,9 +39,10 @@ class UserMiddleware(BaseMiddleware):
         data: Dict[str, Any]
     ) -> Any:
         user_obj = None
-        was_reactivated = False  # <-- Флаг
+        was_reactivated = False
+        referrer_user = None
+
         if isinstance(event, (Message, CallbackQuery)):
-            # --- ПОЛУЧАЕМ СТАТУС is_blocked ДО ОБНОВЛЕНИЯ ---
             if isinstance(event, Message):
                 telegram_id = event.from_user.id
             elif isinstance(event, CallbackQuery):
@@ -43,14 +53,58 @@ class UserMiddleware(BaseMiddleware):
             was_blocked_before = False
             if telegram_id:
                 try:
-                    existing_user = await User.objects.aget(telegram_id=telegram_id)
+                    # --- ИСПРАВЛЕНО: select_related для invited_by ---
+                    existing_user = await User.objects.select_related('invited_by').aget(telegram_id=telegram_id)
                     was_blocked_before = existing_user.is_blocked
                     logger.debug(f"[Middleware] Пользователь {telegram_id} был заблокирован до: {was_blocked_before}")
                 except User.DoesNotExist:
                     was_blocked_before = False
-            # --- КОНЕЦ ПОЛУЧЕНИЯ СТАТУСА ---
 
-            user_obj = await self._get_or_create_user(event)
+            referrer_telegram_id = None
+            if isinstance(event, Message) and event.text and event.text.startswith('/start'):
+                logger.debug(f"[Middleware] Получена команда /start: '{event.text}'")
+                match = REFERRAL_PATTERN.match(event.text[1:])
+                if match:
+                    logger.debug(f"[Middleware] Успешное совпадение паттерна для: '{event.text[1:]}'")
+                    referrer_telegram_id = int(match.group(1))
+                else:
+                    logger.debug(f"[Middleware] Паттерн НЕ СОВПАЛ для: '{event.text[1:]}'")
+                if match:
+                    referrer_telegram_id = int(match.group(1))
+                    if referrer_telegram_id == telegram_id:
+                         logger.warning(f"Пользователь {telegram_id} попытался пригласить сам себя.")
+                         referrer_telegram_id = None
+                    else:
+                        logger.debug(f"Пользователь {telegram_id} пришёл по реферальной ссылке от {referrer_telegram_id}")
+
+            if referrer_telegram_id:
+                try:
+                    referrer_user = await User.objects.aget(telegram_id=referrer_telegram_id)
+                    logger.debug(f"Найден пригласивший пользователь: {referrer_user.telegram_id}")
+                except User.DoesNotExist:
+                    logger.warning(f"Пользователь-пригласитель с telegram_id {referrer_telegram_id} не найден.")
+                    referrer_user = None
+            # --- КОНЕЦ НОВОГО ---
+
+            user_obj, was_created_new, was_invited_set = await self._get_or_create_user(event, referrer_user)
+
+            # --- НОВОЕ: Обработка начисления токенов за реферала ---
+            # Начисляем бонус только если пользователь *новый* и ему *установили* invited_by
+            if was_created_new and was_invited_set and referrer_user:
+                bonus_tokens = 15
+                referrer_user.token_balance += bonus_tokens
+                await referrer_user.asave(update_fields=['token_balance'])
+                logger.info(f"Пользователю {referrer_user.telegram_id} начислено {bonus_tokens} токенов за приглашение {user_obj.telegram_id}.")
+
+                # Создаём транзакцию
+                await TokenTransaction.objects.acreate(
+                    user=referrer_user,
+                    amount=bonus_tokens,
+                    transaction_type='bonus',
+                    description=f'Бонус за приглашение пользователя {user_obj.telegram_id}'
+                )
+                logger.debug(f"Создана транзакция начисления реферального бонуса для пользователя {referrer_user.telegram_id}")
+            # --- КОНЕЦ НОВОГО ---
 
             # --- ПРОВЕРЯЕМ, БЫЛ ЛИ РАЗБЛОКИРОВАН ---
             if user_obj and was_blocked_before and not user_obj.is_blocked:
@@ -79,8 +133,10 @@ class UserMiddleware(BaseMiddleware):
         result = await handler(event, data)
         return result
         
-    async def _get_or_create_user(self, event: TelegramObject) -> User:
-        """Получение или создание пользователя"""
+    async def _get_or_create_user(self, event: TelegramObject, referrer_user=None) -> tuple[User, bool, bool]:
+        """Получение или создание пользователя. Возвращает кортеж (User, is_new_user, was_invited_set)."""
+        is_new_user = False
+        was_invited_set = False
         try:
             if isinstance(event, Message):
                 telegram_id = event.from_user.id
@@ -98,14 +154,18 @@ class UserMiddleware(BaseMiddleware):
                 logger.debug(f"[Событие] Callback от пользователя: {username} ({telegram_id})")
             else:
                 logger.warning("Неизвестный тип события для определения пользователя")
-                return None
+                return None, is_new_user, was_invited_set
+
             try:
-                user = await User.objects.aget(telegram_id=telegram_id)
+                # --- ИСПРАВЛЕНО: select_related для invited_by ---
+                user = await User.objects.select_related('invited_by').aget(telegram_id=telegram_id)
+                # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
                 updated_fields = []
                 if user.username != username:
                     user.username = username
                     updated_fields.append('username')
-                if user.first_name != first_name:
+                is_standard_first_name = user.first_name == "" or user.first_name.startswith(f"Пользователь {user.telegram_id}")
+                if (user.first_name != first_name) and (user.first_name == event.from_user.first_name or is_standard_first_name):
                     user.first_name = first_name
                     updated_fields.append('first_name')
                 if user.last_name != last_name:
@@ -117,9 +177,20 @@ class UserMiddleware(BaseMiddleware):
                     updated_fields.append('is_blocked')
                     logger.debug(f"Пользователь {user.telegram_id} разблокирован в _get_or_create_user.")
                 # --- КОНЕЦ НОВОГО ---
+                # --- ИСПРАВЛЕНО: Проверка и установка invited_by для существующего пользователя ---
+                # Так как мы использовали select_related, 'invited_by' будет загружен как объект или None.
+                # Однако, если invited_by был None в БД, а referrer_user передан, мы его устанавливаем.
+                # Если он был не None (т.е. уже был установлен ранее), мы его не меняем.
+                if user.invited_by is None and referrer_user is not None:
+                    if user.telegram_id != referrer_user.telegram_id: # Убедимся, что это разные пользователи
+                        user.invited_by = referrer_user
+                        updated_fields.append('invited_by')
+                        was_invited_set = True
+                        logger.info(f"Пользователь {user.telegram_id} (уже существовал) отмечен как приглашённый пользователем {referrer_user.telegram_id}.")
+                # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
                 if updated_fields:
                     await user.asave(update_fields=updated_fields)
-                return user
+                return user, is_new_user, was_invited_set # False, потому что пользователь уже существовал
             except User.DoesNotExist:
                 logger.debug("Пользователь не найден, создаем нового")
                 language = self._detect_language(event)
@@ -134,7 +205,16 @@ class UserMiddleware(BaseMiddleware):
                     last_name=last_name,
                     language=language,
                     timezone=timezone_to_set,
+                    # --- ИСПРАВЛЕНО: Устанавливаем invited_by при создании, если он передан ---
+                    invited_by=referrer_user
+                    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
                 )
+                is_new_user = True
+                # Если referrer был передан и успешно установлен при создании
+                if referrer_user:
+                     was_invited_set = True
+                     logger.info(f"Новый пользователь {user.telegram_id} создан и отмечен как приглашённый пользователем {referrer_user.telegram_id}.")
+
                 welcome_tokens = 10
                 user.token_balance += welcome_tokens
                 await user.asave(update_fields=['token_balance'])
@@ -146,10 +226,10 @@ class UserMiddleware(BaseMiddleware):
                     description='Приветственные токены при регистрации'
                 )
                 logger.debug(f"Создана транзакция начисления приветственных токенов для пользователя {user.telegram_id}")
-                return user
+                return user, is_new_user, was_invited_set # True, потому что пользователь был создан
         except Exception as e:
             logger.error(f"Ошибка при создании/загрузке пользователя: {e}", exc_info=True)
-            return None
+            return None, is_new_user, was_invited_set
     
     def _detect_language(self, event: TelegramObject) -> str:
         """Определение языка пользователя (без изменений)"""

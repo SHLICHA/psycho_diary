@@ -116,6 +116,7 @@ async def cmd_start(message: Message, user, language: str, state: FSMContext, da
     Затем показывает онбординг или главное меню в зависимости от согласия.
     """
     try:
+        await state_manager.clear_state(state)
         # --- ЧИТАЕМ ФЛАГ ИЗ kwargs, ТАК КАК data = None ---
         was_reactivated = kwargs.get('was_blocked_and_reactivated', False)
         # ---
