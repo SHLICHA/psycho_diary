@@ -48,7 +48,10 @@ def schedule_daily_analyses(self):
     try:
         utc_now = timezone.now()
         logger.debug(f"Текущее UTC время: {utc_now}")
-        users_qs = User.objects.filter(auto_analysis_enabled=True)
+        users_qs = User.objects.filter(
+            auto_analysis_enabled=True,
+            is_blocked=False
+        )
         logger.debug(f"Найдено пользователей с auto_analysis_enabled=True: {users_qs.count()}")
         for user in users_qs:
             try:

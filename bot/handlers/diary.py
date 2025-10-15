@@ -280,12 +280,16 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
             "skills": user.skills,
             "aspirations": user.aspirations
         }
+        entry_date = await diary_entry.aentry_date()
+        combined_entry = await daily_state_service.get_daily_state(user, entry_date)
+        ai_state_data = combined_entry.ai_state_data if combined_entry else ""
         prompt = get_prompt(
             key='clarification_analysis',
             language=language,
             original_text=diary_entry.text,
             clarification_questions="\n".join(clarification_questions),
             clarification_answers="\n".join([f"{q}: {a}" for q, a in clarification_answers_dict.items()]),
+            ai_state_data=ai_state_data,
             user_profile=extended_user_profile_for_clarification
         )
         status_message = await message.answer(get_message('processing', language))
@@ -1238,43 +1242,41 @@ async def _process_analysis_result(
                     return # ВАЖНО: выходим из функции, не продолжая обычный процесс
             # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
 
-            if needs_clarification and clarification_questions and context == 'new_entry': # Убедимся, что уточнения задаются только для новых записей
-                from django.utils import timezone
-                from datetime import timedelta
+        if needs_clarification and clarification_questions and context == 'new_entry': # Убедимся, что уточнения задаются только для новых записей
+            from django.utils import timezone
+            from datetime import timedelta
 
-                now_utc = timezone.now()
-                # Устанавливаем все необходимые поля перед сохранением
-                entry.clarification_questions_asked = clarification_questions
-                entry.clarification_asked_at = now_utc
-                # Время напоминания: 15 минут после задания вопросов (или 5, если хотите соответствовать частоте Celery)
-                # Для исходной логики (15 мин напоминание) используем 15 минут.
-                entry.clarification_reminder_due_at = now_utc + timedelta(minutes=10) # <-- Используем 15 минут
-                # Время принудительной обработки: например, 24 часа после задания вопросов
-                entry.clarification_force_process_at = now_utc + timedelta(minutes=20) # <-- Используем 24 часа
+            now_utc = timezone.now()
+            # Устанавливаем все необходимые поля перед сохранением
+            entry.clarification_questions_asked = clarification_questions
+            entry.clarification_asked_at = now_utc
+            # Время напоминания: 10 минут после задания вопросов
+            entry.clarification_reminder_due_at = now_utc + timedelta(minutes=10) # <-- Используем 10 минут
+            # Время принудительной обработки: 20 минут после задания вопросов
+            entry.clarification_force_process_at = now_utc + timedelta(minutes=20) # <-- Используем 20 минут
 
-                # Сохраняем все измененные поля в одной транзакции
-                await sync_to_async(entry.save)(
-                    update_fields=[
-                        'clarification_questions_asked',
-                        'clarification_asked_at',
-                        'clarification_reminder_due_at',
-                        'clarification_force_process_at'
-                    ]
-                )
+            # Сохраняем все измененные поля в одной транзакции
+            await sync_to_async(entry.save)(
+                update_fields=[
+                    'clarification_questions_asked',
+                    'clarification_asked_at', # Добавлено
+                    'clarification_reminder_due_at', # Добавлено
+                    'clarification_force_process_at' # Добавлено
+                ]
+            )
 
-                await state_manager.update_state_data(
-                    state,
-                    clarifying_entry_id=entry.id,
-                    clarification_questions=clarification_questions
-                )
-                await state_manager.set_state(state, DiaryStates.asking_clarifying_questions)
-                questions_text = "\n".join([f"{i+1}. {q}" for i, q in enumerate(clarification_questions)])
-                await status_msg.edit_text(
-                    f"{get_message('clarification_needed', language)}\n{questions_text}",
-                    reply_markup=get_single_button_keyboard(language, 'main_menu', 'btn_cancel')
-                )
-                return
-
+            await state_manager.update_state_data(
+                state,
+                clarifying_entry_id=entry.id,
+                clarification_questions=clarification_questions
+            )
+            await state_manager.set_state(state, DiaryStates.asking_clarifying_questions)
+            questions_text = "\n".join([f"{i+1}. {q}" for i, q in enumerate(clarification_questions)])
+            await status_msg.edit_text(
+                f"{get_message('clarification_needed', language)}\n{questions_text}",
+                reply_markup=get_single_button_keyboard(language, 'main_menu', 'btn_cancel')
+            )
+            return
         # Продолжаем обычный процесс обновления PsychoAnalysis и CombinedDiaryEntry
         # только если это не невалидная новая запись
         await psycho_analysis_service.create_or_update_analysis(

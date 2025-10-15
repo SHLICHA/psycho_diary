@@ -17,7 +17,6 @@ INCREMENTAL_DAY_ANALYSIS_PROMPT = {
 **Профиль пользователя:**
 Имя: {first_name}
 Уровень осознанности: {awareness_level}/10
-Премиум: {is_premium}
 Количество записей: {entries_count}
 Черты характера: {user_personality_traits}
 Факты о жизни: {user_life_facts}
@@ -69,7 +68,7 @@ INCREMENTAL_DAY_ANALYSIS_PROMPT = {
         *   Удали устаревшие, если они больше не актуальны.
         *   Сформулируй краткий, но содержательный контекст дня (3–4 предложения).
         *   При формировании `ai_state_data` учитывай **психологический портрет пользователя**. Например, если пользователь упомянул "работу", а в `Факты о жизни` есть "занимается программированием", уточни, что это работа программиста.
-    *   Сформируй краткий комментарий (1 предложение) — как новая запись повлияла на день. Сделай его **дружелюбным, поддерживающим и мотивирующим**.
+    *   Сформируй краткий комментарий (1-2 предложениz) — как новая запись повлияла на день. Сделай его **дружелюбным, поддерживающим и мотивирующим**.
     *   Дай персональную рекомендацию (1–2 предложения) — что может быть полезно прямо сейчас. Используй знания о пользователе (ценности, сильные стороны) для персонализации. Сделай её **поддерживающей, практичной и мотивирующей**.
     *   Предложи задание, только если оно **существенно** поможет проработать тему (не чаще 1 раза в 2–3 дня). Учитывай интересы и зоны роста пользователя. Сделай его **доступным и полезным**.
     *   **ОПРЕДЕЛИ, НУЖНЫ ЛИ УТОЧНЕНИЯ:**
@@ -97,7 +96,7 @@ INCREMENTAL_DAY_ANALYSIS_PROMPT = {
   "validation_comment": "",
   "formatted_message": "",
   "mood_score": 7,
-  "comment": "Новая запись усиливает чувство достижения.",
+  "comment": "Сформируй **поддерживающий, мотивирующий и вдохновляющий** комментарий, **отражающий глубокое понимание ИИ** содержания новой записи в контексте дня и профиля пользователя. Комментарий должен быть **на 1-2 предложения длиннее** стандартного и **показывать, *как ИИ интерпретировал* эмоции, события или мысли из записи**. Учитывай: 1) *содержание новой записи* и как оно влияет на день, 2) *предыдущие темы* и `ai_state_data`, 3) *профиль пользователя* (ценности, триггеры, сильные стороны, факты о жизни). Пиши **дружелюбно, с эмпатией и акцентом на поддержку и мотивацию**. Даже если запись описывает сложную ситуацию, старайся подчеркнуть какой-то аспект стойкости, потенциала, важности переживания или возможности для роста, если это уместно. Например: 'Я чувствую, как ты устал от этой рутины, но даже в ней есть твоя сила – ты продолжаешь идти. Это уже многое значит.' Или: 'Твой интерес к [теме из записи] глубоко связан с твоей ценностью [указать]. Это важное наблюдение за собой.'",
   "recommendation": "Запишите, что именно вызвало это чувство, чтобы укрепить паттерн успеха.",
   "analysis": "Пользователь продолжает фокусироваться на завершении задач. Это подтверждает развитие паттерна саморегуляции. Рекомендуется закрепить успех через рефлексию.",
   "updated_ai_state_data": "Пользователь сегодня фокусируется на завершении задач. Есть признаки тревоги перед совещанием, но после выполнения задач — улучшение настроения. Тема: саморегуляция и преодоление прокрастинации.",
@@ -130,7 +129,6 @@ INCREMENTAL_DAY_ANALYSIS_PROMPT = {
 **User Profile:**
 Name: {first_name}
 Awareness Level: {awareness_level}/10
-Premium: {is_premium}
 Entries Count: {entries_count}
 Personality Traits: {user_personality_traits}
 Life Facts: {user_life_facts}
@@ -182,7 +180,7 @@ Areas for Growth: {user_areas_for_growth}
         *   Remove outdated ones.
         *   Formulate a concise, but meaningful day context (3–4 sentences).
         *   When forming `ai_state_data`, consider the **user's psychological profile**. For example, if the user mentions "work" and `Life Facts` include "works as a programmer", clarify that it's a programmer's work.
-    *   Form a brief comment (1 sentence) — how the new entry affected the day. Make it **friendly, supportive, and motivating**.
+    *   Form a brief comment (1–2 sentences) — how the new entry affected the day. Make it **friendly, supportive, and motivating**.
     *   Give a personal recommendation (1–2 sentences) — what would be helpful right now. Use knowledge of the user (values, strengths) to personalize it. Make it **supportive, practical, and motivating**.
     *   Suggest a task only if it **significantly** helps work through a theme (no more than once every 2–3 days). Take into account the user's interests and areas for growth. Make it **accessible and useful**.
     *   **DETERMINE IF CLARIFICATION IS NEEDED (UPDATED 2):**

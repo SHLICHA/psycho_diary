@@ -10,14 +10,22 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+# --- НОВОЕ: Импортируем BufferedInputFile ---
+from aiogram.types import BufferedInputFile
+# --- КОНЕЦ НОВОГО ---
 from datetime import timedelta
 from django.conf import settings
 from django.utils import timezone
 from asgiref.sync import sync_to_async
+from collections import Counter # Добавляем импорт Counter для подсчёта часовых поясов
 
 from messages import get_message, get_button_text
-from diary.models import DiaryEntry
+from diary.models import DiaryEntry, AnalysisRating # Импортируем AnalysisRating
 from users.models import User, Payment
+
+# --- НОВОЕ: Импортируем функции для генерации графиков ---
+from bot.utils.activity_chart import generate_activity_chart_image, generate_hourly_activity_chart_image
+# --- КОНЕЦ НОВОГО ---
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -209,6 +217,40 @@ async def get_admin_stats():
     # С токенами (незаблокированные, не удалённые, token_balance > 0)
     stats['users_with_tokens'] = await active_users_query.filter(token_balance__gt=0).acount()
 
+    # --- НОВОЕ: Автоанализ ---
+    stats['users_with_auto_analysis_enabled'] = await active_users_query.filter(auto_analysis_enabled=True).acount()
+
+    # --- НОВОЕ: Часовые пояса ---
+    # Асинхронно получаем список всех часовых поясов активных пользователей
+    @sync_to_async
+    def get_timezones_list():
+        # .list() превращает QuerySet в обычный список Python
+        return list(active_users_query.values_list('timezone', flat=True))
+    timezones_list = await get_timezones_list()
+    # Подсчитываем количество пользователей в каждом часовом поясе
+    timezone_counts = Counter(timezones_list)
+    # Сортируем по количеству (по убыванию) и выбираем топ N (например, 10)
+    top_timezones = timezone_counts.most_common(10)
+    stats['top_timezones'] = top_timezones # Список кортежей (часовой пояс, количество)
+
+    # --- НОВОЕ: Оценки анализов ---
+    # Получаем QuerySet всех оценок
+    all_ratings = AnalysisRating.objects.all()
+    # Считаем общее количество оценок
+    stats['total_ratings'] = await all_ratings.acount()
+    # Получаем количество оценок для каждой звезды (1-5)
+    @sync_to_async
+    def get_rating_counts():
+        # Используем annotate и count для подсчёта по полю rating
+        from django.db.models import Count
+        rating_counts = all_ratings.values('rating').annotate(count=Count('rating')).order_by('rating')
+        # Создаём словарь с 0 для звёзд, которые не встречались
+        counts = {i: 0 for i in range(1, 6)}
+        for item in rating_counts:
+            counts[item['rating']] = item['count']
+        return counts
+    stats['rating_distribution'] = await get_rating_counts()
+
     # --- Платежи ---
     # Считаем количество успешных платежей по типам
     successful_payments = Payment.objects.filter(status='succeeded')
@@ -248,7 +290,7 @@ async def cmd_admin_stats(message: Message):
     try:
         stats = await get_admin_stats()
 
-        # Формируем сообщение
+        # Формируем текстовое сообщение
         response = f"""
 📊 <b>Статистика приложения</b> (на {timezone.now().strftime('%d.%m.%Y %H:%M')})
 
@@ -259,6 +301,7 @@ async def cmd_admin_stats(message: Message):
 • Заблокировано: {stats['blocked_users']}
 • С активной подпиской: {stats['premium_users']}
 • С токенами: {stats['users_with_tokens']}
+• С включённым автоанализом: {stats['users_with_auto_analysis_enabled']}
 
 <b>Платежи (успешные):</b>
 • Подписки (30 дней): {stats['subscriptions_30_count']} шт.
@@ -274,9 +317,52 @@ async def cmd_admin_stats(message: Message):
 • "Настоящие": {stats['real_entries']}
 • Восстановленные: {stats['recovered_entries']}
 
-        """
+"""
+
+        # --- НОВОЕ: Добавляем статистику по оценкам анализов ---
+        response += f"<b>Оценки анализов:</b>\n"
+        response += f"• Всего оценок: {stats['total_ratings']}\n"
+        for i in range(1, 6):
+            star_emoji = "⭐" * i
+            count = stats['rating_distribution'].get(i, 0)
+            response += f"• {star_emoji}: {count} шт.\n"
+        # --- КОНЕЦ НОВОГО ---
+
+        # --- НОВОЕ: Добавляем статистику по часовым поясам ---
+        if stats['top_timezones']:
+            response += "\n<b>Топ 10 часовых поясов:</b>\n"
+            for tz, count in stats['top_timezones']:
+                # Экранируем символы, которые могут мешать HTML-парсингу, если tz содержит их
+                # Однако, обычно идентификаторы часовых поясов (например, Europe/Moscow) не требуют экранирования в HTML
+                # Если есть сомнения, можно использовать html.escape(tz), импортировав html
+                response += f"• {tz}: {count} пользоват.\n"
+        else:
+            response += "\n<b>Часовые пояса:</b>\nНет данных или все пользователи используют UTC.\n"
+        # --- КОНЕЦ НОВОГО ---
 
         await message.answer(response, parse_mode='HTML')
+
+        # --- НОВОЕ: Отправляем графики активности ---
+        # Получаем администратора для передачи его часового пояса
+        admin_user = await User.objects.aget(telegram_id=message.from_user.id)
+        try:
+            activity_chart_img = await generate_activity_chart_image(admin_user, days=30) # График за 30 дней
+            # --- ОБЕРТЫВАЕМ BytesIO в BufferedInputFile ---
+            input_file = BufferedInputFile(activity_chart_img.getvalue(), filename="activity_chart.png")
+            await message.answer_photo(photo=input_file, caption="📈 Активность пользователей по дням (по времени администратора)")
+        except Exception as chart_error:
+            logger.error(f"Ошибка генерации графика активности по дням: {chart_error}")
+            await message.answer("❌ Ошибка при генерации графика активности по дням.")
+
+        try:
+            hourly_activity_chart_img = await generate_hourly_activity_chart_image(admin_user, days=30) # График по часам за 30 дней
+            # --- ОБЕРТЫВАЕМ BytesIO в BufferedInputFile ---
+            input_file_hourly = BufferedInputFile(hourly_activity_chart_img.getvalue(), filename="hourly_activity_chart.png")
+            await message.answer_photo(photo=input_file_hourly, caption="⏰ Активность пользователей по часам (по времени администратора)")
+        except Exception as hourly_chart_error:
+            logger.error(f"Ошибка генерации почасового графика активности: {hourly_chart_error}")
+            await message.answer("❌ Ошибка при генерации почасового графика активности.")
+        # --- КОНЕЦ НОВОГО ---
 
     except Exception as e:
         logger.error(f"Ошибка при сборе статистики администратора: {e}", exc_info=True)
