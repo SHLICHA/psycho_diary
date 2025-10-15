@@ -258,6 +258,7 @@ async def get_admin_stats():
     stats['subscriptions_30_count'] = await successful_payments.filter(payment_type='subscription_month').acount()
     stats['subscriptions_year_count'] = await successful_payments.filter(payment_type='subscription_year').acount()
     stats['tokens_10_count'] = await successful_payments.filter(payment_type='tokens_10').acount()
+    stats['tokens_50_count'] = await successful_payments.filter(payment_type='tokens_50').acount()
     stats['tokens_100_count'] = await successful_payments.filter(payment_type='tokens_100').acount()
     stats['tokens_200_count'] = await successful_payments.filter(payment_type='tokens_200').acount()
     stats['tokens_500_count'] = await successful_payments.filter(payment_type='tokens_500').acount()
@@ -307,6 +308,7 @@ async def cmd_admin_stats(message: Message):
 • Подписки (30 дней): {stats['subscriptions_30_count']} шт.
 • Подписки (год): {stats['subscriptions_year_count']} шт.
 • Токены (10 шт.): {stats['tokens_10_count']} шт.
+• Токены (50 шт.): {stats['tokens_50_count']} шт.
 • Токены (100 шт.): {stats['tokens_100_count']} шт.
 • Токены (200 шт.): {stats['tokens_200_count']} шт.
 • Токены (500 шт.): {stats['tokens_500_count']} шт.
