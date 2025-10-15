@@ -94,7 +94,6 @@ from .payments_keyboards import (
     get_purchase_options_keyboard,
     get_manage_premium_keyboard,
     get_token_purchase_options_keyboard,
-    get_token_custom_amount_keyboard
 )
 __all__ = [
     # Основные клавиатуры
@@ -171,6 +170,5 @@ __all__ = [
     'get_purchase_options_keyboard',
     'get_manage_premium_keyboard',
     'get_token_purchase_options_keyboard',
-    'get_token_custom_amount_keyboard',
     'get_premium_keyboard',
 ]

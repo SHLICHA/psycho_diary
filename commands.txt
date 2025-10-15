@@ -36,3 +36,5 @@ python manage.py migrate_encrypted_fields --config '{"app.Model": ["field1", "fi
 5. Перед началом решения какой-то задачи мы ее сначала обсуждаем, чтобы синхронизировать цели и задачи
 
 Все понятно? Я начинаю
+
+reply_markup=get_single_button_keyboard(user_language, 'main_menu', 'btn_back')

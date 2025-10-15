@@ -8,6 +8,7 @@ from asgiref.sync import sync_to_async
 
 from users.models import User, TokenTransaction
 from messages import get_message
+from bot.keyboards import get_purchase_options_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -60,19 +61,29 @@ def requires_tokens(cost: int):
                 logger.info(f"Недостаточно токенов у пользователя {user.telegram_id}. Баланс: {current_balance}, Стоимость: {cost}")
                 if event:
                     try:
-                        if bot:
-                            await event.answer(get_message('insufficient_tokens', language), show_alert=True)
-                        else:
+                        insufficient_msg = get_message('insufficient_tokens', language)
+                        keyboard = get_purchase_options_keyboard(language) # <-- Создаём клавиатуру
 
-                            if isinstance(event, CallbackQuery):
-                                await event.answer(get_message('insufficient_tokens', language), show_alert=True)
+                        if isinstance(event, CallbackQuery):
+                            # Для CallbackQuery используем answer, но можно отправить новое сообщение
+                            # Ответ на callback (маленькое уведомление)
+                            await event.answer(insufficient_msg, show_alert=True)
+                            # И отправляем новое сообщение с клавиатурой
+                            await event.message.answer(insufficient_msg, reply_markup=keyboard)
+                        elif isinstance(event, Message):
+                            # Для Message отправляем ответ с клавиатурой
+                            if bot: # <-- Проверяем, есть ли bot
+                                # Используем bot, чтобы отправить сообщение с клавиатурой
+                                await bot.send_message(chat_id=event.chat.id, text=insufficient_msg, reply_markup=keyboard)
                             else:
-                                logger.warning("Объект bot не найден, невозможно отправить show_alert для Message. Проверьте, передается ли bot в хендлер.")
-                                logger.error("Невозможно показать show_alert для Message без объекта bot.")
+                                # Если bot нет, можно попробовать event.answer (но это может не работать для Message)
+                                # В этом случае, лучше убедиться, что bot передаётся в хендлеры.
+                                logger.error("Объект bot не найден, невозможно отправить сообщение с клавиатурой пользователю.")
+                                await event.answer(insufficient_msg, show_alert=True) # Только уведомление
                     except Exception as e:
-                        logger.error(f"Ошибка при отправке show_alert о недостатке токенов: {e}")
+                        logger.error(f"Ошибка при отправке сообщения о недостатке токенов с клавиатурой: {e}")
                 else:
-                    logger.warning("Объект event не найден, невозможно отправить show_alert.")
+                    logger.warning("Объект event не найден, невозможно отправить сообщение о недостатке токенов.")
                 return
             try:
                 transaction = await sync_to_async(TokenTransaction.create_and_update_balance)(

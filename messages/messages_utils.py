@@ -82,6 +82,7 @@ MESSAGES = {
 'photo_too_large': '''⚠️ Фото слишком большое. Максимальный размер - 20 МБ''',
 'morning_motivation_default': 'Доброе утро, {first_name}! Пусть этот день будет наполнен радостью и вдохновением.',
 'insufficient_tokens': '❌ Недостаточно токенов для выполнения этой операции. Пожалуйста, пополните баланс или оформите подписку.',
+'insufficient_tokens_in_chat_hint': '(Если вы находитесь в чате, просто продолжите общение. Отправьте своё сообщение ещё раз.)',
 'insufficient_tokens_for_auto_analysis_and_disabled': '❌ Недостаточно токенов для автоматического анализа дня. Анализ не выполнен. Автоматический анализ отключен. Пожалуйста, пополните баланс или оформите подписку.',
         'therapy_chat_welcome_premium': '''💬 <b>Вход в психологический чат</b> 🧠
 
@@ -218,6 +219,7 @@ MESSAGES = {
 'session_expired': '''⏰ Session time expired (1 hour). Session automatically completed''',
 'photo_too_large': '''⚠️ Photo is too large. Maximum size - 20 MB''',
 'insufficient_tokens': '❌ Insufficient tokens to perform this operation. Please top up your balance.',
+'insufficient_tokens_in_chat_hint': '(If you are in the chat, just continue the conversation. Send your message again.)',
 'insufficient_tokens_for_auto_analysis': '❌ Insufficient tokens for automatic daily analysis. Analysis not performed. Please top up your balance or subscribe.',
 'insufficient_tokens_for_auto_analysis_and_disabled': '❌ Insufficient tokens for automatic daily analysis. Analysis not performed. Automatic analysis has been disabled. Please top up your balance or subscribe.',
         'therapy_chat_welcome_premium': '''💬 <b>Entering the Therapy Chat</b> 🧠

@@ -103,8 +103,8 @@ async def track_payment_status(yookassa_payment_id: str, payment_id: int, user_i
                 # Проверяем, был ли активирована подписка (а не просто токены) и включился ли автоанализ
                 if db_payment.subscription_days_granted > 0 and auto_analysis_is_now_enabled and not auto_analysis_was_enabled_before:
                     success_message += get_message('auto_analysis_enabled_on_subscription', user_language) + "\n\n"
-                success_message += get_message('thank_you_for_support', user_language) # "Спасибо за поддержку!"
-
+                success_message += get_message('thank_you_for_support', user_language) + '\n\n'"Спасибо за поддержку!"
+                success_message += get_message('insufficient_tokens_in_chat_hint', user_language)
                 await send_message_to_user(
                     bot,
                     user_after_processing, # Используем обновлённый объект

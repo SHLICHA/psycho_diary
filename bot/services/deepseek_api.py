@@ -12,6 +12,7 @@ import time
 from typing import Dict, Any
 from prompts import get_prompt
 from core.settings import DEEPSEEK_API_KEY
+from bot.utils.html_sanitizer import sanitize_html_in_dict_or_string
 
 logger = logging.getLogger(__name__)
 
@@ -111,12 +112,14 @@ class DeepSeekAPIService:
             'raw_response': last_response_text if last_response_text else (str(last_exception) if last_exception else '')
         }
 
+
     async def _parse_analysis_response(self, response_text: str, language: str) -> dict:
         """
         Парсит ответ от DeepSeek.
         Сначала пытается распарсить как JSON целиком.
         Если неудачно, ищет JSON в Markdown-блоке `` `json ... ` `` и пытается распарсить его.
         В случае любой ошибки парсинга ВЫЗЫВАЕТ ИСКЛЮЧЕНИЕ.
+        После успешного парсинга санитизирует HTML в строковых значениях результата.
         """
         logger.debug(f"[DeepSeek API] Парсинг ответа API, язык: {language}, длина: {len(response_text)}")
         try:
@@ -124,7 +127,6 @@ class DeepSeekAPIService:
             # 1. Пробуем распарсить весь response_text как JSON
             result = json.loads(response_text)
             logger.debug("[DeepSeek API] Успешный парсинг всего ответа как JSON.")
-            return result
         except json.JSONDecodeError:
             logger.debug("[DeepSeek API] Прямой парсинг JSON не удался. Ищем в Markdown-блоке...")
 
@@ -138,23 +140,42 @@ class DeepSeekAPIService:
                 for i, block in enumerate(potential_blocks):
                     try:
                         # Пробуем распарсить текущий блок
-                        parsed_block = json.loads(block.strip())
+                        result = json.loads(block.strip())
                         logger.debug(f"[DeepSeek API] Успешный парсинг JSON-блока {i+1} из Markdown.")
-                        return parsed_block
+                        break # Выходим из цикла, если один из блоков распарсился успешно
                     except json.JSONDecodeError as je:
                         logger.debug(f"[DeepSeek API] Ошибка парсинга блока {i+1}: {je}. Пробуем следующий блок.")
                         continue # Переходим к следующему блоку
-
-            # 3. Если ни один блок не подошёл
-            logger.warning("[DeepSeek API] Ни один JSON-блок не удалось распарсить корректно.")
+                else:
+                    # Если цикл завершился без break (ни один блок не распарсился)
+                    logger.warning("[DeepSeek API] Ни один JSON-блок не удалось распарсить корректно.")
+                    logger.error(f"[DeepSeek API] Ни прямой JSON, ни блок Markdown не удалось распарсить корректно. Ответ API: {response_text[:500]}...")
+                    raise ValueError("Не удалось распарсить корректный JSON из ответа API.")
+            else:
+                # Если блоки не найдены
+                logger.warning("[DeepSeek API] Ни один JSON-блок не удалось распарсить корректно.")
+                logger.error(f"[DeepSeek API] Ни прямой JSON, ни блок Markdown не удалось распарсить корректно. Ответ API: {response_text[:500]}...")
+                raise ValueError("Не удалось распарсить корректный JSON из ответа API.")
 
         except Exception as e:
             # На всякий случай, если в первом `try` произойдёт что-то неожиданное
             logger.error(f"[DeepSeek API] Неожиданная ошибка при парсинге: {e}")
+            logger.error(f"[DeepSeek API] Ни прямой JSON, ни блок Markdown не удалось распарсить корректно. Ответ API: {response_text[:500]}...")
+            raise ValueError("Не удалось распарсить корректный JSON из ответа API.")
 
-        # 4. Если всё неудачно, ВЫЗЫВАЕМ ИСКЛЮЧЕНИЕ
-        logger.error(f"[DeepSeek API] Ни прямой JSON, ни блок Markdown не удалось распарсить корректно. Ответ API: {response_text[:500]}...") # Логируем начало ответа для отладки
-        raise ValueError("Не удалось распарсить корректный JSON из ответа API.")
+        # --- НОВОЕ: Санитизация HTML в строковых значениях результата ---
+        # Предполагаем, что 'result' - это словарь или список, содержащий строковые поля с HTML
+        allowed_tags_for_responses = {'b', 'i', 'u', 'em', 'strong'} # Уточните, какие теги ИИ может использовать
+        try:
+            sanitized_result = sanitize_html_in_dict_or_string(result, allowed_tags=allowed_tags_for_responses)
+            logger.debug("[DeepSeek API] HTML в строковых значениях результата санитизировано.")
+        except Exception as e:
+            logger.error(f"[DeepSeek API] Ошибка при санитизации HTML в результате: {e}. Возвращаем оригинальный результат.")
+            # В случае ошибки санитизации, возвращаем оригинальный результат, но логируем
+            sanitized_result = result
+        # --- КОНЕЦ САНИТИЗАЦИИ ---
+
+        return sanitized_result # Возвращаем санитизированный результат
     
     async def punctuate_and_format_text(
         self, 
@@ -242,6 +263,7 @@ class DeepSeekAPIService:
         """
         Извлекает отформатированный текст из ответа DeepSeek.
         Удаляет префиксы и постфиксы.
+        Санитизирует HTML в возвращаемом тексте.
         """
         logger.debug(f"[DeepSeek API] Извлечение отформатированного текста, язык: {language}")
         formatted_text = response_text.strip()
@@ -267,7 +289,19 @@ class DeepSeekAPIService:
         for postfix in postfixes:
             if formatted_text.endswith(postfix):
                 formatted_text = formatted_text[:-len(postfix)].strip()
-        return formatted_text if formatted_text else response_text.strip()
+        
+        # --- НОВОЕ: Санитизация HTML в извлеченном тексте ---
+        # Используем ту же утилиту, передав ей строку
+        allowed_tags_for_punctuation = {'b', 'i', 'u', 'em', 'strong'} # Уточните, какие теги ИИ может использовать
+        try:
+            sanitized_formatted_text = sanitize_html_in_dict_or_string(formatted_text, allowed_tags=allowed_tags_for_punctuation)
+            logger.debug("[DeepSeek API] HTML в извлеченном тексте санитизировано.")
+        except Exception as e:
+            logger.error(f"[DeepSeek API] Ошибка при санитизации HTML в извлеченном тексте: {e}. Возвращаем оригинальный текст.")
+            sanitized_formatted_text = formatted_text
+        # --- КОНЕЦ САНИТИЗАЦИИ ---
+
+        return sanitized_formatted_text if sanitized_formatted_text else response_text.strip()
 
     def _make_success_result(self, formatted_text: str, raw_response: str, api_result: dict) -> dict:
         """Формирует успешный ответ с метаданными."""

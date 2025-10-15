@@ -145,7 +145,8 @@ async def _send_morning_motivation_async():
                                 restore_text = get_message('morning_motivation_restore_two_days', user_language, dates=dates_str)
                             restore_text = f"\n\n{restore_text}" # Добавляем отступ
                         is_user_premium_active = await sync_to_async(user.is_premium_active)()
-
+                        renewal_button_callback = None
+                        renewal_button_text_key = None
                         if is_user_premium_active: # Используем результат асинхронного вызова
                             # Если подписка активна, проверяем, сколько дней осталось до окончания
                             # Переводим время окончания подписки в локальный часовой пояс пользователя
@@ -164,6 +165,8 @@ async def _send_morning_motivation_async():
                                     get_message('morning_motivation_premium_expiry_preamble', user_language) +
                                     get_message(expiry_message_key, user_language)
                                 )
+                                renewal_button_callback = "settings_premium" # или "purchase_subscription:month"
+                                renewal_button_text_key = 'btn_manage_subscription'
 
                         additional_text = ""
                         additional_button_callback = None
@@ -194,6 +197,13 @@ async def _send_morning_motivation_async():
                                 )
                             ]
                         ]
+                        if renewal_button_callback and renewal_button_text_key:
+                            keyboard_buttons.append([
+                                InlineKeyboardButton(
+                                    text=get_button_text(renewal_button_text_key, user_language),
+                                    callback_data=renewal_button_callback
+                                )
+                            ])
                         if additional_button_callback and additional_button_text_key:
                              keyboard_buttons.append([
                                 InlineKeyboardButton(

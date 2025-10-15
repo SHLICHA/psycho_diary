@@ -38,8 +38,14 @@ def get_manage_premium_keyboard(language: str) -> InlineKeyboardMarkup:
     buttons = [
         [
             InlineKeyboardButton(
-                text="🔄 Продлить подписку",
-                callback_data="purchase_subscription:month"  # или отдельный callback
+                text=f"👑 Подписка (месяц) — {settings.PREMIUM_PRICE_MONTH}₽",
+                callback_data="purchase_subscription:month"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"👑 Подписка (год) — {settings.PREMIUM_PRICE_YEAR}₽",
+                callback_data="purchase_subscription:year"
             )
         ],
         [
@@ -68,6 +74,12 @@ def get_token_purchase_options_keyboard(language: str) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
+                text=f"💎 50 токенов — {settings.TOKEN_PACK_50}₽",
+                callback_data="purchase_tokens:50"
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 text=f"💎 100 токенов — {settings.TOKEN_PACK_100}₽",
                 callback_data="purchase_tokens:100"
             )
@@ -86,26 +98,8 @@ def get_token_purchase_options_keyboard(language: str) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
-                text="🔢 Ввести количество",
-                callback_data="purchase_tokens:custom"
-            )
-        ],
-        [
-            InlineKeyboardButton(
                 text=get_button_text('btn_back', language),
                 callback_data="settings_premium"
-            )
-        ]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-def get_token_custom_amount_keyboard(language: str) -> InlineKeyboardMarkup:
-    """Клавиатура с кнопкой 'Назад' для ввода произвольного количества токенов."""
-    buttons = [
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_back', language),
-                callback_data="purchase_tokens:start"
             )
         ]
     ]

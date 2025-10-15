@@ -15,7 +15,6 @@ from bot.keyboards import (
     get_premium_keyboard,
     get_purchase_options_keyboard,
     get_token_purchase_options_keyboard,
-    get_token_custom_amount_keyboard,
     get_manage_premium_keyboard
 )
 from bot.utils.payment_utils import create_yookassa_payment, track_payment_status
@@ -177,7 +176,7 @@ async def start_token_purchase(callback: CallbackQuery, language: str):
     """Начало покупки токенов — показываем варианты."""
     try:
         await callback.message.edit_text(
-            "💎 <b>Выберите пакет токенов или введите количество вручную:</b>",
+            "💎 <b>Выберите пакет токенов:</b>",
             reply_markup=get_token_purchase_options_keyboard(language)
         )
         await callback.answer()
@@ -191,16 +190,6 @@ async def handle_token_purchase(callback: CallbackQuery, state: FSMContext, user
     try:
         data = callback.data.split(":", 1)
         action = data[1]
-
-        if action == 'custom':
-            await state_manager.set_state(state, PaymentStates.waiting_for_custom_tokens_amount)
-            await callback.message.edit_text(
-                "🔢 <b>Введите количество токенов, которое хотите купить:</b>",
-                reply_markup=get_token_custom_amount_keyboard(language)
-            )
-            await callback.answer()
-            return
-
         try:
             token_count = int(action)
         except ValueError:
@@ -210,6 +199,7 @@ async def handle_token_purchase(callback: CallbackQuery, state: FSMContext, user
         # Сопоставляем количество с ценой
         price_map = {
             10: settings.TOKEN_PACK_10,
+            50: settings.TOKEN_PACK_50,
             100: settings.TOKEN_PACK_100,
             200: settings.TOKEN_PACK_200,
             500: settings.TOKEN_PACK_500,
@@ -246,54 +236,6 @@ async def handle_token_purchase(callback: CallbackQuery, state: FSMContext, user
     except Exception as e:
         logger.error(f"Ошибка при обработке покупки токенов: {e}", exc_info=True)
         await callback.answer(get_message('error_generic', language=language), show_alert=True)
-
-@router.message(PaymentStates.waiting_for_custom_tokens_amount)
-async def process_custom_token_amount(message: Message, state: FSMContext, user, language: str):
-    """Обработка ввода произвольного количества токенов."""
-    try:
-        amount_str = message.text.strip()
-        if amount_str.lower() in ['назад', 'back', '/start', '/menu']:
-            await state_manager.clear_state(state)
-            await start_token_purchase(message, language)
-            return
-
-        try:
-            token_count = int(amount_str)
-            if token_count <= 0:
-                await message.answer("❌ Количество токенов должно быть положительным числом.")
-                return
-        except ValueError:
-            await message.answer("❌ Пожалуйста, введите корректное число.")
-            return
-
-        amount = token_count * settings.TOKEN_PRICE_PER_UNIT
-        description = f"Покупка {token_count} токенов (произвольно)"
-        payment_type = 'tokens_custom'
-
-        # Проверяем email
-        if not user.email:
-            await state_manager.set_state(
-                state, PaymentStates.waiting_for_tokens_email,
-                pending_payment_data={
-                    'amount': amount,
-                    'token_count': token_count,
-                    'description': description,
-                    'payment_type': payment_type
-                }
-            )
-            await message.answer(
-                get_message('ask_email_for_receipt', language),
-                reply_markup=get_single_button_keyboard(language, 'cancel_payment', 'btn_cancel')
-            )
-            return
-
-        # Если email есть, сразу создаём платеж
-        await _initiate_token_payment(user, amount, token_count, description, payment_type, message, language)
-
-    except Exception as e:
-        logger.error(f"Ошибка при обработке ввода количества токенов: {e}", exc_info=True)
-        await message.answer(get_message('error_generic', language=language))
-        await state_manager.clear_state(state)
 
 @router.message(PaymentStates.waiting_for_tokens_email)
 async def process_email_for_tokens(message: Message, user, language: str, state: FSMContext):
@@ -391,14 +333,6 @@ async def _initiate_payment(user, amount, days, description, payment_type, messa
                 f"После оплаты вернитесь к боту."
             )
 
-        # --- УБРАЛИ ОБНОВЛЕНИЕ СООБЩЕНИЯ ---
-        # confirmation_message = ... # <-- УБРАЛИ
-        # if confirmation_message: # <-- УБРАЛИ
-        #     processing_message = await confirmation_message.edit_text( # <-- УБРАЛИ
-        #         "⏳ Обработка платежа за подписку..."
-        #     ) # <-- УБРАЛИ
-
-        # Запускаем отслеживание статуса в фоне
         asyncio.create_task(track_payment_status(yoo_payment.id, db_payment.id, user.telegram_id))
 
     except Exception as e:
