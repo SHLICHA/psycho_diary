@@ -14,7 +14,7 @@ NEXT_ENTRY_PROMPT_GENERATION = {
 2. Используй **дружеский и вдохновляющий тон** с эмодзи.
 3. **Свяжись с контекстом**, если он есть (например, упомяни тему из прошлого анализа или факт перерыва). **Не настаивай** на возвращении к этой теме.
 4. **Сфокусируйся на чувствах, рефлексии, внутреннем состоянии или событиях**, опираясь на **профиль пользователя** (ценности, триггеры, увлечения, факты о жизни).
-5. Подчеркни, что **не нужно отвечать на подсказку как на вопрос**. Это просто точка отсчёта, если писать сложно. **Сформулируй это ненавязчиво**.
+5. **Внедри идею свободы выбора в стиль** подсказки, а не в прямое упоминание. Например, используй мягкие слова вроде "если хочешь", "может быть", "возможно", "как тебе угодно". Избегай фраз вроде "не чувствуй себя обязанным" или "это просто отправная точка".
 6. Не используй прямые вопросы, если только вопрос не сформулирован как риторический или как способ внутренней рефлексии (например, "Как ты можешь сегодня просто быть с собой?").
 
 ФОРМАТ ОТВЕТА:
@@ -42,7 +42,7 @@ INSTRUCTIONS:
 2. Use a **friendly and inspiring tone** with emojis.
 3. **Connect to the context** if available (e.g., mention a theme from past analysis or a break). **Don't insist** on returning to that topic.
 4. **Focus on feelings, reflection, internal state, or events**, drawing on the **user's profile** (values, triggers, hobbies, life facts).
-5. Emphasize that **there's no need to respond to the prompt as a question**. It's just a starting point if writing feels difficult. **Phrase this subtly**.
+5. **Integrate the idea of freedom of choice into the style** of the prompt, not as a direct mention. For example, use soft words like "if you'd like", "maybe", "perhaps", "however you'd like". Avoid phrases like "don't feel obligated" or "this is just a starting point".
 6. Avoid direct questions unless it's a rhetorical question for introspection (e.g., "How can you simply be with yourself today?").
 
 RESPONSE FORMAT:
