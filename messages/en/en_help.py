@@ -182,7 +182,6 @@ A: Analysis is performed using artificial intelligence that identifies patterns 
 
 🛡 <b>Encryption</b>
 • All personal data is encrypted.
-• Data transmission is protected by HTTPS protocol.
 • Access to the database is restricted and monitored.
 
 👤 <b>Privacy</b>
