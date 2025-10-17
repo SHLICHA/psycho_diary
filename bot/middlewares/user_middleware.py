@@ -215,7 +215,7 @@ class UserMiddleware(BaseMiddleware):
                      was_invited_set = True
                      logger.info(f"Новый пользователь {user.telegram_id} создан и отмечен как приглашённый пользователем {referrer_user.telegram_id}.")
 
-                welcome_tokens = 10
+                welcome_tokens = 15
                 user.token_balance += welcome_tokens
                 await user.asave(update_fields=['token_balance'])
                 logger.info(f"Новый пользователь создан: {user.username} ({user.telegram_id}) с языком {language} и часовым поясом {timezone_to_set} (по умолчанию). Начислено {welcome_tokens} приветственных токенов.")
