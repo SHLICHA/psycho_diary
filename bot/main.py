@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 from bot.handlers import all_routers
 from bot.utils.state_manager import state_manager 
+from bot.middlewares.db_middleware import DatabaseConnectionMiddleware
 from bot.middlewares.user_middleware import UserMiddleware
 from bot.middlewares.language_middleware import LanguageMiddleware
 from bot.middlewares.rate_limit_middleware import RateLimitMiddleware
@@ -46,6 +47,10 @@ async def main():
     # === Регистрация middleware (в правильном порядке) ===
     logger.info("Регистрация middleware...")
     
+    db_middleware = DatabaseConnectionMiddleware()
+    dp.update.middleware(db_middleware)
+    logger.info("DatabaseConnectionMiddleware зарегистрирован")
+
     # 1. UserMiddleware - регистрация пользователей
     user_middleware = UserMiddleware()
     dp.message.middleware(user_middleware)
