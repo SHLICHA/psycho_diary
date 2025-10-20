@@ -225,6 +225,7 @@ def get_users_with_utc_timezone():
 @sync_to_async
 def get_user_language(user):
     """Получение языка пользователя"""
+    close_old_connections()
     return user.language or 'ru'
 
 @shared_task

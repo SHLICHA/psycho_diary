@@ -10,6 +10,7 @@ import pytz
 
 from celery import shared_task
 from asgiref.sync import sync_to_async
+from django.db import close_old_connections
 
 from users.models import User
 
@@ -91,6 +92,7 @@ async def run_garbage_collection_async():
 
                     if was_updated:
                         # Асинхронное сохранение
+                        await sync_to_async(close_old_connections)()
                         await sync_to_async(user.save)(update_fields=fields_to_update)
                         total_cleaned += 1
 
