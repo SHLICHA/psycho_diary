@@ -12,6 +12,7 @@ from aiogram import Bot
 from asgiref.sync import async_to_sync, sync_to_async
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.enums import ParseMode
+from django.db import close_old_connections
 
 from users.models import User, TokenTransaction
 from diary.models import DailyAnalysis
@@ -182,11 +183,9 @@ def perform_scheduled_daily_analysis(self, user_id: int, target_date_iso: str):
                             logger.error(f"Не удалось отправить сообщение о недостатке токенов пользователю {user_id}: {msg_error}")
                 if user.auto_analysis_enabled:
                     user.auto_analysis_enabled = False
-                    from asgiref.sync import sync_to_async
                     sync_to_async(user.save)(update_fields=['auto_analysis_enabled'])
                     logger.info(f"Автоматический анализ для пользователя {user_id} отключен из-за недостатка токенов.")
                 return
-            from asgiref.sync import sync_to_async
             TokenTransaction.create_and_update_balance(
                 user=user,
                 amount=-cost,
@@ -215,6 +214,7 @@ def perform_scheduled_daily_analysis(self, user_id: int, target_date_iso: str):
 @sync_to_async
 def get_users_with_utc_timezone():
     """Получение пользователей с UTC часовым поясом"""
+    close_old_connections()
     return list(User.objects.filter(
         timezone='UTC',
         notifications_enabled=True,

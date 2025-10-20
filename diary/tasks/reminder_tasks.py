@@ -13,6 +13,7 @@ from celery import shared_task
 from aiogram import Bot
 from aiogram.enums import ParseMode
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from django.db import close_old_connections
 
 from bot.utils.message_utils import send_message_to_user
 from bot.services import deepseek_api_service
@@ -31,6 +32,7 @@ def get_user_streaks(user):
     """
     Подсчитывает текущую и максимальную серию дней с записями для пользователя.
     """
+    close_old_connections()
     try:
         import pytz
         user_timezone_str = user.timezone if user.timezone else 'UTC'
@@ -82,6 +84,7 @@ def get_user_streaks(user):
 @sync_to_async
 def get_active_users_with_notifications():
     """Получение активных пользователей с включенными уведомлениями и не заблокированных."""
+    close_old_connections()
     return list(User.objects.filter(
         notifications_enabled=True,
         is_blocked=False,
@@ -91,6 +94,7 @@ def get_active_users_with_notifications():
 @sync_to_async
 def get_user_language(user):
     """Получение языка пользователя."""
+    close_old_connections()
     return user.language or 'ru'
 
 @sync_to_async
@@ -99,7 +103,7 @@ def has_entries_for_user_on_date(user, target_date):
     Проверяет, есть ли у пользователя записи на заданную дату (в его часовом поясе).
     """
 
-
+    close_old_connections()
     try:
         import pytz
         user_timezone_str = user.timezone if user.timezone else 'UTC'
@@ -124,6 +128,7 @@ def needs_questionnaire_reminder(user):
     """
     Проверяет, нужно ли пользователю напоминание о прохождении анкеты.
     """
+    close_old_connections()
     try:
         if not getattr(user, 'has_agreed_to_terms', False):
             return False
@@ -149,6 +154,7 @@ def get_uncompleted_tasks_count_for_user_today(user):
     """
     Подсчитывает количество незавершенных задач для пользователя (статус в ['pending', 'in_progress']).
     """
+    close_old_connections()
     try:
         count = TherapyTask.objects.filter(
             user=user,

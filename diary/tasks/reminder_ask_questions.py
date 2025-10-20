@@ -9,6 +9,7 @@ from asgiref.sync import sync_to_async
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError
 from aiogram.fsm.context import FSMContext
+from django.db import close_old_connections
 
 from core.settings import TELEGRAM_BOT_TOKEN
 from core.constants import TASK_TYPES
@@ -103,10 +104,12 @@ async def _send_reminder_async(entry: DiaryEntry):
         )
         logger.debug(f"Напоминание отправлено пользователю {user.telegram_id} для записи {entry.id}.")
         entry.last_reminder_sent_at = timezone.now()
+        await sync_to_async(close_old_connections)()
         await sync_to_async(entry.save)(update_fields=['last_reminder_sent_at'])
     except TelegramForbiddenError as e:
         logger.warning(f"Бот заблокирован пользователем {user.telegram_id}. Напоминание не отправлено. Ошибка: {e}")
         user.is_blocked = True
+        await sync_to_async(close_old_connections)()
         await sync_to_async(user.save)(update_fields=['is_blocked'])
     except Exception as e:
         logger.error(f"Ошибка при отправке напоминания пользователю {user.telegram_id} для записи {entry.id}: {e}", exc_info=True)
@@ -143,12 +146,14 @@ async def _force_process_async(entry: DiaryEntry):
         )
         analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, user.language)
         entry.clarification_answers = clarification_answers_dict
+        await sync_to_async(close_old_connections)()
         await sync_to_async(entry.save)(update_fields=[
             'clarification_answers',
             'clarification_reminder_due_at', 
             'clarification_force_process_at'
         ])
         entry.analysis_processed_at = timezone.now()
+        await sync_to_async(close_old_connections)()
         await sync_to_async(entry.save)(update_fields=['analysis_processed_at'])
         bot_instance = Bot(token=TELEGRAM_BOT_TOKEN, parse_mode=ParseMode.HTML)
         status_message_sent = await bot_instance.send_message(
@@ -168,13 +173,16 @@ async def _force_process_async(entry: DiaryEntry):
         logger.warning(f"Бот заблокирован пользователем {user.telegram_id}. Не удалось отправить сообщение после принудительной обработки. Ошибка: {e}")
         if entry.analysis_processed_at is None:
             entry.analysis_processed_at = timezone.now()
+            await sync_to_async(close_old_connections)()
             await sync_to_async(entry.save)(update_fields=['analysis_processed_at'])
         user.is_blocked = True
+        await sync_to_async(close_old_connections)()
         await sync_to_async(user.save)(update_fields=['is_blocked'])
     except Exception as e:
         logger.error(f"Ошибка при принудительной обработке записи {entry.id} или отправке сообщения: {e}", exc_info=True)
         if entry.analysis_processed_at is None:
             entry.analysis_processed_at = timezone.now()
+            await sync_to_async(close_old_connections)()
             await sync_to_async(entry.save)(update_fields=['analysis_processed_at'])
         if bot_instance:
             try:
@@ -185,6 +193,7 @@ async def _force_process_async(entry: DiaryEntry):
             except TelegramForbiddenError:
                 logger.warning(f"Бот заблокирован пользователем {user.telegram_id}. Не удалось отправить сообщение об ошибке.")
                 user.is_blocked = True
+                await sync_to_async(close_old_connections)()
                 await sync_to_async(user.save)(update_fields=['is_blocked'])
             except Exception as msg_error:
                 logger.error(f"Ошибка при отправке сообщения об ошибке пользователю {user.telegram_id}: {msg_error}")
@@ -244,6 +253,7 @@ async def _process_analysis_result(
         task_info = ""
         reply_markup = get_back_keyboard(language)
         if suggested_task and isinstance(suggested_task, dict):
+            await sync_to_async(close_old_connections)()
             @sync_to_async
             def check_ai_tasks_limit_sync():
                 from diary.models import TherapyTask
