@@ -38,6 +38,7 @@ async def run_garbage_collection_async():
     """
     try:
         # Получаем всех активных пользователей
+        await sync_to_async(close_old_connections)()
         users = await sync_to_async(list)(
             User.objects.filter(
                 is_blocked=False,
@@ -61,7 +62,6 @@ async def run_garbage_collection_async():
                 except pytz.UnknownTimeZoneError:
                     logger.warning(f"Неизвестный часовой пояс у пользователя {user.telegram_id}: {user_timezone_str}. Используется UTC.")
                     user_tz = pytz.UTC
-
                 user_local_time = utc_now.astimezone(user_tz)
                 current_user_hour = user_local_time.hour
                 current_user_minute = user_local_time.minute
