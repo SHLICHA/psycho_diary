@@ -13,6 +13,7 @@ from aiogram import Bot
 from aiogram.enums import ParseMode
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.exceptions import TelegramForbiddenError
+from django.db import close_old_connections
 
 from bot.utils.message_utils import send_message_to_user
 from users.models import User
@@ -30,6 +31,7 @@ async def aget_users_for_morning_motivation():
     Асинхронное получение активных пользователей с включенными уведомлениями, не заблокированных.
     Предзагружает необходимые поля для эффективности и избегания lazy loading в асинхронной функции.
     """
+    await sync_to_async(close_old_connections)()
     @sync_to_async
     def _get_users_sync():
         return list(User.objects.filter(
@@ -80,7 +82,7 @@ async def _send_morning_motivation_async():
                     # Только если наступил 10:00 — начинаем обработку
                     try:
                         user_language = user.language or 'ru'
-                        from asgiref.sync import sync_to_async
+                        await sync_to_async(close_old_connections)()
                         @sync_to_async
                         def get_entries_count():
                             return user.diary_entries.count()
@@ -144,6 +146,7 @@ async def _send_morning_motivation_async():
                                 dates_str = " и ".join(formatted_dates)
                                 restore_text = get_message('morning_motivation_restore_two_days', user_language, dates=dates_str)
                             restore_text = f"\n\n{restore_text}" # Добавляем отступ
+                        await sync_to_async(close_old_connections)()
                         is_user_premium_active = await sync_to_async(user.is_premium_active)()
                         renewal_button_callback = None
                         renewal_button_text_key = None
@@ -236,6 +239,7 @@ async def _send_morning_motivation_async():
             except TelegramForbiddenError:
                 logger.debug(f"Бот заблокирован пользователем {user.telegram_id} (обнаружено на уровне задачи).")
                 user.is_blocked = True
+                await sync_to_async(close_old_connections)()
                 await sync_to_async(user.save)(update_fields=['is_blocked'])
                 error_count += 1
             except Exception as e:
