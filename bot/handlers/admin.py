@@ -295,24 +295,24 @@ async def cmd_admin_stats(message: Message):
         response = f"""
 📊 <b>Статистика приложения</b> (на {timezone.now().strftime('%d.%m.%Y %H:%M')})
 
-<b>Пользователи:</b>
+<b>👥Пользователи:</b>
 • Всего (активных в системе): {stats['total_users']}
-• Активных (незаблокированных): {stats['active_users']}
-• Активных за последние 7 дней: {stats['active_users_last_7_days']}
-• Заблокировано: {stats['blocked_users']}
-• С активной подпиской: {stats['premium_users']}
-• С токенами: {stats['users_with_tokens']}
-• С включённым автоанализом: {stats['users_with_auto_analysis_enabled']}
+• 🟢Активных (незаблокированных): {stats['active_users']}
+• 🟢Активных за последние 7 дней: {stats['active_users_last_7_days']}
+• 🔴Заблокировано: {stats['blocked_users']}
+• 💳С активной подпиской: {stats['premium_users']}
+• 💎С токенами: {stats['users_with_tokens']}
+• 📈С включённым автоанализом: {stats['users_with_auto_analysis_enabled']}
 
 <b>Платежи (успешные):</b>
-• Подписки (30 дней): {stats['subscriptions_30_count']} шт.
-• Подписки (год): {stats['subscriptions_year_count']} шт.
-• Токены (10 шт.): {stats['tokens_10_count']} шт.
-• Токены (50 шт.): {stats['tokens_50_count']} шт.
-• Токены (100 шт.): {stats['tokens_100_count']} шт.
-• Токены (200 шт.): {stats['tokens_200_count']} шт.
-• Токены (500 шт.): {stats['tokens_500_count']} шт.
-• Токены (кастом): {stats['custom_tokens_count']} шт.
+• 💎Подписки (30 дней): {stats['subscriptions_30_count']} шт.
+• 💎Подписки (год): {stats['subscriptions_year_count']} шт.
+• 💰Токены (10 шт.): {stats['tokens_10_count']} шт.
+• 💰Токены (50 шт.): {stats['tokens_50_count']} шт.
+• 💰Токены (100 шт.): {stats['tokens_100_count']} шт.
+• 💰Токены (200 шт.): {stats['tokens_200_count']} шт.
+• 💰Токены (500 шт.): {stats['tokens_500_count']} шт.
+• 💰Токены (кастом): {stats['custom_tokens_count']} шт.
 
 <b>Записи:</b>
 • Всего (от незаблокированных пользователей): {stats['total_entries']}
