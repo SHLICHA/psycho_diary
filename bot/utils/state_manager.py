@@ -4,6 +4,8 @@
 
 import logging
 import asyncio
+
+from aiogram.exceptions import TelegramForbiddenError
 from typing import Optional, Dict, Any, Awaitable, Callable
 from datetime import datetime
 from aiogram.fsm.context import FSMContext
@@ -14,6 +16,7 @@ from django.db import DatabaseError
 
 from messages import get_message
 from bot.keyboards import get_main_menu_keyboard
+from users.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +37,9 @@ async def send_main_menu_callback(bot_instance: Bot, user_id: int, language: str
             reply_markup=main_menu_keyboard
         )
         logger.debug(f"Главное меню отправлено пользователю {user_id} после таймаута FSM.")
+    except TelegramForbiddenError as e:
+        logger.info(f"Бот заблокирован пользователем {user_id}. Обновляем статус в БД: {e}")
+        await User.mark_blocked(user_id)
     except Exception as e:
         logger.error(f"Ошибка при отправке главного меню пользователю {user_id} после таймаута FSM: {e}", exc_info=True) # exc_info=True покажет трейсбек
 
@@ -87,6 +93,9 @@ class StateManager:
                         get_message('session_expired', language)
                     )
                     logger.debug(f"State timeout notification sent to user {user_id}, previous state: {current_state}")
+                except TelegramForbiddenError as e:
+                    logger.info(f"Бот заблокирован пользователем {user_id} во время отправки уведомления о таймауте. Обновляем статус в БД: {e}")
+                    await User.mark_blocked(user_id)
                 except Exception as e:
                     logger.error(f"Error sending timeout notification to user {user_id}: {e}")
             if self._on_timeout_callback:
