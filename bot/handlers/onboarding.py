@@ -110,6 +110,7 @@ async def process_questionnaire_answer(message: Message, state: FSMContext, user
 async def skip_questionnaire(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Пропускает анкетирование."""
     try:
+        logger.info(f'Пользователь {user.username} пропустил анкетирование')
         await state_manager.clear_state(state)
         skip_msg = get_message('onboarding_skip_questionnaire', language)
         await safe_edit_message_text(
