@@ -9,6 +9,7 @@ from aiogram.types import CallbackQuery
 from aiogram.fsm.context import FSMContext
 from datetime import date
 
+from bot.decorators.analytics_decorator import log_user_activity
 from bot.utils.calendar_utils import update_calendar_display
 from bot.keyboards import (
     get_month_calendar_with_navigation,
@@ -26,6 +27,7 @@ router = Router()
 logger = logging.getLogger(__name__)
 
 @router.callback_query(F.data == "archive")
+@log_user_activity('archive_viewed', metadata_extra={'context': 'Открытие календаря'})
 async def show_archive(callback: CallbackQuery, state: FSMContext, language: str):
     """Показ архива записей с умным календарем"""
     try:

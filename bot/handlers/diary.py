@@ -17,6 +17,7 @@ from messages import get_message, get_button_text
 from diary.models import CombinedDiaryEntry, DiaryEntry, DailyAnalysis, TherapyTask, PsychoAnalysis
 from diary.services import smart_prompt_manager, daily_state_service
 from bot.decorators.token_decorator import requires_tokens
+from bot.decorators.analytics_decorator import log_user_activity
 from bot.states.diary_states import DiaryStates
 from bot.keyboards import (
     get_single_button_keyboard,
@@ -52,7 +53,155 @@ logger = logging.getLogger(__name__)
 
 # ==================== ОСНОВНЫЕ HANDLERS ДНЕВНИКА ====================
 
+@router.message(F.text == "/start_first_entry", DiaryStates.waiting_for_first_text_entry)
+@router.callback_query(F.data == "start_first_entry_initial")
+@log_user_activity('entry_created', metadata_extra={'context': 'Создание первой записи'})
+async def start_first_entry_flow(event, state: FSMContext, user, language: str):
+    """
+    Начинает процесс создания первой записи.
+    Устанавливает состояние `waiting_for_first_text_entry` и отправляет приветствие.
+    """
+    try:
+        await state_manager.set_state(state, DiaryStates.waiting_for_first_text_entry)
+        first_entry_prompt = get_message('ask_first_entry', language, first_name=user.first_name)
+        if first_entry_prompt.startswith('ask_first_entry'):
+            first_entry_prompt = f"Привет, {user.first_name or 'Друг'}! Давайте начнём с простой записи о вашем сегодняшнем дне. Как прошёл ваш день? Что чувствуете?"
+        from bot.keyboards import get_single_button_keyboard
+        keyboard = get_single_button_keyboard(language, 'main_menu', 'btn_cancel')
+        if isinstance(event, CallbackQuery):
+            await safe_edit_message_text(
+                message=event.message,
+                text=first_entry_prompt,
+                reply_markup=keyboard
+            )
+            await safe_answer_callback(event, "")
+        elif isinstance(event, Message):
+            await event.answer(first_entry_prompt, reply_markup=keyboard)
+    except Exception as e:
+        logger.error(f"[START_FIRST_ENTRY_FLOW] Ошибка при начале первой записи для {user.telegram_id}: {e}", exc_info=True)
+        if isinstance(event, CallbackQuery):
+            await safe_answer_callback(event, get_message('error_generic', language))
+        elif isinstance(event, Message):
+            await event.answer(get_message('error_generic', language))
+
+@router.message(DiaryStates.waiting_for_first_text_entry, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
+@async_error_handler('diary_handler')
+@log_user_activity('entry_process', metadata_extra={'context': 'Обработка первой записи'})
+async def process_first_entry(message: Message, state: FSMContext, user, language: str):
+    """
+    Обрабатывает первую запись пользователя.
+    Использует новый промпт (без задач и уточнений).
+    После анализа предлагает сменить часовой пояс.
+    """
+    status_msg = None
+    if await rate_limiter.is_rate_limited(f'user_{user.telegram_id}_entries'):
+        await message.answer(get_message('rate_limit', language))
+        return
+    is_valid, error_code = validate_incoming_message(message)
+    if not is_valid:
+        await message.answer(get_message(error_code, language))
+        return
+    rate_limit_key = f"user_{user.telegram_id}_entries"
+    is_limited = await rate_limiter.is_rate_limited(rate_limit_key, limit=3, period=60)
+    if is_limited:
+        await message.answer(get_message('rate_limit', language))
+        return
+    try:
+        entry_text = ""
+        entry_datetime = message.date
+        status_msg = await message.answer(get_message('processing', language))
+        if message.content_type == ContentType.VOICE:
+            success, recognized_text, error_message = await process_voice_message(
+                message=message,
+                context_name="First Entry",
+                language=language,
+                status_msg=status_msg
+            )
+            if not success:
+                await status_msg.edit_text(f"{get_message('error_processing', language)}: {error_message}")
+                return
+            entry_text = recognized_text
+        elif message.content_type == ContentType.TEXT:
+            entry_text = message.text
+        else:
+            logger.warning(f"[First Entry] Получен неподдерживаемый тип контента: {message.content_type}")
+            await message.answer(get_message('invalid_input', language))
+            await status_msg.delete()
+            return
+
+        diary_entry = await diary_service.create_text_entry(
+            user=user,
+            text=entry_text,
+            language=language,
+            entry_datetime=entry_datetime
+        )
+        entry_date = await diary_entry.aentry_date()
+        combined_entry, _ = await diary_service.get_or_update_daily_state_with_entries(user, diary_entry)
+        all_entries_text = await diary_service.get_combined_entry_text(user, entry_date)
+        ai_state_data = combined_entry.ai_state_data if combined_entry else "" if combined_entry else ""
+        base_user_profile = await user.aget_profile_data()
+        extended_user_context = {
+            "first_name": base_user_profile.get('first_name', 'Друг'),
+        }
+        prompt = get_prompt(
+            key='incremental_day_analysis_first_entry',
+            language=language,
+            all_entries_combined=all_entries_text,
+            new_entry_text=entry_text,
+            ai_state_data=ai_state_data,
+            first_name=extended_user_context["first_name"],
+        )
+        api_start_time = time.time()
+        analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
+        total_api_time = time.time() - api_start_time
+        logger.debug(f"🕒 Полное время API запроса для первой записи: {total_api_time:.3f} секунд")
+        result_data = analysis_result.get('result', {})
+        is_valid_ai = result_data.get('is_valid', True)
+        validation_comment_ai = result_data.get('validation_comment', '')
+        formatted_message_ai = result_data.get('formatted_message', '')
+        if not is_valid_ai:
+            success = await diary_service.delete_entry_and_update_combined(diary_entry.id, user)
+            if not success:
+                logger.warning(f"Не удалось удалить невалидную первую запись {diary_entry.id} для пользователя {user.telegram_id}")
+            if formatted_message_ai:
+                 final_message_text = formatted_message_ai
+            else:
+                 final_message_text = f"❌ <b>Ваша запись не прошла валидацию</b>\n"
+                 if validation_comment_ai:
+                      final_message_text += f"💬 <i>{validation_comment_ai}</i>\n"
+                 else:
+                      final_message_text += f"📝 <i>{get_message('entry_not_validated_generic', language)}</i>\n"
+                 final_message_text += f"🔍 Пожалуйста, попробуйте снова."
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            from messages import get_button_text
+            retry_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=get_button_text('btn_retry_entry', language), callback_data='start_first_entry_initial')], # <-- Новый callback_data
+                [InlineKeyboardButton(text=get_button_text('btn_main_menu', language), callback_data='main_menu')]
+            ])
+            await status_msg.edit_text(final_message_text, reply_markup=retry_keyboard)
+            return
+        await _process_analysis_result_first_entry(
+            entry=diary_entry,
+            analysis_result=analysis_result,
+            status_msg=status_msg,
+            language=language,
+            state=state,
+            user=user,
+            combined_entry=combined_entry,
+            processing_time=total_api_time,
+            context='first_entry',
+        )
+    except Exception as e:
+        logger.error(f"Ошибка обработки первой записи: {e}")
+        if status_msg:
+            try:
+                await status_msg.edit_text(get_message('error_processing', language))
+            except Exception as edit_error:
+                logger.error(f"Не удалось отредактировать сообщение об ошибке: {edit_error}")
+        await state_manager.clear_state(state)
+
 @router.callback_query(F.data == "new_entry")
+@log_user_activity('entry_created', metadata_extra={'context': 'Создание записи'})
 async def new_entry_simple(callback: CallbackQuery, state: FSMContext, user, language: str):
     """
     ПРОСТАЯ ВЕРСИЯ - создание новой записи с умной подсказкой
@@ -82,6 +231,7 @@ async def new_entry_simple(callback: CallbackQuery, state: FSMContext, user, lan
 
 @router.message(DiaryStates.waiting_for_text_entry, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
 @async_error_handler('diary_handler')
+@log_user_activity('entry_process', metadata_extra={'context': 'Обработка записи'})
 async def process_any_entry(message: Message, state: FSMContext, user, language: str):
     status_msg = None
     if await rate_limiter.is_rate_limited(f'user_{user.telegram_id}_entries'):
@@ -212,6 +362,7 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
         await state_manager.clear_state(state)
 
 @router.message(DiaryStates.asking_clarifying_questions, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
+@log_user_activity('entry_process', metadata_extra={'context': 'Обработка записи с вопросами'})
 async def process_clarification_answers(message: Message, state: FSMContext, user, language: str):
     status_message = None
     try:
@@ -312,13 +463,13 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
         await state_manager.clear_state(state)
 
 @router.callback_query(F.data.startswith("request_add_comment:"))
+@log_user_activity('entry_comment', metadata_extra={'context': 'Добавление комментария'})
 async def request_add_comment(callback: CallbackQuery, state: FSMContext, user, language: str):
     """
     Запрашивает у пользователя комментарий к записи.
     """
     try:
         entry_id = int(callback.data.split(":")[1])
-        # Проверим, что запись принадлежит пользователю и существует
         try:
             diary_entry = await DiaryEntry.objects.aget(id=entry_id, user=user)
         except DiaryEntry.DoesNotExist:
@@ -343,6 +494,7 @@ async def request_add_comment(callback: CallbackQuery, state: FSMContext, user, 
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
 @router.message(DiaryStates.waiting_for_user_comment, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
+@log_user_activity('entry_process', metadata_extra={'context': 'Обработка записи с комментарием'})
 async def process_user_comment(message: Message, state: FSMContext, user, language: str):
     """
     Обрабатывает комментарий пользователя (текст или голос) и отправляет его на анализ ИИ.
@@ -486,6 +638,7 @@ async def process_user_comment(message: Message, state: FSMContext, user, langua
         await state_manager.clear_state(state)
 
 @router.callback_query(F.data.startswith("rate_analysis:"))
+@log_user_activity('entry_rate', metadata_extra={'context': 'Выставлени оценки анализа'})
 async def rate_analysis(callback: CallbackQuery, user, language: str):
     """
     Обработчик оценки анализа записи.
@@ -504,8 +657,6 @@ async def rate_analysis(callback: CallbackQuery, user, language: str):
             logger.warning(f"Некорректная оценка: {rating}")
             await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
             return
-
-        # Найти PsychoAnalysis и проверить принадлежность пользователю через связанную запись
         try:
             analysis = await PsychoAnalysis.objects.select_related('entry__user').aget(id=analysis_id)
             if analysis.entry.user_id != user.id:
@@ -516,64 +667,31 @@ async def rate_analysis(callback: CallbackQuery, user, language: str):
             logger.warning(f"PsychoAnalysis с ID {analysis_id} не найден")
             await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
             return
-
-        # Попытаться создать оценку
         try:
             from diary.models import AnalysisRating
             from asgiref.sync import sync_to_async
             from django.db import IntegrityError
-
             @sync_to_async
             def create_rating():
                 rating_obj = AnalysisRating.objects.create(user=user, analysis=analysis, rating=rating)
                 return rating_obj
-
             await create_rating()
             logger.debug(f"Пользователь {user.telegram_id} поставил оценку {rating} анализу {analysis_id}")
-
-            # Попробуем отредактировать сообщение, убрав кнопки и добавив подтверждение/оценку
-            # Сначала нужно понять, какие кнопки были. Попробуем пересобрать сообщение без кнопок оценки.
-            # Но проще, если мы просто удалим строку с кнопками и добавим текст "Спасибо за оценку: X".
-            # Для этого нужно получить текущий текст и reply_markup.
-
-            # Текущий текст
             current_text = callback.message.text or callback.message.caption or ""
-            # Текущая клавиатура (без кнопок оценки)
             current_reply_markup = callback.message.reply_markup
             if current_reply_markup and hasattr(current_reply_markup, 'inline_keyboard'):
-                 # Найдём и удалим строку с кнопками оценки
                  new_inline_keyboard = []
                  for row in current_reply_markup.inline_keyboard:
-                     # Предположим, кнопки оценки имеют callback_data, начинающийся с "rate_analysis:"
                      if not any(btn.callback_data and btn.callback_data.startswith("rate_analysis:") for btn in row):
                          new_inline_keyboard.append(row)
-                 # Добавим строку с подтверждением оценки (опционально)
-                 # new_inline_keyboard.append([InlineKeyboardButton(text=f"Спасибо за оценку: {rating}!", callback_data="rating_confirmed")])
-                 # Или просто оставим клавиатуру без кнопок оценки
                  updated_reply_markup = InlineKeyboardMarkup(inline_keyboard=new_inline_keyboard)
             else:
                  updated_reply_markup = None
-
-            # Добавим текст оценки к сообщению (опционально, например, в конец)
-            # Это может выглядеть не очень, если сообщение длинное.
-            # Лучше обновить клавиатуру.
-            # Попробуем обновить только клавиатуру.
-            # Но если вдруг нужен текст, можно добавить его к current_text.
-            # rating_emojis = {1: "😠", 2: "😟", 3: "😐", 4: "🙂", 5: "😄"}
-            # rating_emoji = rating_emojis.get(rating, "❓")
-            # updated_text = f"{current_text}\n\n(Ваша оценка: {rating} {rating_emoji})"
-
             await callback.message.edit_reply_markup(reply_markup=updated_reply_markup)
-            # Или, если нужно обновить текст:
-            # await callback.message.edit_text(text=updated_text, reply_markup=updated_reply_markup)
-
-            await safe_answer_callback(callback, "") # "Спасибо за оценку!" можно показать как toast-уведомление
-
+            await safe_answer_callback(callback, "")
         except IntegrityError:
-            # Уникальное ограничение нарушено - оценка уже поставлена
             logger.warning(f"Пользователь {user.telegram_id} уже поставил оценку анализу {analysis_id}")
             await safe_answer_callback(callback, get_message('rating_already_submitted', language), show_alert=True)
-
     except ValueError as ve:
         logger.error(f"Ошибка парсинга callback_data: {callback.data} - {ve}")
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
@@ -582,6 +700,7 @@ async def rate_analysis(callback: CallbackQuery, user, language: str):
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
 @router.message(DiaryStates.waiting_for_text_entry)
+@log_user_activity('entry_invalide', metadata_extra={'context': 'Невалидная запись'})
 async def handle_invalid_entry_type(message: Message, state: FSMContext, language: str):
     """Обработка недопустимого типа сообщения"""
     try:
@@ -605,6 +724,7 @@ async def handle_invalid_entry_type(message: Message, state: FSMContext, languag
 # ==================== HANDLERS ДЛЯ РЕДАКТИРОВАНИЯ И УДАЛЕНИЯ ИСТОРИИ ЗАПИСЕЙ ==================== 
 
 @router.callback_query(F.data.startswith("calendar_select_day:"))
+@log_user_activity('entry_viewed', metadata_extra={'context': 'Просмотр первой записи за день'})
 async def select_day(callback: CallbackQuery, user, language: str):
     """Показ первой записи дня с пагинацией"""
     try:
@@ -630,6 +750,7 @@ async def select_day(callback: CallbackQuery, user, language: str):
         await callback.answer(get_message('error_generic', language))
 
 @router.callback_query(F.data.startswith("view_full_day_analysis:"))
+@log_user_activity('analysis_viewed', metadata_extra={'context': 'Просмотр анализа дня'})
 async def view_full_day_analysis(callback: CallbackQuery, user, language: str):
     """
     Показывает полный анализ дня (DailyAnalysis).
@@ -738,6 +859,7 @@ async def view_full_day_analysis(callback: CallbackQuery, user, language: str):
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
 @router.callback_query(F.data.startswith("entry_edit:"))
+@log_user_activity('entry_edit', metadata_extra={'context': 'Редактирование конкретной записи'})
 async def entry_edit(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование конкретной записи"""
     try:
@@ -890,6 +1012,7 @@ async def reanalyze_day(callback: CallbackQuery, user, language: str):
              logger.error(f"[reanalyze_day] Не удалось отправить сообщение об ошибке: {send_error}")
 
 @router.callback_query(F.data.startswith("delete_entry:"))
+@log_user_activity('day_entry_delete', metadata_extra={'context': 'Удаление всех записей за день'})
 async def delete_selected_entry(callback: CallbackQuery, user, language: str):
     """Удаление записей за день, в зависимости от callback_data."""
     try:
@@ -1184,7 +1307,7 @@ async def _process_analysis_result(
     state: FSMContext,
     user: User,
     processing_time: float = 0.0,
-    context: str = 'new_entry' # Добавляем параметр контекста с дефолтным значением 'new_entry'
+    context: str = 'new_entry'
 ):
     """Обрабатывает результат анализа."""
     try:
@@ -1201,70 +1324,46 @@ async def _process_analysis_result(
             suggested_task = result_data.get('suggested_task')
             needs_clarification = result_data.get('needs_clarification', False)
             clarification_questions = result_data.get('clarification_questions', [])
-
-            # --- НОВАЯ ЛОГИКА: ПРОВЕРКА ВАЛИДАЦИИ ОТ ИИ (только для новых записей) ---
-            # Проверяем is_valid только в контексте новой записи
             if context == 'new_entry':
-                is_valid_ai = result_data.get('is_valid', True) # По умолчанию считаем валидным, если поле отсутствует
+                is_valid_ai = result_data.get('is_valid', True)
                 validation_comment_ai = result_data.get('validation_comment', '')
                 formatted_message_ai = result_data.get('formatted_message', '')
-
                 if not is_valid_ai:
-                    # Удаляем созданную запись
                     success = await diary_service.delete_entry_and_update_combined(entry.id, user)
                     if not success:
                         logger.warning(f"Не удалось удалить невалидную запись {entry.id} для пользователя {user.telegram_id}")
-
-                    # Формируем сообщение для пользователя
-                    # Используем formatted_message от ИИ, если оно есть и не пустое
                     if formatted_message_ai:
                          final_message_text = formatted_message_ai
                     else:
-                         # Резервный вариант, если formatted_message отсутствует
                          final_message_text = f"❌ <b>Ваша запись не прошла валидацию</b>\n\n"
                          if validation_comment_ai:
                               final_message_text += f"💬 <i>{validation_comment_ai}</i>\n\n"
                          else:
                               final_message_text += f"📝 <i>{get_message('entry_not_validated_generic', language)}</i>\n\n"
                          final_message_text += f"🔍 Пожалуйста, попробуйте снова."
-
-                    # Создаем клавиатуру с двумя кнопками друг над другом
                     retry_keyboard = InlineKeyboardMarkup(inline_keyboard=[
                         [InlineKeyboardButton(text=get_button_text('btn_retry_entry', language), callback_data='new_entry')],
                         [InlineKeyboardButton(text=get_button_text('btn_main_menu', language), callback_data='main_menu')]
                     ])
-
-                    # Редактируем статус-сообщение, чтобы показать результат валидации и кнопки
                     await status_msg.edit_text(final_message_text, reply_markup=retry_keyboard)
-
-                    # Очищаем FSM состояние
                     await state_manager.clear_state(state)
-                    return # ВАЖНО: выходим из функции, не продолжая обычный процесс
-            # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
-
-        if needs_clarification and clarification_questions and context == 'new_entry': # Убедимся, что уточнения задаются только для новых записей
+                    return
+        if needs_clarification and clarification_questions and context == 'new_entry':
             from django.utils import timezone
             from datetime import timedelta
-
             now_utc = timezone.now()
-            # Устанавливаем все необходимые поля перед сохранением
             entry.clarification_questions_asked = clarification_questions
             entry.clarification_asked_at = now_utc
-            # Время напоминания: 10 минут после задания вопросов
-            entry.clarification_reminder_due_at = now_utc + timedelta(minutes=10) # <-- Используем 10 минут
-            # Время принудительной обработки: 20 минут после задания вопросов
-            entry.clarification_force_process_at = now_utc + timedelta(minutes=20) # <-- Используем 20 минут
-
-            # Сохраняем все измененные поля в одной транзакции
+            entry.clarification_reminder_due_at = now_utc + timedelta(minutes=10)
+            entry.clarification_force_process_at = now_utc + timedelta(minutes=20)
             await sync_to_async(entry.save)(
                 update_fields=[
                     'clarification_questions_asked',
-                    'clarification_asked_at', # Добавлено
-                    'clarification_reminder_due_at', # Добавлено
-                    'clarification_force_process_at' # Добавлено
+                    'clarification_asked_at',
+                    'clarification_reminder_due_at',
+                    'clarification_force_process_at'
                 ]
             )
-
             await state_manager.update_state_data(
                 state,
                 clarifying_entry_id=entry.id,
@@ -1277,8 +1376,6 @@ async def _process_analysis_result(
                 reply_markup=get_single_button_keyboard(language, 'main_menu', 'btn_cancel')
             )
             return
-        # Продолжаем обычный процесс обновления PsychoAnalysis и CombinedDiaryEntry
-        # только если это не невалидная новая запись
         await psycho_analysis_service.create_or_update_analysis(
             entry=entry,
             mood_score=mood_score,
@@ -1288,10 +1385,6 @@ async def _process_analysis_result(
             api_response=analysis_result.get('api_response', {}),
             processing_time=processing_time
         )
-
-        # Обновление CombinedDiaryEntry и состояния дня
-        # Обновляем CombinedDiaryEntry и состояние дня ТОЛЬКО если это новая запись
-        # или если комментарий к записи привел к сбросу флага анализа (уже сделано в process_user_comment)
         if context == 'new_entry':
             combined_entry = await daily_state_service.get_daily_state(user, await entry.aentry_date())
             if combined_entry and 'updated_ai_state_data' in result_data:
@@ -1303,10 +1396,9 @@ async def _process_analysis_result(
                 new_ai_state_data=new_state,
                 latest_mood_score=mood_score
             )
-
         task_info = ""
         reply_markup = get_back_keyboard(language)
-        if suggested_task and isinstance(suggested_task, dict) and context == 'new_entry': # Назначение задачи только для новых записей
+        if suggested_task and isinstance(suggested_task, dict) and context == 'new_entry':
             @sync_to_async
             def check_ai_tasks_limit_sync():
                 today = entry.entry_date
@@ -1333,7 +1425,6 @@ async def _process_analysis_result(
                     logger.error(f"Ошибка при создании задания от ИИ для пользователя {user.telegram_id}: {task_creation_error}")
             else:
                 logger.debug(f"Задание от ИИ для пользователя {user.telegram_id} не создано: превышен дневной лимит ({user.max_ai_tasks_per_day}).")
-
         final_text = get_message('entry_saved', language, score=mood_score, mood=get_message(f'mood_{mood_score}', language), comment=comment, recommendation=recommendation) + task_info
         if context == 'new_entry':
             streak_bonus_info = await check_and_award_streak_bonus(user)
@@ -1359,14 +1450,12 @@ async def _process_analysis_result(
                      logger.debug(f"[DEBUG] Сохранены кнопки 'Назад': {back_buttons}")
                  else:
                      logger.debug(f"[DEBUG] Кнопки 'Назад' не найдены в последней строке. Тип клавиатуры: {type(reply_markup)}")
-
         try:
             current_analysis = await PsychoAnalysis.objects.aget(entry=entry)
             user_rating_exists = await current_analysis.user_ratings.filter(user=user).aexists()
         except PsychoAnalysis.DoesNotExist:
             user_rating_exists = False
             logger.warning(f"PsychoAnalysis для записи {entry.id} не найден при добавлении кнопок оценки в _process_analysis_result")
-
         if not user_rating_exists:
             rating_emojis = {1: "😠", 2: "😟", 3: "😐", 4: "🙂", 5: "😄"}
             rating_buttons = []
@@ -1381,14 +1470,12 @@ async def _process_analysis_result(
                  reply_markup.inline_keyboard.append(rating_buttons)
             else:
                  logger.warning(f"reply_markup не является InlineKeyboardMarkup: {type(reply_markup)} в _process_analysis_result, не добавляем кнопки оценки.")
-
         try:
             current_entry = await DiaryEntry.objects.aget(id=entry.id)
             has_user_comment = bool(current_entry.user_comment)
         except DiaryEntry.DoesNotExist:
             has_user_comment = True
             logger.warning(f"Запись {entry.id} не найдена при проверке комментария в _process_analysis_result")
-
         if not has_user_comment:
             add_comment_button = InlineKeyboardButton(
                 text=get_button_text('btn_add_comment', language),
@@ -1398,20 +1485,16 @@ async def _process_analysis_result(
                  reply_markup.inline_keyboard.append([add_comment_button])
             else:
                  logger.warning(f"reply_markup не является InlineKeyboardMarkup: {type(reply_markup)} в _process_analysis_result, не добавляем кнопку 'Добавить комментарий'.")
-
         if back_buttons and isinstance(reply_markup, InlineKeyboardMarkup):
             reply_markup.inline_keyboard.append(back_buttons)
             logger.debug(f"[DEBUG] Кнопки 'Назад' восстановлены в конец клавиатуры.")
 
         await status_msg.edit_text(final_text, reply_markup=reply_markup)
-
-        # Запускаем задачу генерации подсказки ТОЛЬКО для новых записей
         if context == 'new_entry':
             try:
                 asyncio.create_task(smart_prompt_manager.on_entry_saved(user, entry, language))
             except Exception as prompt_error:
                 logger.error(f"[_process_analysis_result] Ошибка запуска генерации подсказки: {prompt_error}")
-
         await state_manager.clear_state(state)
     except Exception as e:
         logger.error(f"Ошибка в _process_analysis_result: {e}", exc_info=True)
@@ -1587,3 +1670,72 @@ async def _run_full_analysis_and_notify(
                 )
         except Exception as send_error:
              logger.error(f"[_run_full_analysis_and_notify] Не удалось отправить сообщение об ошибке в фоновой задаче: {send_error}")
+
+async def _process_analysis_result_first_entry(
+    entry: DiaryEntry,
+    analysis_result: dict,
+    status_msg,
+    language: str,
+    state: FSMContext,
+    user: User,
+    combined_entry: CombinedDiaryEntry,
+    processing_time: float = 0.0,
+    context: str = 'first_entry',
+):
+    """Обрабатывает результат анализа первой записи (без задач и уточнений)."""
+    try:
+        result_data = {}
+        if not analysis_result or not analysis_result.get('success'):
+            comment, recommendation, analysis_text, _ = format_api_error_for_analysis(analysis_result, language, False)
+            mood_score = 5
+        else:
+            result_data = analysis_result.get('result', {})
+            mood_score = result_data.get('mood_score', 5)
+            comment = result_data.get('comment', 'Анализ записан')
+            recommendation = result_data.get('recommendation', 'Продолжайте вести дневник')
+            analysis_text = result_data.get('analysis', 'Текст проанализирован.')
+        await psycho_analysis_service.create_or_update_analysis(
+            entry=entry,
+            mood_score=mood_score,
+            comment=comment,
+            recommendation=recommendation,
+            analysis_text=analysis_text,
+            api_response=analysis_result.get('api_response', {}),
+            processing_time=processing_time
+        )
+        if combined_entry and 'updated_ai_state_data' in result_data:
+            new_state = result_data['updated_ai_state_data']
+        else:
+            new_state = analysis_text
+        await daily_state_service.update_daily_state(
+            combined_entry=combined_entry,
+            new_ai_state_data=new_state,
+            latest_mood_score=mood_score
+        )
+        from bot.keyboards import get_back_keyboard
+        reply_markup = get_back_keyboard(language)
+        final_text = get_message('first_entry_saved', language, score=mood_score, mood=get_message(f'mood_{mood_score}', language), comment=comment, recommendation=recommendation)
+
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        from messages import get_button_text
+        timezone_button = InlineKeyboardButton(
+            text=get_button_text('btn_change_timezone_after_first_entry', language),
+            callback_data="start_timezone_setup_after_first_entry"
+        )
+        next_button = InlineKeyboardButton(
+            text=get_button_text('btn_next', language),
+            callback_data="start_timezone_setup_after_first_entry"
+        )
+        reply_markup = InlineKeyboardMarkup(inline_keyboard=[[next_button]])
+
+        await status_msg.edit_text(final_text, reply_markup=reply_markup)
+
+    except Exception as e:
+        logger.error(f"Ошибка в _process_analysis_result_first_entry: {e}", exc_info=True)
+        if status_msg:
+            try:
+                await safe_edit_message_text(status_msg, get_message('error_processing', language))
+            except Exception as edit_error:
+                logger.warning(f"Не удалось отредактировать сообщение об ошибке в _process_analysis_result_first_entry: {edit_error}")
+        await state_manager.clear_state(state)
+        raise

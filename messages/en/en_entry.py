@@ -4,7 +4,9 @@ ENTRY_MESSAGES_EN = {
         'ask_entry': '📝 <b>Tell me how your day went...</b>',
         'ask_voice_entry': '🎙 <b>Send a voice message about your day...</b>',
         'processing': '⏳ <i>Processing your entry...</i>',
-        'entry_saved': '''✅ <b>Entry saved and analyzed!</b>
+        'ask_first_entry': 'Hi {first_name}! Let\'s start with a simple entry about your day. How did your day go? What are you feeling?',
+        'first_entry_saved': '✅ Entry saved!\n\n📊 <b>Mood score:</b> {score}/10 ({mood})\n\n💭 <b>Comment:</b> {comment}\n\n🎯 <b>Recommendation:</b> {recommendation}',
+'entry_saved': '''✅ <b>Entry saved and analyzed!</b>
 
 📊 <b>Day score:</b> {score}/10 - {mood}
 💭 <b>Comment:</b> {comment}

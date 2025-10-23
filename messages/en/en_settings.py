@@ -11,7 +11,7 @@ Here you can customize the diary for yourself:''',
         'language_changed': '✅ Language successfully changed',
         'notifications_enabled': '✅ Notifications enabled',
         'notifications_disabled': '✅ Notifications disabled',
-
+        'btn_change_timezone_after_first_entry': '🌍 Change Timezone',
         'btn_enter_city': '🏙 Enter city',
         'settings_timezone': '🌍 Timezone: {timezone}',
         'timezone_changed': '✅ Timezone successfully changed to {timezone}',
@@ -22,7 +22,7 @@ You are still using the default timezone (UTC).
 For more accurate bot operation, we recommend setting your local timezone in the settings.''',
 
         'settings_analysis_time': '⏰ Analysis time: {time}',
-        'ask_analysis_time': '⏰ <b>Select automatic analysis time</b>\nCurrent time: {current_time}\n\nAnalysis will run daily at the selected time according to your timezone.',
+        'ask_timezone_selection': '🌍 <b>Select your time zone</b>\n\nCurrent time zone: {current_timezone}\n\nSetting the correct time zone is important for accurately displaying entry times, correct analytics operation, and timely delivery of notifications.',
         'analysis_time_changed': '✅ Automatic analysis time set to {time}',
         'profile_menu': '''👤 <b>Your Profile</b>
 📝 <b>Name:</b> {first_name}

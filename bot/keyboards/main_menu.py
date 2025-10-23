@@ -2,11 +2,14 @@
 Клавиатуры главного меню и общие клавиатуры
 """
 
+from asgiref.sync import sync_to_async
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+from diary.models import TherapyTask, DailyAnalysis
 from messages import get_button_text
 
 
-def get_main_menu_keyboard(language: str, user=None) -> InlineKeyboardMarkup:
+async def get_main_menu_keyboard(language: str, user=None) -> InlineKeyboardMarkup:
     """Клавиатура главного меню"""
     buttons = [
         [
@@ -21,24 +24,40 @@ def get_main_menu_keyboard(language: str, user=None) -> InlineKeyboardMarkup:
                 callback_data="archive"
             )
         ],
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_tasks', language),
-                callback_data="tasks"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_therapy_chat', language),
-                callback_data="start_therapy_chat" # Новая callback_data
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_progress', language),
-                callback_data="progress"
-            )
-        ],
+    ]
+    if user:
+        has_tasks = await sync_to_async(TherapyTask.objects.filter(user=user).exists)()
+        if has_tasks:
+            buttons.append([
+                InlineKeyboardButton(
+                    text=get_button_text('btn_tasks', language),
+                    callback_data="tasks"
+                )
+            ])
+
+    # Добавляем кнопку чата
+    buttons.append([
+        InlineKeyboardButton(
+            text=get_button_text('btn_therapy_chat', language),
+            callback_data="start_therapy_chat" # Новая callback_data
+        )
+    ])
+
+    # Проверяем наличие анализа дня асинхронно
+    if user:
+        # Используем combined_entry__user для связи с пользователем через CombinedDiaryEntry
+        has_daily_analysis = await sync_to_async(DailyAnalysis.objects.filter(combined_entry__user=user).exists)()
+        if has_daily_analysis:
+            buttons.append([
+                InlineKeyboardButton(
+                    text=get_button_text('btn_progress', language),
+                    callback_data="progress"
+                )
+            ])
+    # Если у пользователя нет DailyAnalysis, кнопка 'Прогресс' не добавляется
+
+    # Добавляем остальные кнопки
+    buttons.extend([
         [
             InlineKeyboardButton(
                 text=get_button_text('btn_user_profile', language),
@@ -57,18 +76,8 @@ def get_main_menu_keyboard(language: str, user=None) -> InlineKeyboardMarkup:
                 callback_data="help"
             )
         ]
-    ]
-    if user and hasattr(user, 'has_agreed_to_terms') and user.has_agreed_to_terms:
-        traits_filled = bool(user.personality_traits and isinstance(user.personality_traits, dict) and user.personality_traits)
-        facts_filled = bool(user.life_facts and isinstance(user.life_facts, list) and user.life_facts)
-        if not traits_filled and not facts_filled:
-            questionnaire_button_row = [
-                InlineKeyboardButton(
-                    text=get_button_text('btn_fill_questionnaire', language),
-                    callback_data="start_questionnaire_from_menu"
-                )
-            ]
-            buttons.insert(0, questionnaire_button_row)
+    ])
+
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_back_keyboard(language: str) -> InlineKeyboardMarkup:

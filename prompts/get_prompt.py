@@ -9,7 +9,7 @@ from . import (
     CLARIFICATION_ANALYSIS_PROMPT,
     TASK_EFFECT_ANALYSIS_PROMPT,
     FULL_DAY_ANALYSIS_PROMPT,
-    ONBOARDING_QUESTIONNAIRE_ANALYSIS_PROMPT,
+    INCREMENTAL_DAY_ANALYSIS_FIRST_ENTRY_PROMPT,
     WEEKLY_ANALYSIS_PROMPT,
     USER_PROFILE_ANALYSIS_PROMPT,
     NEXT_ENTRY_PROMPT_GENERATION,
@@ -27,6 +27,8 @@ PROMPTS = {
     'en': {}
 }
 
+PROMPTS['ru']['incremental_day_analysis_first_entry'] = INCREMENTAL_DAY_ANALYSIS_FIRST_ENTRY_PROMPT['ru']
+PROMPTS['en']['incremental_day_analysis_first_entry'] = INCREMENTAL_DAY_ANALYSIS_FIRST_ENTRY_PROMPT['en']
 PROMPTS['ru']['profile_change_analysis'] = PROFILE_CHANGE_ANALYSIS_PROMPT['ru']
 PROMPTS['en']['profile_change_analysis'] = PROFILE_CHANGE_ANALYSIS_PROMPT['en']
 PROMPTS['ru']['therapy_chat'] = THERAPY_CHAT_PROMPT['ru']
@@ -43,8 +45,6 @@ PROMPTS['ru']['user_profile_analysis'] = USER_PROFILE_ANALYSIS_PROMPT['ru']
 PROMPTS['en']['user_profile_analysis'] = USER_PROFILE_ANALYSIS_PROMPT['en']
 PROMPTS['ru']['weekly_analysis'] = WEEKLY_ANALYSIS_PROMPT['ru']
 PROMPTS['en']['weekly_analysis'] = WEEKLY_ANALYSIS_PROMPT['en']
-PROMPTS['ru']['onboarding_questionnaire_analysis'] = ONBOARDING_QUESTIONNAIRE_ANALYSIS_PROMPT['ru']
-PROMPTS['en']['onboarding_questionnaire_analysis'] = ONBOARDING_QUESTIONNAIRE_ANALYSIS_PROMPT['en']
 PROMPTS['ru']['timezone_detection'] = TIMEZONE_DETECTION_PROMPT['ru']
 PROMPTS['en']['timezone_detection'] = TIMEZONE_DETECTION_PROMPT['en']
 PROMPTS['ru']['full_day_analysis'] = FULL_DAY_ANALYSIS_PROMPT['ru']

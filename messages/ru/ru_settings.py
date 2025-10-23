@@ -12,7 +12,7 @@ SETTINGS_MESSAGES_RU = {
         'language_changed': '✅ Язык успешно изменен',
         'notifications_enabled': '✅ Уведомления включены',
         'notifications_disabled': '✅ Уведомления отключены',
-
+        'btn_change_timezone_after_first_entry': '🌍 Сменить часовой пояс',
         'settings_timezone': '🌍 Часовой пояс: {timezone}',
         'timezone_changed': '✅ Часовой пояс успешно изменен на {timezone}',
         'timezone_not_changed': '❌ Не удалось изменить часовой пояс. Попробуйте еще раз.',
@@ -91,7 +91,7 @@ SETTINGS_MESSAGES_RU = {
 
         
         # === Сообщения для выбора часового пояса ===
-        'ask_timezone_selection': '🌍 <b>Выберите свой часовой пояс</b>\n\nТекущий пояс: {current_timezone}\n\nВы можете выбрать из списка популярных поясов или ввести свой.',
+        'ask_timezone_selection': '🌍 <b>Выберите свой часовой пояс</b>\n\nТекущий пояс: {current_timezone}\n\nПравильный часовой пояс важен для точного отображения времени записей, корректной работы аналитики и своевременной отправки уведомлений.',
         'btn_select_common_timezones': '📋 Выбрать из списка',
         'btn_enter_custom_timezone': '✍️ Ввести вручную',
         'btn_detect_timezone': '🧭 Определить автоматически', # Если будет реализовано позже

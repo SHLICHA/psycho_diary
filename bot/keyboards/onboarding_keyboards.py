@@ -55,6 +55,24 @@ def get_agreement_keyboard(language: str) -> InlineKeyboardMarkup:
     ])
     return keyboard
 
+def get_agreement_keyboard_for_first_entry(language: str) -> InlineKeyboardMarkup:
+    """Клавиатура для соглашения в новом онбординге (соглашение -> первая запись)."""
+    buttons = [
+        [
+            InlineKeyboardButton(
+                text=get_button_text('btn_agree_and_start_first_entry', language),
+                callback_data="onboarding_agree_and_start_first_entry" # <-- Новое callback_data
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=get_button_text('btn_disagree_and_exit', language),
+                callback_data="onboarding_disagree_and_exit" # <-- Новое callback_data
+            )
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
 def get_skip_questionnaire_keyboard(language: str) -> InlineKeyboardMarkup:
     """
     Клавиатура для пропуска анкетирования.

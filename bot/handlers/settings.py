@@ -17,21 +17,18 @@ from bot.states.settings_states import SettingsStates
 from bot.keyboards import (
     get_settings_keyboard,
     get_language_selection_keyboard,
-    get_premium_keyboard,
     get_single_button_keyboard,
     get_common_timezones_keyboard,
     get_timezone_selection_method_keyboard,
     get_city_timezone_confirmation_keyboard,
     get_multiple_city_timezones_keyboard,
-    get_analysis_time_selection_keyboard,
-    get_edit_profile_keyboard,
-    get_account_deletion_confirmation_keyboard,
-    get_account_deletion_menu_keyboard,
     get_task_settings_keyboard,
-    get_main_menu_keyboard
     )
 from bot.services import deepseek_api_service
 from bot.utils.state_manager import state_manager
+from bot.utils.callback_utils import safe_answer_callback
+from bot.utils.message_utils import safe_edit_message_text
+from bot.decorators.analytics_decorator import log_user_activity
 from diary.models import *
 from users.models import CityTimezone
 
@@ -39,6 +36,7 @@ router = Router()
 logger = logging.getLogger(__name__)
 
 @router.callback_query(F.data == "settings")
+@log_user_activity('settings')
 async def show_settings(callback: CallbackQuery, user, language: str):
     """Показ настроек"""
     try:
@@ -53,6 +51,7 @@ async def show_settings(callback: CallbackQuery, user, language: str):
         await callback.answer(get_message('error_generic', language=language))
 
 @router.callback_query(F.data == "settings_change_language")
+@log_user_activity('settings_changed', metadata_extra={'context': 'Изменение языка'})
 async def change_language(callback: CallbackQuery, state: FSMContext, language: str):
     """Изменение языка"""
     try:
@@ -68,6 +67,7 @@ async def change_language(callback: CallbackQuery, state: FSMContext, language: 
         await callback.answer(get_message('error_generic', language=language))
 
 @router.callback_query(F.data.startswith("set_language:"))
+@log_user_activity('settings_changed', metadata_extra={'context': 'Установка языка'})
 async def set_language(callback: CallbackQuery, user, state: FSMContext, language: str):
     """Установка языка"""
     try:
@@ -103,6 +103,7 @@ async def set_language(callback: CallbackQuery, user, state: FSMContext, languag
         await callback.answer(get_message('error_generic', language=language))
 
 @router.callback_query(F.data == "settings_toggle_notifications")
+@log_user_activity('settings_changed', metadata_extra={'context': 'Переключение уведомлений'})
 async def toggle_notifications(callback: CallbackQuery, user, language: str):
     """Переключение уведомлений"""
     try:
@@ -130,6 +131,7 @@ async def toggle_notifications(callback: CallbackQuery, user, language: str):
         await callback.answer(get_message('error_generic', language=language))
 
 @router.callback_query(F.data == "settings_toggle_auto_analysis")
+@log_user_activity('settings_changed', metadata_extra={'context': 'Переключение автоанализа'})
 async def toggle_auto_analysis(callback: CallbackQuery, user, language: str):
     """Переключение автоанализа"""
     try:
@@ -177,6 +179,7 @@ async def show_task_settings(callback: CallbackQuery, user, language: str):
         await callback.answer(get_message('error_generic', language=language))
 
 @router.callback_query(F.data == "settings_increase_tasks_limit")
+@log_user_activity('settings_changed', metadata_extra={'context': 'Изменение лимита заданий'})
 async def increase_tasks_limit(callback: CallbackQuery, user, language: str):
     """Увеличение лимита заданий"""
     try:
@@ -254,7 +257,31 @@ async def decrease_tasks_limit(callback: CallbackQuery, user, language: str):
 
 # ==================== ВСПОМОГАТЕЛЬНЫЕ HANDLERS ====================
 
+@router.callback_query(F.data == "start_timezone_setup_after_first_entry")
+@log_user_activity('settings_changed', metadata_extra={'context': 'Начало изменения часового пояса'})
+async def start_timezone_setup_after_first_entry(callback: CallbackQuery, state: FSMContext, user, language: str):
+    """
+    Начинает процесс смены часового пояса после первой записи.
+    Устанавливает флаг в state_data.
+    """
+    try:
+        # Устанавливаем флаг в state_data
+        await state_manager.update_state_data(state, origin='first_entry')
+
+        # Вызываем общую логику из change_timezone
+        timezone_msg = get_message('ask_timezone_selection', language, current_timezone=user.timezone)
+        reply_markup = get_timezone_selection_method_keyboard(language, user.timezone)
+        await callback.message.edit_text(
+            timezone_msg,
+            reply_markup=reply_markup
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка при начале смены часового пояса после первой записи: {e}")
+        await callback.answer(get_message('error_generic', language=language))
+
 @router.callback_query(F.data == "settings_change_timezone")
+@log_user_activity('settings_changed', metadata_extra={'context': 'Начало изменения часового пояса'})
 async def change_timezone(callback: CallbackQuery, user, language: str):
     """Начало изменения часового пояса"""
     try:
@@ -270,6 +297,7 @@ async def change_timezone(callback: CallbackQuery, user, language: str):
         await callback.answer(get_message('error_generic', language=language))
 
 @router.callback_query(F.data == "timezone_enter_city")
+@log_user_activity('settings_changed', metadata_extra={'context': 'Изменение часового пояса. Ввод города'})
 async def enter_city_for_timezone(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Ввод города для определения часового пояса"""
     try:
@@ -286,6 +314,7 @@ async def enter_city_for_timezone(callback: CallbackQuery, state: FSMContext, us
         await callback.answer(get_message('error_generic', language=language))
 
 @router.message(SettingsStates.waiting_for_city_input)
+@log_user_activity('settings_changed', metadata_extra={'context': 'Обработка ввода города'})
 async def process_city_input(message: Message, state: FSMContext, user, language: str):
     """Обработка ввода города для определения часового пояса"""
     try:
@@ -394,8 +423,9 @@ async def process_city_input(message: Message, state: FSMContext, user, language
         await state_manager.clear_state(state)
 
 @router.callback_query(F.data.startswith("select_timezone:"))
-async def select_timezone_from_options(callback: CallbackQuery, state: FSMContext, user, language: str):
-    """Выбор часового пояса из предложенных вариантов"""
+@log_user_activity('settings_changed', metadata_extra={'context': 'Выбор часового пояса'})
+async def select_timezone_from_options_modified(callback: CallbackQuery, state: FSMContext, user, language: str):
+    """Модифицированная версия select_timezone_from_options с проверкой флага в state_data."""
     try:
         timezone_str = callback.data.split(":", 1)[1]
         try:
@@ -405,33 +435,27 @@ async def select_timezone_from_options(callback: CallbackQuery, state: FSMContex
             return
         user.timezone = timezone_str
         await user.asave(update_fields=['timezone'])
-        try:
-            pass
-        except Exception as e:
-            logger.warning(f"Не удалось сохранить в кэш: {e}")
         success_msg = get_message('timezone_changed', language, timezone=timezone_str)
-        settings_msg = get_message('settings_menu', language=language)
-        reply_markup = get_settings_keyboard(user, language)
-        await callback.message.edit_text(
-            settings_msg,
-            reply_markup=reply_markup
-        )
-        await callback.answer(success_msg)
-        await state_manager.clear_state(state)
+
+        # Проверяем флаг в state_data и решаем, как завершить
+        await _finish_timezone_setup_and_decide_next_step(state, callback.message, user, language, success_msg)
+        await safe_answer_callback(callback, success_msg)
+        # `state_manager.clear_state(state)` теперь вызывается внутри `_finish_timezone_setup_and_decide_next_step` при необходимости
     except Exception as e:
-        logger.error(f"Ошибка при выборе часового пояса: {e}")
+        logger.error(f"Ошибка при выборе часового пояса из опций: {e}")
         await callback.answer(get_message('error_generic', language=language), show_alert=True)
 
 @router.callback_query(F.data.startswith("confirm_timezone:"))
-async def confirm_timezone_by_city(callback: CallbackQuery, state: FSMContext, user, language: str):
-    """Подтверждение часового пояса по городу"""
+@log_user_activity('settings_changed', metadata_extra={'context': 'Подтверждение часового пояса'})
+async def confirm_timezone_by_city_modified(callback: CallbackQuery, state: FSMContext, user, language: str):
+    """Модифицированная версия confirm_timezone_by_city с проверкой флага в state_data."""
     try:
         data = await state_manager.get_state_data(state)
         timezone_data = data.get('timezone_data')
-        
+
         if not timezone_data:
             await callback.answer(get_message('data_not_found', language=language), show_alert=True)
-            return 
+            return
         timezone_str = timezone_data['timezone']
         city = timezone_data.get('city', '')
         country = timezone_data.get('country', '')
@@ -451,19 +475,17 @@ async def confirm_timezone_by_city(callback: CallbackQuery, state: FSMContext, u
         except Exception as e:
             logger.warning(f"Не удалось сохранить в кэш: {e}")
         success_msg = get_message('timezone_changed', language, timezone=timezone_str)
-        settings_msg = get_message('settings_menu', language=language)
-        reply_markup = get_settings_keyboard(user, language)
-        await callback.message.edit_text(
-            settings_msg,
-            reply_markup=reply_markup
-        )
-        await callback.answer(success_msg)
-        await state_manager.clear_state(state)
+
+        # Проверяем флаг в state_data и решаем, как завершить
+        await _finish_timezone_setup_and_decide_next_step(state, callback.message, user, language, success_msg)
+        await safe_answer_callback(callback, success_msg)
+        # `state_manager.clear_state(state)` теперь вызывается внутри `_finish_timezone_setup_and_decide_next_step` при необходимости
     except Exception as e:
         logger.error(f"Ошибка при подтверждении часового пояса: {e}")
         await callback.answer(get_message('error_generic', language=language), show_alert=True)
 
 @router.callback_query(F.data == "timezone_select_from_list")
+@log_user_activity('settings_changed', metadata_extra={'context': 'Выбор часового пояса из списка'})
 async def select_timezone_from_list(callback: CallbackQuery, user, language: str):
     """Выбор часового пояса из списка"""
     try:
@@ -479,8 +501,9 @@ async def select_timezone_from_list(callback: CallbackQuery, user, language: str
         await callback.answer(get_message('error_generic', language=language))
 
 @router.callback_query(F.data.startswith("set_timezone:"))
-async def set_timezone(callback: CallbackQuery, user, language: str):
-    """Установка выбранного часового пояса"""
+@log_user_activity('settings_changed', metadata_extra={'context': 'Установка часового пояса'})
+async def set_timezone_modified(callback: CallbackQuery, state: FSMContext, user, language: str):
+    """Модифицированная версия set_timezone с проверкой флага в state_data."""
     try:
         new_timezone_str = callback.data.split(":", 1)[1]
         try:
@@ -489,18 +512,38 @@ async def set_timezone(callback: CallbackQuery, user, language: str):
             user.timezone = canonical_tz_name
             await user.asave(update_fields=['timezone'])
             success_msg = get_message('timezone_changed', language, timezone=canonical_tz_name)
-            settings_msg = get_message('settings_menu', language=language)
-            reply_markup = get_settings_keyboard(user, language)
-            await callback.message.edit_text(
-                settings_msg,
-                reply_markup=reply_markup
-            )
-            await callback.answer(success_msg)
+            # Вызов вспомогательной функции
+            await _finish_timezone_setup_and_decide_next_step(state, callback.message, user, language, success_msg)
+            await safe_answer_callback(callback, success_msg)
         except pytz.UnknownTimeZoneError:
             logger.error(f"Неизвестный часовой пояс: {new_timezone_str}")
             error_msg = get_message('error_unknown_timezone', language)
-            await callback.answer(error_msg, show_alert=True)
-            return      
+            await safe_answer_callback(callback, error_msg, show_alert=True)
+            return
     except Exception as e:
         logger.error(f"Ошибка при установке часового пояса: {e}")
-        await callback.answer(get_message('error_generic', language=language), show_alert=True)
+        await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
+
+# --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ЗАВЕРШЕНИЯ СМЕНЫ ПОЯСА ---
+async def _finish_timezone_setup_and_decide_next_step(state: FSMContext, message, user, language: str, success_msg: str):
+    """
+    Вспомогательная функция для завершения смены часового пояса.
+    Проверяет флаг в state_data и решает, куда направить пользователя дальше.
+    """
+    state_data = await state_manager.get_state_data(state)
+    is_from_first_entry = state_data.get('origin') == 'first_entry'
+
+    if is_from_first_entry:
+        # Переход в главное меню
+        from bot.handlers.start import build_main_menu_message
+        main_menu_msg, keyboard = await build_main_menu_message(user, language)
+        await safe_edit_message_text(message=message, text=main_menu_msg, reply_markup=keyboard)
+        await state_manager.clear_state(state) # <-- Очищаем FSM, включая флаг origin
+    else:
+        # Стандартное поведение - возврат в настройки
+        settings_msg = get_message('settings_menu', language=language)
+        reply_markup = get_settings_keyboard(user, language)
+        await safe_edit_message_text(message=message, text=settings_msg, reply_markup=reply_markup)
+
+    # Отправляем ответ на callback
+    # await safe_answer_callback(callback, success_msg) # <-- Этот вызов должен быть в исходном хендлере

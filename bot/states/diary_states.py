@@ -10,6 +10,7 @@ class DiaryStates(StatesGroup):
     # Ожидание записи (текстовой или голосовой)
     waiting_for_text_entry = State()
     waiting_for_voice_entry = State()
+    waiting_for_first_text_entry = State()
     
     # Уточняющие вопросы (если нужно)
     asking_clarifying_questions = State()

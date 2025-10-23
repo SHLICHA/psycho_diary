@@ -59,7 +59,7 @@ class RateLimitMiddleware(BaseMiddleware):
             current_time = time.time()
             recent_requests = [
                 req_time for req_time in request_times 
-                if current_time - req_time < 30
+                if current_time - req_time < 10
             ]
             is_limited = len(recent_requests) >= MESSAGES_PER_MINUTE_LIMIT
             logger.debug(f"Лимит запросов: {len(recent_requests)}/{MESSAGES_PER_MINUTE_LIMIT}")

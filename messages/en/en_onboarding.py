@@ -34,6 +34,13 @@ ONBOARDING_MESSAGES_EN = {
         'btn_next': '➡️ Next',
         'btn_agree': '✅ I Agree',
         'btn_disagree': '❌ Disagree',
+        # === Messages for new onboarding (agreement -> first entry) ===
+        'onboarding_welcome_extended_first_entry': '👋 Welcome to the Psychological Diary bot!\n\nCreate your own space for honesty, self-reflection, and growth. Here you can:\n\n📝 Keep a diary (text or voice)\n🔍 Receive in-depth analysis of your entries from AI\n🎯 Complete personalized tasks for development\n📊 Track your mood and progress\n🧠 Better understand yourself and your emotions\n\n✨ To help you start right away, we\'ve added <b>15 welcome tokens</b> to your account! Let\'s start with your first entry—it can be just a couple of lines about your day. Every entry is a small step towards yourself.\n\n💡 The full daily analysis appears in the archive the next day. Your psychological profile develops gradually, and you\'ll see how you change and grow.\n\n💳 Subscriptions and tokens support the bot\'s operation. Find out more in the <b>Help</b> section.\n\n⚠️ The bot does not replace professional consultation. AI results are meant to support you on your path to mindfulness.',
+        'onboarding_agreement_first_entry': '⚠️ <b>Important:</b>\n\nThis bot is <b>not a substitute</b> for a consultation with a professional psychologist or psychotherapist.\n\nThe information you provide is analyzed by AI. The results are for informational purposes only.\n\nIf you have serious psychological difficulties, we strongly recommend that you seek help from a qualified specialist.\n\nYou can delete all your data at any time in the settings.',
+        'onboarding_thank_you_for_agreement_first_entry': '✅ Thank you for your agreement! Now let\'s make your first entry.',
+        # === Buttons for new onboarding ===
+        'btn_agree_and_start_first_entry': '✅ Agree',
+        'btn_disagree_and_exit': '❌ Disagree',
         # === Questionnaire Messages ===
         'btn_fill_questionnaire': '📋 Fill Questionnaire',
         'onboarding_question_1': 'What would you like the bot to call you?',

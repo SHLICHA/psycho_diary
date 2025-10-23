@@ -24,6 +24,7 @@ from bot.keyboards import (
     )
 from bot.utils.state_manager import state_manager
 from bot.services.export_service import generate_user_docx
+from bot.decorators.analytics_decorator import log_user_activity
 from diary.models import *
 from users.models import UserProfileHistory, TokenTransaction, Payment
 
@@ -39,6 +40,7 @@ def _filter_remove_items(items_list):
     return [item for item in items_list if not (isinstance(item, dict) and 'remove' in item)]
 
 @router.callback_query(F.data == "user_profile")
+@log_user_activity('show_profile')
 async def show_user_profile(callback: CallbackQuery, user, language: str):
     """Показ основного профиля пользователя."""
     try:
@@ -116,6 +118,7 @@ async def show_user_profile(callback: CallbackQuery, user, language: str):
         await callback.answer(get_message('error_generic', language=language), show_alert=True)
 
 @router.callback_query(F.data == "view_psychology_profile")
+@log_user_activity('show_profile', metadata_extra={'context': 'Просмотр психологического профиля'})
 async def show_psychology_profile(callback: CallbackQuery, user, language: str):
     """Показ психологического профиля пользователя (только текстовое описание)."""
     MAX_DESC_LENGTH = 3500
@@ -260,6 +263,7 @@ async def show_transaction_history(callback: CallbackQuery, user, language: str)
         await callback.answer(get_message('error_generic', language=language), show_alert=True)
 
 @router.callback_query(F.data.startswith("view_profile_field:"))
+@log_user_activity('show_profile', metadata_extra={'context': 'Просмотр конкретного поля психологического профиля'})
 async def show_profile_field(callback: CallbackQuery, user, language: str):
     """Показывает конкретное поле психологического профиля."""
     try:
@@ -368,6 +372,7 @@ async def show_profile_field(callback: CallbackQuery, user, language: str):
         await callback.answer(get_message('error_generic', language), show_alert=True)
 
 @router.callback_query(F.data == "edit_profile")
+@log_user_activity('edit_profile', metadata_extra={'context': 'Показ меню редактирования профиля'})
 async def show_edit_profile_menu(callback: CallbackQuery, user, language: str):
     """Показ меню редактирования профиля"""
     try:
@@ -390,6 +395,7 @@ async def show_edit_profile_menu(callback: CallbackQuery, user, language: str):
         await callback.answer(get_message('error_generic', language=language))
 
 @router.callback_query(F.data == "edit_profile_name")
+@log_user_activity('edit_profile', metadata_extra={'context': 'Редактирование имени'})
 async def edit_profile_name(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование имени"""
     try:
@@ -405,6 +411,7 @@ async def edit_profile_name(callback: CallbackQuery, state: FSMContext, user, la
         logger.error(f"Ошибка при запросе нового имени: {e}")
         await callback.answer(get_message('error_generic', language=language))
 
+@log_user_activity('edit_profile', metadata_extra={'context': 'Редактирование email'})
 @router.callback_query(F.data == "edit_profile_email")
 async def edit_profile_email(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование email"""
@@ -422,6 +429,7 @@ async def edit_profile_email(callback: CallbackQuery, state: FSMContext, user, l
         await callback.answer(get_message('error_generic', language=language))
 
 @router.callback_query(F.data == "edit_profile_dob")
+@log_user_activity('edit_profile', metadata_extra={'context': 'Редактирование даты рождения'})
 async def edit_profile_dob(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование даты рождения"""
     try:
@@ -438,6 +446,7 @@ async def edit_profile_dob(callback: CallbackQuery, state: FSMContext, user, lan
         await callback.answer(get_message('error_generic', language=language))
 
 @router.callback_query(F.data == "edit_profile_hobbies")
+@log_user_activity('edit_profile', metadata_extra={'context': 'Редактирование хобби'})
 async def edit_profile_hobbies(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование увлечений"""
     try:
@@ -467,6 +476,7 @@ async def edit_profile_hobbies(callback: CallbackQuery, state: FSMContext, user,
         await callback.answer(get_message('error_generic', language=language))
 
 @router.callback_query(F.data == "edit_profile_life_facts")
+@log_user_activity('edit_profile', metadata_extra={'context': 'Редактирование фактов о жизни'})
 async def edit_profile_life_facts(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование фактов о жизни"""
     try:
@@ -668,6 +678,7 @@ async def show_edit_profile_menu_callback(message_or_callback, user, language: s
             await message_or_callback.answer(error_msg)
 
 @router.callback_query(F.data == "delete_account")
+@log_user_activity('delete_profile')
 async def show_account_deletion_menu(callback: CallbackQuery, user, language: str, state: FSMContext):
     """Показ меню удаления аккаунта"""
     try:
@@ -694,6 +705,7 @@ async def show_account_deletion_menu(callback: CallbackQuery, user, language: st
         await callback.answer(get_message('error_generic', language=language))
 
 @router.callback_query(F.data == "confirm_account_deletion_final")
+@log_user_activity('delete_profile', metadata_extra={'context': 'Подтверждение удаления'})
 async def confirm_account_deletion_final(callback: CallbackQuery, user, language: str, state: FSMContext):
     """Финальное подтверждение удаления аккаунта - запрос текста подтверждения"""
     try:
@@ -711,6 +723,7 @@ async def confirm_account_deletion_final(callback: CallbackQuery, user, language
         await callback.answer(get_message('error_generic', language=language))
 
 @router.message(SettingsStates.waiting_for_deletion_confirmation_text)
+@log_user_activity('delete_profile', metadata_extra={'context': 'Обработка удаления'})
 async def process_account_deletion_confirmation_text(message: Message, user, language: str, state: FSMContext):
     """Обработка ввода текста подтверждения удаления аккаунта"""
     try:
@@ -738,6 +751,7 @@ async def process_account_deletion_confirmation_text(message: Message, user, lan
         await message.answer(error_msg)
 
 @router.callback_query(F.data == "delete_account_cancel")
+@log_user_activity('delete_profile', metadata_extra={'context': 'Отмена удаления'})
 async def cancel_account_deletion(callback: CallbackQuery, user, language: str, state: FSMContext):
     """Отмена удаления аккаунта"""
     try:
@@ -746,7 +760,7 @@ async def cancel_account_deletion(callback: CallbackQuery, user, language: str, 
         settings_msg = get_message('user_profile', language=language)
         await callback.message.edit_text(
             settings_msg,
-            reply_markup=get_main_menu_keyboard(user, language)
+            reply_markup=await get_main_menu_keyboard(user, language)
         )
         await state_manager.clear_state(state)
         await callback.answer()
@@ -795,6 +809,7 @@ async def handle_export_user_data(callback: CallbackQuery, user, language: str):
         await callback.answer()
 
 @router.callback_query(F.data == "get_referral_link")
+@log_user_activity('referral')
 async def show_referral_link(callback: CallbackQuery, user, language: str):
     """Показывает реферальную ссылку пользователя."""
     try:
@@ -807,44 +822,22 @@ async def show_referral_link(callback: CallbackQuery, user, language: str):
         if bot_username == "your_bot_username":
              logger.warning("TELEGRAM_BOT_USERNAME не установлен в .env. Используется значение по умолчанию.")
 
-        # Формируем ссылку
         referral_link_url = f"https://t.me/{bot_username}?start={user.referral_link}"
-
-        # Подготовим текст сообщения, которое будет *показано* пользователю (не в интерфейсе шаринга)
-        # Можно использовать существующее сообщение referral_link_info или создать новое.
-        # Пока используем существующее, но в нём нужно заменить {referral_link} на полную ссылку.
-        # Изменим сообщение referral_link_info, чтобы оно не включало <code> тег самой ссылки,
-        # так как она будет в интерфейсе шаринга.
-        # Лучше создать отдельное сообщение для отображения в боте.
-        # Пусть будет referral_link_display_text
-
-        # Текст для отображения в боте
         display_msg = get_message('referral_link_display_text', language)
-
-        # Текст для интерфейса шаринга (берём из сообщений)
         share_text_raw = get_message('referral_share_text', language)
-        # Заменяем {url} на actual referral_link_url в Python
         share_text_formatted = share_text_raw.format(url=referral_link_url)
-
-        # Формируем URL для кнопки share
         import urllib.parse
         encoded_text = urllib.parse.quote_plus(share_text_formatted)
         share_url = f"https://t.me/share/url?url={referral_link_url}&text={encoded_text}"
-
-        # Создаём клавиатуру с кнопкой share и кнопкой назад
         share_button = InlineKeyboardButton(
-            text=get_button_text('btn_share_referral_link', language), # Используем сообщение для текста кнопки
+            text=get_button_text('btn_share_referral_link', language),
             url=share_url
         )
         back_button = InlineKeyboardButton(
             text=get_button_text('btn_back', language),
-            callback_data="user_profile" # Возвращаем в меню профиля
+            callback_data="user_profile" 
         )
         keyboard = InlineKeyboardMarkup(inline_keyboard=[[share_button], [back_button]])
-
-        # Отправляем сообщение с инструкцией и кнопкой
-        # Вместо ссылки в теле сообщения, теперь будет только текст и кнопка share
-        # Поэтому используем referral_link_info_for_share или новый ключ, например, referral_link_display_text
         info_msg = display_msg
         await callback.message.edit_text(
             info_msg,

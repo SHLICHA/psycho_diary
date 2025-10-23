@@ -7,6 +7,8 @@ from aiogram.fsm.state import State, StatesGroup
 class SettingsStates(StatesGroup):
     """Состояния для работы с настройками"""
     
+    setup_after_first_entry = State()
+
     # Основные настройки
     in_settings_menu = State()
     

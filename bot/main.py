@@ -16,7 +16,6 @@ from bot.middlewares.db_middleware import DatabaseConnectionMiddleware
 from bot.middlewares.user_middleware import UserMiddleware
 from bot.middlewares.language_middleware import LanguageMiddleware
 from bot.middlewares.rate_limit_middleware import RateLimitMiddleware
-from bot.middlewares.analytics_middleware import AnalyticsMiddleware
 from bot.middlewares.premium_check_middleware import PremiumCheckMiddleware
 
 async def main():
@@ -67,12 +66,6 @@ async def main():
     rate_limit_middleware = RateLimitMiddleware()
     dp.message.middleware(rate_limit_middleware)
     logger.info("RateLimitMiddleware зарегистрирован")
-    
-    # 4. AnalyticsMiddleware - сбор аналитики (последним)
-    analytics_middleware = AnalyticsMiddleware()
-    dp.message.middleware(analytics_middleware)
-    dp.callback_query.middleware(analytics_middleware)
-    logger.info("AnalyticsMiddleware зарегистрирован")
 
     # 5. PremiumCheckMiddleware - проверка подписки
     premium_check_middleware = PremiumCheckMiddleware()

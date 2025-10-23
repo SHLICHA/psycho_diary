@@ -71,7 +71,8 @@ from .onboarding_keyboards import (
     get_instruction_keyboard,
     get_agreement_keyboard,
     get_skip_questionnaire_keyboard,
-    get_submit_answers_keyboard
+    get_submit_answers_keyboard,
+    get_agreement_keyboard_for_first_entry
 )
 
 # Клавиатуры прогресса
@@ -161,10 +162,12 @@ __all__ = [
     'get_progress_keyboard_without_weekly',
     'get_weekly_navigation_keyboard',
     'get_progress_keyboard_with_weekly',
-    ' get_restore_date_selection_keyboard',
+    'get_restore_date_selection_keyboard',
 
     # Клавиатуры профиля
     'get_profile_keyboard',
+
+    'get_agreement_keyboard_for_first_entry',
 
     # Клавиатуры оплаты
     'get_purchase_options_keyboard',

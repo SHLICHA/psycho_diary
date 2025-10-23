@@ -10,6 +10,7 @@ from aiogram.types import Message, CallbackQuery, ContentType
 from aiogram.fsm.context import FSMContext
 
 from bot.decorators.token_decorator import requires_tokens
+from bot.decorators.analytics_decorator import log_user_activity
 from bot.keyboards.common_keyboards import get_single_button_keyboard
 from bot.keyboards.main_menu import get_main_menu_keyboard
 from bot.services.therapy_chat_service import process_therapy_message
@@ -17,30 +18,29 @@ from bot.states.therapy_chat_states import TherapyChatStates
 from bot.utils.message_utils import (
     safe_edit_message_text,
     send_processing_message,
-    safe_edit_message_reply_markup # Импортируем новую утилиту
+    safe_edit_message_reply_markup
 )
 from bot.utils.callback_utils import safe_answer_callback
 from bot.utils.state_manager import state_manager
 from bot.utils.audio_utils import process_voice_message
 from bot.services.diary_service import get_user_streaks
-from messages import get_message, get_button_text
+from messages import get_message
 
 logger = logging.getLogger(__name__)
 router = Router()
 
 @router.callback_query(F.data == "start_therapy_chat")
+@log_user_activity('chat')
 async def start_therapy_chat_callback(callback: CallbackQuery, state: FSMContext, user, language: str):
     """
     Обработчик нажатия кнопки "Поговорить с психологом".
     """
     try:
-        # Проверяем, является ли пользователь премиумом
         if user.is_premium:
             welcome_message = get_message('therapy_chat_welcome_premium', language)
         else:
             welcome_message = get_message('therapy_chat_welcome_paid', language)
 
-        # Отправляем приветственное сообщение
         await callback.message.answer(
             welcome_message,
             reply_markup=get_single_button_keyboard(language, button_callback_data="main_menu", button_text='btn_end_chat')
@@ -64,6 +64,7 @@ async def start_therapy_chat_callback(callback: CallbackQuery, state: FSMContext
 
 @router.message(TherapyChatStates.in_therapy_chat, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
 @requires_tokens(cost=1)
+@log_user_activity('chat', metadata_extra={'context': 'Обработка сообщения'})
 async def handle_therapy_message(message: Message, user, language: str, bot, state: FSMContext):
     """
     Обработчик текстовых и голосовых сообщений в состоянии in_therapy_chat.
@@ -221,7 +222,7 @@ async def handle_therapy_message(message: Message, user, language: str, bot, sta
 
             await message.answer(
                 main_menu_msg,
-                reply_markup=get_main_menu_keyboard(language, user)
+                reply_markup=await get_main_menu_keyboard(language, user)
             )
             await state_manager.clear_state(state)
         except Exception as reset_error:

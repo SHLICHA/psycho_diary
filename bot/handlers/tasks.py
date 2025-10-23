@@ -19,6 +19,7 @@ from bot.keyboards import (
     get_task_history_list_keyboard,
     get_task_main_menu_keyboard
     )
+from bot.decorators.analytics_decorator import log_user_activity
 from bot.utils.audio_utils import process_voice_message
 from bot.utils.state_manager import state_manager
 from bot.utils.message_utils import safe_edit_message_text
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 @router.callback_query(F.data == "tasks")
 @router.callback_query(F.data == "back_to_tasks")
+@log_user_activity('task')
 async def show_tasks(callback: CallbackQuery, user, language: str):
     """Показ текущих заданий с пагинацией"""
     try:
@@ -143,6 +145,7 @@ async def view_specific_task(callback: CallbackQuery, user, language: str):
         await callback.answer(get_message('error_generic', language))
 
 @router.callback_query(F.data.startswith("complete_task:"))
+@log_user_activity('task_completed')
 async def start_task_completion(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Начало выполнения задания"""
     try:
@@ -173,6 +176,7 @@ async def start_task_completion(callback: CallbackQuery, state: FSMContext, user
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
 @router.message(TaskStates.waiting_for_task_completion, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
+@log_user_activity('task_completed', metadata_extra={'context': 'Обработка выполнения'})
 async def process_task_completion(message: Message, state: FSMContext, user, language: str):
     """Обработка выполнения задания (текст или голос)"""
     try:
@@ -216,6 +220,7 @@ async def process_task_completion(message: Message, state: FSMContext, user, lan
         await message.answer(get_message('error_processing', language))
 
 @router.message(TaskStates.describing_feelings, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
+@log_user_activity('task_completed', metadata_extra={'context': 'Обработка ощущений'})
 async def process_feelings_description(message: Message, state: FSMContext, user, language: str):
     """Обработка описания ощущений при выполнении задания (текст или голос)"""
     status_message = None
@@ -286,6 +291,7 @@ async def process_feelings_description(message: Message, state: FSMContext, user
                 pass
 
 @router.callback_query(F.data.startswith("skip_task:"))
+@log_user_activity('task_skipped')
 async def skip_task(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Пропуск задания"""
     try:
@@ -329,6 +335,7 @@ async def skip_task(callback: CallbackQuery, state: FSMContext, user, language: 
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
 @router.callback_query(F.data.startswith("delete_task:"))
+@log_user_activity('task_deleted')
 async def delete_task(callback: CallbackQuery, user, language: str):
     """Удаление задания"""
     try:
@@ -380,6 +387,7 @@ async def cancel_delete_task(callback: CallbackQuery, language: str):
 # ==================== ВСПОМОГАТЕЛЬНЫЕ HANDLERS ====================
 
 @router.callback_query(F.data == "task_history_main")
+@log_user_activity('task', metadata_extra={'context': 'Просмотр истории заданий'})
 async def show_task_history_main(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Показывает историю заданий с пагинацией (аналогично активным заданиям)."""
     try:
@@ -462,6 +470,7 @@ async def paginate_task_history(callback: CallbackQuery, state: FSMContext, user
         await safe_answer_callback(callback, get_message('error_generic', language))
 
 @router.callback_query(F.data.startswith("task_history_restore:"))
+@log_user_activity('task', metadata_extra={'context': 'Восстановление пропущенного задания'})
 async def restore_skipped_task(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Восстановление пропущенного задания."""
     try:
