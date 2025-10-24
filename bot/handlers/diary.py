@@ -881,19 +881,31 @@ async def entry_delete_confirm(callback: CallbackQuery, user, language: str):
     try:
         parts = callback.data.split(":")
         if len(parts) < 2:
-             raise ValueError("Некорректный формат callback_data для entry_delete_confirm")      
+            raise ValueError("Некорректный формат callback_data для entry_delete_confirm")
         entry_id = int(parts[1])
         entry = await DiaryEntry.objects.select_related('user').aget(id=entry_id, user=user)
         target_date = await entry.aentry_date()
+
         confirm_msg = get_message('confirm_delete_entry_prompt', language)
-        keyboard = get_delete_entry_confirmation_keyboard(language, entry_id, target_date) 
+        keyboard = get_delete_entry_confirmation_keyboard(language, entry_id, target_date)
         await safe_edit_message_text(callback.message, confirm_msg, reply_markup=keyboard)
         await safe_answer_callback(callback, "")
-    except (ValueError, IndexError) as e:
-        logger.error(f"Ошибка парсинга callback_data в entry_delete_confirm: {callback.data} - {e}")
+    except ValueError as ve:
+        logger.error(f"Ошибка парсинга callback_data в entry_delete_confirm: {callback.data} - {ve}")
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
+    except DiaryEntry.DoesNotExist:
+        logger.warning(f"Пользователь {user.telegram_id} попытался подтвердить удаление несуществующей записи {entry_id}.")
+        await safe_answer_callback(callback, get_message('entry_not_found', language), show_alert=True)
+        try:
+            await callback.message.edit_text(
+                text=get_message('entry_not_found', language),
+                reply_markup=get_back_keyboard(language)
+            )
+        except Exception as edit_error:
+            logger.debug(f"Не удалось отредактировать сообщение в entry_delete_confirm (запись не найдена): {edit_error}")
+
     except Exception as e:
-        logger.error(f"Ошибка при подтверждении удаления записи {entry_id}: {e}", exc_info=True)
+        logger.error(f"Неожиданная ошибка при подтверждении удаления записи {entry_id}: {e}", exc_info=True)
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
 @router.callback_query(F.data.startswith("entry_prev:"))

@@ -206,6 +206,9 @@ class DiaryService:
                     await combined_entry.adelete()                 
             except CombinedDiaryEntry.DoesNotExist:
                 logger.warning(f"CombinedDiaryEntry для {entry_date} не найден при удалении записи {entry_id}. Возможно, он уже был удален.")
+            cache_key = f'user_{user.id}_entries_{entry_date}'
+            cache.delete(cache_key)
+            logger.debug(f"Кэш для записей пользователя {user.telegram_id} за {entry_date} удалён после удаления записи {entry_id}.")
             return True
         except Exception as e:
             logger.error(f"Ошибка в асинхронном удалении записи {entry_id} и обновлении CombinedDiaryEntry: {e}", exc_info=True)
@@ -324,7 +327,8 @@ class DiaryService:
                 entry = await DiaryEntry.objects.select_related('user').aget(id=entry_id, user=user)
             except DiaryEntry.DoesNotExist:
                 logger.warning(f"Запись {entry_id} не найдена или не принадлежит пользователю {user.telegram_id}")
-                return True 
+                return True
+            entry_date = await entry.aentry_date()
             @sync_to_async
             def _delete_entry_atomic():
                 with transaction.atomic():
@@ -335,6 +339,9 @@ class DiaryService:
                             logger.warning(f"Ошибка при удалении связанного PsychoAnalysis для записи {entry_id}: {analysis_delete_error}")
                     entry.delete()
                     logger.debug(f"Запись дневника {entry_id} успешно удалена для пользователя {user.telegram_id}.")
+            cache_key = f'user_{user.id}_entries_{entry_date}'
+            cache.delete(cache_key)
+            logger.debug(f"Кэш для записей пользователя {user.telegram_id} за {entry_date} удалён после удаления записи {entry_id}.")
             await _delete_entry_atomic()
             return True
         except Exception as e:
@@ -463,7 +470,11 @@ class DiaryService:
                     CombinedDiaryEntry.objects.filter(user=user, date=target_date).delete()
                 return True
             result = await _delete_sync()
-            logger.debug(f"[Сервис] Удаление записей за {target_date} завершено успешно: {result}")
+            if result: # Удаляем кэш только если удаление прошло успешно
+                cache_key = f'user_{user.id}_entries_{target_date}'
+                cache.delete(cache_key)
+                logger.debug(f"Кэш для записей пользователя {user.telegram_id} за {target_date} удалён после удаления всех записей за день.")
+                logger.debug(f"[Сервис] Удаление записей за {target_date} завершено успешно: {result}")
             return result
         except Exception as e:
             logger.error(f"[Сервис] Ошибка при удалении записей за {target_date}: {e}")
