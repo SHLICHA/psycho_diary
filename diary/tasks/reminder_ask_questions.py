@@ -37,7 +37,7 @@ def check_clarification_reminders():
     Использует предвычисленное время clarification_reminder_due_at (в UTC).
     Теперь фильтрует без clarification_answers и проверяет его в Python.
     """
-    logger.info("Запущена задача check_clarification_reminders")
+    logger.debug("Запущена задача check_clarification_reminders")
     try:
         now_utc = timezone.now()
         # Убираем clarification_answers={} из фильтра
