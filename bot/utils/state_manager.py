@@ -30,7 +30,7 @@ async def send_main_menu_callback(bot_instance: Bot, user_id: int, language: str
             logger.error(f"Bot instance is None in send_main_menu_callback for user {user_id}")
             return
         main_menu_text = get_message('main_menu', language)
-        main_menu_keyboard = get_main_menu_keyboard(language)
+        main_menu_keyboard = await get_main_menu_keyboard(language)
         await bot_instance.send_message(
             chat_id=user_id,
             text=main_menu_text,
