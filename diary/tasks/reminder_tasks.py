@@ -160,7 +160,6 @@ async def _send_entry_reminders_async():
         success_count = 0
         error_count = 0
         sent_entry_reminder_count = 0
-        sent_questionnaire_reminder_count = 0
         bot = Bot(token=TELEGRAM_BOT_TOKEN, parse_mode=ParseMode.HTML)
         
         for user in users:
@@ -264,11 +263,9 @@ async def _send_entry_reminders_async():
         
         logger.info(f"Задача напоминаний завершена. "
                     f"Напоминаний о записи: {sent_entry_reminder_count}, "
-                    f"Напоминаний об анкете: {sent_questionnaire_reminder_count}, "
                     f"Успешно обработано: {success_count}, "
                     f"Ошибок: {error_count}")
         return (f"Напоминаний о записи: {sent_entry_reminder_count}, "
-                f"Напоминаний об анкете: {sent_questionnaire_reminder_count}, "
                 f"Успешно: {success_count}, "
                 f"Ошибок: {error_count}") 
     except Exception as e:
