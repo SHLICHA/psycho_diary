@@ -42,6 +42,8 @@ PROFILE_MESSAGES_EN = {
     'field_name_habits': 'Habits',
     'field_name_skills': 'Skills',
     'field_name_aspirations': 'Aspirations',
+    'profile_field_truncated_indicator': '... (truncated)',
+    'profile_field_too_long': 'The information in this field is too long to display.',
     # --- Error messages and empty field messages ---
     'field_not_found': 'Field not found.',
     'profile_field_empty_list': '(List is empty)',

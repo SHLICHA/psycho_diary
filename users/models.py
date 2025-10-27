@@ -372,6 +372,8 @@ class TokenTransaction(models.Model):
             ('purchase', 'Покупка'),
             ('bonus', 'Бонус'),
             ('refund', 'Возврат'),
+            ('analysis', 'Анализ дня'),
+            ('recover_streak', 'Восстановление серии'),
         ],
         verbose_name="Тип транзакции"
     )

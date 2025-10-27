@@ -189,7 +189,7 @@ def perform_scheduled_daily_analysis(self, user_id: int, target_date_iso: str):
             TokenTransaction.create_and_update_balance(
                 user=user,
                 amount=-cost,
-                transaction_type='feature_usage',
+                transaction_type='analysis',
                 description=f"Автоматический полный анализ дня за {target_date_iso}"
             )
             logger.debug(f"Списание {cost} токенов через create_and_update_balance для пользователя {user_id} за автоматический анализ дня {target_date_iso}.")

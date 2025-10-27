@@ -122,22 +122,6 @@ def has_entries_for_user_on_date(user, target_date):
     except Exception as e:
         logger.error(f"Ошибка при проверке записей пользователя {user.telegram_id} за {target_date}: {e}")
         return True
-    
-@sync_to_async
-def needs_questionnaire_reminder(user):
-    """
-    Проверяет, нужно ли пользователю напоминание о прохождении анкеты.
-    """
-    close_old_connections()
-    try:
-        if not getattr(user, 'has_agreed_to_terms', False):
-            return False
-        traits_filled = bool(user.personality_traits and isinstance(user.personality_traits, dict) and user.personality_traits)
-        facts_filled = bool(user.life_facts and isinstance(user.life_facts, list) and user.life_facts)
-        return not traits_filled and not facts_filled
-    except Exception as e:
-        logger.error(f"Ошибка при проверке необходимости напоминания об анкете для пользователя {user.telegram_id}: {e}")
-        return False
 
 @shared_task
 def send_entry_reminders():
@@ -191,31 +175,7 @@ async def _send_entry_reminders_async():
                 current_user_hour = user_local_time.hour
                 user_local_date = user_local_time.date()
                 language = await get_user_language(user)
-                if current_user_hour == 19:
-                    if await needs_questionnaire_reminder(user):
-                        logger.info(f"Пользователь {user.telegram_id} еще не прошел анкету. Отправляем напоминание.")
-                        questionnaire_reminder_text = get_message('questionnaire_reminder', language)
-                        questionnaire_keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-                            InlineKeyboardButton(
-                                text=get_button_text('btn_fill_questionnaire', language),
-                                callback_data="start_questionnaire_from_menu"
-                            )
-                        ]])
-                        success = await send_message_to_user(
-                            bot=bot,
-                            user=user,
-                            text=questionnaire_reminder_text,
-                            reply_markup=questionnaire_keyboard
-                        )
-                        if success:
-                            sent_questionnaire_reminder_count += 1
-                            success_count += 1
-                            logger.debug(f"Напоминание об анкете успешно отправлено пользователю {user.telegram_id}")
-                        else:
-                            error_count += 1
-                            logger.debug(f"Не удалось отправить напоминание об анкете пользователю {user.telegram_id}")
-                    continue
-                elif current_user_hour == 22:
+                if current_user_hour == 22:
                     has_entries_today = await has_entries_for_user_on_date(user, user_local_date)
                     if has_entries_today:
                         logger.debug(f"Пользователь {user.telegram_id} уже сделал запись сегодня ({user_local_date}). Напоминание о записи не отправляется.")

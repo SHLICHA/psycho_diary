@@ -262,6 +262,8 @@ async def show_transaction_history(callback: CallbackQuery, user, language: str)
         logger.error(f"Ошибка при показе истории транзакций: {e}", exc_info=True)
         await callback.answer(get_message('error_generic', language=language), show_alert=True)
 
+MAX_MESSAGE_LENGTH = 4000 # Уменьшено с 4096, чтобы оставить место для тегов и потенциальных изменений
+
 @router.callback_query(F.data.startswith("view_profile_field:"))
 @log_user_activity('show_profile', metadata_extra={'context': 'Просмотр конкретного поля психологического профиля'})
 async def show_profile_field(callback: CallbackQuery, user, language: str):
@@ -322,7 +324,30 @@ async def show_profile_field(callback: CallbackQuery, user, language: str):
                              formatted_items.append(f"{item_emoji} {item_text}")
                     else:
                         formatted_items.append(f"{item_emoji} {item}")
-                field_text = f"<b>{field_display_name}</b>" + " ".join(formatted_items)
+                # Объединяем элементы
+                joined_items = "".join(formatted_items)
+                # Формируем полный текст
+                full_text_candidate = f"<b>{field_display_name}</b>{joined_items}"
+                # Проверяем длину и обрезаем, если нужно
+                if len(full_text_candidate) > MAX_MESSAGE_LENGTH:
+                    # Обрезаем список элементов
+                    # Начинаем с заголовка
+                    header = f"<b>{field_display_name}</b>"
+                    current_length = len(header)
+                    truncated_items = []
+                    for item_str in formatted_items:
+                        if current_length + len(item_str) <= MAX_MESSAGE_LENGTH:
+                             truncated_items.append(item_str)
+                             current_length += len(item_str)
+                        else:
+                             # Добавляем индикатор обрезки
+                             trunc_indicator = get_message('profile_field_truncated_indicator', language) # Добавить в messages.py, напр. "... (данные обрезаны)"
+                             if current_length + len(trunc_indicator) <= MAX_MESSAGE_LENGTH:
+                                truncated_items.append(trunc_indicator)
+                             break
+                    field_text = header + "".join(truncated_items)
+                else:
+                    field_text = full_text_candidate
             else:
                 field_text = f"<b>{field_display_name}</b>" + get_message('profile_field_empty_list', language)
         elif isinstance(field_value, dict):
@@ -332,23 +357,93 @@ async def show_profile_field(callback: CallbackQuery, user, language: str):
                     for k, v in field_value.items():
                         line = f"💭<b>{k.capitalize()}</b>:\n{v}"
                         dict_lines.append(line)
-                    field_text = f"<b>{field_display_name}</b>\n\n" + "\n\n".join(dict_lines)
+                    # Объединяем строки
+                    joined_lines = "\n\n".join(dict_lines)
+                    # Формируем полный текст
+                    full_text_candidate = f"<b>{field_display_name}</b>\n\n{joined_lines}"
+                    # Проверяем длину и обрезаем, если нужно
+                    if len(full_text_candidate) > MAX_MESSAGE_LENGTH:
+                        header = f"<b>{field_display_name}</b>\n\n"
+                        current_length = len(header)
+                        truncated_lines = []
+                        for line_str in dict_lines:
+                            # Проверяем, помещается ли строка, включая разделитель
+                            separator = "\n\n" if truncated_lines else "" # Первую строку не отделяем
+                            needed_length = len(separator) + len(line_str)
+                            if current_length + needed_length <= MAX_MESSAGE_LENGTH:
+                                truncated_lines.append(line_str)
+                                current_length += needed_length
+                            else:
+                                trunc_indicator = get_message('profile_field_truncated_indicator', language)
+                                if current_length + len(trunc_indicator) <= MAX_MESSAGE_LENGTH:
+                                    truncated_lines.append(trunc_indicator)
+                                break
+                        field_text = header + "\n\n".join(truncated_lines)
+                    else:
+                        field_text = full_text_candidate
                 else:
                     field_text = f"<b>{field_display_name}</b>" + get_message('profile_field_empty_dict', language)
             else:
-                # --- СТАНДАРТНАЯ ЛОГИКА ---
+                # --- СТАНДАРТНАЯ ЛОГИКА (также с обрезкой) ---
                 if field_value:
                     dict_items = [f"  <b>{k}</b>: {v}" for k, v in field_value.items()]
-                    field_text = f"<b>{field_display_name}</b>" + " ".join(dict_items)
+                    joined_items = "".join(dict_items)
+                    full_text_candidate = f"<b>{field_display_name}</b>{joined_items}"
+                    if len(full_text_candidate) > MAX_MESSAGE_LENGTH:
+                        header = f"<b>{field_display_name}</b>"
+                        current_length = len(header)
+                        truncated_items = []
+                        for item_str in dict_items:
+                            if current_length + len(item_str) <= MAX_MESSAGE_LENGTH:
+                                truncated_items.append(item_str)
+                                current_length += len(item_str)
+                            else:
+                                trunc_indicator = get_message('profile_field_truncated_indicator', language)
+                                if current_length + len(trunc_indicator) <= MAX_MESSAGE_LENGTH:
+                                    truncated_items.append(trunc_indicator)
+                                break
+                        field_text = header + "".join(truncated_items)
+                    else:
+                        field_text = full_text_candidate
                 else:
                     field_text = f"<b>{field_display_name}</b>" + get_message('profile_field_empty_dict', language)
         elif isinstance(field_value, str):
             if field_value.strip():
-                field_text = f"<b>{field_display_name}</b>{field_value.strip()}"
+                full_text_candidate = f"<b>{field_display_name}</b>{field_value.strip()}"
+                if len(full_text_candidate) > MAX_MESSAGE_LENGTH:
+                    header = f"<b>{field_display_name}</b>"
+                    max_content_length = MAX_MESSAGE_LENGTH - len(header)
+                    # Обрезаем содержимое строки
+                    truncated_content = field_value.strip()[:max_content_length]
+                    trunc_indicator = get_message('profile_field_truncated_indicator', language)
+                    # Проверяем, помещается ли индикатор
+                    if len(header) + len(truncated_content) + len(trunc_indicator) <= MAX_MESSAGE_LENGTH:
+                        final_content = truncated_content + trunc_indicator
+                    else:
+                        # Если индикатор не помещается, просто обрезаем
+                        final_content = truncated_content
+                    field_text = header + final_content
+                else:
+                    field_text = full_text_candidate
             else:
                 field_text = f"<b>{field_display_name}</b>" + get_message('profile_field_empty_string', language)
         else:
-            field_text = f"<b>{field_display_name}</b>{field_value}"
+            # Для чисел и других типов
+            full_str = str(field_value)
+            full_text_candidate = f"<b>{field_display_name}</b>{full_str}"
+            if len(full_text_candidate) > MAX_MESSAGE_LENGTH:
+                header = f"<b>{field_display_name}</b>"
+                max_content_length = MAX_MESSAGE_LENGTH - len(header)
+                truncated_content = full_str[:max_content_length]
+                trunc_indicator = get_message('profile_field_truncated_indicator', language)
+                if len(header) + len(truncated_content) + len(trunc_indicator) <= MAX_MESSAGE_LENGTH:
+                    final_content = truncated_content + trunc_indicator
+                else:
+                    final_content = truncated_content
+                field_text = header + final_content
+            else:
+                field_text = full_text_candidate
+
         back_to_psychology_button = [
             [
                 InlineKeyboardButton(
@@ -358,17 +453,29 @@ async def show_profile_field(callback: CallbackQuery, user, language: str):
             ]
         ]
         keyboard = InlineKeyboardMarkup(inline_keyboard=back_to_psychology_button)
-        await callback.message.edit_text(
-            field_text,
-            reply_markup=keyboard,
-            parse_mode="HTML"
-        )
+
+        # --- ОБНОВЛЁННАЯ ЧАСТЬ: Попытка редактирования с обработкой ошибки ---
+        try:
+            await callback.message.edit_text(
+                field_text,
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+        except Exception as edit_error: # Ловим любую ошибку при редактировании
+            logger.warning(f"Сообщение с полем профиля слишком длинное ({len(field_text)} символов) или другая ошибка при edit_text: {edit_error}. Отправляем краткое уведомление.")
+            # Отправляем короткое сообщение о проблеме
+            error_notification = get_message('profile_field_too_long', language) # Добавить в messages.py, напр. "Информация в этом поле слишком длинная для отображения."
+            await callback.message.edit_text(
+                error_notification,
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
         await callback.answer()
     except (IndexError, ValueError) as e:
         logger.error(f"Ошибка парсинга callback_data в show_profile_field: {callback.data} - {e}")
         await callback.answer(get_message('error_generic', language), show_alert=True)
     except Exception as e:
-        logger.error(f"Ошибка при показе поля профиля {callback.data}: {e}", exc_info=True)
+        logger.error(f"Неожиданная ошибка при показе поля профиля {callback.data}: {e}", exc_info=True)
         await callback.answer(get_message('error_generic', language), show_alert=True)
 
 @router.callback_query(F.data == "edit_profile")
