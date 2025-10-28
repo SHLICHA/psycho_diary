@@ -1,16 +1,14 @@
-# /home/shlicha/psycho_diary/bot/handlers/profile.py
 """
 Handlers для работы с профилем
 """
-
 import re
 import os
 import logging
-
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
-from datetime import datetime, timezone
+from datetime import datetime
+from typing import Any, Dict
 
 from messages import get_message, get_button_text
 from bot.states.settings_states import SettingsStates
@@ -23,94 +21,55 @@ from bot.keyboards import (
     get_main_menu_keyboard
     )
 from bot.utils.state_manager import state_manager
-from bot.services.export_service import generate_user_docx
 from bot.decorators.analytics_decorator import log_user_activity
-from diary.models import *
-from users.models import UserProfileHistory, TokenTransaction, Payment
+from diary.services.user_profile_service import (
+    get_user_profile_data,
+    get_user_psychology_profile_data,
+    get_user_profile_field,
+    get_user_transaction_history,
+    update_user_profile_field,
+    anonymize_user_account,
+    export_user_data,
+    get_referral_link_info
+)
 
 router = Router()
 logger = logging.getLogger(__name__)
 
-def _filter_remove_items(items_list):
-    """
-    Фильтрует список, удаляя элементы вида {"remove": ...}.
-    """
-    if not items_list:
-        return []
-    return [item for item in items_list if not (isinstance(item, dict) and 'remove' in item)]
+MAX_INLINE_FIELD_LENGTH = 3000
 
 @router.callback_query(F.data == "user_profile")
 @log_user_activity('show_profile')
 async def show_user_profile(callback: CallbackQuery, user, language: str):
     """Показ основного профиля пользователя."""
     try:
-        has_psychological_data = bool(
-            (user.personality_traits and isinstance(user.personality_traits, dict) and user.personality_traits) or
-            (user.life_facts and isinstance(user.life_facts, list) and user.life_facts) or
-            user.personality_description
-        )
-
-        # --- НОВОЕ: Получение даты последней записи из DiaryEntry ---
-        last_entry_date_str = ""
-        try:
-            # Получаем последнюю запись по дате создания (или по другому полю, если нужно учитывать редактирование)
-            # Используем sync_to_async для асинхронного вызова ORM
-            @sync_to_async
-            def get_last_entry_date():
-                last_entry = DiaryEntry.objects.filter(user=user).order_by('-created_at').first()
-                if last_entry:
-                    # Используем свойство entry_date, которое учитывает часовой пояс пользователя
-                    return last_entry.entry_date # Это date, форматирование делаем позже
-                return None
-
-            last_entry_date_obj = await get_last_entry_date()
-            if last_entry_date_obj:
-                 # last_entry_date_obj - это объект date
-                 last_entry_date_str = last_entry_date_obj.strftime('%d.%m.%Y')
-                 # Если нужно время: last_entry_date_str = last_entry.entry_date.strftime('%d.%m.%Y %H:%M')
-                 # Но для этого нужно получить сам объект entry, а не только дату, что менее эффективно.
-                 # Если время из самой записи обязательно, то нужно получать DiaryEntry целиком.
-                 # Пока используем только дату из entry_date.
-        except Exception as e:
-            logger.error(f"Не удалось получить дату последней записи из DiaryEntry для пользователя {user.telegram_id}: {e}")
-            last_entry_date_str = "" # В случае ошибки, отображаем пусто
-
-        # --- КОНЕЦ НОВОГО ---
+        profile_data = await get_user_profile_data(user)
 
         profile_msg = get_message(
             key='profile_title',
             language=user.language,
-            user_telegram_id=user.telegram_id,
-            username=user.username if user.username else '',
-            first_name=user.first_name if user.first_name else '',
-            last_name=user.last_name if user.last_name else '',
-            notifications_status='✅' if user.notifications_enabled else '❌',
-            auto_analysis_status='✅' if user.auto_analysis_enabled else '❌',
-            premium_status='✅' if user.is_premium else '❌',
-            awareness_level=user.awareness_level,
-            token_balance=user.token_balance, # <-- Исправлено: убран пробел
-            registration_date=user.created_at.strftime('%d.%m.%Y') if user.created_at else '',
-            # last_entry=user.last_entry.strftime('%d.%m.%Y %H:%M') if user.last_entry else '' # <-- УБРАНО
-            last_entry=last_entry_date_str # <-- ИСПОЛЬЗУЕМ НОВОЕ ЗНАЧЕНИЕ
+            user_telegram_id=profile_data['user_telegram_id'],
+            username=profile_data['username'],
+            first_name=profile_data['first_name'],
+            last_name=profile_data['last_name'],
+            notifications_status=profile_data['notifications_status'],
+            auto_analysis_status=profile_data['auto_analysis_status'],
+            premium_status=profile_data['premium_status'],
+            awareness_level=profile_data['awareness_level'],
+            token_balance=profile_data['token_balance'],
+            registration_date=profile_data['registration_date'],
+            last_entry=profile_data['last_entry']
         )
-        try:
-            @sync_to_async
-            def _get_last_profile_history_sync():
-                return UserProfileHistory.objects.filter(user=user).order_by('-created_at').first()
-            last_profile_history = await _get_last_profile_history_sync()
-            if last_profile_history:
-                # --- ИСПРАВЛЕНО: Убрано время из last_analysis_date ---
-                profile_msg += get_message(
-                    key='last_analysis',
-                    language=user.language,
-                    last_analysis_date=last_profile_history.created_at.strftime('%d.%m.%Y') # <-- Только дата
-                    )
-                # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-        except Exception as e:
-            logger.debug(f"Не удалось получить дату последнего анализа профиля: {e}")
+        if profile_data['last_analysis_date']:
+            profile_msg += get_message(
+                key='last_analysis',
+                language=user.language,
+                last_analysis_date=profile_data['last_analysis_date']
+            )
+
         await callback.message.edit_text(
             profile_msg,
-            reply_markup=get_profile_keyboard(language, show_psychology_button=has_psychological_data)
+            reply_markup=get_profile_keyboard(language, show_psychology_button=profile_data['has_psychological_data'])
         )
         await callback.answer()
     except Exception as e:
@@ -121,59 +80,21 @@ async def show_user_profile(callback: CallbackQuery, user, language: str):
 @log_user_activity('show_profile', metadata_extra={'context': 'Просмотр психологического профиля'})
 async def show_psychology_profile(callback: CallbackQuery, user, language: str):
     """Показ психологического профиля пользователя (только текстовое описание)."""
-    MAX_DESC_LENGTH = 3500
-    MAX_TOTAL_LENGTH = 3580
     try:
-        psychology_msg = get_message(
-            key='psychological_portrait',
-            language=user.language
-        )
-        if user.personality_description:
-            desc = user.personality_description.strip()
-            if len(desc) > MAX_DESC_LENGTH:
-                desc = desc[:MAX_DESC_LENGTH] + get_message(key='description_shortened', language=user.language)
-            psychology_msg += desc
-        else:
-            psychology_msg += get_message(key='portrait_not_ready', language=user.language)
-        if len(psychology_msg) > MAX_TOTAL_LENGTH:
-             psychology_msg = psychology_msg[:MAX_TOTAL_LENGTH] + get_message(key='message_truncated', language=user.language)
+        psych_data = await get_user_psychology_profile_data(user, language)
+
+        psychology_msg = psych_data['title']
+        psychology_msg += psych_data['description']
+
         profile_detail_buttons = []
-        if user.core_values:
+        for field_info in psych_data['available_fields']:
             profile_detail_buttons.append([
                 InlineKeyboardButton(
-                    text=get_button_text('btn_view_values', language),
-                    callback_data="view_profile_field:core_values"
+                    text=field_info['btn_text'],
+                    callback_data=f"view_profile_field:{field_info['key']}"
                 )
             ])
-        if user.triggers:
-            profile_detail_buttons.append([
-                InlineKeyboardButton(
-                    text=get_button_text('btn_view_triggers', language),
-                    callback_data="view_profile_field:triggers"
-                )
-            ])
-        if user.strengths:
-            profile_detail_buttons.append([
-                InlineKeyboardButton(
-                    text=get_button_text('btn_view_strengths', language),
-                    callback_data="view_profile_field:strengths"
-                )
-            ])
-        if user.areas_for_growth:
-            profile_detail_buttons.append([
-                InlineKeyboardButton(
-                    text=get_button_text('btn_view_growth', language),
-                    callback_data="view_profile_field:areas_for_growth"
-                )
-            ])
-        if user.personality_insights:
-            profile_detail_buttons.append([
-                InlineKeyboardButton(
-                    text=get_button_text('btn_view_insights', language),
-                    callback_data="view_profile_field:personality_insights"
-                )
-            ])
-        # Кнопка "Назад" к общему профилю
+
         profile_detail_buttons.append([
             InlineKeyboardButton(
                 text=get_button_text('btn_back', language),
@@ -182,6 +103,7 @@ async def show_psychology_profile(callback: CallbackQuery, user, language: str):
         ])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=profile_detail_buttons)
+
         await callback.message.edit_text(
             psychology_msg,
             reply_markup=keyboard,
@@ -198,61 +120,16 @@ async def show_psychology_profile(callback: CallbackQuery, user, language: str):
 async def show_transaction_history(callback: CallbackQuery, user, language: str):
     """Показывает последние 10 транзакций и платежей пользователя."""
     try:
-        from asgiref.sync import sync_to_async
-        @sync_to_async
-        def get_combined_history():
-            # Получаем последние TokenTransaction
-            token_txs = list(
-                TokenTransaction.objects.filter(user=user)
-                .order_by('-created_at')[:10]
-            )
-            # Получаем последние Payment
-            payments = list(
-                Payment.objects.filter(user=user)
-                .order_by('-created_at')[:10]
-            )
-            # Объединяем и сортируем по дате (новые сверху)
-            combined = []
-            for tx in token_txs:
-                action = "➕" if tx.amount > 0 else "➖"
-                amount = abs(tx.amount)
-                combined.append({
-                    'date': tx.created_at,
-                    'text': get_message(
-                        'transaction_item_token',
-                        language,
-                        action=action,
-                        amount=amount,
-                        type=get_message(f'transaction_type_{tx.transaction_type}', language, default=tx.get_transaction_type_display()),
-                        description=tx.description or ''
-                    )
-                })
-            for p in payments:
-                combined.append({
-                    'date': p.created_at,
-                    'text': get_message(
-                        'transaction_item_payment',
-                        language,
-                        amount_rub=p.amount_rub,
-                        type=get_message(f'payment_type_{p.payment_type}', language, default=p.get_payment_type_display()),
-                        status=get_message(f'payment_status_{p.status}', language, default=p.get_status_display())
-                    )
-                })
-            # Сортируем по дате (новые первыми)
-            combined.sort(key=lambda x: x['date'], reverse=True)
-            # Берём первые 10
-            combined = combined[:10]
-            return combined
+        history_result = await get_user_transaction_history(user, language, limit=10)
 
-        history = await get_combined_history()
+        if not history_result['success']:
+            logger.error(f"Ошибка получения истории транзакций: {history_result.get('error')}")
+            await callback.answer(get_message('error_generic', language=language), show_alert=True)
+            return
 
-        if not history:
-            history_msg = get_message('no_transaction_history', language)
-        else:
-            history_lines = [item['text'] for item in history]
-            history_msg = get_message('transaction_history_title', language) + "\n\n" + "\n".join(history_lines)
-
+        history_msg = history_result['message']
         keyboard = get_single_button_keyboard(language, 'user_profile', 'btn_back')
+
         await callback.message.edit_text(
             history_msg,
             reply_markup=keyboard
@@ -262,187 +139,22 @@ async def show_transaction_history(callback: CallbackQuery, user, language: str)
         logger.error(f"Ошибка при показе истории транзакций: {e}", exc_info=True)
         await callback.answer(get_message('error_generic', language=language), show_alert=True)
 
-MAX_MESSAGE_LENGTH = 4000 # Уменьшено с 4096, чтобы оставить место для тегов и потенциальных изменений
-
 @router.callback_query(F.data.startswith("view_profile_field:"))
 @log_user_activity('show_profile', metadata_extra={'context': 'Просмотр конкретного поля психологического профиля'})
 async def show_profile_field(callback: CallbackQuery, user, language: str):
     """Показывает конкретное поле психологического профиля."""
     try:
         field_key = callback.data.split(":")[1]
-        valid_profile_fields = {
-            'personality_traits', 'life_facts', 'hobbies', 'core_values',
-            'triggers', 'strengths', 'areas_for_growth', 'personality_insights',
-            'habits', 'skills', 'aspirations', 'personality_description'
-        }
-        if field_key not in valid_profile_fields:
-            logger.warning(f"Получен запрос на отображение недопустимого поля профиля: {field_key}")
-            error_msg = get_message('field_not_found', language)
-            await callback.answer(error_msg, show_alert=True)
-            return
-        field_value = getattr(user, field_key, None)
-        field_emojis = {
-            'core_values': '🎯',
-            'triggers': '⚠️',
-            'strengths': '💪',
-            'areas_for_growth': '🌱',
-            'personality_insights': '💡',
-            'personality_description': '📝',
-            'personality_traits': '🧠',
-            'life_facts': '📋',
-            'hobbies': '🎨',
-            'habits': '🔄',
-            'skills': '🛠️',
-            'aspirations': '🌟',
-        }
-        emoji = field_emojis.get(field_key, '📋')
-        field_display_name = f"{emoji} {get_message(f'field_name_{field_key}', language)}"
 
-        if field_value is None:
-            error_msg = get_message('field_not_found', language)
+        field_result = await get_user_profile_field(user, field_key, language)
+
+        if not field_result['success']:
+            error_msg = field_result.get('text', get_message('error_generic', language))
+            logger.error(f"Ошибка получения поля профиля {field_key}: {field_result.get('error')}")
             await callback.answer(error_msg, show_alert=True)
             return
 
-        field_text = ""
-        if isinstance(field_value, list):
-            if field_value:
-                formatted_items = []
-                item_emoji = "\n🔸"
-                for item in field_value:
-                    if isinstance(item, dict):
-                        item_text = item.get('text') or item.get('name') or item.get('theme') or item.get('emotion') or item.get('category') or str(item)
-                        item_text = item_text or item.get('insight') or item.get('pattern') or item_text
-                        if 'text' in item and 'category' in item:
-                             insight_text = item['text']
-                             insight_category = item['category']
-                             formatted_items.append(f"{item_emoji} {insight_text} ({get_message('category', language)}: {insight_category})")
-                        elif 'emotion' in item and 'context' in item:
-                             emotion_text = item['emotion']
-                             emotion_context = item['context']
-                             formatted_items.append(f"{item_emoji} {emotion_text} ({get_message('context', language)}: {emotion_context})")
-                        else:
-                             formatted_items.append(f"{item_emoji} {item_text}")
-                    else:
-                        formatted_items.append(f"{item_emoji} {item}")
-                # Объединяем элементы
-                joined_items = "".join(formatted_items)
-                # Формируем полный текст
-                full_text_candidate = f"<b>{field_display_name}</b>{joined_items}"
-                # Проверяем длину и обрезаем, если нужно
-                if len(full_text_candidate) > MAX_MESSAGE_LENGTH:
-                    # Обрезаем список элементов
-                    # Начинаем с заголовка
-                    header = f"<b>{field_display_name}</b>"
-                    current_length = len(header)
-                    truncated_items = []
-                    for item_str in formatted_items:
-                        if current_length + len(item_str) <= MAX_MESSAGE_LENGTH:
-                             truncated_items.append(item_str)
-                             current_length += len(item_str)
-                        else:
-                             # Добавляем индикатор обрезки
-                             trunc_indicator = get_message('profile_field_truncated_indicator', language) # Добавить в messages.py, напр. "... (данные обрезаны)"
-                             if current_length + len(trunc_indicator) <= MAX_MESSAGE_LENGTH:
-                                truncated_items.append(trunc_indicator)
-                             break
-                    field_text = header + "".join(truncated_items)
-                else:
-                    field_text = full_text_candidate
-            else:
-                field_text = f"<b>{field_display_name}</b>" + get_message('profile_field_empty_list', language)
-        elif isinstance(field_value, dict):
-            if field_key == 'personality_insights':
-                if field_value:
-                    dict_lines = []
-                    for k, v in field_value.items():
-                        line = f"💭<b>{k.capitalize()}</b>:\n{v}"
-                        dict_lines.append(line)
-                    # Объединяем строки
-                    joined_lines = "\n\n".join(dict_lines)
-                    # Формируем полный текст
-                    full_text_candidate = f"<b>{field_display_name}</b>\n\n{joined_lines}"
-                    # Проверяем длину и обрезаем, если нужно
-                    if len(full_text_candidate) > MAX_MESSAGE_LENGTH:
-                        header = f"<b>{field_display_name}</b>\n\n"
-                        current_length = len(header)
-                        truncated_lines = []
-                        for line_str in dict_lines:
-                            # Проверяем, помещается ли строка, включая разделитель
-                            separator = "\n\n" if truncated_lines else "" # Первую строку не отделяем
-                            needed_length = len(separator) + len(line_str)
-                            if current_length + needed_length <= MAX_MESSAGE_LENGTH:
-                                truncated_lines.append(line_str)
-                                current_length += needed_length
-                            else:
-                                trunc_indicator = get_message('profile_field_truncated_indicator', language)
-                                if current_length + len(trunc_indicator) <= MAX_MESSAGE_LENGTH:
-                                    truncated_lines.append(trunc_indicator)
-                                break
-                        field_text = header + "\n\n".join(truncated_lines)
-                    else:
-                        field_text = full_text_candidate
-                else:
-                    field_text = f"<b>{field_display_name}</b>" + get_message('profile_field_empty_dict', language)
-            else:
-                # --- СТАНДАРТНАЯ ЛОГИКА (также с обрезкой) ---
-                if field_value:
-                    dict_items = [f"  <b>{k}</b>: {v}" for k, v in field_value.items()]
-                    joined_items = "".join(dict_items)
-                    full_text_candidate = f"<b>{field_display_name}</b>{joined_items}"
-                    if len(full_text_candidate) > MAX_MESSAGE_LENGTH:
-                        header = f"<b>{field_display_name}</b>"
-                        current_length = len(header)
-                        truncated_items = []
-                        for item_str in dict_items:
-                            if current_length + len(item_str) <= MAX_MESSAGE_LENGTH:
-                                truncated_items.append(item_str)
-                                current_length += len(item_str)
-                            else:
-                                trunc_indicator = get_message('profile_field_truncated_indicator', language)
-                                if current_length + len(trunc_indicator) <= MAX_MESSAGE_LENGTH:
-                                    truncated_items.append(trunc_indicator)
-                                break
-                        field_text = header + "".join(truncated_items)
-                    else:
-                        field_text = full_text_candidate
-                else:
-                    field_text = f"<b>{field_display_name}</b>" + get_message('profile_field_empty_dict', language)
-        elif isinstance(field_value, str):
-            if field_value.strip():
-                full_text_candidate = f"<b>{field_display_name}</b>{field_value.strip()}"
-                if len(full_text_candidate) > MAX_MESSAGE_LENGTH:
-                    header = f"<b>{field_display_name}</b>"
-                    max_content_length = MAX_MESSAGE_LENGTH - len(header)
-                    # Обрезаем содержимое строки
-                    truncated_content = field_value.strip()[:max_content_length]
-                    trunc_indicator = get_message('profile_field_truncated_indicator', language)
-                    # Проверяем, помещается ли индикатор
-                    if len(header) + len(truncated_content) + len(trunc_indicator) <= MAX_MESSAGE_LENGTH:
-                        final_content = truncated_content + trunc_indicator
-                    else:
-                        # Если индикатор не помещается, просто обрезаем
-                        final_content = truncated_content
-                    field_text = header + final_content
-                else:
-                    field_text = full_text_candidate
-            else:
-                field_text = f"<b>{field_display_name}</b>" + get_message('profile_field_empty_string', language)
-        else:
-            # Для чисел и других типов
-            full_str = str(field_value)
-            full_text_candidate = f"<b>{field_display_name}</b>{full_str}"
-            if len(full_text_candidate) > MAX_MESSAGE_LENGTH:
-                header = f"<b>{field_display_name}</b>"
-                max_content_length = MAX_MESSAGE_LENGTH - len(header)
-                truncated_content = full_str[:max_content_length]
-                trunc_indicator = get_message('profile_field_truncated_indicator', language)
-                if len(header) + len(truncated_content) + len(trunc_indicator) <= MAX_MESSAGE_LENGTH:
-                    final_content = truncated_content + trunc_indicator
-                else:
-                    final_content = truncated_content
-                field_text = header + final_content
-            else:
-                field_text = full_text_candidate
+        field_text = field_result['text']
 
         back_to_psychology_button = [
             [
@@ -454,17 +166,15 @@ async def show_profile_field(callback: CallbackQuery, user, language: str):
         ]
         keyboard = InlineKeyboardMarkup(inline_keyboard=back_to_psychology_button)
 
-        # --- ОБНОВЛЁННАЯ ЧАСТЬ: Попытка редактирования с обработкой ошибки ---
         try:
             await callback.message.edit_text(
                 field_text,
                 reply_markup=keyboard,
                 parse_mode="HTML"
             )
-        except Exception as edit_error: # Ловим любую ошибку при редактировании
+        except Exception as edit_error:
             logger.warning(f"Сообщение с полем профиля слишком длинное ({len(field_text)} символов) или другая ошибка при edit_text: {edit_error}. Отправляем краткое уведомление.")
-            # Отправляем короткое сообщение о проблеме
-            error_notification = get_message('profile_field_too_long', language) # Добавить в messages.py, напр. "Информация в этом поле слишком длинная для отображения."
+            error_notification = get_message('profile_field_too_long', language)
             await callback.message.edit_text(
                 error_notification,
                 reply_markup=keyboard,
@@ -478,17 +188,22 @@ async def show_profile_field(callback: CallbackQuery, user, language: str):
         logger.error(f"Неожиданная ошибка при показе поля профиля {callback.data}: {e}", exc_info=True)
         await callback.answer(get_message('error_generic', language), show_alert=True)
 
+# --- Редактирование профиля ---
 @router.callback_query(F.data == "edit_profile")
 @log_user_activity('edit_profile', metadata_extra={'context': 'Показ меню редактирования профиля'})
 async def show_edit_profile_menu(callback: CallbackQuery, user, language: str):
     """Показ меню редактирования профиля"""
     try:
+        # Получаем обновленные данные для отображения
+        profile_data_from_service = await get_user_profile_data(user)
+        # Используем обрезанные строки из сервиса
         profile_data = {
             'first_name': user.first_name or get_message('not_specified', language),
             'email': user.email or get_message('not_specified', language),
             'date_of_birth': user.date_of_birth.strftime('%d.%m.%Y') if user.date_of_birth else get_message('not_specified', language),
-            'hobbies': ', '.join([str(h) for h in user.hobbies if isinstance(h, (str, int, float))]) if isinstance(user.hobbies, list) else get_message('not_specified', language),
-            'life_facts': ', '.join([str(f) for f in user.life_facts if isinstance(f, (str, int, float))]) if isinstance(user.life_facts, list) else get_message('not_specified', language)
+            # ИСПОЛЬЗУЕМ ПОЛЯ ИЗ СЕРВИСА
+            'hobbies': profile_data_from_service.get('hobbies_for_display', get_message('not_specified', language)),
+            'life_facts': profile_data_from_service.get('life_facts_for_display', get_message('not_specified', language))
         }
         profile_msg = get_message('profile_menu', language, **profile_data)
         reply_markup = get_edit_profile_keyboard(language)
@@ -501,56 +216,48 @@ async def show_edit_profile_menu(callback: CallbackQuery, user, language: str):
         logger.error(f"Ошибка при показе меню редактирования профиля: {e}")
         await callback.answer(get_message('error_generic', language=language))
 
+# --- Обработчики запроса новых значений ---
+async def _request_new_value(callback_or_message, state: FSMContext, state_key, ask_message_key, back_callback_data, user, language: str):
+    """Вспомогательная функция для запроса нового значения."""
+    try:
+        await state_manager.set_state(state, state_key)
+        ask_msg = get_message(ask_message_key, language)
+        reply_markup = get_single_button_keyboard(language, back_callback_data, 'btn_back')
+        if isinstance(callback_or_message, CallbackQuery):
+            await callback_or_message.message.edit_text(
+                ask_msg,
+                reply_markup=reply_markup
+            )
+            await callback_or_message.answer()
+        elif isinstance(callback_or_message, Message):
+            await callback_or_message.answer(
+                ask_msg,
+                reply_markup=reply_markup
+            )
+    except Exception as e:
+        logger.error(f"Ошибка при запросе нового значения: {e}")
+        if isinstance(callback_or_message, CallbackQuery):
+            await callback_or_message.answer(get_message('error_generic', language=language))
+        elif isinstance(callback_or_message, Message):
+            await callback_or_message.answer(get_message('error_generic', language=language))
+
 @router.callback_query(F.data == "edit_profile_name")
 @log_user_activity('edit_profile', metadata_extra={'context': 'Редактирование имени'})
 async def edit_profile_name(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование имени"""
-    try:
-        await state_manager.set_state(state, SettingsStates.waiting_for_name_input)
-        ask_msg = get_message('ask_new_name', language)
-        reply_markup = get_single_button_keyboard(language, 'edit_profile', 'btn_back')
-        await callback.message.edit_text(
-            ask_msg,
-            reply_markup=reply_markup
-        )
-        await callback.answer()
-    except Exception as e:
-        logger.error(f"Ошибка при запросе нового имени: {e}")
-        await callback.answer(get_message('error_generic', language=language))
+    await _request_new_value(callback, state, SettingsStates.waiting_for_name_input, 'ask_new_name', 'edit_profile', user, language)
 
-@log_user_activity('edit_profile', metadata_extra={'context': 'Редактирование email'})
 @router.callback_query(F.data == "edit_profile_email")
+@log_user_activity('edit_profile', metadata_extra={'context': 'Редактирование email'})
 async def edit_profile_email(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование email"""
-    try:
-        await state_manager.set_state(state, SettingsStates.waiting_for_email_input)
-        ask_msg = get_message('ask_new_email', language)
-        reply_markup = get_single_button_keyboard(language, 'edit_profile', 'btn_back')
-        await callback.message.edit_text(
-            ask_msg,
-            reply_markup=reply_markup
-        )
-        await callback.answer()
-    except Exception as e:
-        logger.error(f"Ошибка при запросе нового email: {e}")
-        await callback.answer(get_message('error_generic', language=language))
+    await _request_new_value(callback, state, SettingsStates.waiting_for_email_input, 'ask_new_email', 'edit_profile', user, language)
 
 @router.callback_query(F.data == "edit_profile_dob")
 @log_user_activity('edit_profile', metadata_extra={'context': 'Редактирование даты рождения'})
 async def edit_profile_dob(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование даты рождения"""
-    try:
-        await state_manager.set_state(state, SettingsStates.waiting_for_date_of_birth_input)
-        ask_msg = get_message('ask_new_dob', language)
-        reply_markup = get_single_button_keyboard(language, 'edit_profile', 'btn_back')
-        await callback.message.edit_text(
-            ask_msg,
-            reply_markup=reply_markup
-        )
-        await callback.answer()
-    except Exception as e:
-        logger.error(f"Ошибка при запросе новой даты рождения: {e}")
-        await callback.answer(get_message('error_generic', language=language))
+    await _request_new_value(callback, state, SettingsStates.waiting_for_date_of_birth_input, 'ask_new_dob', 'edit_profile', user, language)
 
 @router.callback_query(F.data == "edit_profile_hobbies")
 @log_user_activity('edit_profile', metadata_extra={'context': 'Редактирование хобби'})
@@ -562,9 +269,7 @@ async def edit_profile_hobbies(callback: CallbackQuery, state: FSMContext, user,
             user.hobbies = current_hobbies_list
             await user.asave(update_fields=['hobbies'])
             logger.debug(f"Очищены 'remove' элементы из hobbies пользователя {user.telegram_id}")
-
-        current_hobbies = ', '.join(current_hobbies_list) if current_hobbies_list else ''
-        
+        current_hobbies = _format_list_for_display(current_hobbies_list)
         await state_manager.set_state(state, SettingsStates.waiting_for_hobbies_input)
         ask_msg = get_message('ask_new_hobbies', language)
         if current_hobbies:
@@ -592,9 +297,7 @@ async def edit_profile_life_facts(callback: CallbackQuery, state: FSMContext, us
             user.life_facts = current_facts_list
             await user.asave(update_fields=['life_facts'])
             logger.debug(f"Очищены 'remove' элементы из life_facts пользователя {user.telegram_id}")
-
-        current_facts = ', '.join(current_facts_list) if current_facts_list else ''
-        
+        current_facts = _format_list_for_display(current_facts_list)
         await state_manager.set_state(state, SettingsStates.waiting_for_life_facts_input)
         ask_msg = get_message('ask_new_life_facts', language)
         if current_facts:
@@ -613,155 +316,124 @@ async def edit_profile_life_facts(callback: CallbackQuery, state: FSMContext, us
         logger.error(f"Ошибка при запросе новых фактов о жизни: {e}")
         await callback.answer(get_message('error_generic', language=language))
 
-@router.message(SettingsStates.waiting_for_name_input)
-async def process_name_input(message: Message, state: FSMContext, user, language: str):
-    """Обработка ввода нового имени"""
+def _format_list_for_display(items_list):
+    """Форматирует список для отображения в одном поле, ограничивая длину."""
+    def _filter_remove_items_local(items_list):
+        if not items_list:
+            return []
+        return [item for item in items_list if not (isinstance(item, dict) and 'remove' in item)]
+
+    if not isinstance(items_list, list):
+        return get_message('not_specified', 'ru')
+    filtered_items = _filter_remove_items_local(items_list)
+    if not filtered_items:
+        return get_message('not_specified', 'ru')
+    str_items = [str(item) for item in filtered_items if item is not None]
+    full_str = ', '.join(str_items)
+    if len(full_str) > MAX_INLINE_FIELD_LENGTH:
+        return full_str[:MAX_INLINE_FIELD_LENGTH] + '...'
+    return full_str
+
+def _filter_remove_items(items_list):
+    """
+    Фильтрует список, удаляя элементы вида {"remove": ...}.
+    """
+    if not items_list:
+        return []
+    return [item for item in items_list if not (isinstance(item, dict) and 'remove' in item)]
+
+async def _process_field_input(message: Message, state: FSMContext, user, language: str, field_name: str, back_callback_data: str, validator_func=None):
+    """Вспомогательная функция для обработки ввода значения поля."""
     try:
-        new_name = message.text.strip()
-        if new_name.lower() in ['назад', 'back', '/start', '/menu']:
+        new_value = message.text.strip()
+        if new_value.lower() in ['назад', 'back', '/start', '/menu']:
             await state_manager.clear_state(state)
             await show_edit_profile_menu_callback(message, user, language)
             return
-        if not new_name:
+
+        if not new_value:
             error_msg = get_message('invalid_input', language)
             await message.answer(error_msg)
             return
-        user.first_name = new_name
-        await user.asave(update_fields=['first_name'])
+        if validator_func:
+            validation_result = validator_func(new_value)
+            if not validation_result['success']:
+                error_msg = get_message(validation_result['error_key'], language)
+                await message.answer(error_msg)
+                ask_msg = get_message(f'ask_new_{field_name}', language)
+                reply_markup = get_single_button_keyboard(language, back_callback_data, 'btn_back')
+                await message.answer(ask_msg, reply_markup=reply_markup)
+                return
+            new_value = validation_result.get('processed_value', new_value)
+        update_result = await update_user_profile_field(user, field_name, new_value)
+        if not update_result['success']:
+            error_msg = get_message('error_generic', language)
+            logger.error(f"Ошибка обновления поля {field_name}: {update_result.get('error')}")
+            await message.answer(error_msg)
+            await state_manager.clear_state(state)
+            return
         success_msg = get_message('profile_updated', language)
         await message.answer(success_msg)
         await show_edit_profile_menu_callback(message, user, language)
         await state_manager.clear_state(state)
     except Exception as e:
-        logger.error(f"Ошибка при обработке ввода нового имени: {e}")
+        logger.error(f"Ошибка при обработке ввода для поля {field_name}: {e}")
         error_msg = get_message('error_generic', language)
         await message.answer(error_msg)
         await state_manager.clear_state(state)
+
+def _validate_email(email: str) -> Dict[str, Any]:
+    """Валидатор email."""
+    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if re.match(email_pattern, email):
+        return {'success': True, 'processed_value': email}
+    return {'success': False, 'error_key': 'invalid_email_format'}
+
+def _validate_date_of_birth(date_str: str) -> Dict[str, Any]:
+    """Валидатор даты рождения."""
+    try:
+        new_dob = datetime.strptime(date_str, '%d.%m.%Y').date()
+        if new_dob > datetime.now().date():
+            return {'success': False, 'error_key': 'invalid_date_future'}
+        return {'success': True, 'processed_value': new_dob}
+    except ValueError:
+        return {'success': False, 'error_key': 'invalid_date_format'}
+
+@router.message(SettingsStates.waiting_for_name_input)
+async def process_name_input(message: Message, state: FSMContext, user, language: str):
+    """Обработка ввода нового имени"""
+    await _process_field_input(message, state, user, language, 'first_name', 'edit_profile')
 
 @router.message(SettingsStates.waiting_for_email_input)
 async def process_email_input(message: Message, state: FSMContext, user, language: str):
     """Обработка ввода нового email"""
-    try:
-        new_email = message.text.strip()
-        if new_email.lower() in ['назад', 'back', '/start', '/menu']:
-            await state_manager.clear_state(state)
-            await show_edit_profile_menu_callback(message, user, language)
-            return
-        if not new_email:
-            error_msg = get_message('invalid_input', language)
-            await message.answer(error_msg)
-            return
-        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        if not re.match(email_pattern, new_email):
-            error_msg = get_message('invalid_email_format', language)
-            await message.answer(error_msg)
-            return
-        user.email = new_email
-        await user.asave(update_fields=['email'])
-        success_msg = get_message('profile_updated', language)
-        await message.answer(success_msg)
-        await show_edit_profile_menu_callback(message, user, language)
-        await state_manager.clear_state(state)
-    except Exception as e:
-        logger.error(f"Ошибка при обработке ввода нового email: {e}")
-        error_msg = get_message('error_generic', language)
-        await message.answer(error_msg)
-        await state_manager.clear_state(state)
+    await _process_field_input(message, state, user, language, 'email', 'edit_profile', validator_func=_validate_email)
 
 @router.message(SettingsStates.waiting_for_date_of_birth_input)
 async def process_dob_input(message: Message, state: FSMContext, user, language: str):
     """Обработка ввода новой даты рождения"""
-    try:
-        dob_text = message.text.strip()
-        if dob_text.lower() in ['назад', 'back', '/start', '/menu']:
-            await state_manager.clear_state(state)
-            await show_edit_profile_menu_callback(message, user, language)
-            return
-        if not dob_text:
-            error_msg = get_message('invalid_input', language)
-            await message.answer(error_msg)
-            return
-        try:
-            new_dob = datetime.strptime(dob_text, '%d.%m.%Y').date()
-            if new_dob > datetime.now().date():
-                error_msg = get_message('invalid_date_future', language)
-                await message.answer(error_msg)
-                return
-        except ValueError:
-            error_msg = get_message('invalid_date_format', language)
-            await message.answer(error_msg)
-            return
-        user.date_of_birth = new_dob
-        await user.asave(update_fields=['date_of_birth'])
-        success_msg = get_message('profile_updated', language)
-        await message.answer(success_msg)
-        await show_edit_profile_menu_callback(message, user, language)
-        await state_manager.clear_state(state)
-    except Exception as e:
-        logger.error(f"Ошибка при обработке ввода новой даты рождения: {e}")
-        error_msg = get_message('error_generic', language)
-        await message.answer(error_msg)
-        await state_manager.clear_state(state)
+    await _process_field_input(message, state, user, language, 'date_of_birth', 'edit_profile', validator_func=_validate_date_of_birth)
 
 @router.message(SettingsStates.waiting_for_hobbies_input)
 async def process_hobbies_input(message: Message, state: FSMContext, user, language: str):
     """Обработка ввода новых увлечений"""
-    try:
-        hobbies_text = message.text.strip()
-        if hobbies_text.lower() in ['назад', 'back', '/start', '/menu']:
-            await state_manager.clear_state(state)
-            await show_edit_profile_menu_callback(message, user, language)
-            return
-        if hobbies_text:
-            new_hobbies = [hobby.strip() for hobby in hobbies_text.split(',') if hobby.strip()]
-        else:
-            new_hobbies = []
-        user.hobbies = new_hobbies
-        await user.asave(update_fields=['hobbies'])
-        success_msg = get_message('profile_updated', language)
-        await message.answer(success_msg)
-        await show_edit_profile_menu_callback(message, user, language)
-        await state_manager.clear_state(state)
-    except Exception as e:
-        logger.error(f"Ошибка при обработке ввода новых увлечений: {e}")
-        error_msg = get_message('error_generic', language)
-        await message.answer(error_msg)
-        await state_manager.clear_state(state)
+    await _process_field_input(message, state, user, language, 'hobbies', 'edit_profile')
 
 @router.message(SettingsStates.waiting_for_life_facts_input)
 async def process_life_facts_input(message: Message, state: FSMContext, user, language: str):
     """Обработка ввода новых фактов о жизни"""
-    try:
-        facts_text = message.text.strip()
-        if facts_text.lower() in ['назад', 'back', '/start', '/menu']:
-            await state_manager.clear_state(state)
-            await show_edit_profile_menu_callback(message, user, language)
-            return
-        if facts_text:
-            new_facts = [fact.strip() for fact in facts_text.split(',') if fact.strip()]
-        else:
-            new_facts = []
-        user.life_facts = new_facts
-        await user.asave(update_fields=['life_facts'])
-        success_msg = get_message('profile_updated', language)
-        await message.answer(success_msg)
-        await show_edit_profile_menu_callback(message, user, language)
-        await state_manager.clear_state(state)
-    except Exception as e:
-        logger.error(f"Ошибка при обработке ввода новых фактов о жизни: {e}")
-        error_msg = get_message('error_generic', language)
-        await message.answer(error_msg)
-        await state_manager.clear_state(state)
+    await _process_field_input(message, state, user, language, 'life_facts', 'edit_profile')
 
 async def show_edit_profile_menu_callback(message_or_callback, user, language: str):
     """Показ меню редактирования профиля (callback)"""
     try:
+        profile_data_from_service = await get_user_profile_data(user)
         profile_data = {
             'first_name': user.first_name or get_message('not_specified', language),
             'email': user.email or get_message('not_specified', language),
             'date_of_birth': user.date_of_birth.strftime('%d.%m.%Y') if user.date_of_birth else get_message('not_specified', language),
-            'hobbies': ', '.join(user.hobbies) if user.hobbies else get_message('not_specified', language),
-            'life_facts': ', '.join(user.life_facts) if user.life_facts else get_message('not_specified', language)
+            'hobbies': profile_data_from_service.get('hobbies_for_display', get_message('not_specified', language)),
+            'life_facts': profile_data_from_service.get('life_facts_for_display', get_message('not_specified', language))
         }
         profile_msg = get_message('profile_menu', language, **profile_data)
         reply_markup = get_edit_profile_keyboard(language)
@@ -784,12 +456,14 @@ async def show_edit_profile_menu_callback(message_or_callback, user, language: s
         elif isinstance(message_or_callback, CallbackQuery):
             await message_or_callback.answer(error_msg)
 
+# --- Удаление аккаунта ---
 @router.callback_query(F.data == "delete_account")
 @log_user_activity('delete_profile')
 async def show_account_deletion_menu(callback: CallbackQuery, user, language: str, state: FSMContext):
     """Показ меню удаления аккаунта"""
     try:
-        balance = 0
+        # Баланс токенов уже доступен в user.token_balance
+        balance = user.token_balance
         if balance > 0:
             balance_info = get_message('account_balance_info_positive', language, balance=balance)
             balance_warning = get_message('balance_warning_positive', language, balance=balance)
@@ -799,6 +473,7 @@ async def show_account_deletion_menu(callback: CallbackQuery, user, language: st
         else:
             balance_info = get_message('account_balance_info_negative', language, balance=abs(balance))
             balance_warning = get_message('balance_warning_zero_or_negative', language)
+
         menu_msg = get_message('account_deletion_menu', language, balance_info=balance_info)
         await state_manager.set_state(state, SettingsStates.in_account_deletion_menu)
         await state_manager.update_state_data(state, balance_warning=balance_warning)
@@ -844,13 +519,15 @@ async def process_account_deletion_confirmation_text(message: Message, user, lan
             confirm_msg = get_message('confirm_account_deletion', language, balance_warning=balance_warning)
             await message.answer(confirm_msg)
             return
-        success = await anonymize_user_account(user)
-        if success:
+
+        result = await anonymize_user_account(user)
+        if result['success']:
             success_msg = get_message('account_deletion_confirmed', language)
             await message.answer(success_msg)
             await state_manager.clear_state(state)
         else:
             error_msg = get_message('account_deletion_error', language)
+            logger.error(f"Ошибка при обезличивании аккаунта {user.telegram_id}: {result.get('error')}")
             await message.answer(error_msg)
     except Exception as e:
         logger.error(f"Ошибка при обработке текста подтверждения удаления аккаунта: {e}")
@@ -881,25 +558,23 @@ async def handle_export_user_data(callback: CallbackQuery, user, language: str):
     Обработчик экспорта данных пользователя в .docx
     """
     try:
-        # Отправляем уведомление
         status_msg = await callback.message.answer(get_message('export_status_preparing', language))
+        export_result = await export_user_data(user)
+        if not export_result['success']:
+            logger.error(f"Ошибка при экспорте данных пользователя {user.telegram_id}: {export_result.get('error')}")
+            await callback.message.answer(get_message('export_error', language))
+            await callback.answer()
+            return
 
-        # Генерируем файл
-        file_path = await generate_user_docx(user)
-
-        # Удаляем уведомление
+        file_path = export_result['file_path']
         try:
             await status_msg.delete()
         except Exception:
-            pass  # Если не удалось удалить — не страшно
-
-        # Открываем файл и отправляем
+            pass
         with open(file_path, 'rb') as f:
             file_data = f.read()
-
         from aiogram.types import BufferedInputFile
         input_file = BufferedInputFile(file_data, filename='export.docx')
-
         await callback.message.answer_document(
             document=input_file,
             caption=get_message('export_caption', language)
@@ -908,7 +583,6 @@ async def handle_export_user_data(callback: CallbackQuery, user, language: str):
             os.remove(file_path)
         except Exception:
             pass
-
         await callback.answer()
     except Exception as e:
         logger.error(f"Ошибка при экспорте данных пользователя {user.telegram_id}: {e}", exc_info=True)
@@ -920,32 +594,21 @@ async def handle_export_user_data(callback: CallbackQuery, user, language: str):
 async def show_referral_link(callback: CallbackQuery, user, language: str):
     """Показывает реферальную ссылку пользователя."""
     try:
-        if not user.referral_link:
-            error_msg = get_message('no_referral_link_error', language)
+        link_info = await get_referral_link_info(user, language)
+        if not link_info['success']:
+            error_msg = link_info.get('message', get_message('error_generic', language))
             await callback.answer(error_msg, show_alert=True)
             return
-
-        bot_username = os.getenv("TELEGRAM_BOT_USERNAME", "your_bot_username")
-        if bot_username == "your_bot_username":
-             logger.warning("TELEGRAM_BOT_USERNAME не установлен в .env. Используется значение по умолчанию.")
-
-        referral_link_url = f"https://t.me/{bot_username}?start={user.referral_link}"
-        display_msg = get_message('referral_link_display_text', language)
-        share_text_raw = get_message('referral_share_text', language)
-        share_text_formatted = share_text_raw.format(url=referral_link_url)
-        import urllib.parse
-        encoded_text = urllib.parse.quote_plus(share_text_formatted)
-        share_url = f"https://t.me/share/url?url={referral_link_url}&text={encoded_text}"
         share_button = InlineKeyboardButton(
             text=get_button_text('btn_share_referral_link', language),
-            url=share_url
+            url=link_info['share_url']
         )
         back_button = InlineKeyboardButton(
             text=get_button_text('btn_back', language),
-            callback_data="user_profile" 
+            callback_data="user_profile"
         )
         keyboard = InlineKeyboardMarkup(inline_keyboard=[[share_button], [back_button]])
-        info_msg = display_msg
+        info_msg = link_info['display_message']
         await callback.message.edit_text(
             info_msg,
             reply_markup=keyboard,
@@ -955,62 +618,3 @@ async def show_referral_link(callback: CallbackQuery, user, language: str):
     except Exception as e:
         logger.error(f"Ошибка при показе реферальной ссылки: {e}", exc_info=True)
         await callback.answer(get_message('error_generic', language=language), show_alert=True)
-
-async def anonymize_user_account(user):
-    """
-    "Обезличивание" аккаунта пользователя:
-    - Удаление всех данных из моделей приложения diary
-    - Обнуление персональных данных в модели User
-    - Установка флагов deleted_at, is_blocked, deletion_status
-    - Отключение уведомлений
-    """
-    try:
-        await TaskCompletionAnalysis.objects.filter(
-            completion__task__user=user
-        ).adelete()
-        await TaskCompletion.objects.filter(
-            task__user=user
-        ).adelete()
-        await TherapyTask.objects.filter(user=user).adelete()
-        await TherapyProgress.objects.filter(user=user).adelete()
-        await DailyAnalysis.objects.filter(
-            combined_entry__user=user
-        ).adelete()
-        await CombinedDiaryEntry.objects.filter(user=user).adelete()
-        await PsychoAnalysis.objects.filter(
-            entry__user=user
-        ).adelete()
-        await UserActivity.objects.filter(user=user).adelete()
-        await DiaryEntry.objects.filter(user=user).adelete()
-        user.first_name = ""
-        user.last_name = ""
-        user.email = ""
-        user.username = f"deleted_user_{user.telegram_id}"
-        user.timezone = "UTC"
-        user.last_entry = None
-        user.awareness_level = 1
-        user.is_premium = False
-        user.last_activity = None
-        user.current_calendar_year = 2025 
-        user.current_calendar_month = 1
-        user.notifications_enabled = False
-        user.auto_analysis_enabled = False
-        user.max_ai_tasks_per_day = 1
-        user.personality_description = ''
-        user.personality_traits = {}
-        user.life_facts = []
-        user.hobbies = []
-        user.core_values = []
-        user.triggers = []
-        user.strengths = []
-        user.areas_for_growth = []
-        user.date_of_birth = None
-        user.deleted_at = timezone.now()
-        user.is_blocked = True 
-        user.deletion_status = 'anonymized'
-        await user.asave()
-        logger.info(f"Аккаунт пользователя {user.telegram_id} успешно обезличен")
-        return True
-    except Exception as e:
-        logger.error(f"Ошибка при обезличивании аккаунта пользователя {user.telegram_id}: {e}", exc_info=True)
-        return False

@@ -21,11 +21,6 @@ ALLOWED_DURING_ONBOARDING_PREFIXES: Set[str] = {
 }
 
 REFERRAL_PATTERN = re.compile(r'^start\s+ref_(\d+)_([a-zA-Z0-9_-]+)$')
-
-class UserMiddleware(BaseMiddleware):
-    """
-    Middleware для автоматической регистрации пользователей и контроля доступа на основе согласия.
-    """
     
 class UserMiddleware(BaseMiddleware):
     """

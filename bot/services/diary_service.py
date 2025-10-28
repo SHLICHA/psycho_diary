@@ -10,10 +10,9 @@ from datetime import datetime, date, time
 from django.db import transaction
 from django.db.models import F
 from django.core.cache import cache
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List
 
 from bot.utils.decorators import async_error_handler, database_retry
-from bot.utils.diary_utils import get_user_streaks, check_and_award_streak_bonus
 from diary.models import DiaryEntry, PsychoAnalysis, CombinedDiaryEntry, TherapyTask
 from diary.services.daily_state_service import (
     get_daily_state,
@@ -22,7 +21,7 @@ from diary.services.daily_state_service import (
     update_daily_state_text_and_count,
     create_daily_state_from_entry
 )
-from users.models import User, TokenTransaction
+from users.models import User
 from asgiref.sync import sync_to_async
 
 logger = logging.getLogger(__name__)

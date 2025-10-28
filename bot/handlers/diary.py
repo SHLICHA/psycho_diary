@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta
 from messages import get_message, get_button_text
 from diary.models import CombinedDiaryEntry, DiaryEntry, DailyAnalysis, TherapyTask, PsychoAnalysis
 from diary.services import smart_prompt_manager, daily_state_service
+from diary.services.task_management_service import assign_task
 from bot.decorators.token_decorator import requires_tokens
 from bot.decorators.analytics_decorator import log_user_activity
 from bot.states.diary_states import DiaryStates
@@ -42,7 +43,6 @@ from bot.utils.rate_limiter import rate_limiter
 from bot.services import (
     diary_service, 
     psycho_analysis_service,
-    task_service,
     deepseek_api_service,
 )
 from prompts import get_prompt
@@ -1529,7 +1529,7 @@ async def _create_task_from_suggested_data(user, task_data, entry_date, related_
     if complexity not in ['low', 'medium', 'high']:
         complexity = 'medium'
     
-    return await task_service.assign_task(
+    return await assign_task(
         user=user,
         title=task_data.get('title', 'Задание от ИИ'),
         description=task_data.get('description', 'Выполните задание.'),

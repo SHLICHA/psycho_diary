@@ -1,51 +1,52 @@
+# /diary/services/task_management_service.py
 """
-Сервис для работы с терапевтическими заданиями
+Сервис для управления терапевтическими заданиями.
+Выносит бизнес-логику из хендлеров Telegram и bot.services.
 """
 
 import asyncio
 import logging
 import json
-import pytz
 
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from django.db import transaction
 from django.utils import timezone
 from asgiref.sync import sync_to_async
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+import pytz
 
-from prompts.get_prompt import get_prompt
-from messages import get_message
-from diary.services import daily_state_service
 from diary.models import DiaryEntry, TherapyTask, TaskCompletion, TaskCompletionAnalysis
 from users.models import User, TokenTransaction
+from diary.services.daily_state_service import daily_state_service
 from bot.services.deepseek_api import deepseek_api_service
-from bot.utils.message_utils import safe_edit_message_text
-from bot.keyboards import get_back_keyboard
+from prompts.get_prompt import get_prompt
+from messages import get_message
 
 logger = logging.getLogger(__name__)
 
-class TaskService:
-    """Сервис для работы с терапевтическими заданиями"""
+class TaskManagementService:
+    """Сервис для работы с терапевтическими заданиями."""
+
+    @classmethod
     async def assign_task(
-        self, 
-        user: User, 
-        title: str, 
-        description: str, 
+        cls,
+        user: User,
+        title: str,
+        description: str,
         task_type: str = 'daily',
         complexity: str = 'medium',
         related_entry: DiaryEntry = None
     ) -> TherapyTask:
         """
         Назначение терапевтического задания пользователю
-        
+
         Args:
             user: Пользователь
             title: Название задания
             description: Описание задания
             task_type: Тип задания
             complexity: Сложность задания
-            
+
         Returns:
             TherapyTask: Назначенное задание
         """
@@ -66,19 +67,20 @@ class TaskService:
             therapy_task = await create_task_sync()
             return therapy_task
         except Exception as e:
-            logger.error(f"Ошибка при назначении задания: {e}")
+            logger.error(f"[TaskManagementService] Ошибка при назначении задания: {e}")
             raise
-    
+
+    @classmethod
     async def get_user_active_tasks(
-        self, 
+        cls,
         user: User
     ) -> List[TherapyTask]:
         """
         Получение активных заданий пользователя
-        
+
         Args:
             user: Пользователь
-            
+
         Returns:
             List[TherapyTask]: Список активных заданий
         """
@@ -95,21 +97,22 @@ class TaskService:
             active_tasks = await get_active_tasks_sync()
             return active_tasks
         except Exception as e:
-            logger.error(f"Ошибка при получении активных заданий: {e}")
+            logger.error(f"[TaskManagementService] Ошибка при получении активных заданий: {e}")
             return []
-    
+
+    @classmethod
     async def get_user_completed_tasks(
-        self, 
-        user: User, 
+        cls,
+        user: User,
         limit: int = 10
     ) -> List[TherapyTask]:
         """
         Получение выполненных заданий пользователя
-        
+
         Args:
             user: Пользователь
             limit: Лимит заданий
-            
+
         Returns:
             List[TherapyTask]: Список выполненных заданий
         """
@@ -126,21 +129,22 @@ class TaskService:
             completed_tasks = await get_completed_tasks_sync()
             return completed_tasks
         except Exception as e:
-            logger.error(f"Ошибка при получении выполненных заданий: {e}")
+            logger.error(f"[TaskManagementService] Ошибка при получении выполненных заданий: {e}")
             return []
-    
+
+    @classmethod
     async def complete_task(
-        self, 
-        task_id: int, 
-        user: User, 
-        completion_text: str, 
+        cls,
+        task_id: int,
+        user: User,
+        completion_text: str,
         feelings_text: str,
-        status_message: Optional[Message] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Выполнение задания с учетом часового пояса пользователя.
+        Возвращает результат, но *не запускает* анализ и уведомления.
         """
-        logger.debug(f"Начало выполнения задания ID: {task_id} для пользователя {user.telegram_id}")
+        logger.debug(f"[TaskManagementService] Начало выполнения задания ID: {task_id} для пользователя {user.telegram_id}")
         try:
             user_local_time = await user.aget_local_datetime_now()
             @sync_to_async
@@ -155,13 +159,13 @@ class TaskService:
                     except TherapyTask.DoesNotExist:
                         logger.warning(f"[SYNC] Задание {task_id} не найдено или не принадлежит пользователю {user.telegram_id}")
                         raise ValueError("Задание не найдено или не принадлежит вам")
-                    
+
                     task_completion = None
                     if hasattr(task, 'completion'):
                         task_completion = task.completion
                         task_completion.completion_text = completion_text
                         task_completion.feelings_text = feelings_text
-                        task_completion.save(update_fields=['completion_text', 'feelings_text'])             
+                        task_completion.save(update_fields=['completion_text', 'feelings_text'])
                     else:
                         logger.debug(f"[SYNC] Создание нового TaskCompletion для задания {task_id}")
                         task_completion = TaskCompletion.objects.create(
@@ -171,181 +175,31 @@ class TaskService:
                             created_at=user_local_time
                         )
                         logger.debug(f"[SYNC] TaskCompletion создан: ID {task_completion.id}")
-                    
+
                     old_status = task.status
                     task.status = 'completed'
-                    if old_status != 'completed': 
+                    if old_status != 'completed':
                         task.completed_at = user_local_time
                     task.save(update_fields=['status', 'completed_at'])
-                    task_analysis = None   
-                return task_completion, task_analysis
-            task_completion, task_analysis = await complete_task_sync()
-            asyncio.create_task(self._run_analysis_and_notify_user(task_completion, user, status_message))
+                    # Возвращаем task_completion, task_analysis будет отдельно
+                return task_completion
+            task_completion = await complete_task_sync()
+            # Возврат информации о завершении, *без* запуска анализа
             result = {
                 'task_completion': task_completion,
-                'task_analysis': task_analysis,
-                'effect_analysis_started': True
+                'success': True
             }
-            logger.debug(f"Функция complete_task возвращает результат: {result}")
-            return result 
+            logger.debug(f"[TaskManagementService] Функция complete_task возвращает результат: {result}")
+            return result
         except ValueError as ve:
-            logger.warning(f"Ожидаемая ошибка в complete_task для задания {task_id}: {ve}")
-            return None
+            logger.warning(f"[TaskManagementService] Ожидаемая ошибка в complete_task для задания {task_id}: {ve}")
+            return {'success': False, 'error': str(ve)}
         except Exception as e:
-            logger.error(f"Критическая ошибка в complete_task для задания {task_id}: {e}", exc_info=True)
-            return None
+            logger.error(f"[TaskManagementService] Критическая ошибка в complete_task для задания {task_id}: {e}", exc_info=True)
+            return {'success': False, 'error': str(e)}
 
-    async def _run_analysis_and_notify_user(self, task_completion: TaskCompletion, user: User, status_message: Optional[Message] = None):
-        """
-        Асинхронная задача для запуска анализа эффекта и уведомления пользователя.
-        """
-        try:
-            from bot.main import bot as global_bot
-            analysis_result = await self.analyze_task_completion_effect(task_completion, user)
-            target_chat_id = user.telegram_id
-            use_edit = False
-            message_to_edit = None
-            
-            if status_message:
-                target_chat_id = status_message.chat.id
-                use_edit = True
-                message_to_edit = status_message
-            if isinstance(analysis_result, dict) and analysis_result.get('invalid'):
-                validation_comment = analysis_result.get('validation_comment', get_message('task_completion_invalid_default_comment', user.language))
-                language = user.language
-                final_message = get_message(
-                    'task_completion_invalid_formatted', 
-                    language, 
-                    validation_comment=validation_comment
-                )
-                buttons = [
-                    [
-                        InlineKeyboardButton(
-                            text=get_message('btn_try_again', language),
-                            callback_data=f"complete_task:{task_completion.task.id}"
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            text=get_message('btn_skip_task', language),
-                            callback_data=f"skip_task:{task_completion.task.id}"
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            text=get_message('btn_back', language),
-                            callback_data="back_to_tasks"
-                        )
-                    ]
-                ]
-                reply_markup = InlineKeyboardMarkup(inline_keyboard=buttons)   
-            elif analysis_result and hasattr(analysis_result, 'id'):
-                language = user.language
-                parsed_result = analysis_result.api_response.get('result', {})
-                formatted_message = parsed_result.get('formatted_message')
-                if formatted_message:
-                    tokens_awarded = analysis_result.tokens_awarded
-                    final_message = formatted_message
-                    if tokens_awarded > 0:
-                        updated_user = await User.objects.aget(telegram_id=user.telegram_id)
-                        tokens_info = get_message('task_tokens_awarded', language, tokens=tokens_awarded, balance=updated_user.token_balance)
-                        if tokens_info not in final_message:
-                            final_message += f"\n\n{tokens_info}"
-                else:
-                    effect_description = analysis_result.effect_description or get_message('no_effect_description', language)
-                    mood_impact_score = analysis_result.mood_impact_score
-                    if mood_impact_score is not None:
-                        try:
-                            mood_impact_score_int = int(mood_impact_score)
-                            if mood_impact_score_int > 0:
-                                mood_impact_display = f"🔺 +{mood_impact_score_int}"
-                            elif mood_impact_score_int < 0:
-                                mood_impact_display = f"🔻 {mood_impact_score_int}"
-                            else:
-                                mood_impact_display = f"➡️ {mood_impact_score_int}"
-                        except (ValueError, TypeError):
-                            mood_impact_display = "N/A"
-                    else:
-                        mood_impact_display = "N/A"
-                    comment_for_user = analysis_result.comment or get_message('no_comment', language)
-                    recommendation_for_user = analysis_result.recommendation or get_message('no_recommendation', language)
-                    tokens_awarded = analysis_result.tokens_awarded
-                    updated_user = await User.objects.aget(telegram_id=user.telegram_id)
-                    main_analysis_text = get_message(
-                        'task_effect_analysis_result_formatted',
-                        language,
-                        effect_description=effect_description,
-                        mood_impact=mood_impact_display,
-                        comment=comment_for_user,
-                        recommendation=recommendation_for_user
-                    )
-                    if tokens_awarded > 0:
-                        tokens_info = get_message('task_tokens_awarded', language, tokens=tokens_awarded, balance=updated_user.token_balance)
-                        final_message = f"{main_analysis_text}\n\n{tokens_info}"
-                    else:
-                        final_message = main_analysis_text
-
-                reply_markup = get_back_keyboard(language)
-            else:
-                language = user.language
-                final_message = get_message('task_analysis_error_formatted', language)
-                reply_markup = get_back_keyboard(language)
-            if use_edit and message_to_edit:
-                try:
-                    await safe_edit_message_text(
-                        message=message_to_edit,
-                        text=final_message,
-                        reply_markup=reply_markup
-                    )
-                    logger.debug(f"Сообщение отредактировано для задания {task_completion.task.id}")
-                except Exception as edit_error:
-                    logger.warning(f"Не удалось отредактировать сообщение: {edit_error}. Отправляем новое.")
-                    if global_bot:
-                        await global_bot.send_message(
-                            chat_id=target_chat_id, 
-                            text=final_message, 
-                            reply_markup=reply_markup
-                        )
-            else:
-                if global_bot:
-                    await global_bot.send_message(
-                        chat_id=target_chat_id, 
-                        text=final_message, 
-                        reply_markup=reply_markup
-                    )
-                    logger.debug(f"Новое сообщение отправлено для задания {task_completion.task.id}")
-        except Exception as task_error:
-            logger.error(f"Критическая ошибка в _run_analysis_and_notify_user: {task_error}", exc_info=True)
-            try:
-                language = user.language if 'user' in locals() else 'ru'
-                final_message = get_message('task_analysis_error_formatted', language)
-                error_reply_markup = get_back_keyboard(language)
-                if status_message and global_bot:
-                    try:
-                        await safe_edit_message_text(
-                            message=status_message,
-                            text=final_message,
-                            reply_markup=error_reply_markup
-                        )
-                    except:
-                        try:
-                            await global_bot.send_message(
-                                chat_id=status_message.chat.id,
-                                text=final_message,
-                                reply_markup=error_reply_markup
-                            )
-                        except:
-                            pass
-                elif global_bot and 'user' in locals():
-                    await global_bot.send_message(
-                        chat_id=user.telegram_id, 
-                        text=final_message, 
-                        reply_markup=error_reply_markup
-                    )
-            except:
-                pass
-    
-    async def skip_task(self, task_id: int, user: User) -> bool:
+    @classmethod
+    async def skip_task(cls, task_id: int, user: User) -> bool:
         """
         Пропуск задания с учетом часового пояса пользователя.
         """
@@ -365,26 +219,27 @@ class TaskService:
                 with transaction.atomic():
                     task.status = 'skipped'
                     task.completed_at = user_local_time
-                    task.save(update_fields=['status', 'completed_at'])       
+                    task.save(update_fields=['status', 'completed_at'])
                 return True
             success = await skip_task_sync()
             return success
         except Exception as e:
-            logger.error(f"Ошибка при пропуске задания: {e}")
+            logger.error(f"[TaskManagementService] Ошибка при пропуске задания: {e}")
             return False
-    
+
+    @classmethod
     async def delete_task(
-        self, 
-        task_id: int, 
+        cls,
+        task_id: int,
         user: User
     ) -> bool:
         """
         Удаление задания
-        
+
         Args:
             task_id: ID задания
             user: Пользователь
-            
+
         Returns:
             bool: Успешность удаления
         """
@@ -413,11 +268,12 @@ class TaskService:
             success = await delete_task_sync()
             return success
         except Exception as e:
-            logger.error(f"Ошибка при удалении задания ID {task_id}: {e}")
+            logger.error(f"[TaskManagementService] Ошибка при удалении задания ID {task_id}: {e}")
             return False
-    
+
+    @classmethod
     async def analyze_task_completion_effect(
-        self,
+        cls,
         task_completion: TaskCompletion,
         user: User
     ) -> Optional[TaskCompletionAnalysis]:
@@ -495,7 +351,7 @@ class TaskService:
                     comment="",
                     recommendation="",
                     detailed_analysis="",
-                    tokens_awarded=0, # --- НОВОЕ ---
+                    tokens_awarded=0,
                     api_response=api_result
                 )
                 return analysis
@@ -525,7 +381,6 @@ class TaskService:
             comment_from_api = parsed_result.get('comment', '')
             recommendation_from_api = parsed_result.get('recommendation', '')
             detailed_analysis_from_api = parsed_result.get('detailed_analysis', '')
-            # --- НОВОЕ: Обработка tokens_awarded ---
             tokens_awarded_raw = parsed_result.get('tokens_awarded', 0)
             try:
                 tokens_awarded = int(tokens_awarded_raw)
@@ -535,7 +390,6 @@ class TaskService:
             except (ValueError, TypeError):
                 logger.warning(f"Некорректный формат tokens_awarded из API: {tokens_awarded_raw}. Используем 0.")
                 tokens_awarded = 0
-            # --- /НОВОЕ ---
             @sync_to_async
             def _mark_previous_analyses_obsolete():
                 with transaction.atomic():
@@ -555,7 +409,7 @@ class TaskService:
                 'comment': comment_from_api,
                 'recommendation': recommendation_from_api,
                 'detailed_analysis': detailed_analysis_from_api,
-                'tokens_awarded': tokens_awarded, # --- НОВОЕ ---
+                'tokens_awarded': tokens_awarded,
                 'is_obsolete': False,
                 'api_response': api_result
             }
@@ -563,26 +417,19 @@ class TaskService:
             def _create_analysis():
                 return TaskCompletionAnalysis.objects.create(**analysis_data)
             analysis = await _create_analysis()
-            # --- НОВОЕ: Обновление баланса и создание транзакции ---
             if tokens_awarded > 0:
-                # ИСПОЛЬЗУЕМ НОВЫЙ МЕТОД из модели TokenTransaction
                 await sync_to_async(TokenTransaction.create_and_update_balance)(
                     user=user,
-                    amount=tokens_awarded, # Положительное значение для начисления
+                    amount=tokens_awarded,
                     transaction_type='task_completion',
                     description=f"Начисление за выполнение задания '{task_completion.task.title}'",
-                    related_task_completion=task_completion # Передаём связанное выполнение задания
+                    related_task_completion=task_completion
                 )
-                # Логирование можно оставить, но баланс теперь обновлён в методе create_and_update_balance
-                # Получить *новый* баланс из БД для лога сложнее, так как `user` в памяти не обновлён (F() выражение)
-                # Можно залогировать amount, это тоже полезно.
                 logger.debug(f"Пользователю {user.telegram_id} начислено {tokens_awarded} токенов за выполнение задания {task_completion.task.id} через TokenTransaction.create_and_update_balance.")
-                logger.debug(f"Создана транзакция начисления токенов для пользователя {user.telegram_id}, задание {task_completion.task.id}")
-            # --- /НОВОЕ ---
-            logger.debug(f"Анализ эффекта задания {task_completion.task.id} успешно создан: ID {analysis.id}")
+            logger.debug(f"[TaskManagementService] Анализ эффекта задания {task_completion.task.id} успешно создан: ID {analysis.id}")
             return analysis
         except Exception as e:
-            logger.error(f"Критическая ошибка при анализе эффекта выполнения задания "
+            logger.error(f"[TaskManagementService] Критическая ошибка при анализе эффекта выполнения задания "
                         f"ID {task_completion.task.id}: {e}", exc_info=True)
             try:
                 analysis = await sync_to_async(TaskCompletionAnalysis.objects.create)(
@@ -592,15 +439,16 @@ class TaskService:
                     comment="",
                     recommendation="",
                     detailed_analysis="",
-                    tokens_awarded=0, # --- НОВОЕ ---
+                    tokens_awarded=0,
                     api_response={'error': 'critical_exception', 'details': str(e)}
                 )
                 return analysis
             except Exception as inner_e:
-                logger.error(f"Не удалось создать запись об ошибке анализа: {inner_e}")
+                logger.error(f"[TaskManagementService] Не удалось создать запись об ошибке анализа: {inner_e}")
             return None
 
-    async def get_user_skipped_tasks(self, user: User, limit: int = 10) -> List[TherapyTask]:
+    @classmethod
+    async def get_user_skipped_tasks(cls, user: User, limit: int = 10) -> List[TherapyTask]:
         """
         Асинхронное получение пропущенных заданий пользователя.
 
@@ -624,10 +472,11 @@ class TaskService:
             skipped_tasks = await get_skipped_tasks_sync()
             return skipped_tasks
         except Exception as e:
-            logger.error(f"Ошибка при получении пропущенных заданий пользователя {user.telegram_id}: {e}")
+            logger.error(f"[TaskManagementService] Ошибка при получении пропущенных заданий пользователя {user.telegram_id}: {e}")
             return []
 
-    async def restore_task(self, task_id: int, user: User) -> bool:
+    @classmethod
+    async def restore_task(cls, task_id: int, user: User) -> bool:
         """
         Восстановление пропущенного задания.
         """
@@ -651,51 +500,88 @@ class TaskService:
             success = await restore_task_sync()
             return success
         except Exception as e:
-            logger.error(f"Ошибка при восстановлении задания {task_id} для пользователя {user.telegram_id}: {e}")
+            logger.error(f"[TaskManagementService] Ошибка при восстановлении задания {task_id} для пользователя {user.telegram_id}: {e}")
             return False
 
-task_service = TaskService()
+    @classmethod
+    async def get_uncompleted_tasks_count_for_user(cls, user: User) -> int:
+        """
+        Подсчитывает количество незавершенных задач для пользователя (статус 'pending').
+
+        Args:
+            user: Объект пользователя Django.
+
+        Returns:
+            int: Количество незавершенных задач.
+        """
+        try:
+            @sync_to_async
+            def count_tasks_sync():
+                # NOTE: В оригинальном коде было status__in=['pending',], но в комментарии указаны ['pending', 'in_progress'].
+                # В ТЕКУЩЕМ оригинальном коде используется только 'pending'.
+                # Если нужно учитывать 'in_progress', измените фильтр.
+                return TherapyTask.objects.filter(
+                    user=user,
+                    status='pending' # <-- Используем оригинальную логику из файла задач
+                ).count()
+            count = await count_tasks_sync()
+            return count
+        except Exception as e:
+            logger.error(f"[TaskManagementService] Ошибка при подсчете незавершенных задач пользователя {user.telegram_id}: {e}", exc_info=True)
+            return 0 # Возвращаем 0 в случае ошибки
+
+# Удобные функции для импорта в хендлеры
+async def get_uncompleted_tasks_count_for_user(user: User) -> int:
+    """Удобная функция для получения количества незавершенных задач."""
+    return await TaskManagementService.get_uncompleted_tasks_count_for_user(user)
 
 async def assign_task(
-    user: User, 
-    title: str, 
-    description: str, 
+    user: User,
+    title: str,
+    description: str,
     task_type: str = 'daily',
     complexity: str = 'medium',
     related_entry: DiaryEntry = None
 ) -> TherapyTask:
     """Удобная функция для назначения задания"""
-    return await task_service.assign_task(user, title, description, task_type, complexity, related_entry)
+    return await TaskManagementService.assign_task(user, title, description, task_type, complexity, related_entry)
 
 async def get_user_active_tasks(user: User) -> List[TherapyTask]:
     """Удобная функция для получения активных заданий"""
-    return await task_service.get_user_active_tasks(user)
+    return await TaskManagementService.get_user_active_tasks(user)
 
 async def get_user_completed_tasks(user: User, limit: int = 10) -> List[TherapyTask]:
     """Удобная функция для получения выполненных заданий"""
-    return await task_service.get_user_completed_tasks(user, limit)
+    return await TaskManagementService.get_user_completed_tasks(user, limit)
 
 async def complete_task(
-    task_id: int, 
-    user: User, 
-    completion_text: str, 
-    feelings_text: str
-) -> Optional[TaskCompletion]:
+    task_id: int,
+    user: User,
+    completion_text: str,
+    feelings_text: str,
+) -> Optional[Dict[str, Any]]:
     """Удобная функция для выполнения задания"""
-    return await task_service.complete_task(task_id, user, completion_text, feelings_text)
+    return await TaskManagementService.complete_task(task_id, user, completion_text, feelings_text)
 
 async def skip_task(task_id: int, user: User) -> bool:
     """Удобная функция для пропуска задания"""
-    return await task_service.skip_task(task_id, user)
+    return await TaskManagementService.skip_task(task_id, user)
 
 async def delete_task(task_id: int, user: User) -> bool:
     """Удобная функция для удаления задания"""
-    return await task_service.delete_task(task_id, user)
+    return await TaskManagementService.delete_task(task_id, user)
 
 async def get_user_skipped_tasks(user: User, limit: int = 10) -> List[TherapyTask]:
     """Удобная функция для получения пропущенных заданий."""
-    return await task_service.get_user_skipped_tasks(user, limit)
+    return await TaskManagementService.get_user_skipped_tasks(user, limit)
 
 async def restore_task(task_id: int, user: User) -> bool:
     """Удобная функция для восстановления пропущенного задания."""
-    return await task_service.restore_task(task_id, user)
+    return await TaskManagementService.restore_task(task_id, user)
+
+async def analyze_task_completion_effect(
+    task_completion: TaskCompletion,
+    user: User
+) -> Optional[TaskCompletionAnalysis]:
+    """Удобная функция для анализа эффекта выполнения задания."""
+    return await TaskManagementService.analyze_task_completion_effect(task_completion, user)

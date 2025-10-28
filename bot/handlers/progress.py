@@ -11,7 +11,6 @@ from aiogram import Bot, F, Router
 from aiogram.types import CallbackQuery, InputFile, BufferedInputFile
 from asgiref.sync import sync_to_async
 
-from diary.models import WeeklyAnalysis, DiaryEntry, TaskCompletion, TherapyTask
 from messages import get_message
 from bot.keyboards import (
     get_back_keyboard,
@@ -23,125 +22,20 @@ from bot.keyboards import (
 )
 from bot.utils.message_utils import safe_edit_message_text
 from bot.utils.mood_chart import generate_mood_chart_image
-from bot.utils.diary_utils import get_recoverable_gap_info, attempt_restore_streak
+from diary.services.progress_service import (
+    get_user_progress_statistics,
+    get_latest_weekly_analysis,
+    get_has_weekly_analyses,
+    get_weekly_analysis_for_date,
+    get_all_weekly_analysis_dates,
+    get_detailed_weekly_changes,
+    check_restore_streak_availability,
+    attempt_streak_restoration,
+    format_weekly_analysis_for_display
+)
 
 logger = logging.getLogger(__name__)
 router = Router()
-
-async def _has_weekly_analyses(user) -> bool:
-    """Проверяет, есть ли у пользователя хотя бы один недельный анализ."""
-    try:
-        @sync_to_async
-        def _check_sync():
-            return WeeklyAnalysis.objects.filter(user=user).exists()
-        return await _check_sync()
-    except Exception as e:
-        logger.error(f"Ошибка при проверке наличия недельных анализов для пользователя {user.id}: {e}")
-        return False
-
-async def _get_user_statistics(user) -> dict:
-    """
-    Получает или вычисляет актуальную статистику пользователя.
-    """
-    logger.debug(f"[_get_user_statistics] Получение статистики для пользователя {user.id}")
-    stats = {
-        'entries_count': 0,
-        'tasks_completed': 0,
-        'tasks_assigned': 0,
-        'tasks_completion_percentage': 0.0,
-        'streak_days': 0,
-        'has_entry_today': False,
-        'streak_reset_warning': "",
-    }
-    try:
-        @sync_to_async
-        def _count_entries():
-            return DiaryEntry.objects.filter(user=user, is_recovered_streak=False).count()
-        stats['entries_count'] = await _count_entries()
-        @sync_to_async
-        def _count_tasks_completed():
-            return TaskCompletion.objects.filter(task__user=user).count()
-        stats['tasks_completed'] = await _count_tasks_completed()
-        @sync_to_async
-        def _count_tasks_assigned():
-            return TherapyTask.objects.filter(user=user).count()
-        stats['tasks_assigned'] = await _count_tasks_assigned()
-        if stats['tasks_assigned'] > 0:
-            stats['tasks_completion_percentage'] = (stats['tasks_completed'] / stats['tasks_assigned']) * 100.0
-        @sync_to_async
-        def _check_entry_today():
-            
-            from datetime import time as dtime
-            user_timezone_str = user.timezone or 'UTC'
-            try:
-                user_tz = pytz.timezone(user_timezone_str)
-            except Exception:
-                logger.warning(f"Неверный часовой пояс для пользователя {user.id}: {user_timezone_str}. Используем UTC.")
-                user_tz = pytz.UTC
-            now_user_tz = datetime.now(user_tz)
-            today_user_date = now_user_tz.date()
-            start_of_day_user_tz = datetime.combine(today_user_date, dtime.min)
-            start_of_day_user_tz = user_tz.localize(start_of_day_user_tz)
-            end_of_day_user_tz = datetime.combine(today_user_date, dtime.max)
-            end_of_day_user_tz = user_tz.localize(end_of_day_user_tz)
-            start_of_day_utc = start_of_day_user_tz.astimezone(pytz.utc)
-            end_of_day_utc = end_of_day_user_tz.astimezone(pytz.utc)
-            return DiaryEntry.objects.filter(
-                user=user,
-                created_at__gte=start_of_day_utc,
-                created_at__lte=end_of_day_utc
-            ).exists()
-        stats['has_entry_today'] = await _check_entry_today()
-        @sync_to_async
-        def _calculate_current_streak():
-            from datetime import datetime
-            import pytz
-            from django.db.models.functions import TruncDate
-            from django.db.models import Q
-            user_timezone_str = user.timezone or 'UTC'
-            try:
-                user_tz = pytz.timezone(user_timezone_str)
-            except Exception:
-                logger.warning(f"Неверный часовой пояс для пользователя {user.id}: {user_timezone_str}. Используем UTC.")
-                user_tz = pytz.UTC
-            entry_dates_qs = DiaryEntry.objects.filter(user=user).annotate(
-                entry_date=TruncDate('created_at', tzinfo=user_tz)
-            ).values('entry_date').order_by('-entry_date').distinct()
-            entry_dates = [item['entry_date'] for item in entry_dates_qs]
-            if not entry_dates:
-                return 0 
-            today_user_date = datetime.now(user_tz).date()
-            streak = 0
-            expected_date = today_user_date
-            for entry_date in entry_dates:
-                if entry_date == expected_date:
-                    streak += 1
-                    expected_date -= timedelta(days=1)
-                elif entry_date < expected_date:
-                    break
-            return streak
-        stats['streak_days'] = await _calculate_current_streak()
-        if not stats['has_entry_today'] and stats['streak_days'] > 0:
-             stats['streak_reset_warning'] = get_message('streak_reset_warning', user.language or 'ru', streak_days=stats['streak_days'])
-    except Exception as e:
-        logger.error(f"[_get_user_statistics] Ошибка при подсчете статистики для пользователя {user.id}: {e}", exc_info=True)
-    return stats
-
-async def _get_latest_weekly_analysis(user):
-    """Получает последний недельный анализ пользователя."""
-    try:
-        @sync_to_async
-        def _get_sync():
-            return WeeklyAnalysis.objects.filter(user=user).order_by('-week_start_date').first()
-        return await _get_sync()
-    except Exception as e:
-        logger.error(f"Ошибка при получении последнего недельного анализа для пользователя {user.id}: {e}")
-        return None
-
-async def _should_show_restore_button(user) -> bool:
-    """Проверяет, нужно ли показывать кнопку восстановления."""
-    recoverable_dates = await get_recoverable_gap_info(user)
-    return recoverable_dates is not None
 
 @router.callback_query(F.data == "progress")
 async def show_progress(callback: CallbackQuery, user, language: str):
@@ -149,20 +43,19 @@ async def show_progress(callback: CallbackQuery, user, language: str):
     logger.debug(f"[show_progress] Запрос от пользователя {user.id}")
     try:
         awareness_level_current = user.awareness_level
-        user_stats = await _get_user_statistics(user)
+        user_stats = await get_user_progress_statistics(user)
         total_entries = user_stats['entries_count']
         tasks_completed = user_stats['tasks_completed']
         tasks_assigned = user_stats['tasks_assigned']
         tasks_completion_percentage = user_stats['tasks_completion_percentage']
         streak_days = user_stats['streak_days']
         streak_reset_warning = user_stats['streak_reset_warning']
-        latest_weekly_analysis = await _get_latest_weekly_analysis(user)
+        latest_weekly_analysis = await get_latest_weekly_analysis(user)
         comparison_text = ""
         if latest_weekly_analysis and latest_weekly_analysis.comparison_with_previous:
             comparison_data = latest_weekly_analysis.comparison_with_previous
             progress_comment = comparison_data.get('progress_comment')
             mood_comparison = comparison_data.get('mood_comparison')
-
             parts = []
             if progress_comment:
                 parts.append(progress_comment)
@@ -171,11 +64,8 @@ async def show_progress(callback: CallbackQuery, user, language: str):
                      parts.insert(0, mood_comparison)
                 else:
                      parts.append(f"({mood_comparison})")
-
             if parts:
                 comparison_text = f"\n\n📊 <b>Динамика:</b> {' '.join(parts)}"
-
-        # --- Формирование информационного сообщения, если WeeklyAnalysis ещё не проводилось ---
         no_analysis_info = ""
         if not latest_weekly_analysis:
              no_analysis_info = get_message('weekly_analysis_not_performed_yet', language)
@@ -188,23 +78,15 @@ async def show_progress(callback: CallbackQuery, user, language: str):
                                    tasks_completion_percentage=tasks_completion_percentage,
                                    streak_days=streak_days,
                                    streak_reset_warning=streak_reset_warning)
-
-        # Добавляем информационное сообщение, если анализов нет
         progress_msg += no_analysis_info
-        # Добавляем текст сравнения (если есть)
         progress_msg += comparison_text
-        # УБРАНО: отображение profile_changes_summary в основном сообщении
-
-        has_analyses = await _has_weekly_analyses(user)
-        show_restore_btn = await _should_show_restore_button(user)
-        # --- ОБНОВЛЯЕМ КЛАВИАТУРУ: добавляем кнопку "Подробный прогресс" ---
+        has_analyses = await get_has_weekly_analyses(user)
+        restore_check_result = await check_restore_streak_availability(user)
+        show_restore_btn = restore_check_result['available']
         if has_analyses:
-             # Используем обновленную клавиатуру с флагом
              reply_markup = get_progress_keyboard_with_weekly(language, show_restore_button=show_restore_btn)
         else:
-             # Используем обновленную клавиатуру с флагом
              reply_markup = get_progress_keyboard_without_weekly(language, show_restore_button=show_restore_btn)
-
         success = await safe_edit_message_text(
             message=callback.message,
             text=progress_msg,
@@ -230,7 +112,7 @@ async def show_weekly_progress_list(callback: CallbackQuery, user, language: str
     """Показывает последний недельный анализ."""
     logger.debug(f"[show_weekly_progress_list] Запрос от пользователя {user.id}")
     try:
-        latest = await _get_latest_weekly_analysis(user)
+        latest = await get_latest_weekly_analysis(user)
         if not latest:
             no_analysis_msg = get_message('weekly_analysis_not_found', language)
             success = await safe_edit_message_text(
@@ -243,7 +125,7 @@ async def show_weekly_progress_list(callback: CallbackQuery, user, language: str
             await callback.answer()
             return
         await _show_weekly_analysis_page(callback.message, user, latest.week_start_date, language)
-        await callback.answer()    
+        await callback.answer()
     except Exception as e:
         logger.error(f"[show_weekly_progress_list] Критическая ошибка: {e}", exc_info=True)
         error_msg = get_message('error_generic', language)
@@ -287,7 +169,6 @@ async def send_mood_chart_week(callback: CallbackQuery, user, language: str, bot
             button_callback_data="delete_current_chart",
             button_text="btn_remove"
         )
-
         sent_message = await callback.message.answer_photo(
             photo=chart_input_file,
             caption=get_message('mood_chart_caption', language, days=14),
@@ -315,22 +196,18 @@ async def handle_restore_streak_request(callback: CallbackQuery, user, language:
     """Обрабатывает запрос на восстановление серии."""
     logger.debug(f"[handle_restore_streak_request] Запрос от пользователя {user.id}")
     try:
-        # Проверяем, доступно ли восстановление
-        recoverable_dates = await get_recoverable_gap_info(user)
-        if not recoverable_dates:
-             # Если по какой-то причине стало недоступно, обновляем экран прогресса
+        restore_check_result = await check_restore_streak_availability(user)
+        if not restore_check_result['available']:
              await show_progress(callback, user, language)
              await callback.answer()
              return
-
-        # Если доступна одна дата, сразу пробуем восстановить
+        recoverable_dates = restore_check_result['dates']
         if len(recoverable_dates) == 1:
-            message_text = get_message('restore_streak_info', language, tokens_cost=10) # Предполагаемая стоимость
+            message_text = get_message('restore_streak_info', language, tokens_cost=10)
         elif len(recoverable_dates) == 2:
-            message_text = get_message('restore_streak_info', language, tokens_cost=10) # Предполагаемая стоимость
+            message_text = get_message('restore_streak_info', language, tokens_cost=10) 
         else:
-            # Логическая ошибка, функция не должна возвращать больше 2
-            logger.error(f"[handle_restore_streak_request] get_recoverable_gap_info вернула более 2 дат: {recoverable_dates}")
+            logger.error(f"[handle_restore_streak_request] check_restore_streak_availability вернула более 2 дат: {recoverable_dates}")
             error_msg = get_message('error_generic', language)
             await safe_edit_message_text(
                 message=callback.message,
@@ -339,14 +216,12 @@ async def handle_restore_streak_request(callback: CallbackQuery, user, language:
             )
             await callback.answer()
             return
-
         keyboard = get_restore_date_selection_keyboard(language, recoverable_dates)
         await safe_edit_message_text(
             message=callback.message,
             text=message_text,
             reply_markup=keyboard
         )
-
         await callback.answer()
     except Exception as e:
         logger.error(f"[handle_restore_streak_request] Критическая ошибка: {e}", exc_info=True)
@@ -363,7 +238,6 @@ async def handle_restore_streak_confirm(callback: CallbackQuery, user, language:
     """Обрабатывает подтверждение восстановления для конкретной даты."""
     logger.debug(f"[handle_restore_streak_confirm] Callback от пользователя {user.id}: {callback.data}")
     try:
-        # Извлекаем дату из callback_data
         parts = callback.data.split(":", 1)
         if len(parts) != 2:
             raise ValueError("Некорректный формат callback_data для подтверждения восстановления")
@@ -372,33 +246,22 @@ async def handle_restore_streak_confirm(callback: CallbackQuery, user, language:
             target_date = date.fromisoformat(date_str)
         except ValueError:
             raise ValueError(f"Некорректный формат даты в callback_data: {date_str}")
-
-        # Проверяем, можно ли восстановить именно эту дату
-        recoverable_dates = await get_recoverable_gap_info(user)
-        if not recoverable_dates or target_date not in recoverable_dates:
-            # Если дата больше не доступна, обновляем экран
+        restore_check_result = await check_restore_streak_availability(user)
+        if not restore_check_result['available'] or target_date not in restore_check_result['dates']:
             message_text = get_message('restore_streak_unavailable', language)
-            # Обновляем экран прогресса
             await show_progress(callback, user, language)
-            # Отправляем сообщение об ошибке
             await callback.message.answer(text=message_text)
             await callback.answer()
             return
-
-        result = await attempt_restore_streak(user, target_date)
-        message_text = get_message(result['message_key'], language, **result['message_kwargs'])
-        # Обновляем экран прогресса
+        restoration_result = await attempt_streak_restoration(user, target_date, language)
+        message_text = restoration_result['message']
         await show_progress(callback, user, language)
-        # Отправляем сообщение с результатом операции как show_alert
         await callback.answer(text=message_text, show_alert=True)
-
         await callback.answer()
     except (ValueError, Exception) as e:
         logger.error(f"[handle_restore_streak_confirm] Ошибка: {e}", exc_info=True)
         error_msg = get_message('error_generic', language)
-        # Обновляем экран прогресса
         await show_progress(callback, user, language)
-        # Отправляем сообщение об ошибке
         await callback.message.answer(text=error_msg)
         await callback.answer()
 
@@ -406,48 +269,27 @@ async def _show_weekly_analysis_page(message, user, week_start_date: date, langu
     """Вспомогательная функция для отображения анализа конкретной недели."""
     logger.debug(f"[_show_weekly_analysis_page] Попытка показа анализа для недели {week_start_date} пользователя {user.id}")
     try:
-        week_end_date = week_start_date + timedelta(days=6)
-        logger.debug(f"[_show_weekly_analysis_page] Конец недели: {week_end_date}")
-        @sync_to_async
-        def get_analysis_sync():
-            try:
-                return WeeklyAnalysis.objects.get(user=user, week_start_date=week_start_date)
-            except WeeklyAnalysis.DoesNotExist:
-                logger.debug(f"[_show_weekly_analysis_page] Анализ для недели {week_start_date} не найден.")
-                return None
-        analysis = await get_analysis_sync()
+        analysis = await get_weekly_analysis_for_date(user, week_start_date)
         if not analysis:
             no_data_msg = get_message('weekly_analysis_not_found', language)
-            logger.debug(f"[_show_weekly_analysis_page] Анализ не найден, отправляем сообщение.")
+            logger.debug(f"[_show_weekly_analysis_page] Анализ для недели {week_start_date} не найден.")
             await safe_edit_message_text(
                 message=message,
                 text=no_data_msg,
                 reply_markup=get_weekly_navigation_keyboard(language, week_start_date)
             )
             return
-        title_msg = get_message('weekly_analysis_title', language).format(
-            week_start_date=week_start_date.strftime("%d.%m.%Y"),
-            week_end_date=week_end_date.strftime("%d.%m.%Y"),
-            awareness_level=analysis.consolidated_user_profile.get('awareness_level', user.awareness_level) 
-                             if isinstance(analysis.consolidated_user_profile, dict) else user.awareness_level
-        )
-        summary_part = ""
-        if analysis.summary_text:
-            summary_part = get_message('weekly_analysis_summary', language).format(
-                summary_text=analysis.summary_text
+        format_result = await format_weekly_analysis_for_display(analysis, user, language)
+        if not format_result['success']:
+            logger.error(f"[_show_weekly_analysis_page] Ошибка форматирования анализа: {format_result.get('error')}")
+            error_msg = get_message('error_generic', language)
+            await safe_edit_message_text(
+                message=message,
+                text=error_msg,
+                reply_markup=get_progress_keyboard_without_weekly(language)
             )
-        stats_part = ""
-        stats = analysis.statistics
-        if isinstance(stats, dict):
-            stats_part = get_message('weekly_analysis_stats', language).format(
-                total_entries=stats.get('total_entries', 'N/A'),
-                streak_days_current=stats.get('streak_days_current', 'N/A'),
-                avg_mood_score=f"{stats.get('avg_mood_score', 0.0):.2f}",
-                tasks_assigned=stats.get('tasks_assigned', 'N/A'),
-                tasks_completed=stats.get('tasks_completed', 'N/A')
-            )
-        final_msg_parts = [part for part in [title_msg.strip(), summary_part.strip(), stats_part.strip()] if part]
-        final_msg = "\n\n".join(final_msg_parts) if final_msg_parts else get_message('weekly_analysis_no_data', language)
+            return
+        final_msg = format_result['formatted_text']
         success = await safe_edit_message_text(
             message=message,
             text=final_msg,
@@ -471,46 +313,19 @@ async def show_detailed_progress(callback: CallbackQuery, user, language: str):
     """Показывает подробности изменений профиля из последнего WeeklyAnalysis."""
     logger.debug(f"[show_detailed_progress] Запрос от пользователя {user.id}")
     try:
-        latest_weekly_analysis = await _get_latest_weekly_analysis(user)
-
-        if not latest_weekly_analysis:
-            no_data_msg = get_message('weekly_analysis_not_found', language)
+        details_result = await get_detailed_weekly_changes(user, language)
+        if not details_result['success']:
+            error_msg = details_result.get('message', get_message('error_generic', language))
             await safe_edit_message_text(
                 message=callback.message,
-                text=no_data_msg,
+                text=error_msg,
                 reply_markup=get_back_keyboard(language)
             )
             await callback.answer()
             return
-        changes_text = ""
-        if latest_weekly_analysis.profile_changes_summary:
-            changes_summary = latest_weekly_analysis.profile_changes_summary
-            summary = changes_summary.get('summary', '')
-            key_changes = changes_summary.get('key_changes', [])
-            stable_traits = changes_summary.get('stable_traits', [])
 
-            parts = []
-            if summary:
-                parts.append(get_message('changes', language, summary=summary))
-            if key_changes:
-                changes_list = "\n".join([f"🔸 {change}" for change in key_changes])
-                parts.append(get_message('key_changes', language, changes_list=changes_list))
-            if stable_traits:
-                stable_list = "\n".join([f"🔹 {trait}" for trait in stable_traits])
-                parts.append(get_message('stable_traits', language, stable_list=stable_list))
+        details_msg = details_result['message']
 
-            if parts:
-                changes_text = "\n\n".join(parts)
-        else:
-             changes_text = get_message('no_profile_changes_found', language)
-        week_start_date = latest_weekly_analysis.week_start_date.strftime("%d.%m.%Y")
-        week_end_date = (latest_weekly_analysis.week_start_date + timedelta(days=6)).strftime("%d.%m.%Y")
-        details_msg = get_message(
-            'detailed_progress',
-            language,
-            week_start_date=week_start_date,
-            week_end_date=week_end_date,
-            changes_text=changes_text)
         await safe_edit_message_text(
             message=callback.message,
             text=details_msg,

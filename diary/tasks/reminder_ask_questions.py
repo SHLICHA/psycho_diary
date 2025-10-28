@@ -303,8 +303,8 @@ async def _create_task_from_suggested_data(user, task_data, entry_date, related_
         task_type = 'daily'
     priority_map = {'low': 1, 'medium': 2, 'high': 3, 'critical': 4}
     priority = priority_map.get(task_data.get('priority', 'medium').lower(), 2)
-    from bot.services import task_service
-    return await task_service.assign_task(
+    from diary.services.task_management_service import assign_task
+    return await assign_task(
         user=user,
         title=task_data.get('title', 'Задание от ИИ'),
         description=task_data.get('description', 'Выполните задание.'),

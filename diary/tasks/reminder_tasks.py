@@ -18,6 +18,7 @@ from django.db import close_old_connections
 from bot.utils.message_utils import send_message_to_user
 from bot.services import deepseek_api_service
 from diary.models import TherapyTask, DiaryEntry, CombinedDiaryEntry, DailyAnalysis
+from diary.services.task_management_service import get_uncompleted_tasks_count_for_user
 from users.models import User
 from messages import get_message, get_button_text
 from prompts.get_prompt import get_prompt
@@ -180,7 +181,7 @@ async def _send_entry_reminders_async():
                         logger.debug(f"Пользователь {user.telegram_id} уже сделал запись сегодня ({user_local_date}). Напоминание о записи не отправляется.")
                         continue
 
-                    uncompleted_tasks_count = await get_uncompleted_tasks_count_for_user_today(user)
+                    uncompleted_tasks_count = await get_uncompleted_tasks_count_for_user(user)
                     current_streak, longest_streak = await get_user_streaks(user)
                     yesterday = user_local_date - timedelta(days=1)
                     previous_day_text = ""

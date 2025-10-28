@@ -57,6 +57,10 @@ class StateManager:
         """Установка экземпляра бота для отправки сообщений"""
         self._bot_instance = bot
         logger.debug("Bot instance установлен в StateManager")
+
+    def get_bot(self):
+        """Возвращает экземпляр бота."""
+        return self._bot_instance
     
     async def set_state(self, context: FSMContext, state: State, **data):
         """Установка состояния с автоматическим таймаутом"""

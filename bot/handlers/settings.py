@@ -24,13 +24,21 @@ from bot.keyboards import (
     get_multiple_city_timezones_keyboard,
     get_task_settings_keyboard,
     )
-from bot.services import deepseek_api_service
 from bot.utils.state_manager import state_manager
 from bot.utils.callback_utils import safe_answer_callback
 from bot.utils.message_utils import safe_edit_message_text
 from bot.decorators.analytics_decorator import log_user_activity
-from diary.models import *
-from users.models import CityTimezone
+from diary.services.settings_service import (
+    update_user_language,
+    toggle_user_notifications,
+    toggle_user_auto_analysis,
+    get_task_limit_info,
+    update_task_limit,
+    update_user_timezone,
+    get_timezone_info,
+    process_city_timezone_lookup,
+    confirm_timezone_by_city
+)
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -72,13 +80,11 @@ async def set_language(callback: CallbackQuery, user, state: FSMContext, languag
     """Установка языка"""
     try:
         new_language = callback.data.split(":")[1]
-        supported_languages = ['ru', 'en']
-        if new_language not in supported_languages:
-            logger.warning(f"Неподдерживаемый язык: {new_language}")
+        result = await update_user_language(user, new_language)
+        if not result['success']:
+            logger.warning(f"Не удалось установить язык {new_language}: {result.get('error')}")
             await callback.answer(get_message('error_generic', language=language))
             return
-        user.language = new_language
-        await user.asave(update_fields=['language'])
         await state_manager.clear_state(state)
         success_msg = get_message('language_changed', language=new_language)
         if callback.message.text != success_msg:
@@ -107,14 +113,12 @@ async def set_language(callback: CallbackQuery, user, state: FSMContext, languag
 async def toggle_notifications(callback: CallbackQuery, user, language: str):
     """Переключение уведомлений"""
     try:
-        current_state = user.notifications_enabled
-        new_state = not current_state
-        user.notifications_enabled = new_state
-        await user.asave(update_fields=['notifications_enabled'])
-        if new_state:
-            toggle_msg = get_message('notifications_enabled', language=language)
-        else:
-            toggle_msg = get_message('notifications_disabled', language=language)
+        result = await toggle_user_notifications(user)
+        if not result['success']:
+            logger.error(f"Ошибка при переключении уведомлений: {result.get('error')}")
+            await callback.answer(get_message('error_generic', language=language))
+            return
+        toggle_msg = get_message(result['status_message_key'], language=language)
         await callback.answer(toggle_msg)
         new_keyboard = get_settings_keyboard(user, language)
         try:
@@ -135,18 +139,15 @@ async def toggle_notifications(callback: CallbackQuery, user, language: str):
 async def toggle_auto_analysis(callback: CallbackQuery, user, language: str):
     """Переключение автоанализа"""
     try:
-        current_state = user.auto_analysis_enabled
-        new_state = not current_state
-        user.auto_analysis_enabled = new_state
-        await user.asave(update_fields=['auto_analysis_enabled'])
-        if new_state:
-            toggle_msg = get_message('settings_auto_analysis', language=language).format(
-                status=get_message('status_enabled', language=language)
-            )
-        else:
-            toggle_msg = get_message('settings_auto_analysis', language=language).format(
-                status=get_message('status_disabled', language=language)
-            )
+        result = await toggle_user_auto_analysis(user)
+        if not result['success']:
+            logger.error(f"Ошибка при переключении автоанализа: {result.get('error')}")
+            await callback.answer(get_message('error_generic', language=language))
+            return
+        status_key = result['status_message_key']
+        toggle_msg = get_message('settings_auto_analysis', language=language).format(
+            status=get_message(status_key, language=language)
+        )
         await callback.answer(toggle_msg)
         new_keyboard = get_settings_keyboard(user, language)
         try:
@@ -157,7 +158,7 @@ async def toggle_auto_analysis(callback: CallbackQuery, user, language: str):
             await callback.message.edit_text(
                 settings_msg,
                 reply_markup=new_keyboard
-            )     
+            )
     except Exception as e:
         logger.error(f"Ошибка при переключении автоанализа: {e}")
         await callback.answer(get_message('error_generic', language=language))
@@ -166,8 +167,13 @@ async def toggle_auto_analysis(callback: CallbackQuery, user, language: str):
 async def show_task_settings(callback: CallbackQuery, user, language: str):
     """Показ настроек заданий"""
     try:
+        info_result = await get_task_limit_info(user)
+        if not info_result['success']:
+            logger.error(f"Ошибка при получении информации о лимите заданий: {info_result.get('error')}")
+            await callback.answer(get_message('error_generic', language=language))
+            return
         task_settings_msg = get_message('task_settings_menu', language=language).format(
-            max_tasks=user.max_ai_tasks_per_day
+            max_tasks=info_result['current_limit']
         )
         await callback.message.edit_text(
             task_settings_msg,
@@ -183,44 +189,49 @@ async def show_task_settings(callback: CallbackQuery, user, language: str):
 async def increase_tasks_limit(callback: CallbackQuery, user, language: str):
     """Увеличение лимита заданий"""
     try:
-        awareness_level = user.awareness_level
-        max_allowed = 5
-        if awareness_level < 8:
-            max_allowed = 1
-        elif awareness_level == 8:
-            max_allowed = 2
-        elif awareness_level == 9:
-            max_allowed = 3
-        new_limit_proposed = user.max_ai_tasks_per_day + 1
-        if new_limit_proposed > max_allowed:
-            alert_message = get_message('awareness_level_insufficient_for_tasks_current', language=language, current_level=awareness_level, current_max_tasks=max_allowed)
-            await callback.answer(alert_message, show_alert=True)
-            task_settings_msg = get_message('task_settings_menu', language=language).format(
-                max_tasks=user.max_ai_tasks_per_day
-            )
-            try:
-                await callback.message.edit_text(
-                    task_settings_msg,
-                    reply_markup=get_task_settings_keyboard(user, language)
+        result = await update_task_limit(user, increment=1)
+        if not result['success']:
+            if result.get('error') == 'limit_exceeded':
+                alert_message = get_message(
+                    'awareness_level_insufficient_for_tasks_current',
+                    language=language,
+                    current_level=result['current_level'],
+                    current_max_tasks=result['current_max_tasks']
                 )
-            except TelegramBadRequest as e:
-                if "message is not modified" in str(e).lower():
-                    logger.debug(f"Сообщение настроек задач не изменилось для user {user.telegram_id}, редактирование проигнорировано.")
-                else:
-                    logger.error(f"TelegramBadRequest при редактировании сообщения настроек задач: {e}")
+                await callback.answer(alert_message, show_alert=True)
+                info_result = await get_task_limit_info(user)
+                if info_result['success']:
+                    task_settings_msg = get_message('task_settings_menu', language=language).format(
+                        max_tasks=info_result['current_limit']
+                    )
+                    try:
+                        await callback.message.edit_text(
+                            task_settings_msg,
+                            reply_markup=get_task_settings_keyboard(user, language)
+                        )
+                    except TelegramBadRequest as e:
+                        if "message is not modified" in str(e).lower():
+                            logger.debug(f"Сообщение настроек задач не изменилось для user {user.telegram_id}, редактирование проигнорировано.")
+                        else:
+                            logger.error(f"TelegramBadRequest при редактировании сообщения настроек задач: {e}")
+            else:
+                logger.error(f"Ошибка при увеличении лимита заданий: {result.get('error')}")
+                await callback.answer(get_message('error_generic', language=language))
             return
-        if user.max_ai_tasks_per_day < max_allowed:
-            user.max_ai_tasks_per_day += 1
-            await user.asave(update_fields=['max_ai_tasks_per_day'])
+        action = result['action']
+        if action == 'increased':
             success_msg = get_message('tasks_limit_increased', language=language).format(
-                new_limit=user.max_ai_tasks_per_day
+                new_limit=result['new_limit']
             )
-        else:
+        elif action == 'max_reached':
             success_msg = get_message('tasks_limit_max_reached', language=language)
+        else:
+            success_msg = get_message('tasks_limit_increased', language=language).format(
+                new_limit=result['new_limit']
+            )
         await callback.answer(success_msg)
-
         task_settings_msg = get_message('task_settings_menu', language=language).format(
-            max_tasks=user.max_ai_tasks_per_day
+            max_tasks=result['new_limit']
         )
         await callback.message.edit_text(
             task_settings_msg,
@@ -234,18 +245,26 @@ async def increase_tasks_limit(callback: CallbackQuery, user, language: str):
 async def decrease_tasks_limit(callback: CallbackQuery, user, language: str):
     """Уменьшение лимита заданий"""
     try:
-        if user.max_ai_tasks_per_day > 1:
-            user.max_ai_tasks_per_day -= 1
-            await user.asave(update_fields=['max_ai_tasks_per_day'])
+        result = await update_task_limit(user, increment=-1)
+
+        if not result['success']:
+            logger.error(f"Ошибка при уменьшении лимита заданий: {result.get('error')}")
+            await callback.answer(get_message('error_generic', language=language))
+            return
+        action = result['action']
+        if action == 'decreased':
             success_msg = get_message('tasks_limit_decreased', language=language).format(
-                new_limit=user.max_ai_tasks_per_day
+                new_limit=result['new_limit']
             )
-        else:
+        elif action == 'min_reached':
             success_msg = get_message('tasks_limit_min_reached', language=language)
+        else:
+            success_msg = get_message('tasks_limit_decreased', language=language).format(
+                new_limit=result['new_limit']
+            )
         await callback.answer(success_msg)
-        from bot.keyboards import get_task_settings_keyboard
         task_settings_msg = get_message('task_settings_menu', language=language).format(
-            max_tasks=user.max_ai_tasks_per_day
+            max_tasks=result['new_limit']
         )
         await callback.message.edit_text(
             task_settings_msg,
@@ -265,12 +284,15 @@ async def start_timezone_setup_after_first_entry(callback: CallbackQuery, state:
     Устанавливает флаг в state_data.
     """
     try:
-        # Устанавливаем флаг в state_data
         await state_manager.update_state_data(state, origin='first_entry')
-
-        # Вызываем общую логику из change_timezone
-        timezone_msg = get_message('ask_timezone_selection', language, current_timezone=user.timezone)
-        reply_markup = get_timezone_selection_method_keyboard(language, user.timezone)
+        info_result = await get_timezone_info(user)
+        if not info_result['success']:
+            logger.error(f"Ошибка при получении информации о часовом поясе: {info_result.get('error')}")
+            await callback.answer(get_message('error_generic', language=language))
+            return
+        current_timezone = info_result['current_timezone']
+        timezone_msg = get_message('ask_timezone_selection', language, current_timezone=current_timezone)
+        reply_markup = get_timezone_selection_method_keyboard(language, current_timezone)
         await callback.message.edit_text(
             timezone_msg,
             reply_markup=reply_markup
@@ -285,8 +307,15 @@ async def start_timezone_setup_after_first_entry(callback: CallbackQuery, state:
 async def change_timezone(callback: CallbackQuery, user, language: str):
     """Начало изменения часового пояса"""
     try:
-        timezone_msg = get_message('ask_timezone_selection', language, current_timezone=user.timezone)
-        reply_markup = get_timezone_selection_method_keyboard(language, user.timezone)
+        info_result = await get_timezone_info(user)
+        if not info_result['success']:
+            logger.error(f"Ошибка при получении информации о часовом поясе: {info_result.get('error')}")
+            await callback.answer(get_message('error_generic', language=language))
+            return
+
+        current_timezone = info_result['current_timezone']
+        timezone_msg = get_message('ask_timezone_selection', language, current_timezone=current_timezone)
+        reply_markup = get_timezone_selection_method_keyboard(language, current_timezone)
         await callback.message.edit_text(
             timezone_msg,
             reply_markup=reply_markup
@@ -331,19 +360,21 @@ async def process_city_input(message: Message, state: FSMContext, user, language
             error_msg = get_message(key='please_enter_city', language=language)
             await message.answer(error_msg)
             return
-        try:
-            city_tz = await CityTimezone.objects.aget(city_name__iexact=city_name)
-            timezone_data = {
-                'timezone': city_tz.timezone,
-                'city': city_tz.city_name,
-                'country': city_tz.country
-            }
+        lookup_result = await process_city_timezone_lookup(city_name, language)
+        if not lookup_result['success']:
+            error_msg = lookup_result.get('error', get_message('timezone_error', language))
+            await message.answer(f"❌ {error_msg}")
+            city_msg = get_message(key='please_enter_city', language=language)
+            await message.answer(city_msg, reply_markup=get_single_button_keyboard(language, 'settings', 'btn_back'))
+            return
+        if lookup_result['source'] == 'cache' or lookup_result['source'] == 'api_single':
+            timezone_data = lookup_result['timezone_data']
             confirmation_msg = get_message(
                 key='timezone_found',
                 language=language,
-                city_name=city_tz.city_name,
-                country=city_tz.country,
-                timezone=city_tz.timezone
+                city_name=timezone_data['city'],
+                country=timezone_data['country'],
+                timezone=timezone_data['timezone']
             )
             reply_markup = get_city_timezone_confirmation_keyboard(language, timezone_data)
             await message.answer(
@@ -352,71 +383,21 @@ async def process_city_input(message: Message, state: FSMContext, user, language
             )
             await state_manager.set_state(state, SettingsStates.waiting_for_timezone_confirmation, timezone_data=timezone_data)
             return
-        except CityTimezone.DoesNotExist:
-            pass
-        await message.answer(get_message('searching_timezone', language))
-        result = await deepseek_api_service.detect_timezone_by_city(city_name, language)
-        if not result['success']:
-            error_msg = result.get('message', get_message('timezone_error', language))
-            await message.answer(f"❌ {error_msg}")
-            city_msg = get_message(key='please_enter_city', language=language)
-            await message.answer(city_msg, reply_markup=get_single_button_keyboard(language, 'settings', 'btn_back'))
-            return
-        api_result = result['result']
-        if not api_result.get('success', False):
-            error_msg = api_result.get('error', get_message(key='city_not_found', language=language))
-            await message.answer(f"❌ {error_msg}")
-            city_msg = get_message(key='please_enter_city', language=language)
-            await message.answer(city_msg, reply_markup=get_single_button_keyboard(language, 'settings', 'btn_back'))
-            return
-        if api_result.get('multiple', False):
-            options = api_result.get('options', [])
-            if options:
-                selection_msg = get_message(key='multiple_cities_found', language=language)
-                reply_markup = get_multiple_city_timezones_keyboard(language, options)
-                await message.answer(
-                    selection_msg,
-                    reply_markup=reply_markup
-                )
-                return
-            else:
-                await message.answer(get_message(key='selection_failed', language=language))
-                city_msg = get_message(key='enter_city', language=language)
-                await message.answer(city_msg, reply_markup=get_single_button_keyboard(language, 'settings', 'btn_back'))
-                return
-        timezone_str = api_result.get('timezone')
-        city = api_result.get('city', city_name)
-        country = api_result.get('country', 'Неизвестно')
-        if not timezone_str:
-            await message.answer(get_message(key='timezone_detection_failed', language=language))
-            city_msg = get_message(key='enter_city', language=language)
-            await message.answer(city_msg, reply_markup=get_single_button_keyboard(language, 'settings', 'btn_back'))
-            return
-        try:
-            pytz.timezone(timezone_str)
-        except pytz.UnknownTimeZoneError:
-            await message.answer(get_message(key='invalid_timezone', language=language))
-            city_msg = get_message(key='enter_city', language=language)
-            await message.answer(city_msg, reply_markup=get_single_button_keyboard(language, 'settings', 'btn_back'))
-            return
-        timezone_data = {
-            'timezone': timezone_str,
-            'city': city,
-            'country': country
-        }
-        confirmation_msg = get_message(
-                key='timezone_found',
-                language=language,
-                city_name=city,
-                country=country,
-                timezone=timezone_str
+        elif lookup_result['source'] == 'api_multiple':
+            options = lookup_result['multiple_options']
+            selection_msg = get_message(key='multiple_cities_found', language=language)
+            reply_markup = get_multiple_city_timezones_keyboard(language, options)
+            await message.answer(
+                selection_msg,
+                reply_markup=reply_markup
             )
-        reply_markup = get_city_timezone_confirmation_keyboard(language, timezone_data)
-        await message.answer(
-            confirmation_msg,
-            reply_markup=reply_markup
-        )
-        await state_manager.set_state(state, SettingsStates.waiting_for_timezone_confirmation, timezone_data=timezone_data)
+            return
+        else:
+            logger.error(f"Непредусмотренный источник в lookup_result: {lookup_result}")
+            await message.answer(get_message(key='selection_failed', language=language))
+            city_msg = get_message(key='enter_city', language=language)
+            await message.answer(city_msg, reply_markup=get_single_button_keyboard(language, 'settings', 'btn_back'))
+            return
     except Exception as e:
         logger.error(f"Ошибка при обработке ввода города: {e}", exc_info=True)
         await message.answer(get_message('error_generic', language=language))
@@ -428,19 +409,13 @@ async def select_timezone_from_options_modified(callback: CallbackQuery, state: 
     """Модифицированная версия select_timezone_from_options с проверкой флага в state_data."""
     try:
         timezone_str = callback.data.split(":", 1)[1]
-        try:
-            pytz.timezone(timezone_str)
-        except pytz.UnknownTimeZoneError:
+        result = await update_user_timezone(user, timezone_str)
+        if not result['success']:
             await callback.answer(get_message('wrong_timezone', language=language), show_alert=True)
             return
-        user.timezone = timezone_str
-        await user.asave(update_fields=['timezone'])
         success_msg = get_message('timezone_changed', language, timezone=timezone_str)
-
-        # Проверяем флаг в state_data и решаем, как завершить
         await _finish_timezone_setup_and_decide_next_step(state, callback.message, user, language, success_msg)
         await safe_answer_callback(callback, success_msg)
-        # `state_manager.clear_state(state)` теперь вызывается внутри `_finish_timezone_setup_and_decide_next_step` при необходимости
     except Exception as e:
         logger.error(f"Ошибка при выборе часового пояса из опций: {e}")
         await callback.answer(get_message('error_generic', language=language), show_alert=True)
@@ -452,34 +427,17 @@ async def confirm_timezone_by_city_modified(callback: CallbackQuery, state: FSMC
     try:
         data = await state_manager.get_state_data(state)
         timezone_data = data.get('timezone_data')
-
         if not timezone_data:
             await callback.answer(get_message('data_not_found', language=language), show_alert=True)
             return
-        timezone_str = timezone_data['timezone']
-        city = timezone_data.get('city', '')
-        country = timezone_data.get('country', '')
-        try:
-            pytz.timezone(timezone_str)
-        except pytz.UnknownTimeZoneError:
-            await callback.answer(get_message('wrong_timezone', language=language), show_alert=True)
+        result = await confirm_timezone_by_city(user, timezone_data)
+        if not result['success']:
+            logger.error(f"Ошибка при подтверждении часового пояса: {result.get('error')}")
+            await callback.answer(get_message('error_generic', language=language), show_alert=True)
             return
-        user.timezone = timezone_str
-        await user.asave(update_fields=['timezone'])
-        try:
-            await CityTimezone.objects.acreate(
-                city_name=city,
-                timezone=timezone_str,
-                country=country
-            )
-        except Exception as e:
-            logger.warning(f"Не удалось сохранить в кэш: {e}")
-        success_msg = get_message('timezone_changed', language, timezone=timezone_str)
-
-        # Проверяем флаг в state_data и решаем, как завершить
+        success_msg = get_message('timezone_changed', language, timezone=result['new_timezone'])
         await _finish_timezone_setup_and_decide_next_step(state, callback.message, user, language, success_msg)
         await safe_answer_callback(callback, success_msg)
-        # `state_manager.clear_state(state)` теперь вызывается внутри `_finish_timezone_setup_and_decide_next_step` при необходимости
     except Exception as e:
         logger.error(f"Ошибка при подтверждении часового пояса: {e}")
         await callback.answer(get_message('error_generic', language=language), show_alert=True)
@@ -489,8 +447,14 @@ async def confirm_timezone_by_city_modified(callback: CallbackQuery, state: FSMC
 async def select_timezone_from_list(callback: CallbackQuery, user, language: str):
     """Выбор часового пояса из списка"""
     try:
-        timezone_msg = get_message('select_timezone_title', language, current_timezone=user.timezone)
-        reply_markup = get_common_timezones_keyboard(language, user.timezone)
+        info_result = await get_timezone_info(user)
+        if not info_result['success']:
+            logger.error(f"Ошибка при получении информации о часовом поясе: {info_result.get('error')}")
+            await callback.answer(get_message('error_generic', language=language))
+            return
+        current_timezone = info_result['current_timezone']
+        timezone_msg = get_message('select_timezone_title', language, current_timezone=current_timezone)
+        reply_markup = get_common_timezones_keyboard(language, current_timezone)
         await callback.message.edit_text(
             timezone_msg,
             reply_markup=reply_markup
@@ -506,25 +470,20 @@ async def set_timezone_modified(callback: CallbackQuery, state: FSMContext, user
     """Модифицированная версия set_timezone с проверкой флага в state_data."""
     try:
         new_timezone_str = callback.data.split(":", 1)[1]
-        try:
-            tz_obj = pytz.timezone(new_timezone_str)
-            canonical_tz_name = str(tz_obj)
-            user.timezone = canonical_tz_name
-            await user.asave(update_fields=['timezone'])
-            success_msg = get_message('timezone_changed', language, timezone=canonical_tz_name)
-            # Вызов вспомогательной функции
-            await _finish_timezone_setup_and_decide_next_step(state, callback.message, user, language, success_msg)
-            await safe_answer_callback(callback, success_msg)
-        except pytz.UnknownTimeZoneError:
+        result = await update_user_timezone(user, new_timezone_str)
+        if not result['success']:
             logger.error(f"Неизвестный часовой пояс: {new_timezone_str}")
             error_msg = get_message('error_unknown_timezone', language)
             await safe_answer_callback(callback, error_msg, show_alert=True)
             return
+
+        success_msg = get_message('timezone_changed', language, timezone=result['new_timezone'])
+        await _finish_timezone_setup_and_decide_next_step(state, callback.message, user, language, success_msg)
+        await safe_answer_callback(callback, success_msg)
     except Exception as e:
         logger.error(f"Ошибка при установке часового пояса: {e}")
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
-# --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ЗАВЕРШЕНИЯ СМЕНЫ ПОЯСА ---
 async def _finish_timezone_setup_and_decide_next_step(state: FSMContext, message, user, language: str, success_msg: str):
     """
     Вспомогательная функция для завершения смены часового пояса.
@@ -532,18 +491,12 @@ async def _finish_timezone_setup_and_decide_next_step(state: FSMContext, message
     """
     state_data = await state_manager.get_state_data(state)
     is_from_first_entry = state_data.get('origin') == 'first_entry'
-
     if is_from_first_entry:
-        # Переход в главное меню
         from bot.handlers.start import build_main_menu_message
         main_menu_msg, keyboard = await build_main_menu_message(user, language)
         await safe_edit_message_text(message=message, text=main_menu_msg, reply_markup=keyboard)
-        await state_manager.clear_state(state) # <-- Очищаем FSM, включая флаг origin
+        await state_manager.clear_state(state)
     else:
-        # Стандартное поведение - возврат в настройки
         settings_msg = get_message('settings_menu', language=language)
         reply_markup = get_settings_keyboard(user, language)
         await safe_edit_message_text(message=message, text=settings_msg, reply_markup=reply_markup)
-
-    # Отправляем ответ на callback
-    # await safe_answer_callback(callback, success_msg) # <-- Этот вызов должен быть в исходном хендлере

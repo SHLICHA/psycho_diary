@@ -10,7 +10,7 @@ from aiogram.filters import Command
 from asgiref.sync import sync_to_async
 import pytz
 from django.utils import timezone
-from datetime import datetime, date  # Добавил недостающие импорты
+from datetime import datetime
 
 from users.models import User, UserProfileHistory, CityTimezone, Feedback
 from diary.models import (
@@ -24,7 +24,6 @@ logger = logging.getLogger(__name__)
 
 router = Router()
 
-# Список моделей для экспорта/импорта в правильном порядке (чтобы избежать проблем с внешними ключами)
 MODELS_ORDER = [
     User,
     CityTimezone,
@@ -67,46 +66,32 @@ async def export_database_handler(message: Message):
     
     try:
         await message.answer("🔄 Начинаю экспорт базы данных...")
-        
-        # Создаем Excel writer в памяти
         output = BytesIO()
-        
-        # Получаем данные асинхронно
         excel_data = await _get_excel_data()
-        
-        # Пробуем разные движки для Excel
         try:
-            # Сначала пробуем xlsxwriter
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 _write_data_to_excel(writer, excel_data)
         except ImportError:
             try:
-                # Пробуем openpyxl
                 output.seek(0)
                 output.truncate(0)
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
                     _write_data_to_excel(writer, excel_data)
             except ImportError:
-                # Используем движок по умолчанию
                 output.seek(0)
                 output.truncate(0)
                 with pd.ExcelWriter(output) as writer:
                     _write_data_to_excel(writer, excel_data)
-        
-        # Подготавливаем файл для отправки
         output.seek(0)
         excel_file = BufferedInputFile(
             output.getvalue(),
             filename=f"database_backup_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
         )
-        
         await message.answer_document(
             document=excel_file,
             caption="✅ База данных успешно экспортирована"
         )
-        
         logger.info(f"Экспорт БД завершен пользователем {user_id}")
-        
     except Exception as e:
         logger.error(f"Ошибка при экспорте базы данных: {e}")
         await message.answer(f"❌ Ошибка при экспорте: {str(e)}")
@@ -115,33 +100,22 @@ async def export_database_handler(message: Message):
 def _get_excel_data():
     """Асинхронно получает все данные из БД"""
     excel_data = {}
-    
     for model in MODELS_ORDER:
         model_name = model._meta.model_name
-        
-        # Получаем все объекты модели
         queryset = model.objects.all()
-        
         if queryset.exists():
-            # Преобразуем QuerySet в список словарей
             data = []
             for obj in queryset:
                 row = {}
                 for field in obj._meta.fields:
                     field_name = field.name
                     field_value = getattr(obj, field_name)
-                    
-                    # Обработка специальных типов полей
                     if field.is_relation and field_value is not None:
-                        # Для ForeignKey сохраняем ID связанного объекта
                         row[field_name] = field_value.id
                     elif isinstance(field_value, (list, dict)):
-                        # Для JSON полей сохраняем как строку
                         row[field_name] = str(field_value)
                     elif hasattr(field_value, 'tzinfo') and field_value.tzinfo is not None:
-                        # Для datetime с часовым поясом преобразуем в UTC и делаем наивным
                         try:
-                            # Преобразуем в UTC и удаляем информацию о часовом поясе
                             utc_value = field_value.astimezone(pytz.utc)
                             row[field_name] = utc_value.replace(tzinfo=None)
                         except Exception as e:
@@ -149,36 +123,25 @@ def _get_excel_data():
                             row[field_name] = field_value
                     else:
                         row[field_name] = field_value
-                
                 data.append(row)
             
             excel_data[model_name] = data
         else:
-            # Создаем пустой список с колонками модели
             columns = [field.name for field in model._meta.fields]
             excel_data[model_name] = []
-    
     return excel_data
 
 def _write_data_to_excel(writer, excel_data):
     """Вспомогательная функция для записи данных в Excel"""
     for model in MODELS_ORDER:
-        model_name = model._meta.model_name
-        
+        model_name = model._meta.model_name  
         if model_name in excel_data and excel_data[model_name]:
-            # Создаем DataFrame из данных
             df = pd.DataFrame(excel_data[model_name])
-            
-            # Обрабатываем datetime колонки в DataFrame
             for column in df.columns:
                 if pd.api.types.is_datetime64_any_dtype(df[column]):
-                    # Убеждаемся, что все datetime без часовых поясов
                     df[column] = pd.to_datetime(df[column], utc=False)
-            
-            # Записываем в Excel
             df.to_excel(writer, sheet_name=model_name, index=False)
         else:
-            # Создаем пустой DataFrame с колонками модели
             columns = [field.name for field in model._meta.fields]
             df = pd.DataFrame(columns=columns)
             df.to_excel(writer, sheet_name=model_name, index=False)

@@ -1,28 +1,21 @@
-# /home/shlicha/psycho_diary/diary/services/weekly_analysis_service.py
-# (Весь файл, с учетом предыдущих исправлений и нового упрощения)
-
 """
 Сервис для выполнения еженедельного анализа пользователя.
 """
 
 import logging
-from datetime import datetime, date, timedelta
-from typing import Dict, Any, Optional, Tuple
-import pytz
+from datetime import date, timedelta
+from typing import Dict, Any, Optional
 
 from asgiref.sync import sync_to_async
 from django.db import transaction
-from django.utils import timezone
 
 from users.models import User
 from diary.models import (
-    DailyAnalysis, CombinedDiaryEntry, TherapyTask, TaskCompletion,
-    WeeklyAnalysis # Новая модель
+    CombinedDiaryEntry, TherapyTask, TaskCompletion,
+    WeeklyAnalysis
 )
-from diary.services.daily_state_service import daily_state_service
 from bot.services.deepseek_api import deepseek_api_service
 from prompts.get_prompt import get_prompt
-from messages import get_message
 
 logger = logging.getLogger(__name__)
 
