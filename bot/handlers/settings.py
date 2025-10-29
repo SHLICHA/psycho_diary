@@ -11,6 +11,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from datetime import datetime, timezone
 from aiogram.exceptions import TelegramBadRequest
+from asgiref.sync import sync_to_async
 
 from messages import get_message
 from bot.states.settings_states import SettingsStates
@@ -406,41 +407,84 @@ async def process_city_input(message: Message, state: FSMContext, user, language
 @router.callback_query(F.data.startswith("select_timezone:"))
 @log_user_activity('settings_changed', metadata_extra={'context': 'Выбор часового пояса'})
 async def select_timezone_from_options_modified(callback: CallbackQuery, state: FSMContext, user, language: str):
-    """Модифицированная версия select_timezone_from_options с проверкой флага в state_data."""
+    """Модифицированная версия select_timezone_from_options с проверкой origin в state_data."""
     try:
         timezone_str = callback.data.split(":", 1)[1]
         result = await update_user_timezone(user, timezone_str)
         if not result['success']:
-            await callback.answer(get_message('wrong_timezone', language=language), show_alert=True)
+            await safe_answer_callback(callback, get_message('wrong_timezone', language=language), show_alert=True)
             return
         success_msg = get_message('timezone_changed', language, timezone=timezone_str)
+
+        # --- НОВОЕ: Проверка origin и обновление onboarding_step ---
+        state_data = await state_manager.get_state_data(state)
+        origin = state_data.get('origin')
+        if origin == 'onboarding_timezone_setup':
+            # Это вызов из онбординга, обновляем шаги
+            user.onboarding_step = 'completed'
+            user.is_onboarding_completed = True
+            await sync_to_async(user.save)(update_fields=['onboarding_step', 'is_onboarding_completed'])
+            logger.info(f"[Settings] Онбординг завершён для пользователя {user.telegram_id} через select_timezone.")
+
+            # Показываем главное меню
+            from bot.keyboards import get_main_menu_keyboard
+            main_menu_msg = get_message('main_menu', language)
+            main_menu_keyboard = await get_main_menu_keyboard(language)
+            await safe_edit_message_text(message=callback.message, text=main_menu_msg, reply_markup=main_menu_keyboard)
+            await state_manager.clear_state(state) # Очищаем состояние после завершения онбординга
+            await safe_answer_callback(callback, success_msg)
+            return # ВАЖНО: выходим, чтобы не выполнить код ниже для обычного сценария
+        # --- /НОВОЕ ---
+
+        # Код для обычного сценария (не из онбординга)
         await _finish_timezone_setup_and_decide_next_step(state, callback.message, user, language, success_msg)
         await safe_answer_callback(callback, success_msg)
     except Exception as e:
-        logger.error(f"Ошибка при выборе часового пояса из опций: {e}")
-        await callback.answer(get_message('error_generic', language=language), show_alert=True)
+        logger.error(f"[Settings] Ошибка при выборе часового пояса из опций: {e}")
+        await safe_answer_callback(callback, get_message('error_generic', language=language), show_alert=True)
 
 @router.callback_query(F.data.startswith("confirm_timezone:"))
 @log_user_activity('settings_changed', metadata_extra={'context': 'Подтверждение часового пояса'})
 async def confirm_timezone_by_city_modified(callback: CallbackQuery, state: FSMContext, user, language: str):
-    """Модифицированная версия confirm_timezone_by_city с проверкой флага в state_data."""
+    """Модифицированная версия confirm_timezone_by_city с проверкой origin в state_data."""
     try:
-        data = await state_manager.get_state_data(state)
-        timezone_data = data.get('timezone_data')
+        data_state = await state_manager.get_state_data(state)
+        timezone_data = data_state.get('timezone_data')
         if not timezone_data:
-            await callback.answer(get_message('data_not_found', language=language), show_alert=True)
+            await safe_answer_callback(callback, get_message('data_not_found', language=language), show_alert=True)
             return
         result = await confirm_timezone_by_city(user, timezone_data)
         if not result['success']:
-            logger.error(f"Ошибка при подтверждении часового пояса: {result.get('error')}")
-            await callback.answer(get_message('error_generic', language=language), show_alert=True)
+            logger.error(f"[Settings] Ошибка при подтверждении часового пояса: {result.get('error')}")
+            await safe_answer_callback(callback, get_message('error_generic', language=language), show_alert=True)
             return
         success_msg = get_message('timezone_changed', language, timezone=result['new_timezone'])
+
+        # --- НОВОЕ: Проверка origin и обновление onboarding_step ---
+        origin = data_state.get('origin')
+        if origin == 'onboarding_timezone_setup':
+            # Это вызов из онбординга, обновляем шаги
+            user.onboarding_step = 'completed'
+            user.is_onboarding_completed = True
+            await sync_to_async(user.save)(update_fields=['onboarding_step', 'is_onboarding_completed'])
+            logger.info(f"[Settings] Онбординг завершён для пользователя {user.telegram_id} через confirm_timezone_by_city.")
+
+            # Показываем главное меню
+            from bot.keyboards import get_main_menu_keyboard
+            main_menu_msg = get_message('main_menu', language)
+            main_menu_keyboard = await get_main_menu_keyboard(language)
+            await safe_edit_message_text(message=callback.message, text=main_menu_msg, reply_markup=main_menu_keyboard)
+            await state_manager.clear_state(state) # Очищаем состояние после завершения онбординга
+            await safe_answer_callback(callback, success_msg)
+            return # ВАЖНО: выходим, чтобы не выполнить код ниже для обычного сценария
+        # --- /НОВОЕ ---
+
+        # Код для обычного сценария (не из онбординга)
         await _finish_timezone_setup_and_decide_next_step(state, callback.message, user, language, success_msg)
         await safe_answer_callback(callback, success_msg)
     except Exception as e:
-        logger.error(f"Ошибка при подтверждении часового пояса: {e}")
-        await callback.answer(get_message('error_generic', language=language), show_alert=True)
+        logger.error(f"[Settings] Ошибка при подтверждении часового пояса: {e}")
+        await safe_answer_callback(callback, get_message('error_generic', language=language), show_alert=True)
 
 @router.callback_query(F.data == "timezone_select_from_list")
 @log_user_activity('settings_changed', metadata_extra={'context': 'Выбор часового пояса из списка'})
@@ -467,21 +511,43 @@ async def select_timezone_from_list(callback: CallbackQuery, user, language: str
 @router.callback_query(F.data.startswith("set_timezone:"))
 @log_user_activity('settings_changed', metadata_extra={'context': 'Установка часового пояса'})
 async def set_timezone_modified(callback: CallbackQuery, state: FSMContext, user, language: str):
-    """Модифицированная версия set_timezone с проверкой флага в state_data."""
+    """Модифицированная версия set_timezone с проверкой origin в state_data."""
     try:
         new_timezone_str = callback.data.split(":", 1)[1]
         result = await update_user_timezone(user, new_timezone_str)
         if not result['success']:
-            logger.error(f"Неизвестный часовой пояс: {new_timezone_str}")
+            logger.error(f"[Settings] Неизвестный часовой пояс: {new_timezone_str}")
             error_msg = get_message('error_unknown_timezone', language)
             await safe_answer_callback(callback, error_msg, show_alert=True)
             return
 
         success_msg = get_message('timezone_changed', language, timezone=result['new_timezone'])
+
+        # --- НОВОЕ: Проверка origin и обновление onboarding_step ---
+        state_data = await state_manager.get_state_data(state)
+        origin = state_data.get('origin')
+        if origin == 'onboarding_timezone_setup':
+            # Это вызов из онбординга, обновляем шаги
+            user.onboarding_step = 'completed'
+            user.is_onboarding_completed = True
+            await sync_to_async(user.save)(update_fields=['onboarding_step', 'is_onboarding_completed'])
+            logger.info(f"[Settings] Онбординг завершён для пользователя {user.telegram_id} через set_timezone.")
+
+            # Показываем главное меню
+            from bot.keyboards import get_main_menu_keyboard
+            main_menu_msg = get_message('main_menu', language)
+            main_menu_keyboard = await get_main_menu_keyboard(language)
+            await safe_edit_message_text(message=callback.message, text=main_menu_msg, reply_markup=main_menu_keyboard)
+            await state_manager.clear_state(state) # Очищаем состояние после завершения онбординга
+            await safe_answer_callback(callback, success_msg)
+            return # ВАЖНО: выходим, чтобы не выполнить код ниже для обычного сценария
+        # --- /НОВОЕ ---
+
+        # Код для обычного сценария (не из онбординга)
         await _finish_timezone_setup_and_decide_next_step(state, callback.message, user, language, success_msg)
         await safe_answer_callback(callback, success_msg)
     except Exception as e:
-        logger.error(f"Ошибка при установке часового пояса: {e}")
+        logger.error(f"[Settings] Ошибка при установке часового пояса: {e}")
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
 async def _finish_timezone_setup_and_decide_next_step(state: FSMContext, message, user, language: str, success_msg: str):
@@ -502,3 +568,65 @@ async def _finish_timezone_setup_and_decide_next_step(state: FSMContext, message
         settings_msg = get_message('settings_menu', language=language)
         reply_markup = get_settings_keyboard(user, language)
         await safe_edit_message_text(message=message, text=settings_msg, reply_markup=reply_markup)
+
+@router.callback_query(F.data == "onboarding_start_timezone_setup")
+@log_user_activity('settings_changed', metadata_extra={'context': 'Начало изменения часового пояса (онбординг)'})
+async def onboarding_start_timezone_setup(callback: CallbackQuery, state: FSMContext, user, language: str):
+    """
+    Хендлер для начала установки часового пояса, вызываемый из онбординга.
+    Устанавливает origin в state_data и вызывает основной хендлер.
+    """
+    try:
+        # Устанавливаем origin в state_data через state_manager
+        await state_manager.update_state_data(state, origin='onboarding_timezone_setup')
+        logger.debug(f"[Settings] Установлен origin='onboarding_timezone_setup' в state для пользователя {user.telegram_id} через onboarding_start_timezone_setup.")
+
+        # Вызываем основной хендлер для установки часового пояса
+        await change_timezone(callback, user, language) # <-- Вызываем существующий хендлер
+        # await callback.answer() # <-- change_timezone уже вызывает answer или edit, не нужно дублировать
+    except Exception as e:
+        logger.error(f"[Settings] Ошибка при начале установки часового пояса из онбординга для {user.telegram_id}: {e}")
+        await safe_answer_callback(callback, get_message('error_generic', language=language))
+
+@router.callback_query(F.data.startswith("set_timezone:"))
+@log_user_activity('settings_changed', metadata_extra={'context': 'Установка часового пояса'})
+async def set_timezone_modified(callback: CallbackQuery, state: FSMContext, user, language: str):
+    """Модифицированная версия set_timezone с проверкой origin в state_data."""
+    try:
+        new_timezone_str = callback.data.split(":", 1)[1]
+        result = await update_user_timezone(user, new_timezone_str)
+        if not result['success']:
+            logger.error(f"Неизвестный часовой пояс: {new_timezone_str}")
+            error_msg = get_message('error_unknown_timezone', language)
+            await safe_answer_callback(callback, error_msg, show_alert=True)
+            return
+
+        success_msg = get_message('timezone_changed', language, timezone=result['new_timezone'])
+
+        # --- НОВОЕ: Проверка origin и обновление onboarding_step ---
+        state_data = await state_manager.get_state_data(state)
+        origin = state_data.get('origin')
+        if origin == 'onboarding_timezone_setup':
+            # Это вызов из онбординга, обновляем шаги
+            user.onboarding_step = 'completed'
+            user.is_onboarding_completed = True
+            await sync_to_async(user.save)(update_fields=['onboarding_step', 'is_onboarding_completed'])
+            logger.info(f"[Settings] Онбординг завершён для пользователя {user.telegram_id} через set_timezone.")
+
+            # Показываем главное меню
+            from bot.keyboards import get_main_menu_keyboard
+            from messages import get_message
+            main_menu_msg = get_message('main_menu', language)
+            main_menu_keyboard = await get_main_menu_keyboard(language)
+            await safe_edit_message_text(message=callback.message, text=main_menu_msg, reply_markup=main_menu_keyboard)
+            await state_manager.clear_state(state) # Очищаем состояние после завершения онбординга
+            await safe_answer_callback(callback, success_msg)
+            return # ВАЖНО: выходим, чтобы не выполнить код ниже для обычного сценария
+        # --- /НОВОЕ ---
+
+        # Код для обычного сценария (не из онбординга)
+        await _finish_timezone_setup_and_decide_next_step(state, callback.message, user, language, success_msg)
+        await safe_answer_callback(callback, success_msg)
+    except Exception as e:
+        logger.error(f"Ошибка при установке часового пояса: {e}")
+        await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)

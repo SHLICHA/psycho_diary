@@ -59,16 +59,6 @@ async def cmd_start(message: Message, user, language: str, state: FSMContext, da
             )
             await message.answer(reactivation_msg)
 
-        # Проверка согласия с условиями
-        if not getattr(user, 'has_agreed_to_terms', False):
-            welcome_msg = get_message('onboarding_welcome_extended_first_entry', language)
-            await state.set_state(OnboardingStates.show_agreement_for_first_entry)
-            await message.answer(
-                welcome_msg,
-                reply_markup=get_agreement_keyboard_for_first_entry(language)
-                )
-            return 
-
         # Если согласие дано, показываем главное меню
         # --- ВЫЗОВ СЕРВИСА ДЛЯ ПОЛУЧЕНИЯ ДАННЫХ ГЛАВНОГО МЕНЮ ---
         menu_data = await build_main_menu_data(user, language)

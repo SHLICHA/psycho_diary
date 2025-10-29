@@ -67,7 +67,6 @@ from .tasks_keyboard import (
 
 # Клавиатуры анкеты
 from .onboarding_keyboards import (
-    get_start_onboarding_keyboard,
     get_instruction_keyboard,
     get_agreement_keyboard,
     get_skip_questionnaire_keyboard,
@@ -151,7 +150,6 @@ __all__ = [
     'get_task_main_menu_keyboard',
 
     # Клавиатуры заданий
-    'get_start_onboarding_keyboard',
     'get_instruction_keyboard',
     'get_agreement_keyboard',
     'get_skip_questionnaire_keyboard',

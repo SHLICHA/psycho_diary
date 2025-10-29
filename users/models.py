@@ -17,6 +17,16 @@ class User(AbstractUser):
     """
     Расширенная модель пользователя для Telegram бота
     """
+
+    ONBOARDING_STEP_CHOICES = [
+        ('start', 'Бот запущен'),
+        ('welcome_shown', 'Приветствие показано'),
+        ('info_shown', 'Информация показана'),
+        ('first_entry_created', 'Первая запись создана'),
+        ('timezone_set', 'Часовой пояс установлен'),
+        ('completed', 'Онбординг завершен'),
+    ]
+
     telegram_id = models.BigIntegerField(unique=True, verbose_name="Telegram ID")
     language = models.CharField(
         max_length=2, 
@@ -24,7 +34,16 @@ class User(AbstractUser):
         default='ru',
         verbose_name="Язык"
     )
-    has_agreed_to_terms = models.BooleanField(default=False, verbose_name="Согласие с условиями использования")
+    onboarding_step = models.CharField(
+        max_length=20,
+        choices=ONBOARDING_STEP_CHOICES,
+        default='start',
+        verbose_name="Шаг онбординга"
+    )
+    is_onboarding_completed = models.BooleanField(
+        default=False,
+        verbose_name="Онбординг завершён"
+    )
     timezone = models.CharField(max_length=50, default='UTC',verbose_name="Часовой пояс")
     last_entry = models.DateTimeField(null=True, blank=True, verbose_name="Последняя запись")
     awareness_level = models.PositiveIntegerField(default=1, verbose_name="Уровень осознанности")
@@ -109,9 +128,13 @@ class User(AbstractUser):
         return f"{self.username} ({self.telegram_id})"
     
     def save(self, *args, **kwargs):
-        # Генерация реферальной ссылки при первом сохранении, если её нет
         if not self.referral_link:
             self.referral_link = f"ref_{self.telegram_id}_{secrets.token_urlsafe(8)}"
+            # --- НОВОЕ: Установка начального шага онбординга при создании ---
+            if not self.pk: # Если pk еще нет, значит это создание
+                self.onboarding_step = 'start' # <-- Изменено
+                self.is_onboarding_completed = False
+            # --- /НОВОЕ ---
         super().save(*args, **kwargs)
 
     def is_premium_active(self) -> bool:

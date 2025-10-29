@@ -5,11 +5,15 @@
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from messages import get_button_text
+# --- ИМПОРТ УНИВЕРСАЛЬНОЙ КЛАВИАТУРЫ ---
+from bot.keyboards.common_keyboards import get_single_button_keyboard
+# --- /ИМПОРТ ---
 
 def get_start_onboarding_keyboard(language: str) -> InlineKeyboardMarkup:
     """
     Клавиатура для начала процесса онбординга.
     Используется, когда пользователь пытается получить доступ без согласия.
+    (Остается для совместимости или устаревает в новом онбординге)
     """
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -24,6 +28,7 @@ def get_start_onboarding_keyboard(language: str) -> InlineKeyboardMarkup:
 def get_instruction_keyboard(language: str) -> InlineKeyboardMarkup:
     """
     Клавиатура для экрана с инструкцией.
+    (Остается для совместимости или устаревает в новом онбординге)
     """
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -38,6 +43,7 @@ def get_instruction_keyboard(language: str) -> InlineKeyboardMarkup:
 def get_agreement_keyboard(language: str) -> InlineKeyboardMarkup:
     """
     Клавиатура для экрана с соглашением.
+    (Остается для совместимости или устаревает в новом онбординге)
     """
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -56,7 +62,7 @@ def get_agreement_keyboard(language: str) -> InlineKeyboardMarkup:
     return keyboard
 
 def get_agreement_keyboard_for_first_entry(language: str) -> InlineKeyboardMarkup:
-    """Клавиатура для соглашения в новом онбординге (соглашение -> первая запись)."""
+    """Клавиатура для соглашения в новом онбординге (соглашение -> первая запись). (Будет изменена или удалена)"""
     buttons = [
         [
             InlineKeyboardButton(
@@ -76,6 +82,7 @@ def get_agreement_keyboard_for_first_entry(language: str) -> InlineKeyboardMarku
 def get_skip_questionnaire_keyboard(language: str) -> InlineKeyboardMarkup:
     """
     Клавиатура для пропуска анкетирования.
+    (Остается для совместимости или устаревает в новом онбординге)
     """
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -90,6 +97,7 @@ def get_skip_questionnaire_keyboard(language: str) -> InlineKeyboardMarkup:
 def get_submit_answers_keyboard(language: str) -> InlineKeyboardMarkup:
     """
     Клавиатура для отправки ответов на анкету.
+    (Остается для совместимости или устаревает в новом онбординге)
     """
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -106,3 +114,27 @@ def get_submit_answers_keyboard(language: str) -> InlineKeyboardMarkup:
         ]
     ])
     return keyboard
+
+# --- НОВЫЕ КЛАВИАТУРЫ ДЛЯ НОВОГО ОНБОРДИНГА (используют универсальную) ---
+
+def get_next_after_welcome_keyboard(language: str) -> InlineKeyboardMarkup:
+    """
+    Клавиатура после приветствия. Одна кнопка "Далее".
+    Callback: onboarding_info_next
+    """
+    return get_single_button_keyboard(
+        language=language,
+        button_callback_data="onboarding_info_next",
+        button_text="btn_next" # Используем существующий ключ 'btn_next'
+    )
+
+def get_next_after_info_keyboard(language: str) -> InlineKeyboardMarkup:
+    """
+    Клавиатура после инструкции. Одна кнопка "Создать первую запись".
+    Callback: onboarding_start_first_entry_new
+    """
+    return get_single_button_keyboard(
+        language=language,
+        button_callback_data="onboarding_ready_for_entry", # <-- Новый callback
+        button_text="btn_ready_for_entry" # <-- Нужно добавить в messages
+    )

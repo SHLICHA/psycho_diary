@@ -10,8 +10,7 @@ class OnboardingStates(StatesGroup):
     showing_agreement = State() # <-- Старое состояние, оставим для совместимости
     collecting_profile_data = State() # <-- Старое состояние, анкета, можем оставить или удалить позже
 
-    # Новые состояния для нового онбординга
-    show_agreement_for_first_entry = State() # <-- Новое состояние: показ соглашения перед первой записью
-    # Состояния для первой записи будут в diary_states.py
-    # waiting_for_first_text_entry = State() # <-- Это будет в DiaryStates
-    # waiting_for_timezone_setup = State() # <-- Это будет в SettingsStates или DiaryStates
+    # Новые состояния для нового онбординга (пока не используем FSM для основного потока, но могут пригодиться)
+    # show_agreement_for_first_entry = State() # <-- Новое состояние: показ соглашения перед первой записью (теперь не нужно)
+    showing_info = State() # <-- Состояние для показа инструкции (если будем использовать FSM)
+    waiting_for_first_entry = State() # <-- Состояние ожидания первой записи (если будем использовать FSM)

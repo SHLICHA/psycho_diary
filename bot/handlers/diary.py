@@ -66,7 +66,6 @@ async def start_first_entry_flow(event, state: FSMContext, user, language: str):
         first_entry_prompt = get_message('ask_first_entry', language, first_name=user.first_name)
         if first_entry_prompt.startswith('ask_first_entry'):
             first_entry_prompt = f"Привет, {user.first_name or 'Друг'}! Давайте начнём с простой записи о вашем сегодняшнем дне. Как прошёл ваш день? Что чувствуете?"
-        from bot.keyboards import get_single_button_keyboard
         keyboard = get_single_button_keyboard(language, 'main_menu', 'btn_cancel')
         if isinstance(event, CallbackQuery):
             await safe_edit_message_text(
@@ -191,6 +190,10 @@ async def process_first_entry(message: Message, state: FSMContext, user, languag
             processing_time=total_api_time,
             context='first_entry',
         )
+        user.onboarding_step = 'first_entry_created' # или, возможно, сразу 'timezone_set', если анализ завершает шаг ввода записи
+        await sync_to_async(user.save)(update_fields=['onboarding_step'])
+        logger.info(f"[Onboarding] Шаг onboarding обновлён для {user.telegram_id} на 'first_entry_created' после обработки первой записи.")
+
     except Exception as e:
         logger.error(f"Ошибка обработки первой записи: {e}")
         if status_msg:

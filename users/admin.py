@@ -128,7 +128,7 @@ class UserAdmin(BaseUserAdmin):
         # Новые поля для Telegram бота
         (('Telegram и Основное'), {
             'fields': (
-                'telegram_id', 'language', 'timezone', 'has_agreed_to_terms',
+                'telegram_id', 'language', 'timezone', 'onboarding_step', 'is_onboarding_completed',
                 'is_premium', 'is_blocked', 'deletion_status', 'deleted_at', 'token_balance',
                 'last_streak_reward_7', 'last_streak_reward_30', 'last_streak_reward_365', 'invited_by',
             )
