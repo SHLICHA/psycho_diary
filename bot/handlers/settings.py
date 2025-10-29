@@ -492,8 +492,10 @@ async def _finish_timezone_setup_and_decide_next_step(state: FSMContext, message
     state_data = await state_manager.get_state_data(state)
     is_from_first_entry = state_data.get('origin') == 'first_entry'
     if is_from_first_entry:
-        from bot.handlers.start import build_main_menu_message
-        main_menu_msg, keyboard = await build_main_menu_message(user, language)
+        from diary.services.main_menu_service import build_main_menu_data
+        menu_data = await build_main_menu_data(user, language)
+        main_menu_msg = menu_data['message_text']
+        keyboard = menu_data['keyboard']
         await safe_edit_message_text(message=message, text=main_menu_msg, reply_markup=keyboard)
         await state_manager.clear_state(state)
     else:

@@ -83,37 +83,6 @@ class PsychoAnalysisService:
             except Exception as entry_error:
                 logger.error(f"Не удалось обновить статус ошибки записи {entry.id}: {entry_error}")
             raise
-    # TODO
-    async def _create_analysis_object(
-        self,
-        entry: DiaryEntry,
-        mood_score: int,
-        comment: str,
-        recommendation: str,
-        analysis_text: str,
-        api_response: Optional[Dict[str, Any]]
-    ) -> PsychoAnalysis:
-        """Создает новый объект PsychoAnalysis."""
-        @sync_to_async
-        def _create_analysis_sync():
-            from django.db import transaction
-            with transaction.atomic():
-                analysis_data = {
-                    'entry': entry,
-                    'mood_score': mood_score,
-                    'comment': comment,
-                    'recommendation': recommendation,
-                    'analysis_text': analysis_text,
-                    'processing_time': 0.0, # TODO: Получать реальное время обработки
-                    'insights_extracted': 0, # TODO: Получать реальное количество
-                    'api_response': api_response or {}
-                }
-                new_analysis = PsychoAnalysis.objects.create(**analysis_data)
-                entry.is_processed = True
-                entry.processing_error = ""
-                entry.save(update_fields=['is_processed', 'processing_error'])
-                return new_analysis
-        return await _create_analysis_sync()
 
     async def _update_analysis_object(
         self,
