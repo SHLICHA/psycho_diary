@@ -177,32 +177,6 @@ async def send_processing_message(
         logger.error(f"Ошибка при отправке сообщения об обработке: {e}")
         raise
 
-async def update_processing_message(
-    message: Message,
-    new_text: str,
-    reply_markup=None
-) -> bool:
-    """
-    Обновление сообщения об обработке
-    
-    Args:
-        message: Сообщение для обновления
-        new_text: Новый текст сообщения
-        reply_markup: Новая клавиатура сообщения
-        
-    Returns:
-        bool: Успешность обновления
-    """
-    try:
-        await message.edit_text(
-            text=new_text,
-            reply_markup=reply_markup
-        )
-        return True
-    except Exception as e:
-        logger.error(f"Ошибка при обновлении сообщения об обработке: {e}")
-        return False
-
 async def safe_telegram_call(
     operation: Callable[..., Awaitable[Any]], 
     *args, 
@@ -237,63 +211,7 @@ async def safe_telegram_call(
             return False, None, e
 
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
-
-def truncate_text(text: str, max_length: int = 1000) -> str:
-    """
-    Обрезка текста до максимальной длины
-    
-    Args:
-        text: Текст для обрезки
-        max_length: Максимальная длина текста
-        
-    Returns:
-        str: Обрезанный текст
-    """
-    try:
-        if len(text) > max_length:
-            truncated_text = text[:max_length] + "..."
-            logger.debug(f"Текст обрезан до {len(truncated_text)} символов")
-            return truncated_text
-        else:
-            return text
-    except Exception as e:
-        logger.error(f"Ошибка при обрезке текста: {e}")
-        return text[:max_length] + "..." if len(text) > max_length else text
-
-def format_message_with_emojis(text: str) -> str:
-    """
-    Форматирование сообщения с эмодзи
-    
-    Args:
-        text: Текст сообщения
-        
-    Returns:
-        str: Отформатированный текст с эмодзи
-    """
-    try:
-        formatted_text = text.replace("хорошо", "😊 хорошо").replace("плохо", "😞 плохо")
-        return formatted_text
-    except Exception as e:
-        logger.error(f"Ошибка при форматировании сообщения с эмодзи: {e}")
-        return text
-
-def escape_html(text: str) -> str:
-    """
-    Экранирование HTML символов в тексте
-    
-    Args:
-        text: Текст для экранирования
-        
-    Returns:
-        str: Экранированный текст
-    """
-    try:
-        escaped_text = text.replace("&", "&amp;").replace("<", "<").replace(">", ">")
-        return escaped_text
-    except Exception as e:
-        logger.error(f"Ошибка при экранировании HTML символов: {e}")
-        return text
-    
+   
 async def send_message_to_user(
     bot: Bot,
     user: User,
@@ -338,13 +256,11 @@ async def send_message_to_user(
             logger.error(f"TelegramForbiddenError (не блокировка) при отправке сообщения пользователю {user.telegram_id}: {e}")
             return False
     except TelegramBadRequest as e:
-        # Обработка других ошибок запроса
         error_message = str(e).lower()
         if "bot was blocked by the user" in error_message or \
            "user is deactivated" in error_message or \
            "chat not found" in error_message or \
            "forbidden" in error_message:
-            # Хотя Forbidden ловится выше, на всякий случай
             await User.mark_blocked(user.telegram_id)
             logger.info(f"Пользователь {user.telegram_id} заблокировал бота или чат недоступен (BadRequest): {e}")
             return False

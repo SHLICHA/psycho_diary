@@ -3,11 +3,12 @@
 """
 import pytz
 import logging
+import time
 
 from asgiref.sync import sync_to_async
 from aiogram.types import Message, ContentType
 from typing import List, Dict, Any, Optional
-from datetime import datetime, date, time
+from datetime import datetime, date, time as dtime
 from django.db import transaction
 from django.db.models import F
 from django.core.cache import cache
@@ -18,6 +19,7 @@ from bot.utils.validation_utils import validate_incoming_message, validate_text_
 from bot.utils.audio_utils import process_voice_message
 from bot.utils.api_utils import format_api_error_for_analysis
 from bot.utils.rate_limiter import rate_limiter
+from bot.utils.diary_utils import check_and_award_streak_bonus
 from bot.services import deepseek_api_service
 from bot.services import psycho_analysis_service
 from diary.models import DiaryEntry, PsychoAnalysis, CombinedDiaryEntry, TherapyTask
@@ -28,6 +30,7 @@ from diary.services.daily_state_service import (
     update_daily_state_text_and_count,
     create_daily_state_from_entry
 )
+from diary.services.task_management_service import assign_task
 from users.models import User
 from prompts import get_prompt
 from diary.services import daily_state_service
@@ -261,10 +264,10 @@ class DiaryService:
             user_timezone_str = user.timezone or 'UTC'
             user_tz = pytz.timezone(user_timezone_str)
             start_of_day_user_tz = user_tz.localize(
-                datetime.combine(target_date, time.min)
+                datetime.combine(target_date, dtime.min)
             )
             end_of_day_user_tz = user_tz.localize(
-                datetime.combine(target_date, time.max)
+                datetime.combine(target_date, dtime.max)
             )
             start_of_day_utc = start_of_day_user_tz.astimezone(pytz.utc)
             end_of_day_utc = end_of_day_user_tz.astimezone(pytz.utc)
@@ -489,6 +492,480 @@ class DiaryService:
             logger.error(f"[Сервис] Ошибка при удалении записей за {target_date}: {e}")
             return False
 
+    async def process_new_entry_logic(
+        self,
+        user: User,
+        entry_text: str,
+        language: str,
+        entry_datetime: datetime = None
+    ) -> Dict[str, Any]:
+        """
+        Выполняет полную бизнес-логику обработки новой текстовой записи:
+        - Создание DiaryEntry
+        - Обновление/создание CombinedDiaryEntry
+        - Вызов ИИ для анализа
+        - Обработка результата ИИ (в т.ч. валидация, уточнения, PsychoAnalysis, обновление состояния дня, задания, серия)
+        - Возвращает структурированный результат для дальнейшего использования в хендлере.
+
+        Args:
+            user (User): Пользователь.
+            entry_text (str): Текст записи.
+            language (str): Язык.
+            entry_datetime (datetime, optional): Время создания записи. Defaults to None.
+
+        Returns:
+            Dict[str, Any]: Результат обработки. Содержит:
+                - 'success' (bool): Успешность основной операции (после валидации ИИ).
+                - 'entry' (DiaryEntry): Созданная запись.
+                - 'analysis' (PsychoAnalysis): Созданный/обновленный анализ.
+                - 'needs_clarification' (bool): Требуются ли уточнения.
+                - 'clarification_questions' (list): Список уточняющих вопросов, если требуются.
+                - 'suggested_task' (TherapyTask): Созданное задание, если было предложено ИИ.
+                - 'streak_bonus_info' (dict): Информация о награде за серию.
+                - 'formatted_message_ai' (str): Форматированное сообщение от ИИ, если запись не прошла валидацию.
+                - 'validation_comment_ai' (str): Комментарий ИИ при невалидной записи.
+        """
+        # 1. Создание DiaryEntry
+        diary_entry = await self.create_text_entry(
+            user=user,
+            text=entry_text,
+            language=language,
+            entry_datetime=entry_datetime
+        )
+        logger.debug(f"[process_new_entry_logic] Создана запись ID {diary_entry.id} для пользователя {user.telegram_id}")
+
+        # 2. Обновление/создание CombinedDiaryEntry
+        combined_entry, _ = await self.get_or_update_daily_state_with_entries(user, diary_entry)
+        entry_date = await diary_entry.aentry_date()
+        all_entries_text = await self.get_combined_entry_text(user, entry_date)
+        logger.debug(f"[process_new_entry_logic] Обновлен CombinedDiaryEntry ID {combined_entry.id} для пользователя {user.telegram_id}")
+
+        # 3. Подготовка данных и вызов ИИ
+        ai_state_data = combined_entry.ai_state_data if combined_entry else ""
+        base_user_profile = await user.aget_profile_data()
+        extended_user_context = {
+            "first_name": base_user_profile.get('first_name', 'Пользователь'),
+            "awareness_level": base_user_profile.get('awareness_level', 1),
+            "is_premium": base_user_profile.get('is_premium', False),
+            "entries_count": base_user_profile.get('entries_count', 0),
+            "personality_traits": user.personality_traits,
+            "life_facts": user.life_facts,
+            "hobbies": user.hobbies,
+            "core_values": user.core_values,
+            "triggers": user.triggers,
+            "strengths": user.strengths,
+            "areas_for_growth": user.areas_for_growth,
+            "habits": user.habits,
+            "skills": user.skills,
+            "aspirations": user.aspirations
+        }
+
+        prompt = get_prompt(
+            key='incremental_day_analysis',
+            language=language,
+            all_entries_combined=all_entries_text,
+            new_entry_text=entry_text,
+            ai_state_data=ai_state_data,
+            first_name=extended_user_context["first_name"],
+            awareness_level=extended_user_context["awareness_level"],
+            is_premium=extended_user_context["is_premium"],
+            user_personality_traits=extended_user_context["personality_traits"],
+            user_life_facts=extended_user_context["life_facts"],
+            user_hobbies=extended_user_context["hobbies"],
+            user_core_values=extended_user_context["core_values"],
+            user_triggers=extended_user_context["triggers"],
+            user_strengths=extended_user_context["strengths"],
+            user_areas_for_growth=extended_user_context["areas_for_growth"],
+            entries_count=extended_user_context["entries_count"],
+        )
+
+        api_start_time = time.time()
+        analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
+        total_api_time = time.time() - api_start_time
+        logger.debug(f"[process_new_entry_logic] 🕒 Полное время API запроса: {total_api_time:.3f} секунд")
+
+        # 4. Обработка результата ИИ
+        result_data = analysis_result.get('result', {})
+        is_valid_ai = result_data.get('is_valid', True)
+        validation_comment_ai = result_data.get('validation_comment', '')
+        formatted_message_ai = result_data.get('formatted_message', '')
+
+        # 4.1. Проверка валидации ИИ
+        if not is_valid_ai:
+            # Удаляем невалидную запись и CombinedDiaryEntry
+            success = await self.delete_entry_and_update_combined(diary_entry.id, user)
+            if not success:
+                logger.warning(f"[process_new_entry_logic] Не удалось удалить невалидную запись {diary_entry.id} для пользователя {user.telegram_id}")
+            # Возвращаем информацию о невалидности
+            return {
+                'success': False,
+                'entry': None, # Запись удалена
+                'analysis': None,
+                'needs_clarification': False,
+                'suggested_task': None,
+                'streak_bonus_info': None,
+                'formatted_message_ai': formatted_message_ai,
+                'validation_comment_ai': validation_comment_ai
+            }
+
+        # 4.2. Обработка основного результата (если валидна)
+        mood_score = result_data.get('mood_score', 5)
+        comment = result_data.get('comment', 'Анализ записан')
+        recommendation = result_data.get('recommendation', 'Продолжайте вести дневник')
+        analysis_text = result_data.get('analysis', 'Текст проанализирован.')
+        suggested_task_data = result_data.get('suggested_task')
+        needs_clarification = result_data.get('needs_clarification', False)
+        clarification_questions = result_data.get('clarification_questions', [])
+
+        # 4.3. Создание/обновление PsychoAnalysis
+        finalize_now = not needs_clarification
+        analysis_obj = await psycho_analysis_service.create_or_update_analysis(
+            entry=diary_entry,
+            mood_score=mood_score,
+            comment=comment,
+            recommendation=recommendation,
+            analysis_text=analysis_text,
+            api_response=analysis_result.get('api_response', {}),
+            processing_time=total_api_time,
+            finalize_processing=finalize_now
+        )
+        logger.debug(f"[process_new_entry_logic] Создан/обновлен PsychoAnalysis ID {analysis_obj.id} для записи {diary_entry.id}")
+
+        # 4.4. Обновление CombinedDiaryEntry с новым состоянием ИИ
+        if 'updated_ai_state_data' in result_data:
+            new_state = result_data['updated_ai_state_data']
+        else:
+            new_state = analysis_text
+        await daily_state_service.update_daily_state(
+            combined_entry=combined_entry,
+            new_ai_state_data=new_state,
+            latest_mood_score=mood_score
+        )
+        logger.debug(f"[process_new_entry_logic] Обновлен CombinedDiaryEntry ID {combined_entry.id} с новым состоянием")
+
+        # 4.5. Создание задания от ИИ (если предложено и лимит не превышен)
+        suggested_task_obj = None
+        if suggested_task_data and isinstance(suggested_task_data, dict):
+            @sync_to_async
+            def check_ai_tasks_limit_sync():
+                # Лимит проверяется на количество заданий, назначенных сегодня
+                from diary.models import TherapyTask
+                from django.utils import timezone
+                import pytz
+                user_timezone_str = user.timezone if user.timezone else 'UTC'
+                user_tz = pytz.timezone(user_timezone_str)
+                today_start = timezone.now().astimezone(user_tz).date()
+                count = TherapyTask.objects.filter(
+                    user=user,
+                    assigned_at__date=today_start # Проверяем по дате назначения, а не по дате записи
+                ).count()
+                return count < user.max_ai_tasks_per_day
+
+            limit_not_exceeded = await check_ai_tasks_limit_sync()
+            if limit_not_exceeded:
+                try:
+                    suggested_task_obj = await self._create_task_from_suggested_data(user, suggested_task_data, entry_date, diary_entry)
+                    logger.debug(f"[process_new_entry_logic] Задание от ИИ создано: {suggested_task_obj.id if suggested_task_obj else 'None'}")
+                except Exception as task_creation_error:
+                    logger.error(f"[process_new_entry_logic] Ошибка при создании задания от ИИ для пользователя {user.telegram_id}: {task_creation_error}")
+
+        # 4.6. Награда за серию
+        streak_bonus_info = await check_and_award_streak_bonus(user)
+
+        # 4.7. Возврат результата
+        return {
+            'success': True,
+            'entry': diary_entry,
+            'analysis': analysis_obj,
+            'needs_clarification': needs_clarification,
+            'clarification_questions': clarification_questions,
+            'suggested_task': suggested_task_obj,
+            'streak_bonus_info': streak_bonus_info,
+            'formatted_message_ai': None, # Не используется, если запись валидна
+            'validation_comment_ai': None # Не используется, если запись валидна
+        }
+
+    # --- Вспомогательная функция для создания задания ---
+    async def _create_task_from_suggested_data(self, user, task_data, entry_date, related_entry):
+        """Создаёт задание из данных ИИ."""
+        from core.constants import TASK_TYPES
+        valid_types = [t[0] for t in TASK_TYPES]
+        task_type = task_data.get('type', 'daily')
+        if task_type not in valid_types:
+            task_type = 'daily'
+        complexity = task_data.get('priority', 'medium').lower()
+        if complexity not in ['low', 'medium', 'high']:
+            complexity = 'medium'
+        return await assign_task(
+            user=user,
+            title=task_data.get('title', 'Задание от ИИ'),
+            description=task_data.get('description', 'Выполните задание.'),
+            task_type=task_type,
+            complexity=complexity,
+            related_entry=related_entry
+        )
+
+    async def process_clarification_answers_logic(
+        self,
+        user: User,
+        diary_entry: DiaryEntry,
+        clarification_answers_dict: Dict[str, str],
+        language: str
+    ) -> Dict[str, Any]:
+        """
+        Выполняет бизнес-логику обработки ответов на уточняющие вопросы:
+        - Сохранение ответов в DiaryEntry
+        - Вызов ИИ для анализа уточнений
+        - Обновление PsychoAnalysis
+        - Обновление CombinedDiaryEntry
+        - Возврат результата для хендлера.
+
+        Args:
+            user (User): Пользователь.
+            diary_entry (DiaryEntry): Запись, к которой относятся уточнения.
+            clarification_answers_dict (Dict[str, str]): Словарь ответов на уточнения.
+            language (str): Язык.
+
+        Returns:
+            Dict[str, Any]: Результат обработки.
+        """
+        # 1. Сохранение ответов
+        diary_entry.clarification_answers = clarification_answers_dict
+        await sync_to_async(diary_entry.save)(update_fields=['clarification_answers'])
+
+        # 2. Подготовка данных и вызов ИИ
+        user_profile = await user.aget_profile_data()
+        extended_user_profile_for_clarification = {
+            "first_name": user_profile.get('first_name', 'Пользователь'),
+            "awareness_level": user_profile['awareness_level'],
+            "personality_traits": user.personality_traits,
+            "life_facts": user.life_facts,
+            "hobbies": user.hobbies,
+            "core_values": user.core_values,
+            "triggers": user.triggers,
+            "strengths": user.strengths,
+            "areas_for_growth": user.areas_for_growth,
+            "habits": user.habits,
+            "skills": user.skills,
+            "aspirations": user.aspirations
+        }
+
+        entry_date = await diary_entry.aentry_date()
+        combined_entry = await daily_state_service.get_daily_state(user, entry_date)
+        ai_state_data = combined_entry.ai_state_data if combined_entry else ""
+
+        clarification_questions = diary_entry.clarification_questions_asked
+        prompt = get_prompt(
+            key='clarification_analysis',
+            language=language,
+            original_text=diary_entry.text,
+            clarification_questions="\n".join(clarification_questions),
+            clarification_answers="\n".join([f"{q}: {a}" for q, a in clarification_answers_dict.items()]),
+            ai_state_data=ai_state_data,
+            user_profile=extended_user_profile_for_clarification
+        )
+
+        api_start_time = time.time()
+        analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
+        total_api_time = time.time() - api_start_time
+
+        # 3. Обработка результата ИИ
+        if not analysis_result.get('success'):
+            comment, recommendation, analysis_text, _ = format_api_error_for_analysis(analysis_result, language, is_final=True)
+            mood_score = 5
+        else:
+            result_data = analysis_result.get('result', {})
+            mood_score = result_data.get('mood_score', 5)
+            comment = result_data.get('comment', 'Анализ записан')
+            recommendation = result_data.get('recommendation', 'Продолжайте вести дневник')
+            analysis_text = result_data.get('analysis', 'Текст проанализирован.')
+
+        # 4. Обновление PsychoAnalysis
+        await psycho_analysis_service.create_or_update_analysis(
+            entry=diary_entry,
+            mood_score=mood_score,
+            comment=comment,
+            recommendation=recommendation,
+            analysis_text=analysis_text,
+            api_response=analysis_result.get('api_response', {}),
+            processing_time=total_api_time,
+            finalize_processing=True
+        )
+        # 5. Обновление CombinedDiaryEntry
+        if 'updated_ai_state_data' in result_data:
+            new_state = result_data['updated_ai_state_data']
+        else:
+            new_state = analysis_text
+        await daily_state_service.update_daily_state(
+            combined_entry=combined_entry,
+            new_ai_state_data=new_state,
+            latest_mood_score=mood_score
+        )
+        logger.debug(f"[process_clarification_answers_logic] Обновлен CombinedDiaryEntry для {diary_entry.id}")
+        from django.utils import timezone
+        diary_entry.analysis_processed_at = timezone.now()
+        await sync_to_async(diary_entry.save)(update_fields=['analysis_processed_at'])
+        logger.debug(f"[process_clarification_answers_logic] analysis_processed_at установлен для записи {diary_entry.id}")
+
+        # 6. Возврат результата
+        return {
+            'success': True, # В данном случае, если ИИ не вернул ошибку, считаем успехом
+            'entry': diary_entry,
+            'analysis': await sync_to_async(lambda: diary_entry.analysis)(), # Получаем обновленный объект
+            'formatted_message_ai': analysis_text, # Текст для отправки пользователю
+        }
+
+    async def process_user_comment_logic(
+        self,
+        user: User,
+        diary_entry: DiaryEntry,
+        user_comment_text: str,
+        language: str
+    ) -> Dict[str, Any]:
+        """
+        Выполняет бизнес-логику обработки комментария пользователя:
+        - Сохранение комментария в DiaryEntry
+        - Сброс флага анализа дня
+        - Вызов ИИ для анализа комментария
+        - Обновление PsychoAnalysis
+        - Возврат результата для хендлера.
+
+        Args:
+            user (User): Пользователь.
+            diary_entry (DiaryEntry): Запись, к которой добавляется комментарий.
+            user_comment_text (str): Текст комментария.
+            language (str): Язык.
+
+        Returns:
+            Dict[str, Any]: Результат обработки.
+        """
+        # 1. Сохранение комментария
+        diary_entry.user_comment = user_comment_text
+        await sync_to_async(diary_entry.save)(update_fields=['user_comment'])
+        logger.debug(f"[process_user_comment_logic] Комментарий сохранён для записи {diary_entry.id}, пользователь {user.telegram_id}")
+
+        # 2. Сброс флага анализа дня
+        combined_entry_for_day = await daily_state_service.get_daily_state(user, await diary_entry.aentry_date())
+        if combined_entry_for_day:
+            combined_entry_for_day.reset_analysis_flag()
+            await sync_to_async(combined_entry_for_day.save)(update_fields=['is_analyzed'])
+            logger.debug(f"[process_user_comment_logic] Флаг is_analyzed сброшен для CombinedDiaryEntry ID {combined_entry_for_day.id}")
+        else:
+            logger.warning(f"[process_user_comment_logic] CombinedDiaryEntry не найден для даты {await diary_entry.aentry_date()}")
+
+        # 3. Подготовка данных для промпта
+        try:
+            previous_analysis = await PsychoAnalysis.objects.aget(entry=diary_entry)
+            previous_comment = previous_analysis.comment or "Нет комментария"
+            previous_recommendation = previous_analysis.recommendation or "Нет рекомендации"
+            previous_analysis_text = previous_analysis.analysis_text or "Анализ не предоставлен"
+        except PsychoAnalysis.DoesNotExist:
+            logger.warning(f"[process_user_comment_logic] Предыдущий анализ не найден для записи {diary_entry.id}")
+            previous_comment = "Нет комментария"
+            previous_recommendation = "Нет рекомендации"
+            previous_analysis_text = "Анализ не предоставлен"
+
+        clarification_questions = "\n".join(diary_entry.clarification_questions_asked) if diary_entry.clarification_questions_asked else "Нет уточняющих вопросов."
+        clarification_answers_dict = diary_entry.clarification_answers
+        clarification_answers_str = "\n".join([f"{q}: {a}" for q, a in clarification_answers_dict.items()]) if clarification_answers_dict else "Нет ответов на уточнения."
+
+        user_profile = await user.aget_profile_data()
+        extended_user_profile_for_comment = {
+            "first_name": user_profile.get('first_name', 'Пользователь'),
+            "awareness_level": user_profile['awareness_level'],
+            "personality_traits": user.personality_traits,
+            "life_facts": user.life_facts,
+            "hobbies": user.hobbies,
+            "core_values": user.core_values,
+            "triggers": user.triggers,
+            "strengths": user.strengths,
+            "areas_for_growth": user.areas_for_growth,
+            "habits": user.habits,
+            "skills": user.skills,
+            "aspirations": user.aspirations
+        }
+
+        # 4. Генерация промпта и вызов ИИ
+        prompt = get_prompt(
+            key='comment_analysis',
+            language=language,
+            original_text=diary_entry.text,
+            previous_comment=previous_comment,
+            previous_recommendation=previous_recommendation,
+            previous_analysis=previous_analysis_text,
+            user_comment=user_comment_text,
+            user_profile=extended_user_profile_for_comment,
+            clarification_questions=clarification_questions,
+            clarification_answers=clarification_answers_str,
+        )
+
+        api_start_time = time.time()
+        analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
+        total_api_time = time.time() - api_start_time
+
+        # 5. Обработка результата ИИ
+        if not analysis_result.get('success'):
+            comment, recommendation, analysis_text, _ = format_api_error_for_analysis(analysis_result, language, is_final=True)
+            mood_score = 5
+        else:
+            result_data = analysis_result.get('result', {})
+            mood_score = result_data.get('mood_score', 5)
+            comment = result_data.get('comment', 'Анализ записан')
+            recommendation = result_data.get('recommendation', 'Продолжайте вести дневник')
+            analysis_text = result_data.get('analysis', 'Текст проанализирован.')
+
+        # 6. Обновление PsychoAnalysis
+        await psycho_analysis_service.create_or_update_analysis(
+            entry=diary_entry,
+            mood_score=mood_score,
+            comment=comment,
+            recommendation=recommendation,
+            analysis_text=analysis_text,
+            api_response=analysis_result.get('api_response', {}),
+            processing_time=total_api_time,
+            finalize_processing=True
+        )
+
+        # 7. Возврат результата
+        return {
+            'success': True, # В данном случае, если ИИ не вернул ошибку, считаем успехом
+            'entry': diary_entry,
+            'analysis': await sync_to_async(lambda: diary_entry.analysis)(), # Получаем обновленный объект
+            'formatted_message_ai': analysis_text, # Текст для отправки пользователю
+        }
+    
+    async def prepare_combined_entry_for_analysis(self, user: User, target_date: date) -> Optional[CombinedDiaryEntry]:
+        """
+        Подготавливает CombinedDiaryEntry для анализа дня.
+        Если CombinedDiaryEntry не существует, но есть отдельные записи DiaryEntry,
+        создаёт CombinedDiaryEntry на основе этих записей.
+
+        Args:
+            user (User): Пользователь.
+            target_date (date): Дата для подготовки.
+
+        Returns:
+            Optional[CombinedDiaryEntry]: Подготовленный CombinedDiaryEntry или None, если нет записей.
+        """
+        logger.debug(f"[DiaryService] Подготовка CombinedDiaryEntry для анализа дня {target_date} пользователя {user.telegram_id}")
+        combined_entry = await daily_state_service.get_daily_state(user, target_date)
+        if combined_entry:
+            logger.debug(f"[DiaryService] CombinedDiaryEntry ID {combined_entry.id} уже существует для {user.telegram_id}, {target_date}.")
+            return combined_entry
+        logger.info(f"[DiaryService] CombinedDiaryEntry не найден для {user.telegram_id} за {target_date}, проверяем отдельные записи.")
+        entries = await self.get_user_entries_for_date(user, target_date)
+        if not entries:
+            logger.warning(f"[DiaryService] Нет записей для {user.telegram_id} за {target_date}, подготовка невозможна.")
+            return None
+        logger.debug(f"[DiaryService] Найдено {len(entries)} отдельных записей для {user.telegram_id}, {target_date}. Создаём CombinedDiaryEntry.")
+        combined_text = await self.get_combined_entry_text(user, target_date, entries_list=entries)
+        combined_entry = await self.get_or_create_daily_state(user=user, target_date=target_date, initial_text=combined_text)
+        combined_entry.text = combined_text
+        combined_entry.entry_count = len(entries)
+        await combined_entry.asave(update_fields=['text', 'entry_count'])
+        logger.debug(f"[DiaryService] Создан/обновлён CombinedDiaryEntry ID {combined_entry.id} для анализа {user.telegram_id}, {target_date}.")
+        return combined_entry
+
 diary_service = DiaryService()
 
 #============================================УДОБНЫЕ ФУНКЦИИ=================================================
@@ -551,3 +1028,34 @@ def get_user_entries_for_date_sync(user: User, target_date: date) -> List[DiaryE
     """
     from asgiref.sync import async_to_sync
     return async_to_sync(diary_service.get_user_entries_for_date)(user, target_date)
+
+async def process_new_entry_logic(
+    user: User,
+    entry_text: str,
+    language: str,
+    entry_datetime: datetime = None
+) -> Dict[str, Any]:
+    """Удобная функция для обработки новой записи."""
+    return await diary_service.process_new_entry_logic(user, entry_text, language, entry_datetime)
+
+async def process_clarification_answers_logic(
+    user: User,
+    diary_entry: DiaryEntry,
+    clarification_answers_dict: Dict[str, str],
+    language: str
+) -> Dict[str, Any]:
+    """Удобная функция для обработки уточнений."""
+    return await diary_service.process_clarification_answers_logic(user, diary_entry, clarification_answers_dict, language)
+
+async def process_user_comment_logic(
+    user: User,
+    diary_entry: DiaryEntry,
+    user_comment_text: str,
+    language: str
+) -> Dict[str, Any]:
+    """Удобная функция для обработки комментария."""
+    return await diary_service.process_user_comment_logic(user, diary_entry, user_comment_text, language)
+
+async def prepare_combined_entry_for_analysis(user: User, target_date: date) -> Optional[CombinedDiaryEntry]:
+    """Удобная функция для подготовки CombinedDiaryEntry для анализа."""
+    return await diary_service.prepare_combined_entry_for_analysis(user, target_date)

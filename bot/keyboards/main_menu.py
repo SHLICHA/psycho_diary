@@ -34,18 +34,13 @@ async def get_main_menu_keyboard(language: str, user=None) -> InlineKeyboardMark
                     callback_data="tasks"
                 )
             ])
-
-    # Добавляем кнопку чата
     buttons.append([
         InlineKeyboardButton(
             text=get_button_text('btn_therapy_chat', language),
-            callback_data="start_therapy_chat" # Новая callback_data
+            callback_data="start_therapy_chat" 
         )
     ])
-
-    # Проверяем наличие анализа дня асинхронно
     if user:
-        # Используем combined_entry__user для связи с пользователем через CombinedDiaryEntry
         has_daily_analysis = await sync_to_async(DailyAnalysis.objects.filter(combined_entry__user=user).exists)()
         if has_daily_analysis:
             buttons.append([
@@ -54,9 +49,6 @@ async def get_main_menu_keyboard(language: str, user=None) -> InlineKeyboardMark
                     callback_data="progress"
                 )
             ])
-    # Если у пользователя нет DailyAnalysis, кнопка 'Прогресс' не добавляется
-
-    # Добавляем остальные кнопки
     buttons.extend([
         [
             InlineKeyboardButton(

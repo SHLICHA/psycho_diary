@@ -21,7 +21,8 @@ class PsychoAnalysisService:
         recommendation: str,
         analysis_text: str = "Анализ записан",
         api_response: Optional[Dict[str, Any]] = None,
-        processing_time: float = None
+        processing_time: float = None,
+        finalize_processing: bool = True
     ) -> PsychoAnalysis:
         """
         Асинхронно создает новый объект PsychoAnalysis для записи или обновляет существующий.
@@ -47,12 +48,8 @@ class PsychoAnalysisService:
                             analysis_obj.api_response = api_response
                         update_fields = ['mood_score', 'comment', 'recommendation', 'analysis_text']
                         if api_response is not None:
-                            update_fields.append('api_response')   
+                            update_fields.append('api_response')
                         analysis_obj.save(update_fields=update_fields)
-                        entry.is_processed = True
-                        entry.processing_error = ""
-                        entry.save(update_fields=['is_processed', 'processing_error'])
-                        return analysis_obj
                     else:
                         formatted_processing_time = round(processing_time, 3) if processing_time is not None else 0.0
                         analysis_data = {
@@ -62,17 +59,19 @@ class PsychoAnalysisService:
                             'recommendation': recommendation,
                             'analysis_text': analysis_text,
                             'processing_time': formatted_processing_time,
-                            'insights_extracted': 0, # TODO: Получать реальное количество
+                            'insights_extracted': 0,
                             'api_response': api_response or {}
                         }
                         new_analysis = PsychoAnalysis.objects.create(**analysis_data)
+                        analysis_obj = new_analysis
+                    if finalize_processing:
                         entry.is_processed = True
                         entry.processing_error = ""
                         entry.save(update_fields=['is_processed', 'processing_error'])
-                        return new_analysis
+                        logger.debug(f"[psycho_analysis_service] is_processed установлен в True для записи {entry.id} после обновления/создания анализа.")
+                return analysis_obj
             return await _create_or_update_analysis_sync()
         except Exception as e:
-            logger.error(f"Ошибка при создании/обновлении анализа для записи {entry.id}: {e}", exc_info=True)
             try:
                 @sync_to_async
                 def _mark_entry_error():
@@ -123,11 +122,13 @@ async def create_or_update_analysis(
     comment: str,
     recommendation: str,
     analysis_text: str = "Анализ записан",
-    api_response: Optional[Dict[str, Any]] = None
+    api_response: Optional[Dict[str, Any]] = None,
+    processing_time: float = None,
+    finalize_processing: bool = True # <-- НОВЫЙ ПАРАМЕТР
 ) -> PsychoAnalysis:
     """
     Удобная асинхронная функция для создания или обновления анализа записи.
     """
     return await psycho_analysis_service.create_or_update_analysis(
-        entry, mood_score, comment, recommendation, analysis_text, api_response
+        entry, mood_score, comment, recommendation, analysis_text, api_response, processing_time, finalize_processing
     )

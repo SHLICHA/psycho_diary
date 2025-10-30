@@ -6,8 +6,7 @@ import logging
 import asyncio
 
 from aiogram.exceptions import TelegramForbiddenError
-from typing import Optional, Dict, Any, Awaitable, Callable
-from datetime import datetime
+from typing import Optional, Dict, Awaitable, Callable
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.base import StorageKey
@@ -171,7 +170,6 @@ class StateManager:
         """Генерация уникального ключа для хранилища"""
         return f"{key.bot_id}:{key.chat_id}:{key.user_id}:{key.destiny}"
     
-    # Статические методы из оригинального класса (полная обратная совместимость)
     @staticmethod
     async def get_state_data(context: FSMContext) -> dict:
         """Получение данных состояния"""
@@ -231,5 +229,4 @@ class StateManager:
             logger.error(f"Error checking state group: {e}")
             return False
 
-# Глобальный экземпляр с таймаутом 1 час
 state_manager = StateManager(timeout_seconds=3600, on_timeout_callback=send_main_menu_callback)

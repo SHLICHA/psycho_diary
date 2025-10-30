@@ -138,15 +138,3 @@ def get_account_deletion_confirmation_keyboard(language: str) -> InlineKeyboardM
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-def get_account_deletion_confirmation_keyboard(language: str) -> InlineKeyboardMarkup:
-    """Клавиатура подтверждения удаления аккаунта (только кнопка отмены)"""
-    buttons = [
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_cancel_deletion', language),
-                callback_data="delete_account_cancel"
-            )
-        ]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)

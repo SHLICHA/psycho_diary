@@ -15,8 +15,6 @@ from aiogram.fsm.context import FSMContext
 from core.constants import MESSAGES_PER_MINUTE_LIMIT
 from django.core.cache import cache
 
-from bot.states.onboarding_states import OnboardingStates
-
 logger = logging.getLogger(__name__)
 
 class RateLimitMiddleware(BaseMiddleware):

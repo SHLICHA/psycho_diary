@@ -150,7 +150,6 @@ def get_multiple_city_timezones_keyboard(language: str, options: list) -> Inline
     
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# TODO Расширить список популярный поясов. Реализовать ввод своего города и определение пояса автоматически
 def get_common_timezones_keyboard(language: str, current_timezone: str) -> InlineKeyboardMarkup:
     """Клавиатура с популярными часовыми поясами"""
     timezone_buttons = [
@@ -198,12 +197,6 @@ def get_common_timezones_keyboard(language: str, current_timezone: str) -> Inlin
         ],
         [
             InlineKeyboardButton(
-                text=get_button_text('btn_timezone_magadan', language),
-                callback_data="set_timezone:Asia/Magadan"
-            )
-        ],
-        [
-            InlineKeyboardButton(
                 text=get_button_text('btn_timezone_new_york', language),
                 callback_data="set_timezone:America/New_York"
             )
@@ -235,93 +228,6 @@ def get_common_timezones_keyboard(language: str, current_timezone: str) -> Inlin
     ]
     return InlineKeyboardMarkup(inline_keyboard=timezone_buttons)
 
-def get_analysis_time_selection_keyboard(language: str, current_time: str) -> InlineKeyboardMarkup:
-    """Клавиатура выбора времени автоанализа (24 часа, 2 столбца)"""
-    buttons = []
-    for hour in range(24):
-        time_str = f"{hour:02d}:00"
-        button = InlineKeyboardButton(
-            text=time_str,
-            callback_data=f"set_analysis_time:{time_str}"
-        )
-        if not buttons or len(buttons[-1]) >= 2:
-            buttons.append([button])
-        else:
-            buttons[-1].append(button)
-    buttons.append([
-        InlineKeyboardButton(
-            text=get_button_text('btn_back', language),
-            callback_data="settings"
-        )
-    ])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-def get_edit_profile_keyboard(language: str) -> InlineKeyboardMarkup:
-    """Клавиатура редактирования профиля"""
-    buttons = [
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_edit_name', language),
-                callback_data="edit_profile_name"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_edit_email', language),
-                callback_data="edit_profile_email"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_edit_dob', language),
-                callback_data="edit_profile_dob"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_edit_hobbies', language),
-                callback_data="edit_profile_hobbies"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_edit_life_facts', language),
-                callback_data="edit_profile_life_facts"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_back', language),
-                callback_data="settings"
-            )
-        ]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-def get_account_deletion_menu_keyboard(language: str, balance_info: str) -> InlineKeyboardMarkup:
-    """Клавиатура меню удаления аккаунта"""
-    buttons = [
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_delete_account_and_funds', language),
-                callback_data="confirm_account_deletion_final"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_contact_support_for_refund', language),
-                callback_data="contact_support_for_refund"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_cancel_deletion', language),
-                callback_data="settings"
-            )
-        ]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
 def get_account_deletion_confirmation_keyboard(language: str) -> InlineKeyboardMarkup:
     """Клавиатура подтверждения удаления аккаунта"""
     buttons = [
@@ -331,18 +237,6 @@ def get_account_deletion_confirmation_keyboard(language: str) -> InlineKeyboardM
                 callback_data="confirm_account_deletion_final"
             )
         ],
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_cancel_deletion', language),
-                callback_data="delete_account_cancel"
-            )
-        ]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-def get_account_deletion_confirmation_keyboard(language: str) -> InlineKeyboardMarkup:
-    """Клавиатура подтверждения удаления аккаунта (только кнопка отмены)"""
-    buttons = [
         [
             InlineKeyboardButton(
                 text=get_button_text('btn_cancel_deletion', language),
@@ -366,7 +260,7 @@ def get_task_settings_keyboard(user, language: str) -> InlineKeyboardMarkup:
     limit_text = f"{user.max_ai_tasks_per_day}"
     limit_btn = InlineKeyboardButton(
         text=limit_text,
-        callback_data="settings_tasks_noop"  # заглушка
+        callback_data="settings_tasks_noop"
     )
     back_btn = InlineKeyboardButton(
         text=get_button_text('btn_back', language),

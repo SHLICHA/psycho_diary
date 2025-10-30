@@ -63,7 +63,7 @@ async def get_month_calendar_with_navigation(user, year: int, month: int, curren
     except Exception as e:
         logger.error(f"Ошибка при асинхронном получении дней с настроением: {e}")
         days_data = {}
-        recovered_days_set = set() # На случай ошибки
+        recovered_days_set = set()
     user_local_date = user.get_local_datetime().date()
     first_day_weekday = date(year, month, 1).weekday()
     days_in_month = monthrange(year, month)[1]
@@ -80,9 +80,6 @@ async def get_month_calendar_with_navigation(user, year: int, month: int, curren
         if is_today:
             day_text = f"🔹{day}🔹"
         elif has_mood_data:
-            # Есть данные о настроении (значит, были настоящие записи)
-            # Восстановленные записи не влияют на CombinedDiaryEntry, поэтому has_recovered_entry не может быть True здесь
-            # Но на всякий случай, если логика изменится, оставим проверку
             avg_mood_score = days_data[day]
             if avg_mood_score is not None and avg_mood_score > 0:
                 if avg_mood_score >= 8:
@@ -99,14 +96,7 @@ async def get_month_calendar_with_navigation(user, year: int, month: int, curren
             else:
                 day_text = f"📝{day}"
         elif has_recovered_entry:
-            # Нет данных о настроении (нет CombinedDiaryEntry), но день восстановлен
-            # Используем символ, например, 🔄, ⬅️, или 📅. Выберем что-то поменьше.
-            # Например, символ "возврат" в виде стрелки влево: ◀️
-            # Или просто точку или тире: • или -
-            # Или серую стрелочку: ◲ (не уверен, что отобразится)
-            # Попробуем тонкую стрелку влево: ◀️
-            # Или просто точку: •
-            day_text = f"🔄{day}" # Или f"• {day}" или f"{day}•"
+            day_text = f"🔄{day}"
         day_buttons.append(
             InlineKeyboardButton(
                 text=day_text,
@@ -250,43 +240,6 @@ def get_calendar_back_keyboard(language: str, year: int, month: int) -> InlineKe
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def get_entry_view_keyboard(language: str, year: int, month: int, day: int) -> InlineKeyboardMarkup:
-    """Клавиатура для просмотра записи с кнопкой возврата к календарю"""
-    buttons = []
-    buttons.append([
-        InlineKeyboardButton(
-            text=get_button_text('btn_edit_entry', language),
-            callback_data=f"edit_entry:{year}:{month}:{day}"
-        ),
-        InlineKeyboardButton(
-            text=get_button_text('btn_delete_entry', language),
-            callback_data=f"delete_entry:{year}:{month}:{day}"
-        )
-    ])
-    buttons.append([
-        InlineKeyboardButton(
-            text=get_message('btn_view_insights', language),
-            callback_data=f"view_day_insights:{year}:{month}:{day}"
-        ),
-        InlineKeyboardButton(
-            text=get_message('btn_view_key_points', language),
-            callback_data=f"view_day_keypoints:{year}:{month}:{day}"
-        )
-    ])
-    buttons.append([
-        InlineKeyboardButton(
-            text=get_button_text('btn_analyze_again', language),
-            callback_data=f"reanalyze_entry:{year}:{month}:{day}"
-        )
-    ])
-    buttons.append([
-        InlineKeyboardButton(
-            text=get_button_text('btn_back', language),
-            callback_data=f"calendar_return_to_month:{year}:{month}"
-        )
-    ])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
 def get_confirmation_keyboard(
     language: str,
     confirm_text_key: str,
@@ -320,16 +273,6 @@ def get_confirmation_keyboard(
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-def get_delete_confirmation_keyboard(language: str, entry_id: int) -> InlineKeyboardMarkup:
-    """Клавиатура подтверждения удаления записи (алиас)."""
-    return get_confirmation_keyboard(
-        language=language,
-        confirm_text_key='btn_confirm_delete',
-        cancel_text_key='btn_cancel_delete', 
-        confirm_callback_data=f"confirm_delete_entry:{entry_id}",
-        cancel_callback_data="cancel_delete_entry"
-    )
 
 def get_delete_entry_confirmation_keyboard(language: str, entry_id: int, target_date: date) -> InlineKeyboardMarkup:
     """Клавиатура подтверждения удаления записи (алиас)."""

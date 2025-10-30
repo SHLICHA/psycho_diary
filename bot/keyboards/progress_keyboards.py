@@ -27,15 +27,13 @@ def get_progress_keyboard_with_weekly(language: str, show_restore_button: bool =
             )
         ],
     ]
-    # Добавляем кнопку восстановления, если нужно
     if show_restore_button:
-        keyboard.insert(-1, [ # Вставляем перед последней кнопкой ("Назад")
+        keyboard.insert(-1, [
             InlineKeyboardButton(
                 text=get_button_text('btn_restore_streak', language),
                 callback_data="restore_streak"
             )
         ])
-    # Кнопка "Назад" всегда в конце
     keyboard.append([
         InlineKeyboardButton(
             text=get_button_text('btn_back', language),
@@ -47,7 +45,6 @@ def get_progress_keyboard_with_weekly(language: str, show_restore_button: bool =
 def get_progress_keyboard_without_weekly(language: str, show_restore_button: bool = False) -> InlineKeyboardMarkup:
     """Клавиатура для прогресса без кнопки недельного анализа, с опциональной кнопкой восстановления."""
     keyboard = []
-    # Добавляем кнопку восстановления, если нужно
     if show_restore_button:
         keyboard.append([
             InlineKeyboardButton(
@@ -55,39 +52,12 @@ def get_progress_keyboard_without_weekly(language: str, show_restore_button: boo
                 callback_data="restore_streak"
             )
         ])
-    # Кнопка "Назад" всегда в конце
     keyboard.append([
         InlineKeyboardButton(
             text=get_button_text('btn_back', language),
             callback_data="main_menu"
         )
     ])
-    return InlineKeyboardMarkup(inline_keyboard=keyboard)
-
-def get_weekly_analysis_keyboard(language: str, week_start_date: date) -> InlineKeyboardMarkup:
-    """
-    Создает клавиатуру для просмотра недельного анализа с кнопками навигации.
-    """
-    prev_week_start = week_start_date - timedelta(weeks=1)
-    next_week_start = week_start_date + timedelta(weeks=1)
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_prev_week', language),
-                callback_data=f"weekly_nav:{prev_week_start.isoformat()}"
-            ),
-            InlineKeyboardButton(
-                text=get_button_text('btn_next_week', language),
-                callback_data=f"weekly_nav:{next_week_start.isoformat()}"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_back', language),
-                callback_data="progress"
-            )
-        ]
-    ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def get_weekly_navigation_keyboard(language: str, week_start_date: date) -> InlineKeyboardMarkup:
@@ -122,14 +92,13 @@ def get_restore_date_selection_keyboard(language: str, dates_to_restore: List[da
         keyboard.append([
             InlineKeyboardButton(
                 text=get_button_text('btn_restore_streak_for_date', language).format(date=dt.strftime("%d.%m.%Y")),
-                callback_data=f"restore_streak_confirm:{dt.isoformat()}" # Новый callback для подтверждения
+                callback_data=f"restore_streak_confirm:{dt.isoformat()}"
             )
         ])
-    # Кнопка "Назад" в любом случае
     keyboard.append([
         InlineKeyboardButton(
             text=get_button_text('btn_back', language),
-            callback_data="progress" # Возврат к экрану прогресса
+            callback_data="progress"
         )
     ])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)

@@ -16,12 +16,10 @@ from .calendar_keyboard import (
     get_month_calendar_with_navigation,
     get_year_selection_keyboard,
     get_month_selection_keyboard,
-    get_entry_view_keyboard,
     get_calendar_back_keyboard,
     get_back_to_edit_day_keyboard,
     get_confirmation_keyboard,
     format_entry_text_for_editing,
-    get_delete_confirmation_keyboard,
     get_delete_entry_confirmation_keyboard,
     get_entry_page_keyboard,
     get_skip_clarification_keyboard
@@ -42,8 +40,6 @@ from .settings_keyboard import (
     get_timezone_selection_method_keyboard,
     get_multiple_city_timezones_keyboard,
     get_city_timezone_confirmation_keyboard,
-    get_analysis_time_selection_keyboard,
-
     get_task_settings_keyboard
 )
 
@@ -65,18 +61,8 @@ from .tasks_keyboard import (
     get_task_main_menu_keyboard
 )
 
-# Клавиатуры анкеты
-from .onboarding_keyboards import (
-    get_instruction_keyboard,
-    get_agreement_keyboard,
-    get_skip_questionnaire_keyboard,
-    get_submit_answers_keyboard,
-    get_agreement_keyboard_for_first_entry
-)
-
 # Клавиатуры прогресса
 from .progress_keyboards import (
-    get_weekly_analysis_keyboard,
     get_progress_keyboard_without_weekly,
     get_weekly_navigation_keyboard,
     get_progress_keyboard_with_weekly,
@@ -107,7 +93,6 @@ __all__ = [
     'get_month_calendar_with_navigation',
     'get_year_selection_keyboard',
     'get_month_selection_keyboard',
-    'get_entry_view_keyboard',
     'get_basic_calendar_keyboard',
     'get_calendar_back_keyboard',
     'get_confirm_delete_entry_keyboard',
@@ -129,7 +114,6 @@ __all__ = [
     'get_timezone_selection_method_keyboard',
     'get_multiple_city_timezones_keyboard',
     'get_city_timezone_confirmation_keyboard',
-    'get_analysis_time_selection_keyboard',
     'get_account_deletion_confirmation_keyboard',
     'get_account_deletion_menu_keyboard',
     'get_task_settings_keyboard',
@@ -149,14 +133,7 @@ __all__ = [
     'get_task_history_detail_keyboard',
     'get_task_main_menu_keyboard',
 
-    # Клавиатуры заданий
-    'get_instruction_keyboard',
-    'get_agreement_keyboard',
-    'get_skip_questionnaire_keyboard',
-    'get_submit_answers_keyboard',
-
     # Клавиатуры прогресса
-    'get_weekly_analysis_keyboard',
     'get_progress_keyboard_without_weekly',
     'get_weekly_navigation_keyboard',
     'get_progress_keyboard_with_weekly',
@@ -164,8 +141,6 @@ __all__ = [
 
     # Клавиатуры профиля
     'get_profile_keyboard',
-
-    'get_agreement_keyboard_for_first_entry',
 
     # Клавиатуры оплаты
     'get_purchase_options_keyboard',

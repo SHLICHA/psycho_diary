@@ -60,8 +60,6 @@ class UserProfileHistoryAdmin(admin.ModelAdmin):
     user_link.short_description = "Пользователь"
     user_link.admin_order_field = 'user__username' # Позволяет сортировать по имени пользователя
 
-# ... (остальные методы UserProfileHistoryAdmin)
-
 class UserProfileHistoryInline(admin.TabularInline):
     """Встроенный список истории профиля на странице пользователя."""
     model = UserProfileHistory
@@ -128,7 +126,7 @@ class UserAdmin(BaseUserAdmin):
         # Новые поля для Telegram бота
         (('Telegram и Основное'), {
             'fields': (
-                'telegram_id', 'language', 'timezone', 'onboarding_step', 'is_onboarding_completed',
+                'telegram_id', 'language', 'timezone',
                 'is_premium', 'is_blocked', 'deletion_status', 'deleted_at', 'token_balance',
                 'last_streak_reward_7', 'last_streak_reward_30', 'last_streak_reward_365', 'invited_by',
             )

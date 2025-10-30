@@ -1,8 +1,7 @@
-# bot/utils/diary_utils.py
 import logging
 from typing import Dict, Any, List, Tuple, Optional
 from asgiref.sync import sync_to_async
-from datetime import date, datetime, timedelta
+from datetime import date
 import pytz
 from django.utils import timezone
 
@@ -29,32 +28,22 @@ async def get_user_streaks(user):
         user_tz = pytz.timezone(user_timezone_str)
         now = datetime.now(user_tz)
         today = now.date()
-
-        # --- ОБНОВЛЕНИЕ: Обернуть в sync_to_async ---
         @sync_to_async
         def get_entry_dates_sync():
-            # Получаем даты ВСЕХ записей (включая восстановленные), отсортированные по возрастанию
-            # Это нужно для подсчета текущей и максимальной серии.
             entry_dates_qs = DiaryEntry.objects.filter(
                 user=user,
-                # Учитываем все записи
             ).order_by('created_at').distinct().values_list('created_at', flat=True)
-            # Возвращаем список, чтобы избежать проблем с итерацией в асинхронной функции
             return list(entry_dates_qs)
-
         entry_dates = await get_entry_dates_sync()
-        # ---
-
         user_entry_dates = set()
-        for dt in entry_dates: # Теперь dt - это Python datetime/datetime.date или None
+        for dt in entry_dates:
             if dt is None:
-                continue # Пропускаем, если вдруг есть None
+                continue
             if isinstance(dt, datetime):
                 if dt.tzinfo is None:
                     dt = pytz.utc.localize(dt)
                 user_entry_dates.add(dt.astimezone(user_tz).date())
             elif isinstance(dt, date):
-                # Если values_list возвращает date напрямую (что маловероятно, но на всякий случай)
                 user_entry_dates.add(dt)
             else:
                 logger.warning(f"get_user_streaks: Неожиданный тип даты: {type(dt)}, значение: {dt}")
@@ -63,20 +52,14 @@ async def get_user_streaks(user):
 
         if not sorted_dates:
             return 0, 0
-
-        # Подсчитываем текущую серию
         current_streak = 0
         current_date = today
-        # Идем по датам записей от самой последней
         for entry_date in sorted(user_entry_dates, reverse=True):
             if entry_date == current_date:
                 current_streak += 1
                 current_date -= timedelta(days=1)
             elif entry_date < current_date:
-                # Если дата записи раньше, чем ожидаемая, серия прервана
                 break
-
-        # Подсчитываем максимальную серию
         max_streak = 0
         current_run = 0
         prev_date = None
@@ -86,13 +69,10 @@ async def get_user_streaks(user):
             elif entry_date == prev_date + timedelta(days=1):
                 current_run += 1
             else:
-                # Прерывание серии
                 max_streak = max(max_streak, current_run)
                 current_run = 1
             prev_date = entry_date
-        # Не забываем проверить последнюю серию
         max_streak = max(max_streak, current_run)
-
         return current_streak, max_streak
     except Exception as e:
         logger.error(f"Ошибка при подсчете серий пользователя {user.telegram_id}: {e}")
