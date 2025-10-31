@@ -27,7 +27,7 @@ from bot.keyboards import (
     )
 from bot.utils.state_manager import state_manager
 from bot.utils.callback_utils import safe_answer_callback
-from bot.utils.message_utils import safe_edit_message_text
+from bot.utils.message_utils import safe_edit_message_text, send_processing_message
 from bot.decorators.analytics_decorator import log_user_activity
 from diary.services.settings_service import (
     update_user_language,
@@ -361,7 +361,12 @@ async def process_city_input(message: Message, state: FSMContext, user, language
             error_msg = get_message(key='please_enter_city', language=language)
             await message.answer(error_msg)
             return
+        status_msg = await message.answer(get_message('searching_timezone', language))
         lookup_result = await process_city_timezone_lookup(city_name, language)
+        try:
+            await status_msg.delete()
+        except Exception as e:
+            logger.debug(f"Не удалось удалить сообщение 'Поиск...' для {user.telegram_id}: {e}")
         if not lookup_result['success']:
             error_msg = lookup_result.get('error', get_message('timezone_error', language))
             await message.answer(f"❌ {error_msg}")
@@ -401,6 +406,12 @@ async def process_city_input(message: Message, state: FSMContext, user, language
             return
     except Exception as e:
         logger.error(f"Ошибка при обработке ввода города: {e}", exc_info=True)
+
+        try:
+            if 'status_msg' in locals():
+                await status_msg.delete()
+        except Exception as cleanup_error:
+            logger.debug(f"Не удалось удалить сообщение 'Обработка...' при исключении для {user.telegram_id}: {cleanup_error}")
         await message.answer(get_message('error_generic', language=language))
         await state_manager.clear_state(state)
 
