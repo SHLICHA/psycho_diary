@@ -83,8 +83,8 @@ def get_language_selection_keyboard(language: str) -> InlineKeyboardMarkup:
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def get_timezone_selection_method_keyboard(language: str, current_timezone: str) -> InlineKeyboardMarkup:
-    """Клавиатура выбора способа установки часового пояса"""
+def get_timezone_selection_method_keyboard(language: str, current_timezone: str, show_back_button: bool = True) -> InlineKeyboardMarkup:
+    """Клавиатура для выбора способа установки часового пояса."""
     buttons = [
         [
             InlineKeyboardButton(
@@ -94,17 +94,18 @@ def get_timezone_selection_method_keyboard(language: str, current_timezone: str)
         ],
         [
             InlineKeyboardButton(
-                text=get_message('btn_enter_city', language),
+                text=get_button_text('btn_enter_custom_timezone', language),
                 callback_data="timezone_enter_city"
             )
         ],
-        [
+    ]
+    if show_back_button:
+        buttons.append([
             InlineKeyboardButton(
                 text=get_button_text('btn_back', language),
                 callback_data="settings"
             )
-        ]
-    ]
+        ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_city_timezone_confirmation_keyboard(language: str, timezone_data: dict) -> InlineKeyboardMarkup:

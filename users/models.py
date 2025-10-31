@@ -30,6 +30,7 @@ class User(AbstractUser):
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
     is_premium = models.BooleanField(default=False, verbose_name="Премиум статус")
+    is_onboarding_completed = models.BooleanField(default=False, verbose_name="Онбординг завершён")
     premium_expires_at = models.DateTimeField(
         null=True, blank=True,
         verbose_name="Подписка действует до"

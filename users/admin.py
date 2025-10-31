@@ -108,7 +108,7 @@ class UserAdmin(BaseUserAdmin):
     # Настройка отображения в списке пользователей
     list_display = (
         'username', 'telegram_id', 'first_name', 'last_name', 
-        'awareness_level', 'is_premium', 'token_balance', 'is_blocked', 'created_at'
+        'awareness_level', 'is_premium', 'token_balance', 'is_blocked', 'created_at', 'is_onboarding_completed'
     )
     list_filter = (
         'is_premium', 'is_blocked', 'language', 'created_at', 'last_activity',
@@ -126,7 +126,7 @@ class UserAdmin(BaseUserAdmin):
         # Новые поля для Telegram бота
         (('Telegram и Основное'), {
             'fields': (
-                'telegram_id', 'language', 'timezone',
+                'telegram_id', 'language', 'timezone', 'is_onboarding_completed',
                 'is_premium', 'is_blocked', 'deletion_status', 'deleted_at', 'token_balance',
                 'last_streak_reward_7', 'last_streak_reward_30', 'last_streak_reward_365', 'invited_by',
             )

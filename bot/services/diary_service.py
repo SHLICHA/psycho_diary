@@ -966,6 +966,112 @@ class DiaryService:
         logger.debug(f"[DiaryService] Создан/обновлён CombinedDiaryEntry ID {combined_entry.id} для анализа {user.telegram_id}, {target_date}.")
         return combined_entry
 
+    @async_error_handler('diary_service')
+    async def process_first_onboarding_entry_logic(self,
+                                      user: User,
+                                      entry_text: str,
+                                      language: str,
+                                      entry_datetime: datetime = None) -> Dict[str, Any]:
+        """
+        Выполняет бизнес-логику обработки ПЕРВОЙ текстовой записи пользователя в онбординге.
+        Использует специальный промпт 'incremental_day_analysis_first_entry'.
+        НЕ создаёт задания и НЕ запускает уточнения.
+
+        Args:
+            user (User): Пользователь.
+            entry_text (str): Текст записи.
+            language (str): Язык.
+            entry_datetime (datetime, optional): Время создания записи. Defaults to None.
+
+        Returns:
+            Dict[str, Any]: Результат обработки. Содержит:
+                - 'success' (bool): Успешность операции (после валидации ИИ).
+                - 'entry' (DiaryEntry): Созданная запись.
+                - 'analysis' (PsychoAnalysis): Созданный анализ.
+                - 'formatted_message_ai' (str): Форматированный текст для отправки пользователю
+                  (может быть взят из 'analysis_text', 'comment', 'recommendation').
+                - 'mood_score' (int): Оценка настроения.
+                - 'comment' (str): Комментарий ИИ.
+                - 'recommendation' (str): Рекомендация ИИ.
+        """
+        try:
+            diary_entry = await self.create_text_entry(
+                user=user,
+                text=entry_text,
+                language=language,
+                entry_datetime=entry_datetime
+            )
+            logger.debug(f"[process_first_onboarding_entry_logic] Создана запись ID {diary_entry.id} для пользователя {user.telegram_id}")
+            combined_entry, _ = await self.get_or_update_daily_state_with_entries(user, diary_entry)
+            entry_date = await diary_entry.aentry_date()
+            all_entries_text = await self.get_combined_entry_text(user, entry_date)
+            logger.debug(f"[process_first_onboarding_entry_logic] Обновлен CombinedDiaryEntry ID {combined_entry.id} для пользователя {user.telegram_id}")
+            ai_state_data = combined_entry.ai_state_data if combined_entry else ''
+            user_profile_data = await user.aget_profile_data()
+            prompt = get_prompt(
+                key='incremental_day_analysis_first_entry',
+                language=language,
+                new_entry_text=diary_entry.text,
+                first_name=user.first_name or user.username or f'Пользователь {user.telegram_id}',
+                user_profile=user_profile_data,
+            )
+            logger.debug(f"[process_first_onboarding_entry_logic] Используется промпт: incremental_day_analysis_first_entry, для пользователя {user.telegram_id}")
+            api_start_time = time.time()
+            analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
+            total_api_time = time.time() - api_start_time
+            if not analysis_result.get('success'):
+                comment, recommendation, analysis_text, _ = format_api_error_for_analysis(analysis_result, language, is_final=True)
+                mood_score = 5
+                is_valid_ai = False 
+                result_data = {}
+            else:
+                result_data = analysis_result.get('result', {})
+                mood_score = result_data.get('mood_score', 5)
+                comment = result_data.get('comment', get_message('no_comment', language))
+                recommendation = result_data.get('recommendation', get_message('no_recommendation', language))
+                analysis_text = result_data.get('analysis', 'Текст проанализирован.')
+                is_valid_ai = result_data.get('is_valid', True)
+            if not is_valid_ai:
+                validation_comment_ai = result_data.get('validation_comment', '')
+                formatted_message_ai = result_data.get('formatted_message', '')
+                logger.warning(f"[process_first_onboarding_entry_logic] Первая запись пользователя {user.telegram_id} не прошла валидацию ИИ: {validation_comment_ai}")
+                return {
+                    'success': False,
+                    'entry': None,
+                    'formatted_message_ai': formatted_message_ai,
+                }
+            analysis_obj = await psycho_analysis_service.create_or_update_analysis(
+                entry=diary_entry,
+                mood_score=mood_score,
+                comment=comment,
+                recommendation=recommendation,
+                analysis_text=analysis_text,
+                api_response=analysis_result.get('api_response', {}),
+                processing_time=total_api_time,
+                finalize_processing=True
+            )
+            logger.debug(f"[process_first_onboarding_entry_logic] Создан/обновлен PsychoAnalysis ID {analysis_obj.id} для записи {diary_entry.id}")
+            new_ai_state_data = result_data.get('updated_ai_state_data', analysis_text)
+            await daily_state_service.update_daily_state(
+                combined_entry=combined_entry,
+                new_ai_state_data=new_ai_state_data,
+                latest_mood_score=mood_score
+            )
+            logger.debug(f"[process_first_onboarding_entry_logic] Обновлен CombinedDiaryEntry ID {combined_entry.id} с новым состоянием")
+            return {
+                'success': True,
+                'entry': diary_entry,
+                'analysis': analysis_obj,
+                'formatted_message_ai': analysis_text,
+                'mood_score': mood_score,
+                'comment': comment,
+                'recommendation': recommendation,
+            }
+
+        except Exception as e:
+            logger.error(f"[process_first_onboarding_entry_logic] Критическая ошибка: {e}", exc_info=True)
+            return {'success': False, 'error': str(e)}
+
 diary_service = DiaryService()
 
 #============================================УДОБНЫЕ ФУНКЦИИ=================================================
@@ -1059,3 +1165,7 @@ async def process_user_comment_logic(
 async def prepare_combined_entry_for_analysis(user: User, target_date: date) -> Optional[CombinedDiaryEntry]:
     """Удобная функция для подготовки CombinedDiaryEntry для анализа."""
     return await diary_service.prepare_combined_entry_for_analysis(user, target_date)
+
+async def process_first_onboarding_entry_logic(user: User,entry_text: str,language: str,entry_datetime: datetime = None) -> Dict[str, Any]:
+    """Удобная функция для обработки первой записи в онбординге."""
+    return await diary_service.process_first_onboarding_entry_logic(user, entry_text, language, entry_datetime)

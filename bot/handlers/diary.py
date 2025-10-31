@@ -20,7 +20,6 @@ from bot.decorators.analytics_decorator import log_user_activity
 from bot.states.diary_states import DiaryStates
 from bot.keyboards import (
     get_single_button_keyboard,
-    get_confirmation_keyboard,
     format_entry_text_for_editing,
     get_back_keyboard,
     get_task_pagination_keyboard,

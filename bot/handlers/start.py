@@ -14,7 +14,9 @@ from messages import get_message
 from bot.decorators.analytics_decorator import log_user_activity
 from bot.keyboards import (
     get_main_menu_keyboard,
+    get_single_button_keyboard
 )
+from bot.states.onboarding_states import OnboardingStates
 from bot.utils.message_utils import safe_edit_message_text
 from bot.utils.callback_utils import safe_answer_callback
 from bot.utils.state_manager import state_manager
@@ -34,6 +36,14 @@ async def cmd_start(message: Message, user, language: str, state: FSMContext, da
     или главное меню в зависимости от согласия.
     """
     try:
+        if not user.is_onboarding_completed:
+            await state_manager.clear_state(state)
+            welcome_msg = get_message('onboarding_welcome_extended_first_entry', language)
+            keyboard = get_single_button_keyboard(language, button_callback_data="onboarding_agree_1", button_text='btn_next')
+            await message.answer(welcome_msg, reply_markup=keyboard)
+            await state_manager.set_state(state, OnboardingStates.waiting_for_agreement_1)
+            logger.info(f"[cmd_start] Начат онбординг для пользователя {user.telegram_id}")
+            return
         await state_manager.clear_state(state)
         was_reactivated = kwargs.get('was_blocked_and_reactivated', False)
         logger.debug(f"[cmd_start] was_reactivated из kwargs: {was_reactivated}")
