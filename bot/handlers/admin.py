@@ -180,81 +180,51 @@ async def get_admin_stats():
     Возвращает словарь с метриками.
     """
     now = timezone.now()
-    seven_days_ago = now - timedelta(days=7) # Вычисляем дату 7 дней назад
-
+    seven_days_ago = now - timedelta(days=7)
     stats = {}
-
-    # --- Пользователи ---
-    # Всего (активных в системе, не удалённых)
     active_in_system_users = User.objects.filter(deletion_status='active', is_superuser=False)
     stats['total_users'] = await active_in_system_users.acount()
-
-    # Активные (незаблокированные, не удалённые)
     active_users_query = active_in_system_users.filter(is_blocked=False)
     stats['active_users'] = await active_users_query.acount()
-
-    # Активные за последние 7 дней (незаблокированные, не удалённые, last_activity >= 7 дней назад)
-    stats['active_users_last_7_days'] = await active_users_query.filter( # Добавляем новый счётчик
+    stats['active_users_last_7_days'] = await active_users_query.filter(
         last_activity__gte=seven_days_ago
     ).acount()
-
-    # Заблокированы (is_blocked = True, не удалённые)
     stats['blocked_users'] = await active_in_system_users.filter(is_blocked=True).acount()
-
-    # Считаем количество премиум пользователей через sync_to_async
     @sync_to_async
     def count_premium_users():
-        # Получаем всех активных (незаблокированных, не удалённых) пользователей
-        users_qs = active_users_query # Используем запрос для незаблокированных
+        users_qs = active_users_query
         count = 0
-        for user in users_qs.iterator(): # Используем iterator для потенциально большого количества записей
-            if user.is_premium_active(): # Вызов синхронного метода
+        for user in users_qs.iterator():
+            if user.is_premium_active():
                 count += 1
         return count
-
     stats['premium_users'] = await count_premium_users()
-
-    # С токенами (незаблокированные, не удалённые, token_balance > 0)
     stats['users_with_tokens'] = await active_users_query.filter(token_balance__gt=0).acount()
-
-    # --- НОВОЕ: Автоанализ ---
     stats['users_with_auto_analysis_enabled'] = await active_users_query.filter(auto_analysis_enabled=True).acount()
-
-    # --- НОВОЕ: Часовые пояса ---
-    # Асинхронно получаем список всех часовых поясов активных пользователей
+    stats['users_completed_onboarding'] = await active_users_query.filter(is_onboarding_completed=True).acount()
+    user_ids_with_entries = await DiaryEntry.objects.filter(
+        user__in=active_users_query
+    ).values_list('user_id', flat=True).distinct().acount()
+    stats['users_with_entries'] = user_ids_with_entries
     @sync_to_async
     def get_timezones_list():
-        # .list() превращает QuerySet в обычный список Python
         return list(active_users_query.values_list('timezone', flat=True))
     timezones_list = await get_timezones_list()
-    # Подсчитываем количество пользователей в каждом часовом поясе
     timezone_counts = Counter(timezones_list)
-    # Сортируем по количеству (по убыванию) и выбираем топ N (например, 10)
     top_timezones = timezone_counts.most_common(10)
-    stats['top_timezones'] = top_timezones # Список кортежей (часовой пояс, количество)
-
-    # --- НОВОЕ: Оценки анализов ---
-    # Получаем QuerySet всех оценок
+    stats['top_timezones'] = top_timezones
     all_ratings = AnalysisRating.objects.all()
-    # Считаем общее количество оценок
     stats['total_ratings'] = await all_ratings.acount()
-    # Получаем количество оценок для каждой звезды (1-5)
     @sync_to_async
     def get_rating_counts():
-        # Используем annotate и count для подсчёта по полю rating
         from django.db.models import Count
         rating_counts = all_ratings.values('rating').annotate(count=Count('rating')).order_by('rating')
-        # Создаём словарь с 0 для звёзд, которые не встречались
         counts = {i: 0 for i in range(1, 6)}
         for item in rating_counts:
             counts[item['rating']] = item['count']
         return counts
     stats['rating_distribution'] = await get_rating_counts()
-
-    # --- Платежи ---
-    # Считаем количество успешных платежей по типам
     successful_payments = Payment.objects.filter(status='succeeded')
-
     stats['subscriptions_30_count'] = await successful_payments.filter(payment_type='subscription_month').acount()
     stats['subscriptions_year_count'] = await successful_payments.filter(payment_type='subscription_year').acount()
     stats['tokens_10_count'] = await successful_payments.filter(payment_type='tokens_10').acount()
@@ -263,35 +233,23 @@ async def get_admin_stats():
     stats['tokens_200_count'] = await successful_payments.filter(payment_type='tokens_200').acount()
     stats['tokens_500_count'] = await successful_payments.filter(payment_type='tokens_500').acount()
     stats['custom_tokens_count'] = await successful_payments.filter(payment_type='tokens_custom').acount()
-
-    # --- Записи ---
-    # Учитываем, что записи могут быть у удалённых пользователей, но для общей статистики
-    # логично исключить их, или посчитать отдельно.
-    # Берём записи только от активных (незаблокированных, не удалённых) пользователей
     user_active_ids = await sync_to_async(list)(active_users_query.values_list('id', flat=True))
     total_entries_query = DiaryEntry.objects.filter(user_id__in=user_active_ids)
     stats['total_entries'] = await total_entries_query.acount()
     stats['real_entries'] = await total_entries_query.filter(is_recovered_streak=False).acount()
     stats['recovered_entries'] = await total_entries_query.filter(is_recovered_streak=True).acount()
-
     return stats
 
-# Обработчик команды /stats
 @router.message(Command("stats"))
 async def cmd_admin_stats(message: Message):
     """
     Отправляет администратору сводную статистику.
     """
-    # --- Проверка на администратора ---
-    if not is_admin(message.from_user.id): # Проверяем через вызов функции
+    if not is_admin(message.from_user.id):
         await message.answer("❌ У вас нет прав для просмотра статистики.")
         return
-    # ---
-
     try:
         stats = await get_admin_stats()
-
-        # Формируем текстовое сообщение
         response = f"""
 📊 <b>Статистика приложения</b> (на {timezone.now().strftime('%d.%m.%Y %H:%M')})
 
@@ -303,6 +261,8 @@ async def cmd_admin_stats(message: Message):
 • 💳С активной подпиской: {stats['premium_users']}
 • 💎С токенами: {stats['users_with_tokens']}
 • 📈С включённым автоанализом: {stats['users_with_auto_analysis_enabled']}
+• 🎓Завершили онбординг: {stats['users_completed_onboarding']}
+• ✍️Сделали хотя бы одну запись: {stats['users_with_entries']}
 
 <b>Платежи (успешные):</b>
 • 💎Подписки (30 дней): {stats['subscriptions_30_count']} шт.
