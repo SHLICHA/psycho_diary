@@ -517,12 +517,9 @@ class TaskManagementService:
         try:
             @sync_to_async
             def count_tasks_sync():
-                # NOTE: В оригинальном коде было status__in=['pending',], но в комментарии указаны ['pending', 'in_progress'].
-                # В ТЕКУЩЕМ оригинальном коде используется только 'pending'.
-                # Если нужно учитывать 'in_progress', измените фильтр.
                 return TherapyTask.objects.filter(
                     user=user,
-                    status='pending' # <-- Используем оригинальную логику из файла задач
+                    status='pending'
                 ).count()
             count = await count_tasks_sync()
             return count

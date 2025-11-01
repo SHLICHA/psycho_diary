@@ -387,6 +387,7 @@ async def _run_analysis_and_notify_user(task_completion: TaskCompletion, user: U
                     mood_impact_display = "N/A"
                 comment_for_user = analysis_result.comment or get_message('no_comment', language)
                 recommendation_for_user = analysis_result.recommendation or get_message('no_recommendation', language)
+                detailed_analysis = analysis_result.detailed_analysis or ''
                 tokens_awarded = analysis_result.tokens_awarded
                 updated_user = await User.objects.aget(telegram_id=user.telegram_id)
                 main_analysis_text = get_message(
@@ -394,6 +395,7 @@ async def _run_analysis_and_notify_user(task_completion: TaskCompletion, user: U
                     language,
                     effect_description=effect_description,
                     mood_impact=mood_impact_display,
+                    detailed_analysis=detailed_analysis,
                     comment=comment_for_user,
                     recommendation=recommendation_for_user
                 )
