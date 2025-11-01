@@ -62,7 +62,7 @@ def schedule_daily_analyses(self):
                 logger.debug(f"  Локальное время пользователя: {user_local_time}")
                 logger.debug(f"  Вчерашняя дата по часовому поясу пользователя: {yesterday_date_user_tz}")
                 today_user_tz = user_local_time.date()
-                analysis_time_for_today_user_tz_naive = datetime.combine(today_user_tz, time(0, 30))
+                analysis_time_for_today_user_tz_naive = datetime.combine(today_user_tz, time(0, 1))
                 user_tz_str = user.timezone if user.timezone else 'UTC'
                 try:
                     user_tz = pytz.timezone(user_tz_str)
