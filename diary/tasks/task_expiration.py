@@ -6,6 +6,7 @@ import logging
 
 from celery import shared_task
 from django.utils import timezone
+from django.db import close_old_connections
 
 from diary.models import TherapyTask
 
@@ -18,7 +19,11 @@ def expire_tasks():
     Запускается каждую минуту Celery Beat.
     """
     logger.debug("Запуск задачи обновления статуса просроченных заданий.")
-    return expire_tasks_sync()
+    close_old_connections()
+    try:
+        return expire_tasks_sync()
+    finally:
+        close_old_connections()
 
 def expire_tasks_sync():
     """
