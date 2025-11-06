@@ -52,6 +52,7 @@ Your response is saved. I will consider this in future analysis.
         'btn_view_task': '👁 View',
         'btn_task_history': '📜 Task history',
         'btn_active_tasks': '🎯 Active tasks',
+        'btn_task_impact_chart': '📊 Task Impact Chart',
         
         # === Task statuses ===
         'task_status_pending': 'Pending',
@@ -156,5 +157,6 @@ Please complete the task more thoroughly and meaningfully.''',
     'task_effect_analysis_result_formatted': '''<b>🎯 Task Completion Result</b>\n\n💫 <b>Effect:</b> {effect_description}\n\n😊 <b>Mood Impact:</b> {mood_impact}\n\n<b>Analysis:</b> {detailed_analysis}\n\n💭 <b>Comment:</b> {comment}\n\n🌟 <b>Recommendation:</b> {recommendation}\n\n<i>You did great with the task! Keep up the good work! 💪</i>''',
     'task_analysis_error_formatted': '''<b>❌ An Error Occurred</b>\n\nUnfortunately, we couldn't analyze the task completion.\nTry completing the task again or come back to it later.''',
     'task_tokens_awarded': '🎉 You earned <b>{tokens}</b> tokens for completing the task! Your balance: <b>{balance}</b>.',
+    'task_impact_chart_caption': '📊 Chart of task impact on mood and task complexity over the last {days} days.',
 }
 }

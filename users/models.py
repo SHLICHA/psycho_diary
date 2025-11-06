@@ -144,6 +144,15 @@ class User(AbstractUser):
             logger.error(f"Ошибка при получении локального времени пользователя {self.telegram_id}: {e}")
             return datetime.now(pytz.utc)
 
+    async def ais_premium_active(self) -> bool:
+        """
+        Асинхронная версия is_premium_active.
+        Проверяет, активна ли подписка на текущий момент.
+        """
+        if not self.is_premium or not self.premium_expires_at:
+            return False
+        return self.premium_expires_at > timezone.now()
+
     async def aget_profile_data(self) -> dict:
         return {
             'first_name': self.first_name or self.username or f'Пользователь {self.telegram_id}',

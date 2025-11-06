@@ -18,7 +18,7 @@ MORNING_MOTIVATION_PROMPT = {
 ### 🧠 ИНСТРУКЦИЯ
 
 1.  **Проанализируй предоставленный контекст.**
-2.  **Сформируй короткое (2-3 предложения), позитивное и мотивирующее сообщение.**
+2.  **Сформируй короткое (2-5 предложения), позитивное и мотивирующее сообщение.**
 3.  **Постарайся учесть:**
     *   Имя пользователя.
     *   Зоны роста.
@@ -63,7 +63,7 @@ MORNING_MOTIVATION_PROMPT = {
 ### 🧠 INSTRUCTIONS
 
 1.  **Analyze the provided context.**
-2.  **Form a short (1-2 sentences), positive, and motivational message.**
+2.  **Form a short (2-5 sentences), positive, and motivational message.**
 3.  **Try to consider:**
     *   The user's name.
     *   Key themes or insights from the previous day (if available and appropriate).

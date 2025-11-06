@@ -6,7 +6,6 @@ import logging
 import time
 
 from asgiref.sync import sync_to_async
-from aiogram.types import Message, ContentType
 from typing import List, Dict, Any, Optional
 from datetime import datetime, date, time as dtime
 from django.db import transaction
@@ -15,10 +14,7 @@ from django.core.cache import cache
 from typing import Dict, Any, List
 
 from bot.utils.decorators import async_error_handler, database_retry
-from bot.utils.validation_utils import validate_incoming_message, validate_text_entry
-from bot.utils.audio_utils import process_voice_message
 from bot.utils.api_utils import format_api_error_for_analysis
-from bot.utils.rate_limiter import rate_limiter
 from bot.utils.diary_utils import check_and_award_streak_bonus
 from bot.services import deepseek_api_service
 from bot.services import psycho_analysis_service
@@ -559,12 +555,25 @@ class DiaryService:
             "skills": user.skills,
             "aspirations": user.aspirations
         }
+        try:
+            user_tz_str = user.timezone if user.timezone else 'UTC'
+            user_tz = pytz.timezone(user_tz_str)
+            created_at = diary_entry.created_at
+            if created_at.tzinfo is None:
+                created_at = pytz.utc.localize(created_at)
+            localized_time = created_at.astimezone(user_tz)
+            new_entry_creation_time_local = localized_time.strftime('%d.%m.%Y %H:%M')
+            logger.debug(f"[process_new_entry_logic] Локализованное время создания записи {diary_entry.id}: {new_entry_creation_time_local}")
+        except Exception as e:
+            logger.error(f"[process_new_entry_logic] Ошибка при определении локального времени для записи {diary_entry.id}: {e}")
+            new_entry_creation_time_local = diary_entry.created_at.strftime('%d.%m.%Y %H:%M UTC')
 
         prompt = get_prompt(
             key='incremental_day_analysis',
             language=language,
             all_entries_combined=all_entries_text,
             new_entry_text=entry_text,
+            new_entry_creation_time_local=new_entry_creation_time_local,
             ai_state_data=ai_state_data,
             first_name=extended_user_context["first_name"],
             awareness_level=extended_user_context["awareness_level"],
@@ -1004,14 +1013,25 @@ class DiaryService:
             logger.debug(f"[process_first_onboarding_entry_logic] Создана запись ID {diary_entry.id} для пользователя {user.telegram_id}")
             combined_entry, _ = await self.get_or_update_daily_state_with_entries(user, diary_entry)
             entry_date = await diary_entry.aentry_date()
-            all_entries_text = await self.get_combined_entry_text(user, entry_date)
             logger.debug(f"[process_first_onboarding_entry_logic] Обновлен CombinedDiaryEntry ID {combined_entry.id} для пользователя {user.telegram_id}")
-            ai_state_data = combined_entry.ai_state_data if combined_entry else ''
             user_profile_data = await user.aget_profile_data()
+            try:
+                user_tz_str = user.timezone if user.timezone else 'UTC'
+                user_tz = pytz.timezone(user_tz_str)
+                created_at = diary_entry.created_at
+                if created_at.tzinfo is None:
+                    created_at = pytz.utc.localize(created_at)
+                localized_time = created_at.astimezone(user_tz)
+                new_entry_creation_time_local = localized_time.strftime('%d.%m.%Y %H:%M')
+                logger.debug(f"[process_first_onboarding_entry_logic] Локализованное время создания первой записи {diary_entry.id}: {new_entry_creation_time_local}")
+            except Exception as e:
+                logger.error(f"[process_first_onboarding_entry_logic] Ошибка при определении локального времени для первой записи {diary_entry.id}: {e}")
+                new_entry_creation_time_local = diary_entry.created_at.strftime('%d.%m.%Y %H:%M UTC')
             prompt = get_prompt(
                 key='incremental_day_analysis_first_entry',
                 language=language,
                 new_entry_text=diary_entry.text,
+                new_entry_creation_time_local=new_entry_creation_time_local,
                 first_name=user.first_name or user.username or f'Пользователь {user.telegram_id}',
                 user_profile=user_profile_data,
             )

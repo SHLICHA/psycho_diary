@@ -155,7 +155,7 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
                 language,
                 title=suggested_task_obj.title,
                 description=preview)
-            reply_markup = get_task_pagination_keyboard(suggested_task_obj.id, 0, 1, language)
+            reply_markup = get_task_pagination_keyboard(suggested_task_obj.id, 0, 1, language, exclude_skip_delete_buttons=True)
 
         final_text = get_message('entry_saved', language, score=analysis_obj.mood_score, mood=get_message(f'mood_{analysis_obj.mood_score}', language), comment=analysis_obj.comment, recommendation=analysis_obj.recommendation) + task_info
         if streak_bonus_info.get("awarded"):

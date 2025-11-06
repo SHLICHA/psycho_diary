@@ -2,14 +2,10 @@
 Handlers для прогресса
 """
 import logging
-import pytz
 
-from datetime import date, datetime, timedelta
-from datetime import time as dtime
-from django.db.models.functions import TruncDate
+from datetime import date
 from aiogram import Bot, F, Router
-from aiogram.types import CallbackQuery, InputFile, BufferedInputFile
-from asgiref.sync import sync_to_async
+from aiogram.types import CallbackQuery, BufferedInputFile
 
 from messages import get_message
 from bot.keyboards import (
@@ -22,12 +18,12 @@ from bot.keyboards import (
 )
 from bot.utils.message_utils import safe_edit_message_text
 from bot.utils.mood_chart import generate_mood_chart_image
+from bot.decorators.premium_decorator import requires_premium
 from diary.services.progress_service import (
     get_user_progress_statistics,
     get_latest_weekly_analysis,
     get_has_weekly_analyses,
     get_weekly_analysis_for_date,
-    get_all_weekly_analysis_dates,
     get_detailed_weekly_changes,
     check_restore_streak_availability,
     attempt_streak_restoration,
@@ -159,6 +155,7 @@ async def navigate_weekly_analysis(callback: CallbackQuery, user, language: str)
         await callback.answer()
 
 @router.callback_query(F.data == "show_mood_chart_week")
+@requires_premium(alert_message_key='feature_requires_premium')
 async def send_mood_chart_week(callback: CallbackQuery, user, language: str, bot: Bot):
     """Отправляет изображение с графиком настроения за последние 7 дней."""
     try:

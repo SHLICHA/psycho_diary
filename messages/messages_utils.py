@@ -143,6 +143,9 @@ MESSAGES = {
 ),
 'btn_cancel_reply': '❌ Отменить',
 'error_feedback_reply_start': '❌ Ошибка при обработке обращения',
+        'premium_required': '👑 Эта функция доступна только премиум пользователям.',
+        'feature_requires_premium': '🔒 Эта функция требует активной подписки PRO.',
+        'premium_benefits': '''👑 <b>Премиум подписка</b>''',
     },
     'en': {
         # === Mood scores ===
@@ -282,6 +285,9 @@ Our thoughts and feelings are an important part of the path to understanding our
 ),
 'btn_cancel_reply': '❌ Cancel',
 'error_feedback_reply_start': '❌ Error processing feedback',
+        'premium_required': '👑 This feature is available only to premium users.',
+        'feature_requires_premium': '🔒 This feature requires an active PRO subscription.',
+        'premium_benefits': '''👑 <b>Premium subscription</b>''',
     }
 }
 

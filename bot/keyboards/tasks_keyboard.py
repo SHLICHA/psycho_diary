@@ -33,6 +33,12 @@ def get_task_main_menu_keyboard(language: str, show_history_button: bool = True)
         ])
     buttons.append([
         InlineKeyboardButton(
+            text=get_button_text('btn_task_impact_chart', language),
+            callback_data="show_task_impact_chart"
+        )
+    ])   
+    buttons.append([
+        InlineKeyboardButton(
             text=get_button_text('btn_back', language),
             callback_data="main_menu"
         )
@@ -44,7 +50,8 @@ def get_task_pagination_keyboard(task_id: int,
                                  current_index: int,
                                  total_tasks: int,
                                  language: str,
-                                 show_history_button: bool = True
+                                 show_history_button: bool = True,
+                                 exclude_skip_delete_buttons: bool = False # <-- НОВЫЙ ПАРАМЕТР
                                  ) -> InlineKeyboardMarkup:
     """Клавиатура действий с заданием с пагинацией"""
     buttons = []
@@ -64,27 +71,31 @@ def get_task_pagination_keyboard(task_id: int,
             )
         ]
         buttons.append(pagination_buttons)
+
     action_buttons = [
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_complete_task', language),
-                callback_data=f"complete_task:{task_id}"
-            )
-        ],
-        [
+        InlineKeyboardButton(
+            text=get_button_text('btn_complete_task', language),
+            callback_data=f"complete_task:{task_id}"
+        )
+    ]
+    # --- ИЗМЕНЕНИЕ ---
+    if not exclude_skip_delete_buttons:
+        action_buttons.extend([
             InlineKeyboardButton(
                 text=get_button_text('btn_skip_task', language),
                 callback_data=f"skip_task:{task_id}"
-            )
-        ],
-        [
+            ),
             InlineKeyboardButton(
                 text=get_button_text('btn_delete_task', language),
                 callback_data=f"delete_task:{task_id}"
             )
-        ]
-    ]
-    buttons.extend(action_buttons)
+        ])
+    buttons.append([action_buttons[0]]) 
+    if len(action_buttons) > 1:
+        buttons.append([action_buttons[1]])
+        if len(action_buttons) > 2:
+            buttons.append([action_buttons[2]])
+
     navigation_buttons = []
     if show_history_button:
         navigation_buttons.append([
@@ -95,12 +106,18 @@ def get_task_pagination_keyboard(task_id: int,
         ])
     navigation_buttons.append([
         InlineKeyboardButton(
+            text=get_button_text('btn_task_impact_chart', language),
+            callback_data="show_task_impact_chart"
+        )
+    ])   
+    navigation_buttons.append([
+        InlineKeyboardButton(
             text=get_button_text('btn_back', language),
             callback_data="main_menu"
         )
     ])
     buttons.extend(navigation_buttons)
-    
+
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_task_detail_keyboard(task_id: int, language: str) -> InlineKeyboardMarkup:

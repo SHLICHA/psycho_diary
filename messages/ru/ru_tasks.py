@@ -70,6 +70,7 @@ TASKS_MESSAGES_RU = {
         'btn_view_task': '👁 Посмотреть',
         'btn_task_history': '📜 История заданий',
         'btn_active_tasks': '🎯 Активные задания',
+        'btn_task_impact_chart': '📊 График влияния заданий',
         
         # === Статусы заданий ===
         'task_status_pending': 'Ожидает',
@@ -156,6 +157,7 @@ TASKS_MESSAGES_RU = {
     'task_completion_invalid_default_comment': 'Попробуй описать выполнение задания более подробно, я в тебя верю!',
     'task_effect_analysis_result_formatted': '''<b>🎯 Результат выполнения задания</b>\n\n💫 <b>Эффект:</b> {effect_description}\n\n😊 <b>Влияние на настроение:</b> {mood_impact}\n\n<b>Анализ:</b> {detailed_analysis}\n\n💭 <b>Комментарий:</b> {comment}\n\n🌟 <b>Рекомендация:</b> {recommendation}\n\n<i>Ты отлично справился с заданием! Продолжай в том же духе! 💪</i>''',
     'task_analysis_error_formatted': '''<b>❌ Произошла ошибка</b>\n\nК сожалению, не удалось проанализировать выполнение задания.\nПопробуй выполнить задание еще раз или вернись к нему позже.''',
+    'task_impact_chart_caption': '📊 График влияния выполненных заданий на настроение и их сложности за последние {days} дней.',
     'task_tokens_awarded': '🎉 Вы заработали <b>{tokens}</b> токенов за выполнение задания! Ваш баланс: <b>{balance}</b>.',
 
     }

@@ -22,6 +22,7 @@ from bot.keyboards import (
     )
 from bot.utils.state_manager import state_manager
 from bot.decorators.analytics_decorator import log_user_activity
+from bot.decorators.premium_decorator import requires_premium
 from diary.services.user_profile_service import (
     get_user_profile_data,
     get_user_psychology_profile_data,
@@ -37,6 +38,7 @@ router = Router()
 logger = logging.getLogger(__name__)
 
 MAX_INLINE_FIELD_LENGTH = 3000
+
 
 @router.callback_query(F.data == "user_profile")
 @log_user_activity('show_profile')
@@ -140,6 +142,7 @@ async def show_transaction_history(callback: CallbackQuery, user, language: str)
         await callback.answer(get_message('error_generic', language=language), show_alert=True)
 
 @router.callback_query(F.data.startswith("view_profile_field:"))
+@requires_premium(alert_message_key='feature_requires_premium')
 @log_user_activity('show_profile', metadata_extra={'context': 'Просмотр конкретного поля психологического профиля'})
 async def show_profile_field(callback: CallbackQuery, user, language: str):
     """Показывает конкретное поле психологического профиля."""
@@ -553,6 +556,7 @@ async def cancel_account_deletion(callback: CallbackQuery, user, language: str, 
         await callback.answer(get_message('error_generic', language=language))
 
 @router.callback_query(F.data == "export_user_data")
+@requires_premium(alert_message_key='feature_requires_premium')
 async def handle_export_user_data(callback: CallbackQuery, user, language: str):
     """
     Обработчик экспорта данных пользователя в .docx

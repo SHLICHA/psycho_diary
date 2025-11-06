@@ -92,5 +92,6 @@ Share this link with friends. For each person who registers and starts using the
 
 <b>Your link:</b> will be sent when sharing.''',
     'no_referral_link_error': '❌ You do not have an active referral link yet.',
+    'morning_motivation_profile_changed': '📋 Your psychological profile has been updated! Click the button below to review the changes.',
     }
 }

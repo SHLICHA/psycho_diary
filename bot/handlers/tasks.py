@@ -5,8 +5,8 @@ Handlers для работы с терапевтическими задания�
 import logging
 import asyncio
 
-from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, ContentType
+from aiogram import Bot, Router, F
+from aiogram.types import Message, CallbackQuery, ContentType, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 
 from messages import get_message, get_button_text
@@ -23,13 +23,15 @@ from bot.keyboards import (
     get_task_main_menu_keyboard
     )
 from bot.decorators.analytics_decorator import log_user_activity
+from bot.decorators.premium_decorator import requires_premium
 from bot.utils.audio_utils import process_voice_message
 from bot.utils.state_manager import state_manager
+from bot.utils.task_impact_chart import generate_task_impact_chart_image
+from bot.utils.message_utils import send_message_to_user
 from bot.utils.message_utils import safe_edit_message_text
 from bot.utils.callback_utils import safe_answer_callback
 from diary.models import TherapyTask, TaskCompletion, TaskCompletionAnalysis
 from diary.services.task_management_service import (
-    assign_task,
     get_user_active_tasks,
     get_user_completed_tasks,
     complete_task,
@@ -737,6 +739,40 @@ async def view_detailed_task_analysis(callback: CallbackQuery, user, language: s
     except Exception as e:
         logger.error(f"Ошибка при просмотре детального анализа задания {task_id}: {e}", exc_info=True)
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
+
+@router.callback_query(F.data == "show_task_impact_chart")
+@requires_premium(alert_message_key='feature_requires_premium')
+@log_user_activity('task_chart_viewed', metadata_extra={'context': 'Просмотр графика влияния заданий'})
+async def send_task_impact_chart(callback: CallbackQuery, user, language: str, bot: Bot):
+    """Отправляет изображение с графиком влияния выполненных заданий и их сложности за последние N дней."""
+    days = 30
+    try:
+        await safe_answer_callback(callback, "")
+        processing_msg = await callback.message.answer(get_message('processing', language))
+        chart_image_buffer = await generate_task_impact_chart_image(user, days=days, language=language)
+        chart_input_file = BufferedInputFile(chart_image_buffer.getvalue(), filename='task_impact_chart.png')
+        dismiss_kb = get_single_button_keyboard(
+            language=language,
+            button_callback_data="delete_current_chart",
+            button_text="btn_remove"
+        )
+        sent_message = await callback.message.answer_photo(
+            photo=chart_input_file,
+            caption=get_message('task_impact_chart_caption', language, days=days),
+            reply_markup=dismiss_kb
+        )
+        await processing_msg.delete()
+        logger.debug(f"[send_task_impact_chart] График отправлен в сообщении ID {sent_message.message_id} пользователю {user.telegram_id}")
+    except Exception as e:
+        logger.error(f"[send_task_impact_chart] Ошибка генерации/отправки графика: {e}", exc_info=True)
+        try:
+            await callback.message.answer(get_message('error_processing', language))
+        except Exception as send_error:
+            logger.error(f"[send_task_impact_chart] Ошибка при отправке сообщения об ошибке пользователю: {send_error}")
+        try:
+            await processing_msg.delete()
+        except:
+            pass
 
 #=========================ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ=====================================
 
