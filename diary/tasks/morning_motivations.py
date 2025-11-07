@@ -231,51 +231,63 @@ async def _send_morning_motivation_async():
                                 restore_text = get_message('morning_motivation_restore_two_days', user_language, dates=dates_str)
                             restore_text = f"\n\n{restore_text}" # Добавляем отступ
 
-                        # --- ПЕРЕНОС ВСЕХ ДОПОЛНЕНИЙ В ОДИН БЛОК ---
+                        @sync_to_async
+                        def get_user_premium_and_balance():
+                            return user.is_premium, user.token_balance
+                        user_is_premium, user_token_balance = await get_user_premium_and_balance()
+
                         additional_text = ""
                         additional_button_callback = None
                         additional_button_text_key = None
 
-                        if not user.is_premium and user.token_balance <= 0:
+                        if not user_is_premium and user_token_balance <= 0: # Используем переменные из sync_to_async
                             additional_text = (
                                 get_message('morning_motivation_recharge_preamble', user_language) +
                                 get_message('morning_motivation_recharge_text', user_language)
                             )
                             additional_button_callback = "premium_subscribe"
                             additional_button_text_key = 'btn_morning_motivation_recharge'
-                        elif not user.auto_analysis_enabled and (user.is_premium or user.token_balance > 0):
-                            additional_text = (
-                                get_message('morning_motivation_enable_auto_analysis_preamble', user_language) +
-                                get_message('morning_motivation_enable_auto_analysis_text', user_language)
-                            )
-                            additional_button_callback = "settings_toggle_auto_analysis"
-                            additional_button_text_key = 'btn_morning_motivation_enable_auto_analysis'
+                        else:
+                            # Блок 2: Проверка, включён ли автоанализ
+                            # user.auto_analysis_enabled также может быть синхронным
+                            @sync_to_async
+                            def get_user_auto_analysis_status():
+                                return user.auto_analysis_enabled
+                            user_auto_analysis_enabled = await get_user_auto_analysis_status()
 
-                        # --- ПРОВЕРКА ПРОДЛЕНИЯ ПОДПИСКИ ---
-                        is_user_premium_active = await sync_to_async(user.is_premium_active)()
+                            if not user_auto_analysis_enabled and (user_is_premium or user_token_balance > 0): # Используем переменные
+                                additional_text = (
+                                    get_message('morning_motivation_enable_auto_analysis_preamble', user_language) +
+                                    get_message('morning_motivation_enable_auto_analysis_text', user_language)
+                                )
+                                additional_button_callback = "settings_toggle_auto_analysis"
+                                additional_button_text_key = 'btn_morning_motivation_enable_auto_analysis'
                         renewal_button_callback = None
                         renewal_button_text_key = None
                         expiry_text = ""
-                        if is_user_premium_active: # Используем результат асинхронного вызова
-                            # Если подписка активна, проверяем, сколько дней осталось до окончания
-                            # Переводим время окончания подписки в локальный часовой пояс пользователя
-                            # Обратите внимание: premium_expires_at уже должен быть в UTC, мы переводим его в локальный
-                            expires_local_dt = user.premium_expires_at.astimezone(user_tz)
-                            expires_local_date = expires_local_dt.date()
-                            user_local_date = user_local_time.date()
+                        if user_is_premium: # Используем переменную
+                            # user.premium_expires_at может быть синхронным
+                            @sync_to_async
+                            def get_user_premium_expiry():
+                                return user.premium_expires_at
+                            premium_expires_at = await get_user_premium_expiry()
 
-                            days_until_expiry = (expires_local_date - user_local_date).days
+                            if premium_expires_at: # Проверяем, что дата существует
+                                # Переводим время окончания подписки в локальный часовой пояс пользователя
+                                expires_local_dt = premium_expires_at.astimezone(user_tz)
+                                expires_local_date = expires_local_dt.date()
+                                user_local_date = user_local_time.date()
 
-                            # Если осталось 3, 2 или 1 день, добавляем напоминание
-                            if 1 <= days_until_expiry <= 3:
-                                expiry_message_key = f'premium_expires_in_{days_until_expiry}_days'
-                                # Используем преамбулу для стилистического выделения
-                                expiry_text = (
-                                    get_message('morning_motivation_premium_expiry_preamble', user_language) +
-                                    get_message(expiry_message_key, user_language)
-                                )
-                                renewal_button_callback = "settings_premium" # или "purchase_subscription:month"
-                                renewal_button_text_key = 'btn_manage_subscription'
+                                days_until_expiry = (expires_local_date - user_local_date).days
+
+                                if 1 <= days_until_expiry <= 3:
+                                    expiry_message_key = f'premium_expires_in_{days_until_expiry}_days'
+                                    expiry_text = (
+                                        get_message('morning_motivation_premium_expiry_preamble', user_language) +
+                                        get_message(expiry_message_key, user_language)
+                                    )
+                                    renewal_button_callback = "settings_premium"
+                                    renewal_button_text_key = 'btn_manage_subscription'
 
                         # Собираем весь дополнительный текст
                         motivation_text = motivation_text_base + expiry_text + restore_text + additional_text
