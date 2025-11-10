@@ -143,7 +143,7 @@ async def _send_morning_motivation_async():
                                     'changed': True,
                                     'since': last_profile_history_before_this_week.created_at if last_profile_history_before_this_week else None
                                 }
-                                profile_button_text = get_button_text('btn_view_profile', user_language)
+                                profile_button_text = get_button_text('btn_view_psychology_profile', user_language)
                                 profile_button_callback = "view_psychology_profile"
                             else:
                                 logger.debug(f"[MOTIVATION] Профиль для {user.telegram_id} не изменился с прошлой недели.")
