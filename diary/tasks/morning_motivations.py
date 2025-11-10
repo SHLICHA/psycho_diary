@@ -54,7 +54,6 @@ def send_morning_motivation_task():
     return asyncio.run(_send_morning_motivation_async())
 
 async def _send_morning_motivation_async():
-    # ... (начало как было)
     bot_instance = None
     try:
         users = await aget_users_for_morning_motivation()
@@ -99,54 +98,22 @@ async def _send_morning_motivation_async():
                                 created_at__lt=current_monday_local
                             ).order_by('-created_at').afirst()
 
-                            current_profile_snapshot = {
-                                'personality_traits': user.personality_traits,
-                                'life_facts': user.life_facts,
-                                'hobbies': user.hobbies,
-                                'core_values': user.core_values,
-                                'triggers': user.triggers,
-                                'strengths': user.strengths,
-                                'areas_for_growth': user.areas_for_growth,
-                                'personality_insights': user.personality_insights,
-                                'habits': user.habits,
-                                'skills': user.skills,
-                                'aspirations': user.aspirations,
-                                'personality_description': user.personality_description,
-                            }
+                            current_description = user.personality_description
+                            last_description = last_profile_history_before_this_week.personality_description if last_profile_history_before_this_week else None
 
-                            profile_changed = False
-                            if last_profile_history_before_this_week:
-                                # Сравниваем с последней историей до этой недели
-                                last_history_snapshot = {
-                                    'personality_traits': last_profile_history_before_this_week.personality_traits,
-                                    'life_facts': last_profile_history_before_this_week.life_facts,
-                                    'hobbies': last_profile_history_before_this_week.hobbies,
-                                    'core_values': last_profile_history_before_this_week.core_values,
-                                    'triggers': last_profile_history_before_this_week.triggers,
-                                    'strengths': last_profile_history_before_this_week.strengths,
-                                    'areas_for_growth': last_profile_history_before_this_week.areas_for_growth,
-                                    'personality_insights': last_profile_history_before_this_week.personality_insights,
-                                    'habits': last_profile_history_before_this_week.habits,
-                                    'skills': last_profile_history_before_this_week.skills,
-                                    'aspirations': last_profile_history_before_this_week.aspirations,
-                                    'personality_description': last_profile_history_before_this_week.personality_description,
-                                }
-                                profile_changed = current_profile_snapshot != last_history_snapshot
-                                logger.debug(f"[MOTIVATION] Профиль для {user.telegram_id} до этой недели: {last_profile_history_before_this_week.created_at}")
-                            else:
-                                profile_changed = any(current_profile_snapshot.values())
-                                logger.debug(f"[MOTIVATION] Для {user.telegram_id} нет истории профиля до этой недели.")
+                            profile_changed = current_description != last_description
+                            logger.debug(f"[MOTIVATION] Профиль (personality_description) для {user.telegram_id} изменился: {profile_changed}")
 
                             if profile_changed:
-                                logger.info(f"[MOTIVATION] Обнаружено изменение профиля для {user.telegram_id} на этой неделе.")
+                                logger.info(f"[MOTIVATION] Обнаружено изменение описания профиля для {user.telegram_id} на этой неделе.")
                                 profile_update_info = {
                                     'changed': True,
                                     'since': last_profile_history_before_this_week.created_at if last_profile_history_before_this_week else None
                                 }
                                 profile_button_text = get_button_text('btn_view_psychology_profile', user_language)
-                                profile_button_callback = "view_psychology_profile"
+                                profile_button_callback = "show_user_profile"
                             else:
-                                logger.debug(f"[MOTIVATION] Профиль для {user.telegram_id} не изменился с прошлой недели.")
+                                logger.debug(f"[MOTIVATION] Описание профиля для {user.telegram_id} не изменилось с прошлой недели.")
                                 profile_update_info = {'changed': False}
                         @sync_to_async
                         def get_entries_count():
