@@ -81,8 +81,6 @@ async def _send_morning_motivation_async():
                     try:
                         user_language = user.language or 'ru'
                         await sync_to_async(close_old_connections)()
-
-                        # --- НОВАЯ ЛОГИКА: Проверка дня недели и обновления профиля ---
                         profile_update_info = {}
                         is_monday = user_local_time.weekday() == 0  # 0 = Monday
                         profile_button_text = None
@@ -90,14 +88,15 @@ async def _send_morning_motivation_async():
 
                         if is_monday:
                             logger.debug(f"[MOTIVATION] Пользователь {user.telegram_id} - Понедельник. Проверяем обновление профиля.")
-                            # Получаем дату начала этой недели (понедельник)
-                            current_monday_local = (user_local_time.date() - timedelta(days=user_local_time.date().weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+                            user_local_date = user_local_time.date()
+                            days_since_monday = user_local_date.weekday() # 0 для понедельника
+                            current_monday_date = user_local_date - timedelta(days=days_since_monday)
+                            naive_monday_datetime = datetime.combine(current_monday_date, datetime.min.time())
+                            current_monday_local = user_tz.localize(naive_monday_datetime)
                             logger.debug(f"[MOTIVATION] Понедельник недели для {user.telegram_id}: {current_monday_local}")
-
-                            # Ищем последнюю историю профиля до начала этой недели
                             last_profile_history_before_this_week = await UserProfileHistory.objects.filter(
                                 user=user,
-                                created_at__lt=current_monday_local # Меньше, чем начало этой недели
+                                created_at__lt=current_monday_local
                             ).order_by('-created_at').afirst()
 
                             current_profile_snapshot = {

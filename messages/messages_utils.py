@@ -146,6 +146,8 @@ MESSAGES = {
         'premium_required': '👑 Эта функция доступна только премиум пользователям.',
         'feature_requires_premium': '🔒 Эта функция требует активной подписки PRO.',
         'premium_benefits': '''👑 <b>Премиум подписка</b>''',
+        'morning_motivation_profile_changed': '📋 Ваш психологический профиль обновлён! Нажмите кнопку ниже, чтобы взглянуть на изменения.',
+        'morning_motivation_profile_changed_ai_hint': 'Пользовательский профиль обновился за последнюю неделю. Сгенерируйте мотивационное сообщение с учётом этих изменений.',
     },
     'en': {
         # === Mood scores ===
@@ -288,6 +290,10 @@ Our thoughts and feelings are an important part of the path to understanding our
         'premium_required': '👑 This feature is available only to premium users.',
         'feature_requires_premium': '🔒 This feature requires an active PRO subscription.',
         'premium_benefits': '''👑 <b>Premium subscription</b>''',
+        'morning_motivation_profile_changed': '📋 Your psychological profile has been updated! Click the button below to review the changes.',
+        'morning_motivation_profile_changed_ai_hint': 'The user\'s profile has updated over the last week. Generate a motivational message considering these changes.',
+        'btn_view_profile': '👤 View Profile',
+        'premium_benefits': '''👑 <b>Premium subscription</b>'''
     }
 }
 
