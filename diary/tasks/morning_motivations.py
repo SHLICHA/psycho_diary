@@ -88,21 +88,31 @@ async def _send_morning_motivation_async():
                         if is_monday:
                             logger.debug(f"[MOTIVATION] Пользователь {user.telegram_id} - Понедельник. Проверяем обновление профиля.")
                             user_local_date = user_local_time.date()
-                            days_since_monday = user_local_date.weekday() # 0 для понедельника
+                            days_since_monday = user_local_date.weekday() 
                             current_monday_date = user_local_date - timedelta(days=days_since_monday)
                             naive_monday_datetime = datetime.combine(current_monday_date, datetime.min.time())
                             current_monday_local = user_tz.localize(naive_monday_datetime)
                             logger.debug(f"[MOTIVATION] Понедельник недели для {user.telegram_id}: {current_monday_local}")
-                            last_profile_history_before_this_week = await UserProfileHistory.objects.filter(
+                            profile_snapshot_created_this_week = await UserProfileHistory.objects.filter(
                                 user=user,
-                                created_at__lt=current_monday_local
-                            ).order_by('-created_at').afirst()
+                                created_at__gte=current_monday_local 
+                            ).aexists()
+                            if profile_snapshot_created_this_week:
+                                logger.debug(f"[MOTIVATION] У пользователя {user.telegram_id} уже был снимок профиля на этой неделе. Пропускаем проверку изменений.")
+                                profile_update_info = {'changed': False}
+                                profile_button_text = None
+                                profile_button_callback = None
+                            else:
+                                last_profile_history_before_this_week = await UserProfileHistory.objects.filter(
+                                    user=user,
+                                    created_at__lt=current_monday_local
+                                ).order_by('-created_at').afirst()
 
-                            current_description = user.personality_description
-                            last_description = last_profile_history_before_this_week.personality_description if last_profile_history_before_this_week else None
+                                current_description = user.personality_description
+                                last_description = last_profile_history_before_this_week.personality_description if last_profile_history_before_this_week else None
 
-                            profile_changed = current_description != last_description
-                            logger.debug(f"[MOTIVATION] Профиль (personality_description) для {user.telegram_id} изменился: {profile_changed}")
+                                profile_changed = current_description != last_description
+                                logger.debug(f"[MOTIVATION] Профиль (personality_description) для {user.telegram_id} изменился с прошлой недели: {profile_changed}")
 
                             if profile_changed:
                                 logger.info(f"[MOTIVATION] Обнаружено изменение описания профиля для {user.telegram_id} на этой неделе.")
@@ -111,7 +121,7 @@ async def _send_morning_motivation_async():
                                     'since': last_profile_history_before_this_week.created_at if last_profile_history_before_this_week else None
                                 }
                                 profile_button_text = get_button_text('btn_view_psychology_profile', user_language)
-                                profile_button_callback = "show_user_profile"
+                                profile_button_callback = "view_psychology_profile"
                             else:
                                 logger.debug(f"[MOTIVATION] Описание профиля для {user.telegram_id} не изменилось с прошлой недели.")
                                 profile_update_info = {'changed': False}
