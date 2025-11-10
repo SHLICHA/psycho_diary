@@ -158,7 +158,7 @@ class SettingsService:
                 else:
                     return {'success': True, 'new_limit': current_limit, 'action': 'max_reached'}
             elif increment < 0:
-                if current_limit > 1:
+                if current_limit > 0:
                     user.max_ai_tasks_per_day -= 1
                     await user.asave(update_fields=['max_ai_tasks_per_day'])
                     logger.debug(f"[SettingsService] Лимит заданий пользователя {user.telegram_id} уменьшен до {user.max_ai_tasks_per_day}")

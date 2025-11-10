@@ -3,6 +3,7 @@ Django settings for psycho_diary project.
 """
 import os
 from pathlib import Path
+from datetime import timedelta
 from decouple import config
 from dotenv import load_dotenv
 from celery.schedules import crontab
@@ -29,7 +30,10 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'users',
     'diary',
-    'core'
+    'core',
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'api',
 ]
 
 MIDDLEWARE = [
@@ -250,4 +254,22 @@ LOGGING = {
             'propagate': False,
         },
     },
+}
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated', # По умолчанию требовать аутентификацию
+    ],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20
+}
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
 }
