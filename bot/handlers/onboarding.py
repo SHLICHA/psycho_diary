@@ -41,35 +41,47 @@ async def onboarding_agree_1(callback: CallbackQuery, state: FSMContext, user, l
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
 @router.callback_query(F.data == "onboarding_agree_2")
-@log_user_activity('onboarding', metadata_extra={'context': 'Согласие с инструкцией'})
+@log_user_activity('onboarding', metadata_extra={'context': 'Согласие с инструкцией, переход к часовому поясу'})
 async def onboarding_agree_2(callback: CallbackQuery, state: FSMContext, user, language: str):
-    """Обработка нажатия 'Далее' после сообщения с инструкцией."""
+    """Обработка нажатия 'Далее' после сообщения с инструкцией. Показывает выбор часового пояса."""
     try:
         current_state = await state_manager.get_current_state(state)
         if current_state != OnboardingStates.waiting_for_agreement_2:
             logger.warning(f"Пользователь {user.telegram_id} пытается пропустить шаг онбординга.")
             await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
             return
-        if not user.is_onboarding_completed:
-            user.is_onboarding_completed = True
-            await sync_to_async(user.save)(update_fields=['is_onboarding_completed'])
-            logger.info(f"[onboarding_agree_2] Онбординг отмечен как завершён для пользователя {user.telegram_id} (после шага 2).")
-        prompt_msg = get_message('onboarding_prompt_first_entry', language)
-        await safe_edit_message_text(message=callback.message, text=prompt_msg, reply_markup=None)
-        await state_manager.set_state(state, OnboardingStates.waiting_for_first_entry)
+
+        # Показываем сообщение с просьбой указать часовой пояс.
+        timezone_info_msg = get_message('onboarding_timezone_info', language)
+        # Устанавливаем origin для правильной навигации после выбора часового пояса в settings.py
+        await state_manager.update_state_data(state, origin='onboarding_timezone_setup')
+        logger.debug(f"[onboarding_agree_2] Установлен origin='onboarding_timezone_setup' в state для {user.telegram_id} (новый порядок).")
+        from diary.services.settings_service import get_timezone_info
+        info_result = await get_timezone_info(user)
+        if not info_result['success']:
+            logger.error(f"Ошибка при получении информации о часовом поясе: {info_result.get('error')}")
+            await safe_answer_callback(callback, get_message('error_generic', language))
+            return
+        current_timezone = info_result['current_timezone']
+        timezone_msg = get_message('ask_timezone_selection', language, current_timezone=current_timezone)
+        reply_markup = get_timezone_selection_method_keyboard(language, current_timezone, show_back_button=False)
+        await safe_edit_message_text(message=callback.message, text=timezone_info_msg + "\n\n" + timezone_msg, reply_markup=reply_markup)
+        # Переходим к состоянию ожидания установки часового пояса
+        await state_manager.set_state(state, OnboardingStates.waiting_for_timezone_confirmation)
         await safe_answer_callback(callback, "")
-        logger.debug(f"[onboarding_agree_2] Пользователь {user.telegram_id} перешел к шагу 3 (ожидание записи) онбординга.")
+        logger.debug(f"[onboarding_agree_2] Пользователь {user.telegram_id} перешел к шагу 3 (ожидание установки часового пояса) онбординга (новый порядок).")
     except Exception as e:
         logger.error(f"[onboarding_agree_2] Ошибка для пользователя {user.telegram_id}: {e}", exc_info=True)
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
 @router.message(OnboardingStates.waiting_for_first_entry, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
-@log_user_activity('entry_created', metadata_extra={'context': 'Первая запись онбординга (текст/голос)'})
+@log_user_activity('entry_created', metadata_extra={'context': 'Первая запись онбординга (текст/голос) (новый порядок)'})
 async def process_first_entry(message: Message, state: FSMContext, user, language: str):
     try:
         current_state = await state_manager.get_current_state(state)
+        # Проверяем новое состояние
         if current_state != OnboardingStates.waiting_for_first_entry:
-            logger.debug(f"Сообщение от {user.telegram_id} не обработано - не в состоянии ожидания записи.")
+            logger.debug(f"Сообщение от {user.telegram_id} не обработано - не в состоянии ожидания первой записи (новый порядок). Текущее состояние: {current_state}")
             return
 
         entry_text = ""
@@ -99,6 +111,7 @@ async def process_first_entry(message: Message, state: FSMContext, user, languag
             await message.answer(get_message('entry_empty', language))
             return
 
+        # Используем метод сервиса для обработки первой записи
         processing_result = await diary_service.process_first_onboarding_entry_logic(
             user=user,
             entry_text=entry_text,
@@ -107,7 +120,7 @@ async def process_first_entry(message: Message, state: FSMContext, user, languag
         )
 
         if not processing_result.get('success'):
-            logger.debug(f"Первая запись пользователя {user.telegram_id} не прошла валидацию ИИ.")
+            logger.debug(f"Первая запись пользователя {user.telegram_id} не прошла валидацию ИИ (новый порядок).")
             formatted_message_ai = processing_result.get('formatted_message_ai')
             try:
                 final_message_text = formatted_message_ai
@@ -116,7 +129,7 @@ async def process_first_entry(message: Message, state: FSMContext, user, languag
                 logger.error(f"Не удалось отредактировать сообщение 'Обработка...' для ошибки валидации: {edit_error}")
                 final_message_text = f"{formatted_message_ai}\n\n{get_message('onboarding_try_again_prompt', language)}"
                 await message.answer(final_message_text, reply_markup=get_single_button_keyboard(language, 'main_menu', 'btn_cancel'))
-            return
+            return # Не продолжаем, если валидация не прошла
 
         diary_entry = processing_result['entry']
 
@@ -137,17 +150,25 @@ async def process_first_entry(message: Message, state: FSMContext, user, languag
                                         mood=mood_text,
                                         comment=comment,
                                         recommendation=recommendation)
-        keyboard_with_next = get_single_button_keyboard(language, button_callback_data="onboarding_ask_timezone", button_text='btn_next')
-        try:
-            await status_msg.edit_text(text=full_text_to_send, reply_markup=keyboard_with_next)
-        except Exception as edit_error:
-            logger.error(f"Не удалось отредактировать сообщение 'Обработка...' с результатом анализа: {edit_error}")
-            await message.answer(text=full_text_to_send, reply_markup=keyboard_with_next)
 
-        await state_manager.set_state(state, OnboardingStates.waiting_for_timezone_confirmation)
-        logger.debug(f"[process_first_entry] Первая запись {diary_entry.id} обработана, показан результат, ожидаем установку часового пояса от {user.telegram_id}.")
+        # --- НОВОЕ: ОТМЕЧАЕМ ОНБОРДИНГ КАК ЗАВЕРШЕННЫЙ ---
+        if not user.is_onboarding_completed:
+            user.is_onboarding_completed = True
+            await sync_to_async(user.save)(update_fields=['is_onboarding_completed'])
+            logger.info(f"[process_first_entry] Онбординг отмечен как завершён для пользователя {user.telegram_id} (после ввода первой записи в новом порядке).")
+
+        # --- НОВОЕ: ПОКАЗЫВАЕМ ГЛАВНОЕ МЕНЮ ---
+        from bot.keyboards import get_main_menu_keyboard
+        main_menu_text = get_message('main_menu', language)
+        main_menu_keyboard = await get_main_menu_keyboard(language)
+        await message.answer(text=full_text_to_send, reply_markup=main_menu_keyboard)
+        # Завершаем FSM состояние
+        await state_manager.clear_state(state)
+        logger.debug(f"[process_first_entry] FSM состояние очищено, онбординг завершен для {user.telegram_id}.")
+        # Не устанавливаем новое состояние, так как онбординг завершен.
+        # Сообщение с результатом анализа и главное меню отправлены.
     except Exception as e:
-        logger.error(f"[process_first_entry] Ошибка обработки первой записи для {user.telegram_id}: {e}", exc_info=True)
+        logger.error(f"[process_first_entry] Ошибка обработки первой записи для {user.telegram_id} (новый порядок): {e}", exc_info=True)
         try:
             await message.answer(get_message('error_generic', language))
         except Exception as msg_error:

@@ -13,6 +13,7 @@ from aiogram.exceptions import TelegramBadRequest
 
 from messages import get_message
 from bot.states.settings_states import SettingsStates
+from bot.states.onboarding_states import OnboardingStates
 from bot.keyboards import (
     get_settings_keyboard,
     get_language_selection_keyboard,
@@ -465,29 +466,63 @@ async def select_timezone_from_list(callback: CallbackQuery, user, language: str
         await callback.answer(get_message('error_generic', language=language))
 
 @router.callback_query(F.data.startswith("set_timezone:"))
-@log_user_activity('settings_changed', metadata_extra={'context': 'Установка часового пояса (после онбординга)'})
-async def set_timezone_modified(callback: CallbackQuery, state: FSMContext, user, language: str):
-    """Модифицированная версия set_timezone без проверки origin для завершения онбординга."""
+@log_user_activity('settings_changed', metadata_extra={'context': 'Установка часового пояса (после онбординга или в онбординге)'})
+async def set_timezone(callback: CallbackQuery, state: FSMContext, user, language: str):
+    """
+    Обработчик установки часового пояса.
+    Проверяет, находится ли пользователь в состоянии онбординга (`OnboardingStates.waiting_for_timezone_confirmation`).
+    Если да, переходит к следующему шагу онбординга (ввод первой записи).
+    Если нет, обновляет часовой пояс и возвращает в главное меню.
+    """
     try:
         new_timezone_str = callback.data.split(":", 1)[1]
-        result = await update_user_timezone(user, new_timezone_str)
-        if not result['success']:
-            logger.error(f"Неизвестный часовой пояс: {new_timezone_str}")
+        # Валидация часового пояса
+        try:
+            pytz.timezone(new_timezone_str)
+        except pytz.UnknownTimeZoneError:
+            logger.error(f"Попытка установки неизвестного часового пояса: {new_timezone_str} для пользователя {user.telegram_id}")
             error_msg = get_message('error_unknown_timezone', language)
             await safe_answer_callback(callback, error_msg, show_alert=True)
             return
 
-        success_msg = get_message('timezone_changed', language, timezone=result['new_timezone'])
-        from diary.services.main_menu_service import build_main_menu_data
-        menu_data = await build_main_menu_data(user, language)
-        main_menu_msg = menu_data['message_text']
-        from bot.keyboards import get_main_menu_keyboard
-        main_menu_keyboard = await get_main_menu_keyboard(language, user)
+        # Проверяем текущее состояние FSM
+        current_fsm_state = await state_manager.get_current_state(state)
+        is_onboarding_tz_step = (current_fsm_state == OnboardingStates.waiting_for_timezone_confirmation)
 
-        await safe_edit_message_text(message=callback.message, text=main_menu_msg, reply_markup=main_menu_keyboard)
-        await state_manager.clear_state(state)
-        await safe_answer_callback(callback, success_msg)
-        return
+        # Выполняем основную логику установки часового пояса
+        result = await update_user_timezone(user, new_timezone_str)
+        if not result['success']:
+            logger.error(f"Не удалось установить часовой пояс {new_timezone_str} для пользователя {user.telegram_id}: {result.get('error')}")
+            error_msg = get_message('error_generic', language)
+            await safe_answer_callback(callback, error_msg, show_alert=True)
+            return
+
+        if is_onboarding_tz_step:
+            # --- КОД ДЛЯ ОНБОРДИНГА ---
+            logger.debug(f"[Settings] Часовой пояс установлен в онбординге для {user.telegram_id}, ожидаем первую запись.")
+            # Показываем промпт для первой записи
+            prompt_msg = get_message('onboarding_prompt_first_entry', language)
+            # Убираем клавиатуру выбора часового пояса
+            await safe_edit_message_text(message=callback.message, text=prompt_msg, reply_markup=None)
+            # Переходим к ожиданию первой записи
+            await state_manager.set_state(state, OnboardingStates.waiting_for_first_entry)
+            await safe_answer_callback(callback, "")
+            # --- /КОД ДЛЯ ОНБОРДИНГА ---
+        else:
+            # --- КОД ДЛЯ ОБЫЧНОГО РЕЖИМА ---
+            logger.debug(f"[Settings] Часовой пояс установлен в обычном режиме для {user.telegram_id}.")
+            success_msg = get_message('timezone_changed', language, timezone=result['new_timezone'])
+            from diary.services.main_menu_service import build_main_menu_data
+            menu_data = await build_main_menu_data(user, language)
+            main_menu_msg = menu_data['message_text']
+            from bot.keyboards import get_main_menu_keyboard
+            main_menu_keyboard = await get_main_menu_keyboard(language, user)
+
+            await safe_edit_message_text(message=callback.message, text=main_menu_msg, reply_markup=main_menu_keyboard)
+            await state_manager.clear_state(state)
+            await safe_answer_callback(callback, success_msg)
+            # --- /КОД ДЛЯ ОБЫЧНОГО РЕЖИМА ---
+
     except Exception as e:
-        logger.error(f"Ошибка при установке часового пояса: {e}")
+        logger.error(f"Ошибка при установке часового пояса: {e}", exc_info=True)
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
