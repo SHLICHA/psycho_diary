@@ -9,7 +9,7 @@ import logging
 import json
 
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from django.db import transaction
 from django.utils import timezone
 from asgiref.sync import sync_to_async
@@ -54,6 +54,7 @@ class TaskManagementService:
             @sync_to_async
             def create_task_sync():
                 with transaction.atomic():
+                    expires_at = timezone.now() + timedelta(days=7)
                     therapy_task = TherapyTask.objects.create(
                         user=user,
                         title=title,
@@ -61,7 +62,8 @@ class TaskManagementService:
                         type=task_type,
                         complexity=complexity,
                         status='pending',
-                        related_entry=related_entry
+                        related_entry=related_entry,
+                        expires_at=expires_at
                     )
                     return therapy_task
             therapy_task = await create_task_sync()

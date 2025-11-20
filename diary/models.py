@@ -325,7 +325,6 @@ class TherapyTask(models.Model):
     expires_at = models.DateTimeField(
         null=True,
         blank=True,
-        default=timezone.now() + timedelta(days=7),
         verbose_name=_("Срок действия задания"),
         help_text=_("Дата и время, до которого задание считается активным. После этого времени статус изменится на 'expired'.")
     )
