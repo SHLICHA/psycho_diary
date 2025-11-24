@@ -324,15 +324,7 @@ async def close_feedback_list(callback: CallbackQuery, state: FSMContext, user, 
 
 @router.callback_query(F.data.startswith("reply_feedback_"))
 async def start_reply_to_feedback_admin(callback: CallbackQuery, state: FSMContext, user, language: str):
-    current_state_str = await state.get_state()
-    logger.debug(f"[start_reply] Текущее состояние: {current_state_str}")
-    # Проверяем, что пользователь в нужном состоянии (просмотра списка)
-    if current_state_str != "admin_browsing_feedbacks":
-         logger.warning(f"[start_reply] Некорректное состояние: {current_state_str}, ожидалось 'admin_browsing_feedbacks'")
-         await callback.answer("❌ Некорректное состояние для этого действия.", show_alert=True)
-         return
-
-    # Проверяем, является ли пользователь разработчиком
+    # Проверяем, является ли пользователь разработчиком (раньше)
     if not is_developer(user):
         logger.warning(f"Пользователь {user.telegram_id} попытался начать ответ на feedback, но не является разработчиком.")
         await callback.answer("❌ У вас нет прав для выполнения этого действия.", show_alert=True)
@@ -361,32 +353,15 @@ async def start_reply_to_feedback_admin(callback: CallbackQuery, state: FSMConte
             await callback.answer("❌ Обращение уже обработано.", show_alert=True)
             return
 
-        # --- ИЗМЕНЕНИЕ ПОРЯДКА ---
-        # 1. Сохраняем ID в данных состояния
-        await state.update_data(replying_to_feedback_id=feedback_id)
-        logger.debug(f"[start_reply] Сохранён replying_to_feedback_id: {feedback_id}")
-        # 2. Очищаем *предыдущее* состояние просмотра списка и *его* данные
-        await state.clear() # <-- Теперь очищает старое состояние И данные
+        # --- НОВАЯ ЛОГИКА ---
+        # Не проверяем состояние, просто очищаем текущее (если есть) и устанавливаем новое
+        await state.clear() # <-- Очищаем любое текущее состояние
         logger.debug(f"[start_reply] Состояние очищено. Устанавливаем 'admin_waiting_feedback_reply'.")
-        # 3. Устанавливаем новое состояние ожидания ответа
-        await state.set_state("admin_waiting_feedback_reply")
-        # 4. НО нужно снова сохранить данные в новом состоянии!
-        # Потому что clear() удалил их. update_data нужно вызвать *после* set_state,
-        # чтобы данные сохранились в новом состоянии.
-        # Нет, не после. Нужно сначала получить данные, которые мы хотим сохранить, до clear.
-        # Правильный способ - сохранить данные, которые нужно перенести, в переменную,
-        # вызвать clear, затем set_state, затем update_data с этими данными.
-
-        # --- ПРАВИЛЬНЫЙ ПОДХОД ---
-        # Сохраняем нужные данные в переменную до очистки
-        data_to_persist = {"replying_to_feedback_id": feedback_id}
-        # Очищаем состояние (и данные)
-        await state.clear()
         # Устанавливаем новое состояние
         await state.set_state("admin_waiting_feedback_reply")
         # Обновляем данные в новом состоянии
-        await state.update_data(**data_to_persist)
-        logger.debug(f"[start_reply] Новое состояние установлено: {await state.get_state()}, данные: {data_to_persist}")
+        await state.update_data(replying_to_feedback_id=feedback_id)
+        logger.debug(f"[start_reply] Новое состояние установлено: {await state.get_state()}, данные: {{'replying_to_feedback_id': {feedback_id}}}")
 
         # Асинхронное получение данных для сообщения
         @sync_to_async

@@ -84,7 +84,7 @@ async def _send_morning_motivation_async():
                         is_monday = user_local_time.weekday() == 0  # 0 = Monday
                         profile_button_text = None
                         profile_button_callback = None
-
+                        profile_changed = False
                         if is_monday:
                             logger.debug(f"[MOTIVATION] Пользователь {user.telegram_id} - Понедельник. Проверяем обновление профиля.")
                             user_local_date = user_local_time.date()
