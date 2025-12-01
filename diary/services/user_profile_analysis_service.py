@@ -62,6 +62,7 @@ class UserProfileAnalysisService:
             api_result = await deepseek_api_service.send_prompt_and_parse(
                 prompt, 
                 language=user.language,
+                max_retries = 5,
                 timeout_per_attempt=150
             )
             logger.debug(f"[UserProfileAnalysisService] Ответ API от DeepSeek: success={api_result.get('success')}")

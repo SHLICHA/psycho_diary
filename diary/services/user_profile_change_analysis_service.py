@@ -73,6 +73,7 @@ class UserProfileChangeAnalysisService:
             api_result = await deepseek_api_service.send_prompt_and_parse(
                 prompt,
                 language=user.language,
+                max_retries = 5,
                 timeout_per_attempt=150 # Возможно, анализ сложнее, увеличим таймаут
             )
             logger.debug(f"[UserProfileChangeAnalysisService] Ответ API для анализа изменений: success={api_result.get('success')}")
