@@ -10,6 +10,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, date, time as dtime
 from django.db import transaction
 from django.db.models import F
+from django.utils import timezone
 from django.core.cache import cache
 from typing import Dict, Any, List
 
@@ -779,15 +780,26 @@ class DiaryService:
         total_api_time = time.time() - api_start_time
 
         # 3. Обработка результата ИИ
+        # Инициализируем result_data и finalize_now значением по умолчанию
+        result_data = {}
+        # Переменная finalize_now определяет, нужно ли завершать анализ (установить is_processed = True)
+        # В случае ошибки API, анализ не завершается, чтобы не оставлять запись в "висячем" состоянии
+        finalize_now = False
+
         if not analysis_result.get('success'):
+            # Обработка ошибки API
             comment, recommendation, analysis_text, _ = format_api_error_for_analysis(analysis_result, language, is_final=True)
             mood_score = 5
+            # result_data остается пустым, как инициализировано выше
+            # finalize_now остается False, анализ не завершается
         else:
             result_data = analysis_result.get('result', {})
             mood_score = result_data.get('mood_score', 5)
             comment = result_data.get('comment', 'Анализ записан')
             recommendation = result_data.get('recommendation', 'Продолжайте вести дневник')
             analysis_text = result_data.get('analysis', 'Текст проанализирован.')
+            # Успешный ответ ИИ - анализ можно завершить
+            finalize_now = True
 
         # 4. Обновление PsychoAnalysis
         await psycho_analysis_service.create_or_update_analysis(
@@ -798,25 +810,37 @@ class DiaryService:
             analysis_text=analysis_text,
             api_response=analysis_result.get('api_response', {}),
             processing_time=total_api_time,
-            finalize_processing=True
+            finalize_processing=finalize_now # Используем переменную, определённую выше
         )
-        # 5. Обновление CombinedDiaryEntry
-        if 'updated_ai_state_data' in result_data:
-            new_state = result_data['updated_ai_state_data']
-        else:
-            new_state = analysis_text
-        await daily_state_service.update_daily_state(
-            combined_entry=combined_entry,
-            new_ai_state_data=new_state,
-            latest_mood_score=mood_score
-        )
-        logger.debug(f"[process_clarification_answers_logic] Обновлен CombinedDiaryEntry для {diary_entry.id}")
-        from django.utils import timezone
-        diary_entry.analysis_processed_at = timezone.now()
-        await sync_to_async(diary_entry.save)(update_fields=['analysis_processed_at'])
-        logger.debug(f"[process_clarification_answers_logic] analysis_processed_at установлен для записи {diary_entry.id}")
 
-        # 6. Возврат результата
+        # 5. Обновление CombinedDiaryEntry с новым состоянием ИИ
+        # Проверяем, есть ли 'updated_ai_state_data' в result_data, который теперь всегда определён
+        if 'updated_ai_state_data' in result_data:
+            new_ai_state_data = result_data['updated_ai_state_data']
+            await daily_state_service.update_daily_state(
+                combined_entry=combined_entry,
+                new_ai_state_data=new_ai_state_data,
+                latest_mood_score=mood_score
+            )
+            logger.debug(f"[process_clarification_answers_logic] Обновлен CombinedDiaryEntry ID {combined_entry.id} с новым состоянием из updated_ai_state_data.")
+        else:
+            logger.debug(f"[process_clarification_answers_logic] Поле 'updated_ai_state_data' отсутствует в ответе ИИ. CombinedDiaryEntry ID {combined_entry.id} не обновляется.")
+
+        # 6. Сброс флага ожидания уточнений и времени анализа
+        diary_entry.clarification_asked_at = None
+        diary_entry.clarification_reminder_due_at = None
+        diary_entry.clarification_force_process_at = None
+        diary_entry.last_reminder_sent_at = None
+        diary_entry.analysis_processed_at = timezone.now() # Фиксируем время завершения анализа
+        update_fields = ['clarification_asked_at', 'clarification_reminder_due_at', 'clarification_force_process_at', 'last_reminder_sent_at', 'analysis_processed_at']
+        # Добавляем is_processed только если finalize_now = True
+        if finalize_now:
+            diary_entry.is_processed = True
+            update_fields.append('is_processed')
+        await sync_to_async(diary_entry.save)(update_fields=update_fields)
+        logger.debug(f"[process_clarification_answers_logic] analysis_processed_at (и is_processed={finalize_now}) установлен для записи {diary_entry.id}")
+
+        # 7. Возврат результата
         return {
             'success': True, # В данном случае, если ИИ не вернул ошибку, считаем успехом
             'entry': diary_entry,

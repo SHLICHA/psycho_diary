@@ -26,9 +26,9 @@ class DeepSeekAPIService:
         self, 
         prompt: str, 
         language: str, 
-        max_retries: int = 3,
+        max_retries: int = 5,
         base_delay: float = 1.5,
-        timeout_per_attempt: int = 90 
+        timeout_per_attempt: int = 100 
     ) -> dict:
         """
         Отправляет готовый промт в DeepSeek и возвращает распарсенный результат.
@@ -50,7 +50,7 @@ class DeepSeekAPIService:
                     "model": "deepseek-chat",
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.3,
-                    "max_tokens": 7000
+                    "max_tokens": 8100
                 }
                 headers = {
                     "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
@@ -133,7 +133,19 @@ class DeepSeekAPIService:
             import re
             # 2. Ищем JSON-блок внутри `` `json ... ` `` или `` ` ... ` ``
             # Используем re.DOTALL для учета переносов строк внутри блока
-            potential_blocks = re.findall(r'```(?:json)?\s*(.*?)\s*```', response_text, re.DOTALL)
+            all_code_blocks = re.findall(r'```(?:\w+)?\s*(.*?)\s*```', response_text, re.DOTALL)
+            # potential_blocks теперь содержит список строк - содержимого всех найденных блоков
+            potential_blocks = all_code_blocks
+
+            # Убираем дубликаты, сохранив порядок (на случай, если регулярки пересекутся)
+            seen = set()
+            unique_blocks = []
+            for block in potential_blocks:
+                if block not in seen:
+                    seen.add(block)
+                    unique_blocks.append(block)
+
+            potential_blocks = unique_blocks
             if potential_blocks:
                 logger.debug(f"[DeepSeek API] Найдено {len(potential_blocks)} потенциальных JSON-блока(ов) в Markdown.")
                 # Пробуем распарсить каждый блок, начиная с первого
