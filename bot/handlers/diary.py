@@ -646,28 +646,28 @@ async def view_full_day_analysis(callback: CallbackQuery, user, language: str):
              stars_display = stars_full + stars_half + stars_empty
              mood_section += f"  🌟 Средняя оценка: {avg_score:.1f}/10 {stars_display}\n"
         analysis_msg += mood_section + "\n"
-        if daily_analysis.key_themes:
-            analysis_msg += "🏷 <b>Ключевые темы дня:</b>\n"
-            for i, theme in enumerate(daily_analysis.key_themes, 1):
-                significance = theme.get('significance', 0)
-                significance_percent = f"{significance:.0%}"
-                analysis_msg += f"  {i}. <b>{theme['theme']}</b> ({theme.get('mentions', 1)} упоминаний) - Значимость: {significance_percent}\n"
-            analysis_msg += "\n"
-        if daily_analysis.emotional_patterns:
-            analysis_msg += "🎭 <b>Эмоциональные паттерны:</b>\n"
-            for i, pattern in enumerate(daily_analysis.emotional_patterns, 1):
-                analysis_msg += f"  {i}. <b>{pattern['emotion']}</b> (частота: {pattern.get('frequency', 1)})\n"
-                analysis_msg += f"     Контекст: {pattern.get('context', 'Контекст не указан')}\n"
-            analysis_msg += "\n"
-        if daily_analysis.insights:
-            analysis_msg += "💡 <b>Инсайты:</b>\n"
-            for i, insight in enumerate(daily_analysis.insights, 1):
-                significance = insight.get('significance', 0)
-                category = insight.get('category', 'other')
-                significance_percent = f"{significance:.0%}"
-                analysis_msg += f"  {i}. <b>{insight['text']}</b>\n"
-                analysis_msg += f"     Категория: {category}, Значимость: {significance_percent}\n"
-            analysis_msg += "\n"
+        #if daily_analysis.key_themes:
+        #    analysis_msg += "🏷 <b>Ключевые темы дня:</b>\n"
+        #    for i, theme in enumerate(daily_analysis.key_themes, 1):
+        #        significance = theme.get('significance', 0)
+        #        significance_percent = f"{significance:.0%}"
+        #        analysis_msg += f"  {i}. <b>{theme['theme']}</b> ({theme.get('mentions', 1)} упоминаний) - Значимость: {significance_percent}\n"
+        #    analysis_msg += "\n"
+        #if daily_analysis.emotional_patterns:
+        #    analysis_msg += "🎭 <b>Эмоциональные паттерны:</b>\n"
+        #    for i, pattern in enumerate(daily_analysis.emotional_patterns, 1):
+        #        analysis_msg += f"  {i}. <b>{pattern['emotion']}</b> (частота: {pattern.get('frequency', 1)})\n"
+        #        analysis_msg += f"     Контекст: {pattern.get('context', 'Контекст не указан')}\n"
+        #    analysis_msg += "\n"
+        #if daily_analysis.insights:
+        #    analysis_msg += "💡 <b>Инсайты:</b>\n"
+        #    for i, insight in enumerate(daily_analysis.insights, 1):
+        #        significance = insight.get('significance', 0)
+        #        category = insight.get('category', 'other')
+        #        significance_percent = f"{significance:.0%}"
+        #        analysis_msg += f"  {i}. <b>{insight['text']}</b>\n"
+        #        analysis_msg += f"     Категория: {category}, Значимость: {significance_percent}\n"
+        #    analysis_msg += "\n"
         if daily_analysis.recommendations:
             analysis_msg += "🎯 <b>Персональные рекомендации:</b>\n"
             for i, rec in enumerate(daily_analysis.recommendations, 1):
