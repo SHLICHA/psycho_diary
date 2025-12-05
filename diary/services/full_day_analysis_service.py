@@ -335,33 +335,67 @@ class FullDayAnalysisService:
         if not profile_updates or not isinstance(profile_updates, dict):
             logger.debug("[FullDayAnalysisService] Нет данных для обновления профиля пользователя.")
             return True
+
         fields_updated = []
         try:
-            new_traits_list = profile_updates.get('personality_traits')
-            if new_traits_list and isinstance(new_traits_list, list):
+            # --- Обработка personality_traits ---
+            new_traits_data = profile_updates.get('personality_traits')
+            if new_traits_data is not None: # Проверяем, что данные есть
+                # Предполагаем, что ИИ может прислать как список, так и словарь
+                traits_changed = False
+
+                # Инициализируем user.personality_traits как словарь, если он не таков
                 if not isinstance(user.personality_traits, dict):
                     logger.warning("[FullDayAnalysisService] user.personality_traits не является словарем. Переинициализируем.")
                     user.personality_traits = {}
-                    fields_updated.append('personality_traits')
-                traits_changed = False
-                initial_weight = 1.0
-                increment_value = 1.0
-                for trait in new_traits_list:
-                    if isinstance(trait, str):
-                        if trait in user.personality_traits:
-                            old_weight = user.personality_traits[trait]
-                            user.personality_traits[trait] = old_weight + increment_value
-                            logger.debug(f"[FullDayAnalysisService] Увеличен вес personality_trait '{trait}': {old_weight} -> {user.personality_traits[trait]}")
+                    traits_changed = True
+
+                if isinstance(new_traits_data, list):
+                    # Если ИИ прислал список строк
+                    logger.debug(f"[FullDayAnalysisService] Обработка personality_traits как списка: {new_traits_data}")
+                    initial_weight = 1.0
+                    for trait_name in new_traits_data:
+                        if isinstance(trait_name, str):
+                            if trait_name in user.personality_traits:
+                                # Увеличиваем вес, если уже существует
+                                old_weight = user.personality_traits[trait_name]
+                                user.personality_traits[trait_name] = old_weight + initial_weight
+                                logger.debug(f"[FullDayAnalysisService] Увеличен вес personality_trait '{trait_name}': {old_weight} -> {user.personality_traits[trait_name]}")
+                            else:
+                                # Добавляем новый трейт с начальным весом
+                                user.personality_traits[trait_name] = initial_weight
+                                logger.debug(f"[FullDayAnalysisService] Добавлен новый personality_trait '{trait_name}' с весом {initial_weight}")
+                            traits_changed = True
                         else:
-                            user.personality_traits[trait] = initial_weight
-                            logger.debug(f"[FullDayAnalysisService] Добавлен новый personality_trait '{trait}' с весом {initial_weight}")
-                        traits_changed = True
-                    else:
-                        logger.warning(f"[FullDayAnalysisService] Некорректный элемент в personality_traits: {trait} (тип: {type(trait)})")
+                            logger.warning(f"[FullDayAnalysisService] Некорректный элемент (не строка) в списке personality_traits: {trait_name} (тип: {type(trait_name)})")
+                elif isinstance(new_traits_data, dict):
+                    # Если ИИ прислал словарь (например, {'аккуратность': 2.5, 'открытость': 1.0})
+                    logger.debug(f"[FullDayAnalysisService] Обработка personality_traits как словаря: {new_traits_data}")
+                    for trait_name, trait_value in new_traits_data.items():
+                        if isinstance(trait_name, str):
+                            # Проверяем, является ли значение числом (весом)
+                            if isinstance(trait_value, (int, float)):
+                                # Просто перезаписываем или устанавливаем значение
+                                old_value = user.personality_traits.get(trait_name)
+                                user.personality_traits[trait_name] = trait_value
+                                logger.debug(f"[FullDayAnalysisService] personality_trait '{trait_name}' обновлён: {old_value} -> {trait_value}")
+                                traits_changed = True
+                            else:
+                                # Если значение не число, можно логировать или игнорировать
+                                logger.warning(f"[FullDayAnalysisService] Значение для '{trait_name}' не является числом: {trait_value} (тип: {type(trait_value)}). Игнорируется.")
+                        else:
+                            logger.warning(f"[FullDayAnalysisService] Ключ (имя черты) в словаре personality_traits не строка: {trait_name} (тип: {type(trait_name)})")
+                else:
+                    # Если пришел какой-то другой тип данных
+                    logger.warning(f"[FullDayAnalysisService] Некорректный формат для personality_traits: {type(new_traits_data)}. Ожидается список строк или словарь. Игнорируется.")
+
                 if traits_changed:
                     fields_updated.append('personality_traits')
-            elif new_traits_list is not None:
-                 logger.warning(f"[FullDayAnalysisService] Некорректный формат для personality_traits: {type(new_traits_list)}. Ожидается список строк.")
+                    logger.debug(f"[FullDayAnalysisService] Поле personality_traits обновлено для {user.telegram_id}.")
+
+            # --- Обработка остальных полей (list_field_names) ---
+            # Логика для life_facts, hobbies, core_values, triggers, strengths, areas_for_growth
+            # останется без изменений
             list_field_names = ['life_facts', 'hobbies', 'core_values', 'triggers', 'strengths', 'areas_for_growth']
             for field_name in list_field_names:
                 updates_for_field = profile_updates.get(field_name)
@@ -370,10 +404,12 @@ class FullDayAnalysisService:
                 if not isinstance(updates_for_field, list):
                     logger.warning(f"[FullDayAnalysisService] Некорректный формат для {field_name}: {type(updates_for_field)}. Ожидается список.")
                     continue
+
                 current_user_list = getattr(user, field_name, [])
                 if not isinstance(current_user_list, list):
                     logger.warning(f"[FullDayAnalysisService] Текущее значение {field_name} у пользователя не является списком. Перезаписываем.")
-                    current_user_list = []    
+                    current_user_list = []
+
                 items_to_add = []
                 items_to_remove = []
                 for item in updates_for_field:
@@ -387,10 +423,13 @@ class FullDayAnalysisService:
                             logger.warning(f"[FullDayAnalysisService] Некорректный формат 'remove' в {field_name}: {item_to_remove}")
                     else:
                         logger.warning(f"[FullDayAnalysisService] Некорректный элемент в {field_name}: {item}")
+
                 new_list = [item for item in current_user_list if item not in items_to_remove]
                 for item in items_to_add:
                     if item not in new_list:
                         new_list.append(item)
+
+                # Сравнение списков
                 try:
                     sorted_final = sorted(new_list, key=lambda x: str(x))
                     sorted_current = sorted(current_user_list, key=lambda x: str(x))
@@ -408,12 +447,16 @@ class FullDayAnalysisService:
                 if not lists_are_equal:
                     setattr(user, field_name, new_list)
                     fields_updated.append(field_name)
+                    logger.debug(f"[FullDayAnalysisService] Поле {field_name} обновлено для {user.telegram_id}.")
+
+            # --- Сохранение изменений ---
             if fields_updated:
                 logger.debug(f"[FullDayAnalysisService] Обновлены поля профиля пользователя {user.telegram_id}: {fields_updated}")
                 await sync_to_async(user.save)(update_fields=fields_updated)
                 logger.debug(f"[FullDayAnalysisService] Изменения профиля пользователя {user.telegram_id} сохранены.")
             else:
                 logger.debug(f"[FullDayAnalysisService] Нет изменений для сохранения в профиле пользователя {user.telegram_id}.")
+
             return True
         except Exception as e:
             logger.error(f"[FullDayAnalysisService] Ошибка при обновлении профиля пользователя {user.telegram_id}: {e}", exc_info=True)
