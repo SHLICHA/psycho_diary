@@ -319,6 +319,7 @@ class PaymentService:
 
             return {
                 "success": True,
+                "requires_email": False,
                 "confirmation_url": yoo_payment.confirmation.confirmation_url,
                 "error": None
             }
@@ -327,6 +328,7 @@ class PaymentService:
             logger.error(f"[PaymentService] Ошибка при создании платежа в ЮKassa/БД для {user.telegram_id}: {e}", exc_info=True)
             return {
                 "success": False,
+                "requires_email": False,
                 "confirmation_url": None,
                 "error": str(e)
             }

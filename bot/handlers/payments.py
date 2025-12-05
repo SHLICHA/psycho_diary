@@ -103,7 +103,7 @@ async def handle_subscription_purchase(callback: CallbackQuery, user, language: 
             await callback.answer(get_message('error_generic', language=language), show_alert=True)
             return
 
-        if result['requires_email']:
+        if result.get('requires_email'):
             # Сохраняем данные в FSM
             await state_manager.set_state(
                 state, PaymentStates.waiting_for_email,
@@ -211,7 +211,7 @@ async def handle_token_purchase(callback: CallbackQuery, state: FSMContext, user
             await callback.answer(get_message('error_generic', language=language), show_alert=True)
             return
 
-        if result['requires_email']:
+        if result.get('requires_email'):
             # Сохраняем данные в FSM
             await state_manager.set_state(
                 state, PaymentStates.waiting_for_tokens_email,
