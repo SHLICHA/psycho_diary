@@ -14,6 +14,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.enums import ParseMode
 from django.db import close_old_connections
 
+from bot.bot_instance import bot as global_bot
 from users.models import User, TokenTransaction
 from diary.models import DailyAnalysis
 from diary.services.smart_prompt_manager import smart_prompt_manager
@@ -151,7 +152,7 @@ def perform_scheduled_daily_analysis(self, user_id: int, target_date_iso: str):
             if current_balance < cost:
                 logger.info(f"Недостаточно токенов для автоматического анализа дня у пользователя {user_id}. Баланс: {current_balance}, Стоимость: {cost}")
                 if user.notifications_enabled:
-                    from bot.main import bot as global_bot
+                    #from bot.main import bot as global_bot
                     if global_bot:
                         from messages import get_message
                         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton

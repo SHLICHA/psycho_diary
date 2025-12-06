@@ -17,6 +17,7 @@ from bot.middlewares.user_middleware import UserMiddleware
 from bot.middlewares.language_middleware import LanguageMiddleware
 from bot.middlewares.rate_limit_middleware import RateLimitMiddleware
 from bot.middlewares.premium_check_middleware import PremiumCheckMiddleware
+from bot.bot_instance import bot
 
 async def main():
     """Основная функция запуска бота"""
@@ -31,11 +32,11 @@ async def main():
     logger.info("Bot token найден")
     
     # Инициализация бота
-    global bot
-    bot = Bot(
-        token=bot_token,
-        parse_mode=ParseMode.HTML
-    )
+    #global bot
+    #bot = Bot(
+    #    token=bot_token,
+    #    parse_mode=ParseMode.HTML
+    #)
     
     # Инициализация диспетчера с хранилищем состояний
     from aiogram.fsm.storage.memory import MemoryStorage

@@ -33,6 +33,9 @@ from diary.services.user_profile_service import (
     export_user_data,
     get_referral_link_info
 )
+from diary.services.main_menu_service import build_main_menu_data
+from bot.utils.message_utils import safe_edit_message_text
+from bot.utils.callback_utils import safe_answer_callback
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -497,15 +500,25 @@ async def confirm_account_deletion_final(callback: CallbackQuery, user, language
         data = await state_manager.get_state_data(state)
         balance_warning = data.get('balance_warning', '')
         confirm_msg = get_message('confirm_account_deletion', language, balance_warning=balance_warning)
-        await state_manager.set_state(state, SettingsStates.waiting_for_deletion_confirmation_text)
-        await callback.message.edit_text(
-            confirm_msg,
-            reply_markup=get_account_deletion_confirmation_keyboard(language)
+        
+        # Используем безопасное редактирование
+        success = await safe_edit_message_text(
+            message=callback.message,
+            text=confirm_msg,
+            reply_markup=get_account_deletion_confirmation_keyboard(language) # Теперь здесь только кнопка отмены
         )
-        await callback.answer()
+        
+        if not success:
+            logger.error(f"[confirm_account_deletion_final] Не удалось отредактировать сообщение для пользователя {user.telegram_id}")
+            await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
+            return
+            
+        await state_manager.set_state(state, SettingsStates.waiting_for_deletion_confirmation_text)
+        await safe_answer_callback(callback)
     except Exception as e:
         logger.error(f"Ошибка при финальном подтверждении удаления аккаунта: {e}")
-        await callback.answer(get_message('error_generic', language=language))
+        await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
+
 
 @router.message(SettingsStates.waiting_for_deletion_confirmation_text)
 @log_user_activity('delete_profile', metadata_extra={'context': 'Обработка удаления'})
@@ -540,20 +553,69 @@ async def process_account_deletion_confirmation_text(message: Message, user, lan
 @router.callback_query(F.data == "delete_account_cancel")
 @log_user_activity('delete_profile', metadata_extra={'context': 'Отмена удаления'})
 async def cancel_account_deletion(callback: CallbackQuery, user, language: str, state: FSMContext):
-    """Отмена удаления аккаунта"""
+    """Отмена удаления аккаунта - возврат в главное меню"""
     try:
+        # Показываем сообщение об отмене
         cancel_msg = get_message('account_deletion_cancelled', language)
-        await callback.message.edit_text(cancel_msg)
-        settings_msg = get_message('user_profile', language=language)
-        await callback.message.edit_text(
-            settings_msg,
-            reply_markup=await get_main_menu_keyboard(user, language)
+        # Используем safe_edit_message_text, чтобы избежать ошибки "message is not modified"
+        # при редактировании сообщения с подтверждением.
+        success = await safe_edit_message_text(
+            message=callback.message,
+            text=cancel_msg,
+            reply_markup=None # Убираем клавиатуру подтверждения
         )
+        if not success:
+            logger.warning(f"[cancel_account_deletion] Не удалось отредактировать сообщение для отмены удаления у пользователя {user.telegram_id}, возможно, оно не изменилось. Продолжаем с возвратом в главное меню.")
+
+        # Очищаем состояние FSM
         await state_manager.clear_state(state)
-        await callback.answer()
+
+        # Ждем короткое время, чтобы пользователь увидел сообщение об отмене,
+        # перед тем как обновится до главного меню (опционально)
+        import asyncio
+        await asyncio.sleep(0.5)
+
+        # Получаем данные для главного меню через сервис
+        menu_data = await build_main_menu_data(user, language)
+        main_menu_msg = menu_data['message_text']
+        keyboard = menu_data['keyboard']
+
+        # Редактируем сообщение на главное меню
+        success_main_menu = await safe_edit_message_text(
+            message=callback.message,
+            text=main_menu_msg,
+            reply_markup=keyboard
+        )
+
+        if not success_main_menu:
+            logger.error(f"[cancel_account_deletion] Не удалось отредактировать сообщение на главное меню для пользователя {user.telegram_id}")
+            # Если редактирование не удалось, пробуем отправить новое сообщение
+            await callback.message.answer(
+                text=main_menu_msg,
+                reply_markup=keyboard
+            )
+
+        # Отвечаем на callback
+        await safe_answer_callback(callback)
+
     except Exception as e:
-        logger.error(f"Ошибка при отмене удаления аккаунта: {e}")
-        await callback.answer(get_message('error_generic', language=language))
+        logger.error(f"Ошибка при отмене удаления аккаунта: {e}", exc_info=True)
+        # Всегда отвечаем на callback
+        await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
+
+        # Попытка восстановления через отправку главного меню
+        try:
+            await state_manager.clear_state(state)
+            menu_data = await build_main_menu_data(user, language)
+            main_menu_msg = menu_data['message_text']
+            keyboard = menu_data['keyboard']
+            await callback.message.answer(
+                text=main_menu_msg,
+                reply_markup=keyboard
+            )
+        except Exception as fallback_error:
+            logger.error(f"Ошибка при восстановлении в отмене удаления (fallback): {fallback_error}")
+
 
 @router.callback_query(F.data == "export_user_data")
 @requires_premium(alert_message_key='feature_requires_premium')

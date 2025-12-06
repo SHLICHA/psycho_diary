@@ -123,13 +123,8 @@ def get_account_deletion_menu_keyboard(language: str, balance_info: str) -> Inli
 
 def get_account_deletion_confirmation_keyboard(language: str) -> InlineKeyboardMarkup:
     """Клавиатура подтверждения удаления аккаунта"""
+    # Убираем кнопку подтверждения, оставляем только отмену
     buttons = [
-        [
-            InlineKeyboardButton(
-                text=get_button_text('btn_confirm_delete', language),
-                callback_data="confirm_account_deletion_final"
-            )
-        ],
         [
             InlineKeyboardButton(
                 text=get_button_text('btn_cancel_deletion', language),
