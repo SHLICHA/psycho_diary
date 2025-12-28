@@ -265,7 +265,7 @@ class PaymentService:
                     "description": description,
                     "quantity": "1",
                     "amount": {"value": f"{amount:.2f}", "currency": "RUB"},
-                    "vat_code": "1",
+                    "vat_code": "4",
                     "payment_mode": "full_payment",
                     "payment_subject": "service"
                 }]
@@ -280,7 +280,7 @@ class PaymentService:
                     "description": description,
                     "quantity": str(token_count),
                     "amount": {"value": f"{unit_price:.2f}", "currency": "RUB"},
-                    "vat_code": "1",
+                    "vat_code": "4",
                     "payment_mode": "full_payment",
                     "payment_subject": "commodity" # или "service"
                 }]

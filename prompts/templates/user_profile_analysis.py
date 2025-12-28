@@ -39,7 +39,7 @@ USER_PROFILE_ANALYSIS_PROMPT = {
     *   Это должно быть **новое, цельное, человекочитаемое описание личности** пользователя на русском языке.
     *   Объедини ключевые черты, ценности, сильные стороны, зоны роста, привычки, стремления и инсайты в связный рассказ.
     *   Учитывай уровень осознанности.
-    *   Объем: 3-5 абзацев, **обязательно** не более 4000 символов. Избегай списков и форматирования.
+    *   Объем: 2-4 абзацев, **обязательно** не более 3000 символов. Избегай списков и форматирования.
 3.  **Обнови все структурированные поля профиля**:
     *   Пересмотри и при необходимости обнови **все** следующие поля:
         *   `personality_traits` (dict): Только *актуальные* значимые черты (вес 0.1-1.0), *без дубликатов*. *Объедини* черты с близким значением (например, "пунктуальность" и "организованность" могут быть объединены в "организованность и ответственность").
@@ -66,7 +66,7 @@ USER_PROFILE_ANALYSIS_PROMPT = {
 
 ```json
 {{
-  "personality_description": "Новое, обобщенное текстовое описание личности пользователя, 3-5 абзацев, на русском языке. Без списков и форматирования.",
+  "personality_description": "Новое, обобщенное текстовое описание личности пользователя, 2-4 абзацев, на русском языке. Без списков и форматирования.",
   "personality_traits": {{
     "рефлексивность": 0.85,
     "оптимизм": 0.75
@@ -155,7 +155,7 @@ Aspirations (JSON): {user_profile[aspirations]}
     *   This should be a **new, cohesive, human-readable description of the user's personality** in English.
     *   Synthesize key traits, values, strengths, areas for growth, habits, aspirations, and insights into a coherent narrative.
     *   Consider the awareness level.
-    *   Length: 3-5 paragraphs, **strictly** no more than 4000 characters. Avoid lists and formatting.
+    *   Length: 2-4 paragraphs, **strictly** no more than 3000 characters. Avoid lists and formatting.
 3.  **Update all structured profile fields**:
     *   Re-evaluate and update **all** the following fields if necessary:
         *   `personality_traits` (dict): Only *current* significant traits (weight 0.1-1.0), *without duplicates*. *Merge* traits with similar meaning (e.g., "punctuality" and "organization" could become "organization and responsibility").
@@ -182,7 +182,7 @@ RESPOND ONLY IN THE FOLLOWING JSON FORMAT, enclosed in triple backticks (```json
 
 ```json
 {{
-  "personality_description": "New, comprehensive textual description of the user's personality, 3-5 paragraphs, in English. No lists or formatting.",
+  "personality_description": "New, comprehensive textual description of the user's personality, 2-4 paragraphs, in English. No lists or formatting.",
   "personality_traits": {{
     "reflectiveness": 0.85,
     "optimism": 0.75
