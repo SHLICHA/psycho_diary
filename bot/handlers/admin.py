@@ -20,8 +20,9 @@ from asgiref.sync import sync_to_async
 from collections import Counter # Добавляем импорт Counter для подсчёта часовых поясов
 
 from messages import get_message, get_button_text
-from diary.models import DiaryEntry, AnalysisRating # Импортируем AnalysisRating
+from diary.models import DiaryEntry, AnalysisRating
 from users.models import User, Payment
+from core.services.admin_service import admin_service
 
 # --- НОВОЕ: Импортируем функции для генерации графиков ---
 from bot.utils.activity_chart import generate_activity_chart_image, generate_hourly_activity_chart_image
@@ -34,19 +35,10 @@ class BroadcastStates(StatesGroup):
     waiting_broadcast_type = State()
     waiting_broadcast_message = State()
 
-def is_admin(telegram_id: int) -> bool:
-    dev_chat_id_str = settings.DEVELOPER_CHAT_ID
-    if not dev_chat_id_str:
-        return False
-    try:
-        dev_chat_id = int(dev_chat_id_str)
-        return telegram_id == dev_chat_id
-    except (ValueError, TypeError):
-        return False
 
 @router.message(Command("broadcast"))
 async def broadcast_handler(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
+    if not admin_service.is_admin(message.from_user.id):
         await message.answer("❌ У вас нет доступа к этой команде.")
         return
     language = getattr(message.from_user, 'language_code', 'ru') or 'ru'
@@ -102,44 +94,8 @@ async def process_broadcast(message: Message, state: FSMContext, bot):
     data = await state.get_data()
     is_important = data.get('is_important', False)
     try:
-        if is_important:
-            users = await sync_to_async(list)(
-                User.objects.filter(
-                    is_blocked=False,
-                    deletion_status='active',
-                    deleted_at__isnull=True
-                ).values_list('telegram_id', 'language')
-            )
-        else:
-            users = await sync_to_async(list)(
-                User.objects.filter(
-                    is_blocked=False,
-                    deletion_status='active',
-                    deleted_at__isnull=True,
-                    notifications_enabled=True
-                ).values_list('telegram_id', 'language')
-            )
-
-        success = 0
-        failed = 0
-        for user_id, user_lang in users:
-            try:
-                kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(
-                        text=get_button_text('btn_main_menu', user_lang),
-                        callback_data="main_menu"
-                    )]
-                ])
-                await bot.send_message(
-                    chat_id=user_id,
-                    text=f"{'🔴 ' if is_important else '🔵 '}{get_message('broadcast_prefix', user_lang)}\n\n{message.text}",
-                    reply_markup=kb
-                )
-                success += 1
-            except Exception as e:
-                if "bot was blocked" in str(e).lower():
-                    await User.mark_blocked(user_id)
-                failed += 1
+        users = await admin_service.get_users_for_broadcast(is_important)
+        result = await admin_service.send_broadcast_message(bot, users, message.text, is_important)
 
         language = getattr(message.from_user, 'language_code', 'ru') or 'ru'
         await message.answer(
@@ -150,8 +106,8 @@ async def process_broadcast(message: Message, state: FSMContext, bot):
                     'broadcast_type_selected_important' if is_important else 'broadcast_type_selected_regular',
                     language
                 ),
-                success=success,
-                failed=failed
+                success=result['success'],
+                failed=result['failed']
             )
         )
     except Exception as e:
@@ -174,82 +130,16 @@ async def cancel_broadcast(callback: CallbackQuery, state: FSMContext):
     finally:
         await callback.answer()
 
-async def get_admin_stats():
-    """
-    Асинхронная функция для сбора статистики администратора.
-    Возвращает словарь с метриками.
-    """
-    now = timezone.now()
-    seven_days_ago = now - timedelta(days=7)
-    stats = {}
-    active_in_system_users = User.objects.filter(deletion_status='active', is_superuser=False)
-    stats['total_users'] = await active_in_system_users.acount()
-    active_users_query = active_in_system_users.filter(is_blocked=False)
-    stats['active_users'] = await active_users_query.acount()
-    stats['active_users_last_7_days'] = await active_users_query.filter(
-        last_activity__gte=seven_days_ago
-    ).acount()
-    stats['blocked_users'] = await active_in_system_users.filter(is_blocked=True).acount()
-    @sync_to_async
-    def count_premium_users():
-        users_qs = active_users_query
-        count = 0
-        for user in users_qs.iterator():
-            if user.is_premium_active():
-                count += 1
-        return count
-    stats['premium_users'] = await count_premium_users()
-    stats['users_with_tokens'] = await active_users_query.filter(token_balance__gt=0).acount()
-    stats['users_with_auto_analysis_enabled'] = await active_users_query.filter(auto_analysis_enabled=True).acount()
-    stats['users_completed_onboarding'] = await active_users_query.filter(is_onboarding_completed=True).acount()
-    user_ids_with_entries = await DiaryEntry.objects.filter(
-        user__in=active_users_query
-    ).values_list('user_id', flat=True).distinct().acount()
-    stats['users_with_entries'] = user_ids_with_entries
-    @sync_to_async
-    def get_timezones_list():
-        return list(active_users_query.values_list('timezone', flat=True))
-    timezones_list = await get_timezones_list()
-    timezone_counts = Counter(timezones_list)
-    top_timezones = timezone_counts.most_common(10)
-    stats['top_timezones'] = top_timezones
-    all_ratings = AnalysisRating.objects.all()
-    stats['total_ratings'] = await all_ratings.acount()
-    @sync_to_async
-    def get_rating_counts():
-        from django.db.models import Count
-        rating_counts = all_ratings.values('rating').annotate(count=Count('rating')).order_by('rating')
-        counts = {i: 0 for i in range(1, 6)}
-        for item in rating_counts:
-            counts[item['rating']] = item['count']
-        return counts
-    stats['rating_distribution'] = await get_rating_counts()
-    successful_payments = Payment.objects.filter(status='succeeded')
-    stats['subscriptions_30_count'] = await successful_payments.filter(payment_type='subscription_month').acount()
-    stats['subscriptions_year_count'] = await successful_payments.filter(payment_type='subscription_year').acount()
-    stats['tokens_10_count'] = await successful_payments.filter(payment_type='tokens_10').acount()
-    stats['tokens_50_count'] = await successful_payments.filter(payment_type='tokens_50').acount()
-    stats['tokens_100_count'] = await successful_payments.filter(payment_type='tokens_100').acount()
-    stats['tokens_200_count'] = await successful_payments.filter(payment_type='tokens_200').acount()
-    stats['tokens_500_count'] = await successful_payments.filter(payment_type='tokens_500').acount()
-    stats['custom_tokens_count'] = await successful_payments.filter(payment_type='tokens_custom').acount()
-    user_active_ids = await sync_to_async(list)(active_users_query.values_list('id', flat=True))
-    total_entries_query = DiaryEntry.objects.filter(user_id__in=user_active_ids)
-    stats['total_entries'] = await total_entries_query.acount()
-    stats['real_entries'] = await total_entries_query.filter(is_recovered_streak=False).acount()
-    stats['recovered_entries'] = await total_entries_query.filter(is_recovered_streak=True).acount()
-    return stats
-
 @router.message(Command("stats"))
 async def cmd_admin_stats(message: Message):
     """
     Отправляет администратору сводную статистику.
     """
-    if not is_admin(message.from_user.id):
+    if not admin_service.is_admin(message.from_user.id):
         await message.answer("❌ У вас нет прав для просмотра статистики.")
         return
     try:
-        stats = await get_admin_stats()
+        stats = await admin_service.get_admin_stats()
         response = f"""
 📊 <b>Статистика приложения</b> (на {timezone.now().strftime('%d.%m.%Y %H:%M')})
 

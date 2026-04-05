@@ -15,6 +15,7 @@ from django.utils import timezone
 from messages import get_message, get_button_text
 from diary.models import CombinedDiaryEntry, DiaryEntry, DailyAnalysis, PsychoAnalysis
 from diary.services import smart_prompt_manager, daily_state_service
+from diary.services.diary_display_service import diary_display_service
 from bot.decorators.token_decorator import requires_tokens
 from bot.decorators.analytics_decorator import log_user_activity
 from bot.states.diary_states import DiaryStates
@@ -166,57 +167,11 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
             ]
             reward_text = " ".join(reward_strings)
             final_text += f"\n{reward_text}"
-        back_buttons = None
-        if isinstance(reply_markup, InlineKeyboardMarkup):
-            if reply_markup.inline_keyboard and len(reply_markup.inline_keyboard) > 0:
-                 last_row = reply_markup.inline_keyboard[-1]
-                 back_button_found = False
-                 for btn in last_row:
-                     if btn.callback_data == "main_menu":
-                         back_button_found = True
-                         break
-                 if back_button_found:
-                     back_buttons = reply_markup.inline_keyboard.pop()
-                     logger.debug(f"[DEBUG] Сохранены кнопки 'Назад': {back_buttons}")
-                 else:
-                     logger.debug(f"[DEBUG] Кнопки 'Назад' не найдены в последней строке. Тип клавиатуры: {type(reply_markup)}")
-        try:
-            user_rating_exists = await analysis_obj.user_ratings.filter(user=user).aexists()
-        except Exception:
-            user_rating_exists = False
-            logger.warning(f"PsychoAnalysis для записи {diary_entry.id} не найден при добавлении кнопок оценки в process_any_entry")
-        if not user_rating_exists:
-            rating_emojis = {1: "😠", 2: "😟", 3: "😐", 4: "🙂", 5: "😄"}
-            rating_buttons = []
-            for rate_value, emoji in rating_emojis.items():
-                rating_buttons.append(
-                    InlineKeyboardButton(
-                        text=emoji,
-                        callback_data=f"rate_analysis:{analysis_obj.id}:{rate_value}"
-                    )
-                )
-            if isinstance(reply_markup, InlineKeyboardMarkup):
-                 reply_markup.inline_keyboard.append(rating_buttons)
-            else:
-                 logger.warning(f"reply_markup не является InlineKeyboardMarkup: {type(reply_markup)} в process_any_entry, не добавляем кнопки оценки.")
-        try:
-            current_entry = await DiaryEntry.objects.aget(id=diary_entry.id)
-            has_user_comment = bool(current_entry.user_comment)
-        except DiaryEntry.DoesNotExist:
-            has_user_comment = True
-            logger.warning(f"Запись {diary_entry.id} не найдена при проверке комментария в process_any_entry")
-        if not has_user_comment:
-            add_comment_button = InlineKeyboardButton(
-                text=get_button_text('btn_add_comment', language),
-                callback_data=f"request_add_comment:{diary_entry.id}"
-            )
-            if isinstance(reply_markup, InlineKeyboardMarkup):
-                 reply_markup.inline_keyboard.append([add_comment_button])
-            else:
-                 logger.warning(f"reply_markup не является InlineKeyboardMarkup: {type(reply_markup)} в process_any_entry, не добавляем кнопку 'Добавить комментарий'.")
-        if back_buttons and isinstance(reply_markup, InlineKeyboardMarkup):
-            reply_markup.inline_keyboard.append(back_buttons)
-            logger.debug(f"[DEBUG] Кнопки 'Назад' восстановлены в конец клавиатуры.")
+
+        reply_markup = await diary_display_service.build_entry_result_keyboard(
+            diary_entry, analysis_obj, language
+        )
+
         await status_msg.edit_text(final_text, reply_markup=reply_markup)
         if needs_clarification and clarification_questions:
             now_utc = timezone.now()
@@ -497,41 +452,21 @@ async def rate_analysis(callback: CallbackQuery, user, language: str):
             logger.warning(f"Некорректная оценка: {rating}")
             await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
             return
-        try:
-            analysis = await PsychoAnalysis.objects.select_related('entry__user').aget(id=analysis_id)
-            if analysis.entry.user_id != user.id:
-                 logger.warning(f"Пользователь {user.telegram_id} пытается оценить чужой анализ {analysis_id}")
-                 await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
-                 return
-        except PsychoAnalysis.DoesNotExist:
-            logger.warning(f"PsychoAnalysis с ID {analysis_id} не найден")
-            await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
-            return
-        try:
-            from diary.models import AnalysisRating
-            from asgiref.sync import sync_to_async
-            from django.db import IntegrityError
-            @sync_to_async
-            def create_rating():
-                rating_obj = AnalysisRating.objects.create(user=user, analysis=analysis, rating=rating)
-                return rating_obj
-            await create_rating()
+
+        result = await diary_display_service.submit_rating(analysis_id, user, rating)
+
+        if result['success']:
             logger.debug(f"Пользователь {user.telegram_id} поставил оценку {rating} анализу {analysis_id}")
-            current_text = callback.message.text or callback.message.caption or ""
-            current_reply_markup = callback.message.reply_markup
-            if current_reply_markup and hasattr(current_reply_markup, 'inline_keyboard'):
-                 new_inline_keyboard = []
-                 for row in current_reply_markup.inline_keyboard:
-                     if not any(btn.callback_data and btn.callback_data.startswith("rate_analysis:") for btn in row):
-                         new_inline_keyboard.append(row)
-                 updated_reply_markup = InlineKeyboardMarkup(inline_keyboard=new_inline_keyboard)
-            else:
-                 updated_reply_markup = None
-            await callback.message.edit_reply_markup(reply_markup=updated_reply_markup)
+            updated_keyboard = await diary_display_service.remove_rating_buttons_from_keyboard(
+                callback.message.reply_markup
+            )
+            await callback.message.edit_reply_markup(reply_markup=updated_keyboard)
             await safe_answer_callback(callback, "")
-        except IntegrityError:
-            logger.warning(f"Пользователь {user.telegram_id} уже поставил оценку анализу {analysis_id}")
+        elif result['error'] == 'already_rated':
             await safe_answer_callback(callback, get_message('rating_already_submitted', language), show_alert=True)
+        else:
+            await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
+
     except ValueError as ve:
         logger.error(f"Ошибка парсинга callback_data: {callback.data} - {ve}")
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
@@ -601,12 +536,13 @@ async def view_full_day_analysis(callback: CallbackQuery, user, language: str):
              raise ValueError("Некорректный формат callback_data")
         year, month, day = int(parts[1]), int(parts[2]), int(parts[3])
         target_date = date(year, month, day)
-        target_date_str = target_date.strftime("%d.%m.%Y")
+
         try:
             combined_entry = await CombinedDiaryEntry.objects.select_related('daily_analysis').aget(user=user, date=target_date)
         except CombinedDiaryEntry.DoesNotExist:
             await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
             return
+
         if not hasattr(combined_entry, 'daily_analysis'):
             no_analysis_msg = get_message('no_full_analysis_yet', language)
             reanalyze_button = [
@@ -627,69 +563,20 @@ async def view_full_day_analysis(callback: CallbackQuery, user, language: str):
             await safe_edit_message_text(message=callback.message, text=no_analysis_msg, reply_markup=back_keyboard)
             await safe_answer_callback(callback, "")
             return
+
         daily_analysis = combined_entry.daily_analysis
-        analysis_header = get_message('full_day_analysis_header', language, date=target_date_str)
-        analysis_msg = f"🔬 <b>{analysis_header}</b>\n"
-        analysis_msg += "═" * 25 + "\n"
-        if daily_analysis.overall_analysis_text and daily_analysis.overall_analysis_text.strip():
-             analysis_msg += f"🧠 <b>Общий анализ дня:</b>\n{daily_analysis.overall_analysis_text}\n\n"
+
+        result = await diary_display_service.format_full_day_analysis(
+            combined_entry, daily_analysis, year, month, day, language
+        )
+
+        if result['success']:
+            await safe_edit_message_text(message=callback.message, text=result['text'], reply_markup=result['keyboard'])
         else:
-             analysis_msg += f"🧠 <b>Общий анализ дня:</b>\n(Общий текстовый анализ отсутствует или не был сгенерирован ИИ.)\n\n"
-        mood_section = "📈 <b>Настроение и оценки</b>\n"
-        mood_trend_display = dict(DailyAnalysis._meta.get_field('mood_trend').choices).get(daily_analysis.mood_trend, daily_analysis.mood_trend)
-        mood_section += f"  📊 Тренд настроения: {mood_trend_display}\n"
-        if combined_entry.average_mood_score and combined_entry.average_mood_score > 0:
-             avg_score = combined_entry.average_mood_score
-             stars_full = "⭐" * int(avg_score // 2)
-             stars_half = "☆" if avg_score % 2 >= 1 else ""
-             stars_empty = "☆" * (5 - len(stars_full) - len(stars_half))
-             stars_display = stars_full + stars_half + stars_empty
-             mood_section += f"  🌟 Средняя оценка: {avg_score:.1f}/10 {stars_display}\n"
-        analysis_msg += mood_section + "\n"
-        #if daily_analysis.key_themes:
-        #    analysis_msg += "🏷 <b>Ключевые темы дня:</b>\n"
-        #    for i, theme in enumerate(daily_analysis.key_themes, 1):
-        #        significance = theme.get('significance', 0)
-        #        significance_percent = f"{significance:.0%}"
-        #        analysis_msg += f"  {i}. <b>{theme['theme']}</b> ({theme.get('mentions', 1)} упоминаний) - Значимость: {significance_percent}\n"
-        #    analysis_msg += "\n"
-        #if daily_analysis.emotional_patterns:
-        #    analysis_msg += "🎭 <b>Эмоциональные паттерны:</b>\n"
-        #    for i, pattern in enumerate(daily_analysis.emotional_patterns, 1):
-        #        analysis_msg += f"  {i}. <b>{pattern['emotion']}</b> (частота: {pattern.get('frequency', 1)})\n"
-        #        analysis_msg += f"     Контекст: {pattern.get('context', 'Контекст не указан')}\n"
-        #    analysis_msg += "\n"
-        #if daily_analysis.insights:
-        #    analysis_msg += "💡 <b>Инсайты:</b>\n"
-        #    for i, insight in enumerate(daily_analysis.insights, 1):
-        #        significance = insight.get('significance', 0)
-        #        category = insight.get('category', 'other')
-        #        significance_percent = f"{significance:.0%}"
-        #        analysis_msg += f"  {i}. <b>{insight['text']}</b>\n"
-        #        analysis_msg += f"     Категория: {category}, Значимость: {significance_percent}\n"
-        #    analysis_msg += "\n"
-        if daily_analysis.recommendations:
-            analysis_msg += "🎯 <b>Персональные рекомендации:</b>\n"
-            for i, rec in enumerate(daily_analysis.recommendations, 1):
-                analysis_msg += f"  {i}. {rec}\n"
-            analysis_msg += "\n"
-        analysis_msg += "🤖 <i>Анализ выполнен искусственным интеллектом на основе ваших записей.</i>"
-        keyboard_buttons = []
-        keyboard_buttons.append([
-            InlineKeyboardButton(
-                text=get_button_text('btn_reanalyze_entry', language),
-                callback_data=f"reanalyze_day:{year}:{month}:{day}"
-            )
-        ])
-        keyboard_buttons.append([
-            InlineKeyboardButton(
-                text=get_button_text('btn_back', language),
-                callback_data=f"calendar_select_day:{year}:{month}:{day}"
-            )
-        ])  
-        analysis_keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
-        await safe_edit_message_text(message=callback.message, text=analysis_msg, reply_markup=analysis_keyboard)
+            await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
+
         await safe_answer_callback(callback, "")
+
     except (ValueError, IndexError) as e:
         logger.error(f"Ошибка обработки даты в view_full_day_analysis: {e}")
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
@@ -752,30 +639,16 @@ async def entry_prev(callback: CallbackQuery, user, language: str):
     """Показ предыдущей записи"""
     try:
         entry_id = int(callback.data.split(":")[1])
-        current_entry = await DiaryEntry.objects.aget(id=entry_id, user=user)
-        target_date = await current_entry.aentry_date()
-        entries = await diary_service.get_user_entries_for_date(user, target_date)
-        if not entries:
-            no_entries_msg = get_message('archive_empty', language)
-            await safe_edit_message_text(
-                message=callback.message,
-                text=no_entries_msg,
-                reply_markup=get_calendar_back_keyboard(language, target_date.year, target_date.month)
-            )
+        result = await diary_display_service.get_entry_with_pagination(user, entry_id, 'prev')
+
+        if result['success']:
+            await _show_entry_page(callback.message, user, result['entry'], result['entries'], result['target_date'], language)
             await safe_answer_callback(callback, "")
-            return
-        sorted_entries = sorted(entries, key=lambda e: e.created_at)
-        try:
-            current_index = next(i for i, e in enumerate(sorted_entries) if e.id == entry_id)
-        except StopIteration:
-            await safe_answer_callback(callback, get_message('error_generic', language))
-            return
-        if current_index > 0:
-            prev_entry = sorted_entries[current_index - 1]
-            await _show_entry_page(callback.message, user, prev_entry, sorted_entries, target_date, language)
-        else:
+        elif result['error'] == 'first_entry':
             await safe_answer_callback(callback, "Это первая запись.", show_alert=True)
-        await safe_answer_callback(callback, "")
+        else:
+            await safe_answer_callback(callback, get_message('error_generic', language))
+
     except Exception as e:
         logger.error(f"Ошибка при переходе к предыдущей записи: {e}", exc_info=True)
         await safe_answer_callback(callback, get_message('error_generic', language))
@@ -785,30 +658,16 @@ async def entry_next(callback: CallbackQuery, user, language: str):
     """Показ следующей записи"""
     try:
         entry_id = int(callback.data.split(":")[1])
-        current_entry = await DiaryEntry.objects.aget(id=entry_id, user=user)
-        target_date = await current_entry.aentry_date()
-        entries = await diary_service.get_user_entries_for_date(user, target_date)
-        if not entries:
-            no_entries_msg = get_message('archive_empty', language)
-            await safe_edit_message_text(
-                message=callback.message,
-                text=no_entries_msg,
-                reply_markup=get_calendar_back_keyboard(language, target_date.year, target_date.month)
-            )
+        result = await diary_display_service.get_entry_with_pagination(user, entry_id, 'next')
+
+        if result['success']:
+            await _show_entry_page(callback.message, user, result['entry'], result['entries'], result['target_date'], language)
             await safe_answer_callback(callback, "")
-            return
-        sorted_entries = sorted(entries, key=lambda e: e.created_at)
-        try:
-            current_index = next(i for i, e in enumerate(sorted_entries) if e.id == entry_id)
-        except StopIteration:
-            await safe_answer_callback(callback, get_message('error_generic', language))
-            return
-        if current_index < len(sorted_entries) - 1:
-            next_entry = sorted_entries[current_index + 1]
-            await _show_entry_page(callback.message, user, next_entry, sorted_entries, target_date, language)
-        else:
+        elif result['error'] == 'last_entry':
             await safe_answer_callback(callback, "Это последняя запись.", show_alert=True)
-        await safe_answer_callback(callback, "")
+        else:
+            await safe_answer_callback(callback, get_message('error_generic', language))
+
     except Exception as e:
         logger.error(f"Ошибка при переходе к следующей записи: {e}", exc_info=True)
         await safe_answer_callback(callback, get_message('error_generic', language))
@@ -1127,6 +986,7 @@ async def _process_analysis_result(
             comment = result_data.get('comment', 'Анализ записан')
             recommendation = result_data.get('recommendation', 'Продолжайте вести дневник')
             analysis_text = result_data.get('analysis', 'Текст проанализирован.')
+
         finalize_now = (context in ['clarification', 'comment_analysis'])
         await psycho_analysis_service.create_or_update_analysis(
             entry=entry,
@@ -1138,6 +998,7 @@ async def _process_analysis_result(
             processing_time=processing_time,
             finalize_processing=finalize_now
         )
+
         if context in ['clarification', 'comment_analysis']:
             combined_entry = await daily_state_service.get_daily_state(user, await entry.aentry_date())
             if combined_entry and 'updated_ai_state_data' in result_data:
@@ -1150,54 +1011,23 @@ async def _process_analysis_result(
                 latest_mood_score=mood_score
             )
             logger.debug(f"[_process_analysis_result] Обновлен CombinedDiaryEntry для {context} записи {entry.id}")
+
         final_text = get_message('entry_saved', language, score=mood_score, mood=get_message(f'mood_{mood_score}', language), comment=comment, recommendation=recommendation)
-        reply_markup = InlineKeyboardMarkup(inline_keyboard=[])
+
         try:
             current_analysis = await PsychoAnalysis.objects.aget(entry=entry)
-            user_rating_exists = await current_analysis.user_ratings.filter(user=user).aexists()
+            reply_markup = await diary_display_service.build_entry_result_keyboard(entry, current_analysis, language)
         except PsychoAnalysis.DoesNotExist:
-            user_rating_exists = False
-            logger.warning(f"PsychoAnalysis для записи {entry.id} не найден при добавлении кнопок оценки в _process_analysis_result")
-        if not user_rating_exists:
-            rating_emojis = {1: "😠", 2: "😟", 3: "😐", 4: "🙂", 5: "😄"}
-            rating_buttons = []
-            for rate_value, emoji in rating_emojis.items():
-                rating_buttons.append(
-                    InlineKeyboardButton(
-                        text=emoji,
-                        callback_data=f"rate_analysis:{current_analysis.id}:{rate_value}"
-                    )
-                )
-            if isinstance(reply_markup, InlineKeyboardMarkup):
-                 reply_markup.inline_keyboard.append(rating_buttons)
-            else:
-                 logger.warning(f"reply_markup не является InlineKeyboardMarkup: {type(reply_markup)} в _process_analysis_result, не добавляем кнопки оценки.")
-        if context != 'comment_analysis':
-            try:
-                current_entry = await DiaryEntry.objects.aget(id=entry.id)
-                has_user_comment = bool(current_entry.user_comment)
-            except DiaryEntry.DoesNotExist:
-                has_user_comment = True
-                logger.warning(f"Запись {entry.id} не найдена при проверке комментария в _process_analysis_result")
-            if not has_user_comment:
-                add_comment_button = InlineKeyboardButton(
-                    text=get_button_text('btn_add_comment', language),
-                    callback_data=f"request_add_comment:{entry.id}"
-                )
-                if isinstance(reply_markup, InlineKeyboardMarkup):
-                     reply_markup.inline_keyboard.append([add_comment_button])
-                else:
-                     logger.warning(f"reply_markup не является InlineKeyboardMarkup: {type(reply_markup)} в _process_analysis_result, не добавляем кнопку 'Добавить комментарий'.")
-        back_buttons = [
-            InlineKeyboardButton(
-                text=get_button_text('btn_back', language),
-                callback_data="main_menu"
-            )
-        ]
-        reply_markup.inline_keyboard.append(back_buttons)
+            logger.warning(f"PsychoAnalysis для записи {entry.id} не найден при создании клавиатуры в _process_analysis_result")
+            reply_markup = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=get_button_text('btn_back', language), callback_data="main_menu")]
+            ])
+
         await status_msg.edit_text(final_text, reply_markup=reply_markup)
+
         if context in ['clarification', 'comment_analysis']:
             await state_manager.clear_state(state)
+
     except Exception as e:
         logger.error(f"Ошибка в _process_analysis_result: {e}", exc_info=True)
         if status_msg:
@@ -1215,65 +1045,26 @@ async def _show_entry_page(message, user, entry, entries, target_date, language)
     """
     Отображает текущую запись с клавиатурой пагинации.
     Использует edit_or_send_message для надежного обновления.
-    Логика клавиатуры вынесена в отдельную функцию.
+    Логика форматирования вынесена в diary_display_service.
     """
     try:
-        current_index = entries.index(entry)
-        total = len(entries)
-        try:
-            entry_datetime_str = await entry.alocalized_created_at() 
-            
-        except Exception as tz_error:
-            logger.error(f"Ошибка при получении локализованного времени записи {entry.id}: {tz_error}")
-            entry_datetime_str = entry.created_at.strftime('%d.%m.%Y %H:%M UTC')
-        mood_score_display = "Н/Д"
-        analysis_comment = ""
-        analysis_recommendation = ""
-        try:
-            analysis = await PsychoAnalysis.objects.aget(entry=entry)
-            mood_score_display = str(analysis.mood_score)
-            if analysis.comment:
-                analysis_comment = analysis.comment
-            if analysis.recommendation:
-                analysis_recommendation = analysis.recommendation
-        except PsychoAnalysis.DoesNotExist:
-            pass
-        header = f"📅 <b>{entry_datetime_str}</b>\n"
-        entry_content = get_message('entry_header', language, 
-                                current_index=current_index + 1, 
-                                total=total, 
-                                entry_text=entry.text)
-        analysis_section = ""
-        if analysis_comment:
-            analysis_section = get_message('analysis_section', language, 
-                                        analysis_comment=analysis_comment)
-        if analysis_recommendation:
-            analysis_section += get_message('recommendation_section', language, 
-                                        analysis_recommendation=analysis_recommendation)
-        footer = get_message('entry_footer', language, 
-                    mood_score_display=mood_score_display)
-        text = header + entry_content + analysis_section + footer
-        is_day_analyzed = False
-        try:
-            combined_entry = await CombinedDiaryEntry.objects.aget(user=user, date=target_date)
-            is_day_analyzed = combined_entry.is_analyzed
-        except CombinedDiaryEntry.DoesNotExist:
-            pass
-        keyboard = get_entry_page_keyboard(
-            entry_id=entry.id,
-            current_index=current_index,
-            total_entries=total,
-            target_date=target_date,
-            language=language,
-            is_day_analyzed=is_day_analyzed
-        )
-        await edit_or_send_message(
-            bot=message.bot,
-            chat_id=message.chat.id,
-            text=text,
-            reply_markup=keyboard,
-            message_to_edit=message
-        )
+        result = await diary_display_service.format_entry_for_display(entry, entries, target_date, language)
+
+        if result['success']:
+            await edit_or_send_message(
+                bot=message.bot,
+                chat_id=message.chat.id,
+                text=result['text'],
+                reply_markup=result['keyboard'],
+                message_to_edit=message
+            )
+        else:
+            logger.error(f"Ошибка при форматировании записи: {result.get('error')}")
+            try:
+                await message.answer(get_message('error_generic', language))
+            except:
+                pass
+
     except Exception as e:
         logger.error(f"Ошибка при отображении страницы записи: {e}", exc_info=True)
         try:

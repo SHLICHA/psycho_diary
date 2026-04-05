@@ -74,10 +74,6 @@ async def track_payment_status(yookassa_payment_id: str, payment_id: int, user_i
             if not yoo_payment:
                 continue
 
-            # db_payment = await Payment.objects.aget(id=payment_id) # <-- МОЖЕТ БЫТЬ НЕАКТУАЛЬНО ПОЗЖЕ
-            # if yoo_payment.status == db_payment.status:
-            #     continue
-
             # Получаем обновлённый статус платежа из БД
             db_payment = await Payment.objects.aget(id=payment_id)
             if yoo_payment.status == db_payment.status:

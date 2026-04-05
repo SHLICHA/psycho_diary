@@ -5,7 +5,6 @@ from .reminder_ask_questions import check_clarification_reminders, force_process
 from .morning_motivations import send_morning_motivation_task
 from .task_expiration import expire_tasks
 from .garbage_collector_task import run_garbage_collection
-#from .test_morning import send_entry_reminders
 
 __all__ = [
     'perform_weekly_analysis_for_user_task',

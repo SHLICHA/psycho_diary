@@ -30,14 +30,7 @@ async def main():
         return
     
     logger.info("Bot token найден")
-    
-    # Инициализация бота
-    #global bot
-    #bot = Bot(
-    #    token=bot_token,
-    #    parse_mode=ParseMode.HTML
-    #)
-    
+
     # Инициализация диспетчера с хранилищем состояний
     from aiogram.fsm.storage.memory import MemoryStorage
     storage = MemoryStorage()

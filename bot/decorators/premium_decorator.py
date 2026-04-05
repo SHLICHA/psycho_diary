@@ -105,7 +105,6 @@ def requires_premium(alert_message_key: str = 'premium_required'):
             # --- 6. Проверка статуса подписки ---
             try:
                 is_premium = await user.ais_premium_active()
-                # logger.debug(f"requires_premium: Проверка подписки для user {user.telegram_id}: is_premium = {is_premium}")
             except Exception as e:
                 logger.error(f"requires_premium: Ошибка при проверке статуса подписки для user {user.telegram_id}: {e}")
                 # В случае ошибки при проверке, вызываем оригинальную функцию

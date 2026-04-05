@@ -152,7 +152,6 @@ def perform_scheduled_daily_analysis(self, user_id: int, target_date_iso: str):
             if current_balance < cost:
                 logger.info(f"Недостаточно токенов для автоматического анализа дня у пользователя {user_id}. Баланс: {current_balance}, Стоимость: {cost}")
                 if user.notifications_enabled:
-                    #from bot.main import bot as global_bot
                     if global_bot:
                         from messages import get_message
                         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton

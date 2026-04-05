@@ -75,24 +75,24 @@ class WeeklyAnalysisService:
             )
             logger.debug(f"[WeeklyAnalysisService] Промпт сформирован для {user.telegram_id} за неделю {week_start_date} (длина: {len(prompt)} символов)")
             api_result = await deepseek_api_service.send_prompt_and_parse(
-                prompt, 
+                prompt,
                 language=user.language,
-                timeout_per_attempt=120 # 2 минуты на попытку
+                timeout_per_attempt=120
             )
             logger.debug(f"[WeeklyAnalysisService] Ответ API от DeepSeek: success={api_result.get('success')}")
 
-            # 6. Обработать результат API
+            # Обработать результат API
             if not api_result.get('success'):
                 error_msg = api_result.get('error', 'Неизвестная ошибка API')
                 logger.error(f"[WeeklyAnalysisService] Ошибка API при недельном анализе: {error_msg}")
-                
+
                 # Создаем WeeklyAnalysis с информацией об ошибке
                 weekly_analysis = await self._create_or_update_weekly_analysis(
                     user=user,
                     week_start_date=week_start_date,
-                    parsed_result={}, # Пустой результат
-                    api_result=api_result, # Передаем ошибку
-                    context=context 
+                    parsed_result={},
+                    api_result=api_result,
+                    context=context
                 )
                 return {
                     "success": False,
@@ -133,8 +133,8 @@ class WeeklyAnalysisService:
                  }
                  weekly_analysis = await self._create_or_update_weekly_analysis(
                     user=user,
-                    week_start_date=week_start_date if 'week_start_date' in locals() else date.today(), # fallback
-                    parsed_result={}, 
+                    week_start_date=week_start_date if 'week_start_date' in locals() else date.today(),
+                    parsed_result={},
                     api_result={"error": "critical_exception", "message": str(e)},
                     context=context
                  )
@@ -176,7 +176,7 @@ class WeeklyAnalysisService:
             'week_statistics': {}
         }
 
-        # --- 1. Профиль пользователя ---
+        # Профиль пользователя
         extended_user_profile = {
             'username': user.username or f"user_{user.telegram_id}",
             'first_name': user.first_name or "",
@@ -192,7 +192,7 @@ class WeeklyAnalysisService:
         }
         context['user_profile'] = extended_user_profile
 
-        # --- 2. DailyAnalysis за неделю ---
+        # DailyAnalysis за неделю
         daily_analyses_data = []
         current_date = week_start_date
         total_entries = 0
@@ -206,7 +206,7 @@ class WeeklyAnalysisService:
         while current_date <= week_end_date:
             logger.debug(f"[WeeklyAnalysisService] Обрабатываем дату: {current_date}")
             try:
-                # --- Получение CombinedDiaryEntry ---
+                # Получение CombinedDiaryEntry
                 @sync_to_async
                 def _get_combined_entry_sync():
                     try:
@@ -231,8 +231,8 @@ class WeeklyAnalysisService:
                     if hasattr(combined_entry, 'daily_analysis') and combined_entry.daily_analysis:
                         da = combined_entry.daily_analysis
                         logger.debug(f"[WeeklyAnalysisService] Найден DailyAnalysis ID {da.id} для CombinedDiaryEntry ID {combined_entry.id}")
-                        
-                        # --- Сбор данных для daily_analyses_data ---
+
+                        # Сбор данных для daily_analyses_data
                         da_data = {
                             "date": combined_entry.date.isoformat(),
                             "mood_trend": getattr(da, 'mood_trend', 'unknown'),
@@ -245,7 +245,7 @@ class WeeklyAnalysisService:
                         daily_analyses_data.append(da_data)
                         logger.debug(f"[WeeklyAnalysisService] Данные DailyAnalysis за {current_date} добавлены.")
 
-                        # --- Сбор уникальных тем (key_themes) с обработкой ошибок ---
+                        # Сбор уникальных тем (key_themes)
                         key_themes_raw = getattr(da, 'key_themes', [])
                         if isinstance(key_themes_raw, list):
                             for theme_item in key_themes_raw:
@@ -263,7 +263,7 @@ class WeeklyAnalysisService:
                         else:
                             logger.warning(f"[WeeklyAnalysisService] key_themes для {current_date} не является списком: {type(key_themes_raw)}")
 
-                        # --- Сбор уникальных эмоций (emotional_patterns) с обработкой ошибок ---
+                        # Сбор уникальных эмоций (emotional_patterns)
                         emotional_patterns_raw = getattr(da, 'emotional_patterns', [])
                         if isinstance(emotional_patterns_raw, list):
                             for pattern_item in emotional_patterns_raw:
@@ -314,7 +314,7 @@ class WeeklyAnalysisService:
         if daily_analyses_data:
             context['has_data'] = True
 
-        # --- 3. Предыдущий WeeklyAnalysis ---
+        # Предыдущий WeeklyAnalysis
         previous_week_start = week_start_date - timedelta(weeks=1)
         previous_analysis = await self._get_weekly_analysis_for_week(user, previous_week_start)
         if previous_analysis:
@@ -325,7 +325,7 @@ class WeeklyAnalysisService:
         else:
              logger.debug(f"[WeeklyAnalysisService] Предыдущий анализ недели для {user.telegram_id} не найден.")
 
-        # --- 4. Статистика недели ---
+        # Статистика недели
         streak_days_current = 0
         temp_date = week_end_date
         while temp_date >= week_start_date:
@@ -375,7 +375,7 @@ class WeeklyAnalysisService:
         week_start_date: date,
         parsed_result: Dict[str, Any], 
         api_result: Dict[str, Any],
-        context: Dict[str, Any] # Для fallback значений
+        context: Dict[str, Any]
     ) -> WeeklyAnalysis:
         """
         Создает объект WeeklyAnalysis на основе результата анализа.
@@ -400,19 +400,12 @@ class WeeklyAnalysisService:
             logger.warning("[WeeklyAnalysisService] progress_insights не является словарем.")
             progress_insights = {}
 
-        # consolidated_user_profile теперь используется иначе.
-        # Мы можем сохранить awareness_level_adjustment или оставить пустым.
-        # Для простоты, сохраним awareness_level_adjustment, если он есть.
         awareness_level_adjustment = parsed_result.get('awareness_level_adjustment', {})
         consolidated_user_profile_to_save = {}
         if isinstance(awareness_level_adjustment, dict) and awareness_level_adjustment:
-            # Можно сохранить только рекомендацию или новый уровень
-            # consolidated_user_profile_to_save['awareness_level_adjustment'] = awareness_level_adjustment
-            # Или просто новый уровень, если он есть
             new_level = awareness_level_adjustment.get('new_level')
             if new_level is not None:
                  consolidated_user_profile_to_save['awareness_level'] = new_level
-                 # reasoning можно сохранить отдельно в progress_insights или не сохранять
         
         statistics = parsed_result.get('statistics', context.get('week_statistics', {}))
         if not isinstance(statistics, dict):
@@ -443,13 +436,9 @@ class WeeklyAnalysisService:
         return await _create_sync()
 
 
-# Глобальный экземпляр сервиса
 weekly_analysis_service = WeeklyAnalysisService()
 
 
-# Удобные функции
 async def perform_weekly_analysis(user: User) -> Dict[str, Any]:
-    """
-    Удобная асинхронная функция для выполнения еженедельного анализа.
-    """
+    """Удобная асинхронная функция для выполнения еженедельного анализа."""
     return await weekly_analysis_service.perform_weekly_analysis(user)

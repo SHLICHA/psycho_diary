@@ -93,7 +93,7 @@ Thank you for using our service.''',
         'ask_timezone_selection': '🌍 <b>Select your timezone</b>\n\nCurrent timezone: {current_timezone}\n\nYou can choose from a list of popular timezones or enter your own.',
         'btn_select_common_timezones': '📋 Select from list',
         'btn_enter_custom_timezone': '✍️ Enter manually',
-        'btn_detect_timezone': '🧭 Detect automatically', # If implemented later
+        'btn_detect_timezone': '🧭 Detect automatically',
         
         # === Messages for timezone list ===
         'select_timezone_title': '🌍 <b>Select your timezone</b>\n\nCurrent timezone: {current_timezone}',
