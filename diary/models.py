@@ -103,6 +103,12 @@ class DiaryEntry(models.Model):
         default=False,
         verbose_name=_("Запись восстановления серии"),
         help_text=_("Указывает, что эта запись создана для восстановления пропущенного дня в серии.")
+    )
+    creator_timezone = models.CharField(
+        max_length=50,
+        default='UTC',
+        verbose_name=_("Часовой пояс создателя"),
+        help_text=_("Часовой пояс пользователя на момент создания записи. Используется для корректного определения даты записи.")
     )    
 
     class Meta:
@@ -125,7 +131,10 @@ class DiaryEntry(models.Model):
     def entry_date(self) -> date:
         """Дата записи (без времени) с учетом часового пояса пользователя"""
         try:
-            user_timezone_str = self.user.timezone if hasattr(self.user, 'timezone') and self.user.timezone else 'UTC'
+            # Приоритет: creator_timezone (фиксированный) > user.timezone (текущий) > UTC
+            user_timezone_str = self.creator_timezone if self.creator_timezone else None
+            if not user_timezone_str:
+                user_timezone_str = self.user.timezone if hasattr(self.user, 'timezone') and self.user.timezone else 'UTC'
             if not user_timezone_str:
                 user_timezone_str = 'UTC'
             user_tz = pytz.timezone(user_timezone_str)
@@ -142,8 +151,11 @@ class DiaryEntry(models.Model):
     async def aentry_date(self) -> date:
         """Асинхронная версия entry_date."""
         try:
-            user_obj = await sync_to_async(lambda: self.user)() if not hasattr(self, '_prefetched_user') else self.user
-            user_timezone_str = user_obj.timezone if user_obj.timezone else 'UTC'
+            # Приоритет: creator_timezone (фиксированный) > user.timezone (текущий) > UTC
+            user_timezone_str = self.creator_timezone if self.creator_timezone else None
+            if not user_timezone_str:
+                user_obj = await sync_to_async(lambda: self.user)() if not hasattr(self, '_prefetched_user') else self.user
+                user_timezone_str = user_obj.timezone if user_obj.timezone else 'UTC'
             if not user_timezone_str:
                 user_timezone_str = 'UTC'
             user_tz = pytz.timezone(user_timezone_str)
@@ -160,7 +172,10 @@ class DiaryEntry(models.Model):
     def localized_created_at(self) -> str:
         """Локализованное время создания записи"""
         try:
-            user_timezone_str = self.user.timezone if hasattr(self.user, 'timezone') and self.user.timezone else 'UTC'
+            # Приоритет: creator_timezone (фиксированный) > user.timezone (текущий) > UTC
+            user_timezone_str = self.creator_timezone if self.creator_timezone else None
+            if not user_timezone_str:
+                user_timezone_str = self.user.timezone if hasattr(self.user, 'timezone') and self.user.timezone else 'UTC'
             if not user_timezone_str:
                 user_timezone_str = 'UTC'
             created_at_for_conversion = self.created_at
@@ -179,8 +194,11 @@ class DiaryEntry(models.Model):
     async def alocalized_created_at(self) -> str:
         """Асинхронная версия localized_created_at."""
         try:
-            user_obj = await sync_to_async(lambda: self.user)() if not hasattr(self, '_prefetched_user') else self.user
-            user_timezone_str = user_obj.timezone if user_obj.timezone else 'UTC'
+            # Приоритет: creator_timezone (фиксированный) > user.timezone (текущий) > UTC
+            user_timezone_str = self.creator_timezone if self.creator_timezone else None
+            if not user_timezone_str:
+                user_obj = await sync_to_async(lambda: self.user)() if not hasattr(self, '_prefetched_user') else self.user
+                user_timezone_str = user_obj.timezone if user_obj.timezone else 'UTC'
             if not user_timezone_str:
                 user_timezone_str = 'UTC'
             created_at_for_conversion = self.created_at
@@ -507,11 +525,31 @@ class CombinedDiaryEntry(models.Model):
         """
         Возвращает datetime для начала этого дня в часовом поясе пользователя.
         Полезно для согласованности с DiaryEntry.localized_created_at.
+        Приоритет: ищем DiaryEntry за этот день и берём его creator_timezone.
         """
         try:
-            user_timezone_str = self.user.timezone if self.user else 'UTC'
+            # Пробуем получить timezone из записей за этот день
+            user_timezone_str = None
+            if hasattr(self, '_prefetched_entries_cache'):
+                # Если записи уже загружены, берём TZ из первой
+                entries = self._prefetched_entries_cache
+                if entries:
+                    user_timezone_str = entries[0].creator_timezone
+            elif self.pk:
+                # Иначе делаем запрос к БД
+                first_entry = DiaryEntry.objects.filter(
+                    user=self.user,
+                    created_at__date=self.date
+                ).order_by('created_at').only('creator_timezone').first()
+                if first_entry:
+                    user_timezone_str = first_entry.creator_timezone
+
+            # Фолбэк на текущий timezone пользователя
             if not user_timezone_str:
-                 user_timezone_str = 'UTC'      
+                user_timezone_str = self.user.timezone if self.user else 'UTC'
+            if not user_timezone_str:
+                user_timezone_str = 'UTC'
+
             user_tz = pytz.timezone(user_timezone_str)
             naive_datetime = datetime.combine(self.date, datetime.min.time())
             localized_datetime = user_tz.localize(naive_datetime)

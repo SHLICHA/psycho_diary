@@ -520,6 +520,181 @@ class TestWeeklyAnalysisModel:
 
 
 @pytest.mark.django_db
+class TestDiaryEntryCreatorTimezone:
+    """Тесты для поля creator_timezone и его влияния на дату записи."""
+
+    @pytest.fixture
+    def user_moscow(self):
+        return baker.make(User, username='testuser_msk', telegram_id=100001, timezone='Europe/Moscow')
+
+    @pytest.fixture
+    def user_utc(self):
+        return baker.make(User, username='testuser_utc', telegram_id=100002, timezone='UTC')
+
+    @pytest.fixture
+    def user_la(self):
+        return baker.make(User, username='testuser_la', telegram_id=100003, timezone='America/Los_Angeles')
+
+    def test_entry_creator_timezone_set_on_creation(self, user_moscow):
+        """Тест: creator_timezone устанавливается при создании записи."""
+        entry = baker.make(
+            DiaryEntry,
+            user=user_moscow,
+            text="Запись",
+            language='ru',
+            word_count=1,
+            creator_timezone=user_moscow.timezone
+        )
+        assert entry.creator_timezone == 'Europe/Moscow'
+
+    def test_entry_creator_timezone_default_utc(self, user_moscow):
+        """Тест: creator_timezone по умолчанию UTC."""
+        entry = baker.make(DiaryEntry, user=user_moscow, text="Запись", language='ru', word_count=1)
+        # baker.make использует default из модели
+        assert entry.creator_timezone == 'UTC'
+
+    def test_entry_date_uses_creator_timezone_over_user_timezone(self, user_moscow):
+        """
+        Тест: entry_date использует creator_timezone, даже если текущий TZ пользователя изменился.
+        Сценарий: пользователь был в Москве, создал запись, потом сменил TZ на UTC.
+        """
+        # Создаём запись с TZ Москвы
+        msk_tz = pytz.timezone('Europe/Moscow')
+        # 2023-10-26 23:00 MSK = 2023-10-26 20:00 UTC
+        entry_datetime_msk = msk_tz.localize(datetime(2023, 10, 26, 23, 0, 0))
+        entry_datetime_utc = entry_datetime_msk.astimezone(pytz.utc)
+
+        entry = baker.make(
+            DiaryEntry,
+            user=user_moscow,
+            text="Поздняя запись",
+            language='ru',
+            word_count=2,
+            created_at=entry_datetime_utc,
+            creator_timezone='Europe/Moscow'
+        )
+
+        # Дата должна быть 26 октября (по Москве)
+        assert entry.entry_date == date(2023, 10, 26)
+
+        # Теперь меняем TZ пользователя на UTC
+        user_moscow.timezone = 'UTC'
+        user_moscow.save()
+
+        # entry_date всё ещё должно быть 26 октября (по creator_timezone)
+        assert entry.entry_date == date(2023, 10, 26)
+
+    def test_entry_date_falls_back_to_user_timezone_if_creator_tz_empty(self, user_moscow):
+        """Тест: если creator_timezone пуст, используется user.timezone."""
+        entry = baker.make(
+            DiaryEntry,
+            user=user_moscow,
+            text="Запись",
+            language='ru',
+            word_count=1,
+            creator_timezone='',  # Пустой
+        )
+
+        # Должен использоваться user.timezone
+        assert entry.entry_date is not None
+
+    def test_entry_date_falls_back_to_utc_if_both_empty(self, user_moscow):
+        """Тест: если и creator_timezone и user.timezone пусты, используется UTC."""
+        user_moscow.timezone = ''
+        user_moscow.save()
+
+        entry = baker.make(
+            DiaryEntry,
+            user=user_moscow,
+            text="Запись",
+            language='ru',
+            word_count=1,
+            creator_timezone=''
+        )
+
+        # Должен работать без ошибок (фолбэк на UTC)
+        assert entry.entry_date is not None
+
+    def test_localized_created_at_uses_creator_timezone(self, user_moscow):
+        """Тест: localized_created_at использует creator_timezone."""
+        msk_tz = pytz.timezone('Europe/Moscow')
+        # 2023-10-26 20:00 UTC = 2023-10-26 23:00 MSK
+        entry_datetime_utc = datetime(2023, 10, 26, 20, 0, 0, tzinfo=pytz.utc)
+
+        entry = baker.make(
+            DiaryEntry,
+            user=user_moscow,
+            text="Запись",
+            language='ru',
+            word_count=1,
+            created_at=entry_datetime_utc,
+            creator_timezone='Europe/Moscow'
+        )
+
+        localized = entry.localized_created_at
+        assert '23:00' in localized  # 20:00 UTC + 3 часа = 23:00 MSK
+        assert '26.10.2023' in localized
+
+    def test_entry_date_different_tz_same_utc_time(self, user_moscow, user_la):
+        """
+        Тест: одна и та же UTC дата, но разные entry_date для разных TZ.
+        2023-10-26 22:00 UTC:
+        - Москва (+3): 27 октября 01:00
+        - LA (-7 PDT): 26 октября 15:00
+        """
+        utc_time = datetime(2023, 10, 26, 22, 0, 0, tzinfo=pytz.utc)
+
+        entry_msk = baker.make(
+            DiaryEntry,
+            user=user_moscow,
+            text="Москва",
+            language='ru',
+            word_count=1,
+            created_at=utc_time,
+            creator_timezone='Europe/Moscow'
+        )
+
+        entry_la = baker.make(
+            DiaryEntry,
+            user=user_la,
+            text="LA",
+            language='ru',
+            word_count=1,
+            created_at=utc_time,
+            creator_timezone='America/Los_Angeles'
+        )
+
+        # Москва: 27 октября 01:00
+        assert entry_msk.entry_date == date(2023, 10, 27)
+        # LA: 26 октября 15:00
+        assert entry_la.entry_date == date(2023, 10, 26)
+
+    def test_creator_timezone_not_changed_when_user_tz_changes(self, user_moscow):
+        """Тест: creator_timezone записи не меняется при смене TZ пользователя."""
+        entry = baker.make(
+            DiaryEntry,
+            user=user_moscow,
+            text="Запись",
+            language='ru',
+            word_count=1,
+            creator_timezone='Europe/Moscow'
+        )
+
+        original_tz = entry.creator_timezone
+
+        # Пользователь меняет TZ
+        user_moscow.timezone = 'America/New_York'
+        user_moscow.save()
+
+        # Перезагружаем запись из БД
+        entry.refresh_from_db()
+
+        # creator_timezone записи не изменился
+        assert entry.creator_timezone == original_tz
+        assert entry.creator_timezone == 'Europe/Moscow'
+
+
+@pytest.mark.django_db
 class TestModelMigrations:
     """
     Тесты для проверки корректности миграций.

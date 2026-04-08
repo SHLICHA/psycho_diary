@@ -9,7 +9,9 @@ from . import (
     CLARIFICATION_ANALYSIS_PROMPT,
     TASK_EFFECT_ANALYSIS_PROMPT,
     FULL_DAY_ANALYSIS_PROMPT,
+    FULL_DAY_ANALYSIS_LITE_PROMPT,
     INCREMENTAL_DAY_ANALYSIS_FIRST_ENTRY_PROMPT,
+    INCREMENTAL_DAY_ANALYSIS_LITE_PROMPT,
     WEEKLY_ANALYSIS_PROMPT,
     USER_PROFILE_ANALYSIS_PROMPT,
     NEXT_ENTRY_PROMPT_GENERATION,
@@ -49,12 +51,16 @@ PROMPTS['ru']['timezone_detection'] = TIMEZONE_DETECTION_PROMPT['ru']
 PROMPTS['en']['timezone_detection'] = TIMEZONE_DETECTION_PROMPT['en']
 PROMPTS['ru']['full_day_analysis'] = FULL_DAY_ANALYSIS_PROMPT['ru']
 PROMPTS['en']['full_day_analysis'] = FULL_DAY_ANALYSIS_PROMPT['en']
+PROMPTS['ru']['full_day_analysis_lite'] = FULL_DAY_ANALYSIS_LITE_PROMPT['ru']
+PROMPTS['en']['full_day_analysis_lite'] = FULL_DAY_ANALYSIS_LITE_PROMPT['en']
 PROMPTS['ru']['clarification_analysis'] = CLARIFICATION_ANALYSIS_PROMPT['ru']
 PROMPTS['en']['clarification_analysis'] = CLARIFICATION_ANALYSIS_PROMPT['en']
 PROMPTS['ru']['punctuation'] = PUNCTUATION_PROMPT['ru']
 PROMPTS['en']['punctuation'] = PUNCTUATION_PROMPT['en']
 PROMPTS['ru']['incremental_day_analysis'] = INCREMENTAL_DAY_ANALYSIS_PROMPT['ru']
 PROMPTS['en']['incremental_day_analysis'] = INCREMENTAL_DAY_ANALYSIS_PROMPT['en']
+PROMPTS['ru']['incremental_day_analysis_lite'] = INCREMENTAL_DAY_ANALYSIS_LITE_PROMPT['ru']
+PROMPTS['en']['incremental_day_analysis_lite'] = INCREMENTAL_DAY_ANALYSIS_LITE_PROMPT['en']
 PROMPTS['ru']['task_effect_analysis'] = TASK_EFFECT_ANALYSIS_PROMPT['ru']
 PROMPTS['en']['task_effect_analysis'] = TASK_EFFECT_ANALYSIS_PROMPT['en']
 

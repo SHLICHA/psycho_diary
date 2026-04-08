@@ -137,7 +137,7 @@ async def handle_therapy_message(message: Message, user, language: str, bot, sta
             awareness_level = profile_data.get('awareness_level', 1)
             entries_count = profile_data.get('entries_count', 0)
             token_balance = user.token_balance
-            current_streak, max_streak = await get_user_streaks(user)
+            current_streak, max_streak, has_entry_today = await get_user_streaks(user)
             streak_info = ""
             if current_streak > 0:
                 streak_info = get_message('current_streak_info', language, current_streak=current_streak)

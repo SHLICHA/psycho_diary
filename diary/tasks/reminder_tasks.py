@@ -23,64 +23,11 @@ from users.models import User
 from messages import get_message, get_button_text
 from prompts.get_prompt import get_prompt
 from core.settings import TELEGRAM_BOT_TOKEN
+from bot.utils.diary_utils import get_user_streaks
 
 logger = logging.getLogger(__name__)
 
 # === Вспомогательные асинхронные функции для работы с БД ===
-
-@sync_to_async
-def get_user_streaks(user):
-    """
-    Подсчитывает текущую и максимальную серию дней с записями для пользователя.
-    """
-    close_old_connections()
-    try:
-        import pytz
-        user_timezone_str = user.timezone if user.timezone else 'UTC'
-        user_tz = pytz.timezone(user_timezone_str)
-        now = datetime.now(user_tz)
-        today = now.date()
-        # Получаем все даты, когда пользователь делал записи
-        entry_dates = DiaryEntry.objects.filter(
-            user=user
-        ).order_by('-created_at').distinct().values_list('created_at', flat=True)
-        # Преобразуем в даты в часовом поясе пользователя
-        user_entry_dates = []
-        for dt in entry_dates:
-            if dt.tzinfo is None:
-                dt = pytz.utc.localize(dt)
-            user_entry_dates.append(dt.astimezone(user_tz).date())
-        # Убираем дубликаты и сортируем по убыванию
-        unique_dates = sorted(set(user_entry_dates), reverse=True)
-        if not unique_dates:
-            return 0, 0
-        # Подсчитываем текущую серию
-        current_streak = 0
-        current_date = today
-        for entry_date in unique_dates:
-            if entry_date == current_date:
-                current_streak += 1
-                current_date -= timedelta(days=1)
-            elif entry_date < current_date:
-                break
-        # Подсчитываем максимальную серию
-        max_streak = 0
-        current_run = 0
-        prev_date = None
-        for entry_date in sorted(set(user_entry_dates)):
-            if prev_date is None:
-                current_run = 1
-            elif entry_date == prev_date + timedelta(days=1):
-                current_run += 1
-            else:
-                max_streak = max(max_streak, current_run)
-                current_run = 1
-            prev_date = entry_date
-        max_streak = max(max_streak, current_run)
-        return current_streak, max_streak
-    except Exception as e:
-        logger.error(f"Ошибка при подсчете серий пользователя {user.telegram_id}: {e}")
-        return 0, 0
 
 @sync_to_async
 def get_active_users_with_notifications():
@@ -182,7 +129,7 @@ async def _send_entry_reminders_async():
                         continue
 
                     uncompleted_tasks_count = await get_uncompleted_tasks_count_for_user(user)
-                    current_streak, longest_streak = await get_user_streaks(user)
+                    current_streak, longest_streak, has_entry_today = await get_user_streaks(user)
                     yesterday = user_local_date - timedelta(days=1)
                     previous_day_text = ""
                     previous_day_analysis = {}

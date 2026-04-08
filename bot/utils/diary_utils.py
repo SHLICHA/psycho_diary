@@ -1,7 +1,7 @@
 import logging
 from typing import Dict, Any, List, Tuple, Optional
 from asgiref.sync import sync_to_async
-from datetime import date
+from datetime import date, datetime, timedelta
 import pytz
 from django.utils import timezone
 
@@ -15,15 +15,13 @@ async def get_user_streaks(user):
     """
     Подсчитывает текущую и максимальную серию дней с записями для пользователя.
     Учитывает ВСЕ записи, включая is_recovered_streak=True.
+
+    Возвращает кортеж:
+    - current_streak: дней подряд (включая сегодня, если есть запись)
+    - max_streak: максимальная серия за всё время
+    - has_entry_today: есть ли запись за сегодняшний день
     """
     try:
-        import pytz
-        from asgiref.sync import sync_to_async
-        from datetime import datetime, timedelta, date
-        import logging
-
-        logger = logging.getLogger(__name__)
-
         user_timezone_str = user.timezone if user.timezone else 'UTC'
         user_tz = pytz.timezone(user_timezone_str)
         now = datetime.now(user_tz)
@@ -51,15 +49,22 @@ async def get_user_streaks(user):
         sorted_dates = sorted(user_entry_dates)
 
         if not sorted_dates:
-            return 0, 0
+            return 0, 0, False
+
+        has_entry_today = today in user_entry_dates
+
+        # Считаем серию: если есть запись сегодня — начинаем с today, иначе с yesterday
         current_streak = 0
-        current_date = today
+        check_date = today if has_entry_today else today - timedelta(days=1)
+
         for entry_date in sorted(user_entry_dates, reverse=True):
-            if entry_date == current_date:
+            if entry_date == check_date:
                 current_streak += 1
-                current_date -= timedelta(days=1)
-            elif entry_date < current_date:
+                check_date -= timedelta(days=1)
+            elif entry_date < check_date:
                 break
+
+        # Подсчёт максимальной серии
         max_streak = 0
         current_run = 0
         prev_date = None
@@ -73,10 +78,11 @@ async def get_user_streaks(user):
                 current_run = 1
             prev_date = entry_date
         max_streak = max(max_streak, current_run)
-        return current_streak, max_streak
+
+        return current_streak, max_streak, has_entry_today
     except Exception as e:
         logger.error(f"Ошибка при подсчете серий пользователя {user.telegram_id}: {e}")
-        return 0, 0
+        return 0, 0, False
 
 async def check_and_award_streak_bonus(user: User) -> Dict[str, Any]:
     """
@@ -85,7 +91,7 @@ async def check_and_award_streak_bonus(user: User) -> Dict[str, Any]:
     """
     logger.debug(f"[Streak Bonus] Проверка наград за серию для пользователя {user.telegram_id}")
     try:
-        current_streak, max_streak = await get_user_streaks(user)
+        current_streak, max_streak, has_entry_today = await get_user_streaks(user)
         logger.debug(f"[Streak Bonus] Текущая серия для {user.telegram_id}: {current_streak}, Максимальная: {max_streak}")
     except Exception as e:
         logger.error(f"[Streak Bonus] Ошибка при получении серии для пользователя {user.telegram_id}: {e}")
@@ -326,6 +332,7 @@ async def attempt_restore_streak(user: User, target_date: date, cost_tokens: int
                 language=user.language,
                 word_count=5, # Дефолтное количество слов
                 is_recovered_streak=True, # Устанавливаем флаг
+                creator_timezone=user.timezone or 'UTC',
                 # Остальные поля остаются по умолчанию
             )
             # Теперь обновляем created_at на нужное значение

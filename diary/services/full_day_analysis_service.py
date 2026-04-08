@@ -59,16 +59,38 @@ class FullDayAnalysisService:
                 }
             context = await self._gather_context(user, target_date, combined_entry)
             logger.debug(f"[FullDayAnalysisService] Контекст собран для {user.telegram_id} за {target_date}")
-            prompt = get_prompt(
-                key='full_day_analysis',
-                language=user.language,
-                user_profile=context['user_profile'],
-                all_entries_combined_text=context['all_entries_combined_text'],
-                entry_analyses=context['entry_analyses'],
-                daily_mood_scores=context['daily_mood_scores'],
-                completed_tasks=context['completed_tasks'],
-            )
-            logger.debug(f"[FullDayAnalysisService] Промпт сформирован для {user.telegram_id} за {target_date} (длина: {len(prompt)} символов)")
+
+            # Проверяем подписку для выбора промпта
+            is_premium_active = await sync_to_async(user.is_premium_active)()
+
+            if is_premium_active:
+                prompt = get_prompt(
+                    key='full_day_analysis',
+                    language=user.language,
+                    user_profile=context['user_profile'],
+                    all_entries_combined_text=context['all_entries_combined_text'],
+                    entry_analyses=context['entry_analyses'],
+                    daily_mood_scores=context['daily_mood_scores'],
+                    completed_tasks=context['completed_tasks'],
+                )
+                logger.debug(f"[FullDayAnalysisService] Используется ПОЛНЫЙ промпт (premium) для {user.telegram_id} за {target_date} (длина: {len(prompt)} символов)")
+            else:
+                # LITE: сокращённый профиль, но полный entry_analyses
+                lite_profile = {
+                    'first_name': context['user_profile'].get('first_name', ''),
+                    'life_facts': context['user_profile'].get('life_facts', []),
+                    'strengths': context['user_profile'].get('strengths', []),
+                    'triggers': context['user_profile'].get('triggers', []),
+                }
+                prompt = get_prompt(
+                    key='full_day_analysis_lite',
+                    language=user.language,
+                    user_profile=lite_profile,
+                    all_entries_combined_text=context['all_entries_combined_text'],
+                    entry_analyses=context['entry_analyses'],
+                    daily_mood_scores=context['daily_mood_scores'],
+                )
+                logger.debug(f"[FullDayAnalysisService] Используется LITE промпт (без подписки) для {user.telegram_id} за {target_date} (длина: {len(prompt)} символов)")
             api_result = await deepseek_api_service.send_prompt_and_parse(prompt, language=user.language)
             logger.debug(f"[FullDayAnalysisService] Ответ API от DeepSeek: success={api_result.get('success')}")
             if not api_result.get('success'):

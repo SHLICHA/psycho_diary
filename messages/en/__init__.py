@@ -4,7 +4,7 @@ from .en_tasks import TASKS_MESSAGES_EN
 from .en_entry import ENTRY_MESSAGES_EN
 from .en_main import MAIN_MESSAGES_EN
 from .en_archive import ARCHIVE_MESSAGES_EN
-from .en_progresss import PROGRESS_MESSAGES_EN
+from .en_progress import PROGRESS_MESSAGES_EN
 from .en_onboarding import ONBOARDING_MESSAGES_EN
 from .en_profile import PROFILE_MESSAGES_EN
 

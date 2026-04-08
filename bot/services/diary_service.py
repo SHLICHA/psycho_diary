@@ -61,7 +61,8 @@ class DiaryService:
                         language=language,
                         word_count=len(text.split()),
                         is_processed=False,
-                        created_at=entry_datetime or datetime.now()
+                        created_at=entry_datetime or datetime.now(),
+                        creator_timezone=user.timezone or 'UTC'
                     )
             diary_entry = await _create_entry()
             logger.debug(f"Текстовая запись создана: Entry ID {diary_entry.id}")
@@ -540,10 +541,14 @@ class DiaryService:
         # 3. Подготовка данных и вызов ИИ
         ai_state_data = combined_entry.ai_state_data if combined_entry else ""
         base_user_profile = await user.aget_profile_data()
+
+        # Проверяем активную подписку для выбора промпта
+        is_premium_active = await sync_to_async(user.is_premium_active)()
+
         extended_user_context = {
             "first_name": base_user_profile.get('first_name', 'Пользователь'),
             "awareness_level": base_user_profile.get('awareness_level', 1),
-            "is_premium": base_user_profile.get('is_premium', False),
+            "is_premium": is_premium_active,
             "entries_count": base_user_profile.get('entries_count', 0),
             "personality_traits": user.personality_traits,
             "life_facts": user.life_facts,
@@ -569,25 +574,44 @@ class DiaryService:
             logger.error(f"[process_new_entry_logic] Ошибка при определении локального времени для записи {diary_entry.id}: {e}")
             new_entry_creation_time_local = diary_entry.created_at.strftime('%d.%m.%Y %H:%M UTC')
 
-        prompt = get_prompt(
-            key='incremental_day_analysis',
-            language=language,
-            all_entries_combined=all_entries_text,
-            new_entry_text=entry_text,
-            new_entry_creation_time_local=new_entry_creation_time_local,
-            ai_state_data=ai_state_data,
-            first_name=extended_user_context["first_name"],
-            awareness_level=extended_user_context["awareness_level"],
-            is_premium=extended_user_context["is_premium"],
-            user_personality_traits=extended_user_context["personality_traits"],
-            user_life_facts=extended_user_context["life_facts"],
-            user_hobbies=extended_user_context["hobbies"],
-            user_core_values=extended_user_context["core_values"],
-            user_triggers=extended_user_context["triggers"],
-            user_strengths=extended_user_context["strengths"],
-            user_areas_for_growth=extended_user_context["areas_for_growth"],
-            entries_count=extended_user_context["entries_count"],
-        )
+        # Выбираем промпт: полный для premium, сокращённый для обычных
+        if is_premium_active:
+            prompt_key = 'incremental_day_analysis'
+            prompt = get_prompt(
+                key=prompt_key,
+                language=language,
+                all_entries_combined=all_entries_text,
+                new_entry_text=entry_text,
+                new_entry_creation_time_local=new_entry_creation_time_local,
+                ai_state_data=ai_state_data,
+                first_name=extended_user_context["first_name"],
+                awareness_level=extended_user_context["awareness_level"],
+                is_premium=extended_user_context["is_premium"],
+                user_personality_traits=extended_user_context["personality_traits"],
+                user_life_facts=extended_user_context["life_facts"],
+                user_hobbies=extended_user_context["hobbies"],
+                user_core_values=extended_user_context["core_values"],
+                user_triggers=extended_user_context["triggers"],
+                user_strengths=extended_user_context["strengths"],
+                user_areas_for_growth=extended_user_context["areas_for_growth"],
+                entries_count=extended_user_context["entries_count"],
+            )
+            logger.debug(f"[process_new_entry_logic] Используется ПОЛНЫЙ промпт (premium) для пользователя {user.telegram_id}")
+        else:
+            prompt_key = 'incremental_day_analysis_lite'
+            prompt = get_prompt(
+                key=prompt_key,
+                language=language,
+                all_entries_combined=all_entries_text,
+                new_entry_text=entry_text,
+                new_entry_creation_time_local=new_entry_creation_time_local,
+                ai_state_data=ai_state_data,
+                first_name=extended_user_context["first_name"],
+                user_life_facts=extended_user_context["life_facts"],
+                user_strengths=extended_user_context["strengths"],
+                user_triggers=extended_user_context["triggers"],
+            )
+            logger.debug(f"[process_new_entry_logic] Используется LITE промпт (без подписки) для пользователя {user.telegram_id}")
 
         api_start_time = time.time()
         analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)

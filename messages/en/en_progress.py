@@ -64,6 +64,27 @@ Mood Trend: {mood_trend_display}
         'btn_confirm': '✅ Confirm',
         'morning_motivation_restore_single_day': '📅 <b>Day {date} missed</b>!\nKeep your streak going! Restore it in the "Progress" section.',
         'morning_motivation_restore_two_days': '📅 <b>Days {dates} missed</b>!\nKeep your streak going! Restore them in the "Progress" section.',
-   
+        # --- Transaction history ---
+        'btn_view_transaction_history': '💳 Transaction History',
+        'transaction_history_title': '💳 <b>Recent Transactions:</b>',
+        'no_transaction_history': '📋 You have no transactions yet.',
+        'transaction_item_token': '{action} {amount} tokens ({type})',
+        'transaction_item_payment': '💳 Purchase of {amount_rub}₽ ({type}, status: {status})',
+        'transaction_type_task_completion': 'Task Completion',
+        'transaction_type_purchase': 'Purchase',
+        'transaction_type_bonus': 'Bonus',
+        'transaction_type_refund': 'Refund',
+        'transaction_type_feature_usage': 'Feature Usage',
+        'payment_type_subscription_month': 'Subscription (month)',
+        'payment_type_subscription_year': 'Subscription (year)',
+        'payment_type_tokens_custom': 'Tokens (custom)',
+        'payment_type_tokens_10': 'Tokens (10)',
+        'payment_type_tokens_100': 'Tokens (100)',
+        'payment_type_tokens_200': 'Tokens (200)',
+        'payment_type_tokens_500': 'Tokens (500)',
+        'payment_status_pending': 'Pending',
+        'payment_status_succeeded': 'Succeeded',
+        'payment_status_canceled': 'Canceled',
+        'payment_status_failed': 'Failed',
     }
 }

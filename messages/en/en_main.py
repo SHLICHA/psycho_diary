@@ -9,11 +9,8 @@ I will be your digital psychologist who will remember your features and understa
 Let's start?''',
         
         'welcome_back': '👋 Welcome back, {username}! Good to see you again.',
-        'welcome_back_reactivated': 'Welcome back, {first_name}! 🎉\n\nWe are glad you are back! Keep working on yourself — it’s an important and valuable journey. You are doing great!',
-    
-        # Для обработки удаления
-        'entry_delete_cancelled': "Deletion cancelled.",
-        
+        'welcome_back_reactivated': "Welcome back, {first_name}! 🎉\n\nWe are glad you are back! Keep working on yourself — it's an important and valuable journey. You are doing great!",
+
         # === Menu and navigation ===
         'main_menu': '''🧠 <b>Your psychological diary</b>
 
@@ -55,6 +52,7 @@ We will review it shortly.''',
 Would you like to attach a screenshot for better understanding?''',
 'support_response': '''📩 Support response to your request #{feedback_id}:\n\n{message_text}''',
         'current_streak_info': '''🔥 <b>Current streak:</b> {current_streak} days in a row!''',
+        'streak_at_risk': '''🔥 <b>Streak:</b> {current_streak} days. But it will break if you don't write today!''',
         'max_streak_info': '''🏆 <b>Best streak:</b> {max_streak} days!''',
         'no_current_streak': '''📅 <b>You haven't written today yet.</b> Start now!''',
         'keep_going_1_day': ''' Great start! Keep going!''',

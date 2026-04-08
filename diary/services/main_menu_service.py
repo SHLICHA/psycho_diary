@@ -67,23 +67,29 @@ class MainMenuService:
                  premium_info = get_message('premium_expired', language)
 
             # --- Получение информации о серии (streak) ---
-            current_streak, max_streak = await get_user_streaks(user)
+            current_streak, max_streak, has_entry_today = await get_user_streaks(user)
             dates_to_restore = await get_recoverable_gap_info(user)
             restore_available = dates_to_restore is not None
 
             # --- Формирование информации о стриках для передачи в шаблон ---
-            # Как в старом коде: формируем streak_info и max_streak_info отдельно
             streak_info_text = ""
-            if current_streak > 0:
-                streak_info_text = get_message('current_streak_info', language, current_streak=current_streak)
-                if current_streak == 1:
-                     streak_info_text += " " + get_message('keep_going_1_day', language)
-                elif 2 <= current_streak <= 4:
-                     streak_info_text += " " + get_message('keep_going_few_days', language)
-                elif current_streak >= 5:
-                     streak_info_text += " " + get_message('keep_going_streak', language)
+            if has_entry_today:
+                # Есть запись сегодня — показываем обычную серию
+                if current_streak > 0:
+                    streak_info_text = get_message('current_streak_info', language, current_streak=current_streak)
+                    if current_streak == 1:
+                         streak_info_text += " " + get_message('keep_going_1_day', language)
+                    elif 2 <= current_streak <= 4:
+                         streak_info_text += " " + get_message('keep_going_few_days', language)
+                    elif current_streak >= 5:
+                         streak_info_text += " " + get_message('keep_going_streak', language)
             else:
-                streak_info_text = get_message('no_current_streak', language)
+                # Нет записи сегодня
+                if current_streak > 0:
+                    # Серия есть, но оборвётся если не написать
+                    streak_info_text = get_message('streak_at_risk', language, current_streak=current_streak)
+                else:
+                    streak_info_text = get_message('no_current_streak', language)
 
             max_streak_info_text = ""
             if max_streak > 0:

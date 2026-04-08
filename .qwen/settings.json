@@ -4,7 +4,8 @@
       "Bash(python *)",
       "Bash(python3 *)",
       "Bash(source *)",
-      "Bash(timeout *)"
+      "Bash(timeout *)",
+      "Bash(find *)"
     ]
   },
   "$version": 3

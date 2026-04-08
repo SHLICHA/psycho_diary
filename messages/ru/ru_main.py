@@ -52,6 +52,7 @@ MAIN_MESSAGES_RU = {
 Хотите приложить скриншот для лучшего понимания?''',
 'support_response': '''📩 Ответ от поддержки на ваше обращение #{feedback_id}:\n\n{message_text}''',
         'current_streak_info': '''🔥 <b>Текущая серия:</b> {current_streak} дней подряд!''',
+        'streak_at_risk': '''🔥 <b>Серия:</b> {current_streak} дней. Но она оборвётся, если не сделать запись сегодня!''',
         'max_streak_info': '''🏆 <b>Лучшая серия:</b> {max_streak} дней!''',
         'no_current_streak': '''📅 <b>Сегодня ты ещё не писал(а)</b> в дневник. Начни сейчас!''',
         'keep_going_1_day': ''' Отличное начало! Продолжай!''',

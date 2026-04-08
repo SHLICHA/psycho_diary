@@ -30,8 +30,10 @@ ENTRY_MESSAGES_EN = {
         'validation_error_voice': "Error validating voice message. Please try again.",
         'validation_error_message': "Error validating message. Please try again.",
         'confirm_delete_entire_day_prompt': "❓ Are you sure you want to delete ALL entries for {date}?",
+        'confirm_delete_entry_prompt': "❓ Are you sure you want to delete this entry?",
 
         'day_deleted_success': "🗑 Day successfully deleted.",
+        'entry_delete_cancelled': "Deletion cancelled.",
         # Кнопки
         'btn_delete_entry': '🗑 Delete',
         'btn_analyze_again': '🔄 Re-analyze',

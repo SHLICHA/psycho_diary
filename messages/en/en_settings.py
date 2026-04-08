@@ -22,6 +22,7 @@ You are still using the default timezone (UTC).
 For more accurate bot operation, we recommend setting your local timezone in the settings.''',
 
         'settings_analysis_time': '⏰ Analysis time: {time}',
+        'ask_analysis_time': '⏰ <b>Select automatic analysis time</b>\nCurrent time: {current_time}\n\nAnalysis will run every day at the selected time in your timezone.',
         'ask_timezone_selection': '🌍 <b>Select your time zone</b>\n\nCurrent time zone: {current_timezone}\n\nSetting the correct time zone is important for accurately displaying entry times, correct analytics operation, and timely delivery of notifications.',
         'analysis_time_changed': '✅ Automatic analysis time set to {time}',
         'profile_menu': '''👤 <b>Your Profile</b>
