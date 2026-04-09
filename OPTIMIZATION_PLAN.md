@@ -404,27 +404,27 @@ async def cleanup_profile_fields(self, user: User):
     """Удаляет устаревшие элементы из профиля."""
     fields_to_clean = ['triggers', 'life_facts', 'hobbies', ...]
     now = timezone.now()
-    
+
     for field_name in fields_to_clean:
         items = getattr(user, field_name, [])
         cleaned_items = []
-        
+
         for item in items:
             # Конвертируем старый формат в новый
             if isinstance(item, str):
                 item = {"value": item, "added_at": now, "last_seen": now, "frequency": 1}
-            
+
             days_since_seen = (now - item['last_seen']).days
-            
+
             # Оставляем если:
             # - встречался недавно (< 30 дней) ИЛИ
             # - частый элемент (frequency > 3) И старше 60 дней
             if days_since_seen < 30 or \
                (item.get('frequency', 1) > 3 and days_since_seen < 60):
                 cleaned_items.append(item)
-        
+
         setattr(user, field_name, cleaned_items)
-    
+
     await user.asave()
 ```
 
@@ -462,62 +462,31 @@ async def cleanup_profile_fields(self, user: User):
 - [ ] 0.3.8. Написать тесты
 - [ ] 0.3.9. Мониторить результаты
 
-**Приоритет:** 🔴 ВЫСОКИЙ  
-**Сложность:** Высокая  
-**Риск:** Средний (миграция данных)  
+**Приоритет:** 🔴 ВЫСОКИЙ
+**Сложность:** Высокая
+**Риск:** Средний (миграция данных)
 **Время на выполнение:** 3-4 дня
 
 ---
 
-#### 0.4. Оптимизация затрат на AI (проблема #4)
-
-**Файлы:**
-- `bot/services/deepseek_api.py`
-- `diary/services/*.py` (все сервисы с AI)
-- `prompts/get_prompt.py`
+#### 0.4. Оптимизация затрат на AI (проблема #4) — ЧАСТИЧНО РЕШЕНА
 
 **Решения:**
 
-**1. Мониторинг затрат:**
-```python
-# Добавить логирование использования токенов
-logger.info(f"[AI Usage] User {user.id}, Action: weekly_analysis, "
-            f"Tokens: {api_usage['total_tokens']}, "
-            f"Cost: ${api_usage['total_tokens'] * 0.000001:.4f}")
-```
+**✅ Выполнено (2026-04-09):**
+- Создан `CompressedProfileService` — сжатие профиля без AI (heuristic)
+- Создан `DayContextService` — сжатие контекста дня без AI (перепаковка)
+- Интегрировано в `user_profile_analysis` → авто-генерация `compressed_psych_profile`
+- Интегрировано в `full_day_analysis` → авто-генерация `day_context_summary`
+- Создан бэкфилл-скрипт для существующих данных
+- 91 пользователь уже имеет `compressed_psych_profile`
+- 46 CombinedDiaryEntry имеют `day_context_summary`
+- Добавлено в Django Admin
 
-**2. Создать AI Usage Tracker:**
-```python
-# core/ai_usage_tracker.py
-class AIUsageTracker:
-    """Отслеживает и ограничивает использование AI."""
-    
-    async def track_usage(self, user: User, action: str, tokens: int, cost: float):
-        # Сохранять в БД или Redis
-        # Проверять лимиты
-        # Предупреждать при превышении
-        
-    async def get_user_usage(self, user: User, period: str) -> dict:
-        # Вернуть статистику использования
-```
-
-**3. Оптимизировать промпты:**
-- Убрать дублирующиеся инструкции
-- Сократить system messages
-- Уменьшить max_tokens где возможно
-
-**4. Кэширование:**
-- Кэшировать похожие анализы
-- Использовать Redis для хранения кэша
-
-**Задачи:**
-- [x] 0.4.1. Создать `core/ai_usage_tracker.py` ✅ ЗАМЕНЕНО: Создан LITE-промпт
-- [x] 0.4.2. Добавить логирование во все AI вызовы ✅ Логирование выбора промпта добавлено
-- [ ] 0.4.3. Создать дашборд для мониторинга (admin)
-- [ ] 0.4.4. Оптимизировать промпты (уменьшить размер) ✅ ЧАСТИЧНО: LITE-промпт для обычных пользователей
-- [ ] 0.4.5. Добавить кэширование для похожих запросов
-- [ ] 0.4.6. Уменьшить max_tokens где возможно
-- [ ] 0.4.7. Протестировать и сравнить качество
+**⏳ Ожидает (Этапы 7-11):**
+- LITE v2 промпты (используют сжатый контекст вместо полного)
+- Feature flag для переключения
+- Мониторинг экономии токенов
 
 **Приоритет:** 🟡 СРЕДНИЙ  
 **Сложность:** Средняя  
