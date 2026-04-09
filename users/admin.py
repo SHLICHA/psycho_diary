@@ -144,6 +144,7 @@ class UserAdmin(BaseUserAdmin):
         (('Психологический Профиль'), {
             'fields': (
                 'awareness_level',
+                'compressed_psych_profile',
                 ('personality_description',), # Отдельная строка для текстового описания
                 'personality_traits',
                 'life_facts',

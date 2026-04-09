@@ -512,9 +512,10 @@ class CombinedDiaryEntryAdmin(admin.ModelAdmin):
         'user__username', 'user__telegram_id', 'date'
     )
     readonly_fields = (
-        'created_at', 'updated_at', 'user_link', 'text_full', 
+        'created_at', 'updated_at', 'user_link', 'text_full',
         'ai_state_data_display', 'analysis_result_display',
         'daily_mood_scores_display', 'average_mood_score_display',
+        'day_context_summary_display',
         'daily_analysis_link',
     )
     
@@ -527,6 +528,9 @@ class CombinedDiaryEntryAdmin(admin.ModelAdmin):
         }),
         (_('Оценки настроения'), {
             'fields': ('daily_mood_scores_display', 'average_mood_score_display')
+        }),
+        (_('Контекст дня'), {
+            'fields': ('day_context_summary_display',)
         }),
         (_('Связи'), {
             'fields': ('daily_analysis_link',)
@@ -590,6 +594,19 @@ class CombinedDiaryEntryAdmin(admin.ModelAdmin):
         """Отображение средней оценки настроения за день."""
         return f"{obj.average_mood_score:.2f}" if obj.average_mood_score else "-"
     average_mood_score_display.short_description = _('Средняя оценка настроения за день')
+
+    def day_context_summary_display(self, obj):
+        """Отображение сжатого контекста дня."""
+        if obj.day_context_summary:
+            import json
+            try:
+                summary_json = json.dumps(obj.day_context_summary, indent=2, ensure_ascii=False)
+                return format_html('<pre>{}</pre>', summary_json)
+            except Exception as e:
+                logger.error(f"Ошибка при форматировании day_context_summary: {e}")
+                return str(obj.day_context_summary)
+        return '-'
+    day_context_summary_display.short_description = _('Контекст дня (сжатый)')
 
     def daily_analysis_link(self, obj):
         """Ссылка на глубокий анализ дня."""
