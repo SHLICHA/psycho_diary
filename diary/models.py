@@ -505,6 +505,16 @@ class CombinedDiaryEntry(models.Model):
         verbose_name=_("Средняя оценка настроения за день"),
         help_text=_("Среднее арифметическое всех mood_score записей за день.")
     )
+    day_context_summary = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name=_("Контекст дня (сжатый)"),
+        help_text=(
+            "Сжатое представление контекста дня для LITE-анализов. "
+            "Генерируется при анализе дня. Содержит: emotional_arc, key_topics, "
+            "main_conflict, dominant_pattern, trend."
+        )
+    )
 
     class Meta:
         verbose_name = _("Объединенная запись дня")

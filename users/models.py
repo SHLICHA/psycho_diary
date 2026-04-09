@@ -81,6 +81,16 @@ class User(AbstractUser):
     skills = EncryptedJSONField(default=list, blank=True, verbose_name="Навыки")
     aspirations = EncryptedJSONField(default=list, blank=True, verbose_name="Стремления")
     personality_description = EncryptedTextField(blank=True, default="", verbose_name="Текстовое описание личности")
+    compressed_psych_profile = EncryptedJSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Сжатый психологический профиль",
+        help_text=(
+            "Сжатое представление профиля для LITE-анализов. "
+            "Генерируется weekly analysis. Содержит: psych_summary, core_patterns, "
+            "emotional_style, main_triggers, coping_style, current_focus."
+        )
+    )
     date_of_birth = models.DateField(null=True, blank=True, verbose_name="Дата рождения")
     email = EncryptedEmailField(blank=True, verbose_name="Email")
     token_balance = models.PositiveIntegerField(default=0, verbose_name="Баланс токенов")
