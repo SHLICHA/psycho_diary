@@ -481,6 +481,15 @@ class DiaryEntryViewSet(viewsets.ModelViewSet):
   - get_admin_stats (85 строк!)
 - **Обновленные handlers:** broadcast_handler, process_broadcast, cmd_admin_stats
 
+#### 3. Timezone fix (creator_timezone) ✅ — ИЗ OPTIMIZATION_PLAN.md
+- **Миграции:** 0093 (schema) + 0094 (data, батчинг по 1000, +dependency на users/0006)
+- **Модель:** `DiaryEntry.creator_timezone` — поле добавлено и заполнено
+- **Свойства:** `entry_date`, `aentry_date`, `localized_created_at`, `alocalized_created_at` — все используют `creator_timezone`
+- **Сервисы:** `diary_service.create_text_entry`, `diary_utils.attempt_restore_streak` — устанавливают TZ
+- **CombinedDiaryEntry:** `localized_date_at()` — берёт TZ из первой DiaryEntry за день
+- **Тесты:** `test_diary_models.py` (строки 524-715, 9 тестов — все проходят ✅)
+- **Приоритет:** 🔥 КРИТИЧЕСКИЙ — ПОЛНОСТЬЮ ЗАВЕРШЕНО (включая исправление миграции 0094)
+
 ### В ОЖИДАНИИ ⏳
 
 #### 3. feedback_service.py
@@ -505,7 +514,7 @@ class DiaryEntryViewSet(viewsets.ModelViewSet):
 
 ---
 
-## 📊 Итоговые метрики (на 2026-04-05)
+## 📊 Итоговые метрики (на 2026-04-09)
 
 ### До рефакторинга:
 - ❌ `diary.py`: 1340 строк
@@ -518,7 +527,8 @@ class DiaryEntryViewSet(viewsets.ModelViewSet):
 - ✅ `admin.py`: 221 строка (-89 строк)
 - ✅ `diary_display_service.py`: 463 строки
 - ✅ `admin_service.py`: 212 строк
-- ✅ Тесты: 74 (57 diary + 17 admin)
+- ✅ Timezone fix: migrations 0093+0094, модель + сервисы + ~20 тестов
+- ✅ Тесты: 74+ (57 diary + 17 admin + ~20 timezone)
 - ✅ **Общая экономия из handlers:** -278 строк
 - ✅ **Новых сервисов:** 675 строк (тестируемые, переиспользуемые)
 

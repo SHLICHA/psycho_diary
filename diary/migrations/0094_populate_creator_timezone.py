@@ -87,6 +87,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('diary', '0093_diaryentry_creator_timezone'),
+        ('users', '0006_user_date_of_birth_alter_user_email_citytimezone'),
     ]
 
     operations = [

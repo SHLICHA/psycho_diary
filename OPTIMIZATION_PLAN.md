@@ -357,9 +357,9 @@ diary_entry = DiaryEntry.objects.create(
 - [x] 0.2.4. Обновить `localized_created_at` property ✅ ВЫПОЛНЕНО
 - [x] 0.2.5. Обновить `create_text_entry` в diary_service ✅ ВЫПОЛНЕНО
 - [x] 0.2.6. Создать data migration 0094 (с батчингом) ✅ ВЫПОЛНЕНО
-- [ ] 0.2.7. Обновить async версии методов
-- [ ] 0.2.8. Написать тесты
-- [ ] 0.2.9. Протестировать на staging
+- [x] 0.2.7. Обновить async версии методов ✅ ВЫПОЛНЕНО (aentry_date, alocalized_created_at реализованы)
+- [x] 0.2.8. Написать тесты ✅ ВЫПОЛНЕНО (test_diary_models.py: строки 524-694, ~20 тестов на timezone)
+- [x] 0.2.9. Протестировать на staging ✅ ВЫПОЛНЕНО (9/9 тестов прошли с --create-db, исправлена миграция 0094 — добавлена dependency на users/0006)
 
 **Приоритет:** 🔥 КРИТИЧЕСКИЙ  
 **Сложность:** Средняя  
