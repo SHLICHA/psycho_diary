@@ -5,7 +5,13 @@
       "Bash(python3 *)",
       "Bash(source *)",
       "Bash(timeout *)",
-      "Bash(find *)"
+      "Bash(find *)",
+      "Bash(./venv/bin/python *)",
+      "Bash(grep *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(mkdir *)",
+      "Bash(touch *)"
     ]
   },
   "$version": 3
