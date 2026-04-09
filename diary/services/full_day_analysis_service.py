@@ -128,6 +128,22 @@ class FullDayAnalysisService:
             combined_entry.is_analyzed = True
             await combined_entry.asave(update_fields=['is_analyzed'])
             logger.debug(f"[FullDayAnalysisService] CombinedDiaryEntry (ID: {combined_entry.id}) помечен как проанализированный.")
+
+            # Генерируем day_context_summary из DailyAnalysis
+            try:
+                from diary.services.day_context_service import day_context_service
+                day_context = day_context_service.generate_from_daily_analysis(daily_analysis)
+                if day_context:
+                    combined_entry.day_context_summary = day_context
+                    await combined_entry.asave(update_fields=['day_context_summary'])
+                    logger.debug(
+                        f"[FullDayAnalysisService] day_context_summary сохранён для CombinedDiaryEntry ID {combined_entry.id}"
+                    )
+            except Exception as ctx_error:
+                logger.warning(
+                    f"[FullDayAnalysisService] Ошибка генерации day_context_summary: {ctx_error}"
+                )
+
             try:
                 mock_entry = DiaryEntry(
                     user=user,

@@ -348,6 +348,23 @@ class UserProfileAnalysisService:
                     logger.debug(f"[SYNC] Изменения профиля пользователя {user.telegram_id} сохранены.")
                 
                 await _save_updates_sync()
+
+                # После обновления профиля — генерируем compressed_psych_profile
+                try:
+                    from diary.services.compressed_profile_service import compressed_profile_service
+                    compressed = compressed_profile_service.generate_for_user(user)
+                    if compressed:
+                        user.compressed_psych_profile = compressed
+                        user.save(update_fields=['compressed_psych_profile'])
+                        logger.debug(
+                            f"[UserProfileAnalysisService] compressed_psych_profile сгенерирован "
+                            f"для пользователя {user.telegram_id}"
+                        )
+                except Exception as compressed_error:
+                    logger.warning(
+                        f"[UserProfileAnalysisService] Ошибка генерации compressed_psych_profile: {compressed_error}"
+                    )
+
                 return True
             else:
                 logger.debug(f"[UserProfileAnalysisService] Нет изменений для сохранения в профиле пользователя {user.telegram_id}.")
