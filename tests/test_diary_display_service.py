@@ -379,7 +379,7 @@ class TestDiaryDisplayService:
     async def test_build_entry_result_keyboard(self, user, diary_entry, analysis):
         """Тест: создание полной клавиатуры для результата анализа."""
         keyboard = await diary_display_service.build_entry_result_keyboard(
-            diary_entry, analysis, 'ru'
+            diary_entry, analysis, user, 'ru'
         )
 
         assert keyboard is not None

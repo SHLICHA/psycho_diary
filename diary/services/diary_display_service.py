@@ -406,6 +406,7 @@ class DiaryDisplayService:
         self,
         entry: DiaryEntry,
         analysis: PsychoAnalysis,
+        user: User,
         language: str,
         back_callback: str = "main_menu"
     ) -> InlineKeyboardMarkup:
@@ -416,6 +417,7 @@ class DiaryDisplayService:
         Args:
             entry: Запись.
             analysis: Анализ.
+            user: Пользователь (передаётся явно, чтобы избежать entry.user в async контексте).
             language: Язык.
             back_callback: Callback для кнопки 'Назад'.
 
@@ -425,7 +427,7 @@ class DiaryDisplayService:
         reply_markup = InlineKeyboardMarkup(inline_keyboard=[])
 
         # Кнопки рейтинга
-        has_rating, rating_buttons = await self.build_rating_keyboard(analysis, entry.user, language)
+        has_rating, rating_buttons = await self.build_rating_keyboard(analysis, user, language)
         if not has_rating and rating_buttons:
             reply_markup.inline_keyboard.extend(rating_buttons)
 
@@ -452,6 +454,7 @@ diary_display_service = DiaryDisplayService()
 async def build_entry_result_keyboard_from_service(
     entry: DiaryEntry,
     analysis: PsychoAnalysis,
+    user: User,
     language: str,
     back_callback: str = "main_menu"
 ) -> InlineKeyboardMarkup:
@@ -459,5 +462,5 @@ async def build_entry_result_keyboard_from_service(
     Удобная функция для создания клавиатуры.
     """
     return await diary_display_service.build_entry_result_keyboard(
-        entry, analysis, language, back_callback
+        entry, analysis, user, language, back_callback
     )

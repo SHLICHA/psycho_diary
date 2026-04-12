@@ -8,13 +8,11 @@ from datetime import datetime, date, time, timedelta
 import pytz
 from celery import shared_task
 from django.utils import timezone
-from aiogram import Bot
 from asgiref.sync import async_to_sync, sync_to_async
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.enums import ParseMode
 from django.db import close_old_connections
 
-from bot.bot_instance import bot as global_bot
 from bot.utils.bot_factory import create_bot_for_task
 from users.models import User, TokenTransaction
 from diary.models import DailyAnalysis
@@ -152,35 +150,42 @@ def perform_scheduled_daily_analysis(self, user_id: int, target_date_iso: str):
             if current_balance < cost:
                 logger.info(f"Недостаточно токенов для автоматического анализа дня у пользователя {user_id}. Баланс: {current_balance}, Стоимость: {cost}")
                 if user.notifications_enabled:
-                    if global_bot:
-                        from messages import get_message
-                        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-                        from aiogram.enums import ParseMode
-                        language = user.language or 'ru'
-                        message_text = get_message('insufficient_tokens_for_auto_analysis_and_disabled', language)
-                        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                            [
-                                InlineKeyboardButton(
-                                    text=get_message('btn_main_menu', language),
-                                    callback_data="main_menu"
-                                ),
-                                InlineKeyboardButton(
-                                    text=get_message('btn_recharge_tokens', language),
-                                    callback_data="recharge_tokens"
-                                )
-                            ]
-                        ])
+                    language = user.language or 'ru'
+                    message_text = get_message('insufficient_tokens_for_auto_analysis_and_disabled', language)
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [
+                            InlineKeyboardButton(
+                                text=get_message('btn_main_menu', language),
+                                callback_data="main_menu"
+                            ),
+                            InlineKeyboardButton(
+                                text=get_message('btn_recharge_tokens', language),
+                                callback_data="recharge_tokens"
+                            )
+                        ]
+                    ])
+
+                    async def _send_insufficient_tokens():
+                        bot = None
                         try:
-                            asyncio.run(
-                                global_bot.send_message(
-                                    chat_id=user.telegram_id,
-                                    text=message_text,
-                                    reply_markup=keyboard,
-                                    parse_mode=ParseMode.HTML
-                                )
+                            bot = await create_bot_for_task()
+                            await bot.send_message(
+                                chat_id=user.telegram_id,
+                                text=message_text,
+                                reply_markup=keyboard,
+                                parse_mode=ParseMode.HTML
                             )
                         except Exception as msg_error:
                             logger.error(f"Не удалось отправить сообщение о недостатке токенов пользователю {user_id}: {msg_error}")
+                        finally:
+                            if bot:
+                                try:
+                                    await bot.session.close()
+                                except Exception:
+                                    pass
+
+                    async_to_sync(_send_insufficient_tokens)()
+
                 if user.auto_analysis_enabled:
                     user.auto_analysis_enabled = False
                     sync_to_async(user.save)(update_fields=['auto_analysis_enabled'])

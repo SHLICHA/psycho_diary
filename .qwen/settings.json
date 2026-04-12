@@ -12,7 +12,15 @@
       "Bash(git commit *)",
       "Bash(mkdir *)",
       "Bash(touch *)",
-      "Bash(docker-compose *)"
+      "Bash(docker-compose *)",
+      "Bash(docker compose exec *)",
+      "Bash(which *)",
+      "Bash(ls *)",
+      "Bash(docker compose up *)",
+      "Bash(docker compose ps)",
+      "Bash(docker compose build *)",
+      "Bash(docker ps *)",
+      "Bash(rm *)"
     ]
   },
   "$version": 3

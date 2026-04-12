@@ -503,6 +503,30 @@ class UserProfileService:
         return [item for item in items_list if not (isinstance(item, dict) and 'remove' in item)]
 
     @classmethod
+    def _format_list_for_display(cls, items_list, language: str = 'ru', max_length: int = 150):
+        """
+        Форматирует список для отображения, ограничивая длину.
+
+        Args:
+            items_list: Список элементов.
+            language: Язык для сообщений.
+            max_length: Максимальная длина строки.
+
+        Returns:
+            str: Отформатированная строка.
+        """
+        if not isinstance(items_list, list):
+            return get_message('not_specified', language)
+        filtered_items = cls._filter_remove_items(items_list)
+        if not filtered_items:
+            return get_message('not_specified', language)
+        str_items = [str(item) for item in filtered_items if item is not None]
+        full_str = ', '.join(str_items)
+        if len(full_str) > max_length:
+            return full_str[:max_length] + '...'
+        return full_str
+
+    @classmethod
     async def anonymize_user_account(cls, user: User) -> Dict[str, Any]:
         """
         "Обезличивание" аккаунта пользователя.

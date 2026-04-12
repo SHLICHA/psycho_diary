@@ -136,6 +136,9 @@ MESSAGES = {
 'premium_expires_in_3_days': 'Ваша подписка PRO закончится через <b>3 дня</b>. Не забудьте продлить, чтобы не потерять доступ к премиум-функциям.',
 'premium_expires_in_2_days': 'Ваша подписка PRO закончится через <b>2 дня</b>. Продлите её, чтобы продолжить пользоваться всеми возможностями.',
 'premium_expires_in_1_days': 'Ваша подписка PRO <b>заканчивается завтра</b>! Продлите её прямо сейчас.',
+'premium_expires_in_7_days': 'Ваша подписка PRO закончится через <b>7 дней</b>. Продлите заранее, чтобы не потерять доступ.',
+'morning_motivation_premium_expired_preamble': '''\n\n------------\n❌ <b>Подписка закончилась!</b>\n\n''',
+'morning_motivation_premium_expired_text': 'Ваша PRO подписка истекла. Продлите, чтобы снова получить доступ ко всем премиум-функциям.',
 'reply_feedback_prompt': (
     '✍️ Ответ на обращение #{feedback_id} от {username} ({created_at}):\n\n'
     'Сообщение:\n{message_text}\n\n'
@@ -280,6 +283,9 @@ Our thoughts and feelings are an important part of the path to understanding our
 'premium_expires_in_3_days': 'Your PRO subscription will end in <b>3 days</b>. Remember to renew to keep access to premium features.',
 'premium_expires_in_2_days': 'Your PRO subscription will end in <b>2 days</b>. Renew it to continue enjoying all features.',
 'premium_expires_in_1_days': 'Your PRO subscription <b>ends tomorrow</b>! Renew it now.',
+'premium_expires_in_7_days': 'Your PRO subscription will end in <b>7 days</b>. Renew early to avoid interruption.',
+'morning_motivation_premium_expired_preamble': '''\n\n------------\n❌ <b>Subscription expired!</b>\n\n''',
+'morning_motivation_premium_expired_text': 'Your PRO subscription has expired. Renew to regain access to all premium features.',
 'reply_feedback_prompt': (
     '✍️ Reply to feedback #{feedback_id} from {username} ({created_at}):\n\n'
     'Message:\n{message_text}\n\n'

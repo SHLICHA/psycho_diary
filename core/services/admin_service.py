@@ -28,15 +28,17 @@ logger = logging.getLogger(__name__)
 class AdminService:
     """Сервис для административных операций."""
 
-    def is_admin(self, telegram_id: int) -> bool:
+    @staticmethod
+    def is_developer(telegram_id: int) -> bool:
         """
-        Проверяет, является ли пользователь администратором.
+        Единая проверка: является ли пользователь разработчиком.
+        Используется во всех сервисах и хендлерах.
 
         Args:
             telegram_id: Telegram ID пользователя.
 
         Returns:
-            bool: True если администратор.
+            bool: True если разработчик.
         """
         dev_chat_id_str = settings.DEVELOPER_CHAT_ID
         if not dev_chat_id_str:
@@ -46,6 +48,19 @@ class AdminService:
             return telegram_id == dev_chat_id
         except (ValueError, TypeError):
             return False
+
+    def is_admin(self, telegram_id: int) -> bool:
+        """
+        Проверяет, является ли пользователь администратором.
+        Алиас для is_developer — для обратной совместимости.
+
+        Args:
+            telegram_id: Telegram ID пользователя.
+
+        Returns:
+            bool: True если администратор.
+        """
+        return self.is_developer(telegram_id)
 
     async def get_users_for_broadcast(self, is_important: bool = False) -> List[Tuple[int, str]]:
         """

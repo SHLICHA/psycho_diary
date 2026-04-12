@@ -169,7 +169,7 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
             final_text += f"\n{reward_text}"
 
         reply_markup = await diary_display_service.build_entry_result_keyboard(
-            diary_entry, analysis_obj, language
+            diary_entry, analysis_obj, user, language
         )
 
         await status_msg.edit_text(final_text, reply_markup=reply_markup)
@@ -1016,7 +1016,7 @@ async def _process_analysis_result(
 
         try:
             current_analysis = await PsychoAnalysis.objects.aget(entry=entry)
-            reply_markup = await diary_display_service.build_entry_result_keyboard(entry, current_analysis, language)
+            reply_markup = await diary_display_service.build_entry_result_keyboard(entry, current_analysis, user, language)
         except PsychoAnalysis.DoesNotExist:
             logger.warning(f"PsychoAnalysis для записи {entry.id} не найден при создании клавиатуры в _process_analysis_result")
             reply_markup = InlineKeyboardMarkup(inline_keyboard=[

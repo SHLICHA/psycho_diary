@@ -3,9 +3,10 @@ Handlers для работы с профилем
 """
 import re
 import os
+import asyncio
 import logging
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 from datetime import datetime
 from typing import Any, Dict
@@ -19,7 +20,7 @@ from bot.keyboards import (
     get_account_deletion_confirmation_keyboard,
     get_account_deletion_menu_keyboard,
     get_main_menu_keyboard
-    )
+)
 from bot.utils.state_manager import state_manager
 from bot.decorators.analytics_decorator import log_user_activity
 from bot.decorators.premium_decorator import requires_premium
@@ -31,7 +32,8 @@ from diary.services.user_profile_service import (
     update_user_profile_field,
     anonymize_user_account,
     export_user_data,
-    get_referral_link_info
+    get_referral_link_info,
+    UserProfileService
 )
 from diary.services.main_menu_service import build_main_menu_data
 from bot.utils.message_utils import safe_edit_message_text
@@ -81,6 +83,7 @@ async def show_user_profile(callback: CallbackQuery, user, language: str):
         logger.error(f"Ошибка при показе профиля: {e}", exc_info=True)
         await callback.answer(get_message('error_generic', language=language), show_alert=True)
 
+
 @router.callback_query(F.data == "view_psychology_profile")
 @log_user_activity('show_profile', metadata_extra={'context': 'Просмотр психологического профиля'})
 async def show_psychology_profile(callback: CallbackQuery, user, language: str):
@@ -121,6 +124,7 @@ async def show_psychology_profile(callback: CallbackQuery, user, language: str):
         await callback.message.edit_text(error_msg, reply_markup=get_single_button_keyboard(language, 'user_profile', 'btn_back'))
         await callback.answer(error_msg, show_alert=True)
 
+
 @router.callback_query(F.data == "view_transaction_history")
 async def show_transaction_history(callback: CallbackQuery, user, language: str):
     """Показывает последние 10 транзакций и платежей пользователя."""
@@ -143,6 +147,7 @@ async def show_transaction_history(callback: CallbackQuery, user, language: str)
     except Exception as e:
         logger.error(f"Ошибка при показе истории транзакций: {e}", exc_info=True)
         await callback.answer(get_message('error_generic', language=language), show_alert=True)
+
 
 @router.callback_query(F.data.startswith("view_profile_field:"))
 @requires_premium(alert_message_key='feature_requires_premium')
@@ -194,20 +199,19 @@ async def show_profile_field(callback: CallbackQuery, user, language: str):
         logger.error(f"Неожиданная ошибка при показе поля профиля {callback.data}: {e}", exc_info=True)
         await callback.answer(get_message('error_generic', language), show_alert=True)
 
+
 # --- Редактирование профиля ---
+
 @router.callback_query(F.data == "edit_profile")
 @log_user_activity('edit_profile', metadata_extra={'context': 'Показ меню редактирования профиля'})
 async def show_edit_profile_menu(callback: CallbackQuery, user, language: str):
     """Показ меню редактирования профиля"""
     try:
-        # Получаем обновленные данные для отображения
         profile_data_from_service = await get_user_profile_data(user)
-        # Используем обрезанные строки из сервиса
         profile_data = {
             'first_name': user.first_name or get_message('not_specified', language),
             'email': user.email or get_message('not_specified', language),
             'date_of_birth': user.date_of_birth.strftime('%d.%m.%Y') if user.date_of_birth else get_message('not_specified', language),
-            # ИСПОЛЬЗУЕМ ПОЛЯ ИЗ СЕРВИСА
             'hobbies': profile_data_from_service.get('hobbies_for_display', get_message('not_specified', language)),
             'life_facts': profile_data_from_service.get('life_facts_for_display', get_message('not_specified', language))
         }
@@ -222,7 +226,9 @@ async def show_edit_profile_menu(callback: CallbackQuery, user, language: str):
         logger.error(f"Ошибка при показе меню редактирования профиля: {e}")
         await callback.answer(get_message('error_generic', language=language))
 
+
 # --- Обработчики запроса новых значений ---
+
 async def _request_new_value(callback_or_message, state: FSMContext, state_key, ask_message_key, back_callback_data, user, language: str):
     """Вспомогательная функция для запроса нового значения."""
     try:
@@ -247,11 +253,13 @@ async def _request_new_value(callback_or_message, state: FSMContext, state_key, 
         elif isinstance(callback_or_message, Message):
             await callback_or_message.answer(get_message('error_generic', language=language))
 
+
 @router.callback_query(F.data == "edit_profile_name")
 @log_user_activity('edit_profile', metadata_extra={'context': 'Редактирование имени'})
 async def edit_profile_name(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование имени"""
     await _request_new_value(callback, state, SettingsStates.waiting_for_name_input, 'ask_new_name', 'edit_profile', user, language)
+
 
 @router.callback_query(F.data == "edit_profile_email")
 @log_user_activity('edit_profile', metadata_extra={'context': 'Редактирование email'})
@@ -259,23 +267,25 @@ async def edit_profile_email(callback: CallbackQuery, state: FSMContext, user, l
     """Редактирование email"""
     await _request_new_value(callback, state, SettingsStates.waiting_for_email_input, 'ask_new_email', 'edit_profile', user, language)
 
+
 @router.callback_query(F.data == "edit_profile_dob")
 @log_user_activity('edit_profile', metadata_extra={'context': 'Редактирование даты рождения'})
 async def edit_profile_dob(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование даты рождения"""
     await _request_new_value(callback, state, SettingsStates.waiting_for_date_of_birth_input, 'ask_new_dob', 'edit_profile', user, language)
 
+
 @router.callback_query(F.data == "edit_profile_hobbies")
 @log_user_activity('edit_profile', metadata_extra={'context': 'Редактирование хобби'})
 async def edit_profile_hobbies(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование увлечений"""
     try:
-        current_hobbies_list = _filter_remove_items(user.hobbies)
+        current_hobbies_list = UserProfileService._filter_remove_items(user.hobbies)
         if len(current_hobbies_list) != len(user.hobbies or []):
             user.hobbies = current_hobbies_list
             await user.asave(update_fields=['hobbies'])
             logger.debug(f"Очищены 'remove' элементы из hobbies пользователя {user.telegram_id}")
-        current_hobbies = _format_list_for_display(current_hobbies_list)
+        current_hobbies = UserProfileService._format_list_for_display(current_hobbies_list, user.language or 'ru')
         await state_manager.set_state(state, SettingsStates.waiting_for_hobbies_input)
         ask_msg = get_message('ask_new_hobbies', language)
         if current_hobbies:
@@ -293,17 +303,18 @@ async def edit_profile_hobbies(callback: CallbackQuery, state: FSMContext, user,
         logger.error(f"Ошибка при запросе новых увлечений: {e}")
         await callback.answer(get_message('error_generic', language=language))
 
+
 @router.callback_query(F.data == "edit_profile_life_facts")
 @log_user_activity('edit_profile', metadata_extra={'context': 'Редактирование фактов о жизни'})
 async def edit_profile_life_facts(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование фактов о жизни"""
     try:
-        current_facts_list = _filter_remove_items(user.life_facts)
+        current_facts_list = UserProfileService._filter_remove_items(user.life_facts)
         if len(current_facts_list) != len(user.life_facts or []):
             user.life_facts = current_facts_list
             await user.asave(update_fields=['life_facts'])
             logger.debug(f"Очищены 'remove' элементы из life_facts пользователя {user.telegram_id}")
-        current_facts = _format_list_for_display(current_facts_list)
+        current_facts = UserProfileService._format_list_for_display(current_facts_list, user.language or 'ru')
         await state_manager.set_state(state, SettingsStates.waiting_for_life_facts_input)
         ask_msg = get_message('ask_new_life_facts', language)
         if current_facts:
@@ -322,31 +333,6 @@ async def edit_profile_life_facts(callback: CallbackQuery, state: FSMContext, us
         logger.error(f"Ошибка при запросе новых фактов о жизни: {e}")
         await callback.answer(get_message('error_generic', language=language))
 
-def _format_list_for_display(items_list):
-    """Форматирует список для отображения в одном поле, ограничивая длину."""
-    def _filter_remove_items_local(items_list):
-        if not items_list:
-            return []
-        return [item for item in items_list if not (isinstance(item, dict) and 'remove' in item)]
-
-    if not isinstance(items_list, list):
-        return get_message('not_specified', 'ru')
-    filtered_items = _filter_remove_items_local(items_list)
-    if not filtered_items:
-        return get_message('not_specified', 'ru')
-    str_items = [str(item) for item in filtered_items if item is not None]
-    full_str = ', '.join(str_items)
-    if len(full_str) > MAX_INLINE_FIELD_LENGTH:
-        return full_str[:MAX_INLINE_FIELD_LENGTH] + '...'
-    return full_str
-
-def _filter_remove_items(items_list):
-    """
-    Фильтрует список, удаляя элементы вида {"remove": ...}.
-    """
-    if not items_list:
-        return []
-    return [item for item in items_list if not (isinstance(item, dict) and 'remove' in item)]
 
 async def _process_field_input(message: Message, state: FSMContext, user, language: str, field_name: str, back_callback_data: str, validator_func=None):
     """Вспомогательная функция для обработки ввода значения поля."""
@@ -388,12 +374,14 @@ async def _process_field_input(message: Message, state: FSMContext, user, langua
         await message.answer(error_msg)
         await state_manager.clear_state(state)
 
+
 def _validate_email(email: str) -> Dict[str, Any]:
     """Валидатор email."""
     email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     if re.match(email_pattern, email):
         return {'success': True, 'processed_value': email}
     return {'success': False, 'error_key': 'invalid_email_format'}
+
 
 def _validate_date_of_birth(date_str: str) -> Dict[str, Any]:
     """Валидатор даты рождения."""
@@ -405,30 +393,36 @@ def _validate_date_of_birth(date_str: str) -> Dict[str, Any]:
     except ValueError:
         return {'success': False, 'error_key': 'invalid_date_format'}
 
+
 @router.message(SettingsStates.waiting_for_name_input)
 async def process_name_input(message: Message, state: FSMContext, user, language: str):
     """Обработка ввода нового имени"""
     await _process_field_input(message, state, user, language, 'first_name', 'edit_profile')
+
 
 @router.message(SettingsStates.waiting_for_email_input)
 async def process_email_input(message: Message, state: FSMContext, user, language: str):
     """Обработка ввода нового email"""
     await _process_field_input(message, state, user, language, 'email', 'edit_profile', validator_func=_validate_email)
 
+
 @router.message(SettingsStates.waiting_for_date_of_birth_input)
 async def process_dob_input(message: Message, state: FSMContext, user, language: str):
     """Обработка ввода новой даты рождения"""
     await _process_field_input(message, state, user, language, 'date_of_birth', 'edit_profile', validator_func=_validate_date_of_birth)
+
 
 @router.message(SettingsStates.waiting_for_hobbies_input)
 async def process_hobbies_input(message: Message, state: FSMContext, user, language: str):
     """Обработка ввода новых увлечений"""
     await _process_field_input(message, state, user, language, 'hobbies', 'edit_profile')
 
+
 @router.message(SettingsStates.waiting_for_life_facts_input)
 async def process_life_facts_input(message: Message, state: FSMContext, user, language: str):
     """Обработка ввода новых фактов о жизни"""
     await _process_field_input(message, state, user, language, 'life_facts', 'edit_profile')
+
 
 async def show_edit_profile_menu_callback(message_or_callback, user, language: str):
     """Показ меню редактирования профиля (callback)"""
@@ -462,13 +456,14 @@ async def show_edit_profile_menu_callback(message_or_callback, user, language: s
         elif isinstance(message_or_callback, CallbackQuery):
             await message_or_callback.answer(error_msg)
 
+
 # --- Удаление аккаунта ---
+
 @router.callback_query(F.data == "delete_account")
 @log_user_activity('delete_profile')
 async def show_account_deletion_menu(callback: CallbackQuery, user, language: str, state: FSMContext):
     """Показ меню удаления аккаунта"""
     try:
-        # Баланс токенов уже доступен в user.token_balance
         balance = user.token_balance
         if balance > 0:
             balance_info = get_message('account_balance_info_positive', language, balance=balance)
@@ -492,6 +487,7 @@ async def show_account_deletion_menu(callback: CallbackQuery, user, language: st
         logger.error(f"Ошибка при показе меню удаления аккаунта: {e}")
         await callback.answer(get_message('error_generic', language=language))
 
+
 @router.callback_query(F.data == "confirm_account_deletion_final")
 @log_user_activity('delete_profile', metadata_extra={'context': 'Подтверждение удаления'})
 async def confirm_account_deletion_final(callback: CallbackQuery, user, language: str, state: FSMContext):
@@ -500,19 +496,18 @@ async def confirm_account_deletion_final(callback: CallbackQuery, user, language
         data = await state_manager.get_state_data(state)
         balance_warning = data.get('balance_warning', '')
         confirm_msg = get_message('confirm_account_deletion', language, balance_warning=balance_warning)
-        
-        # Используем безопасное редактирование
+
         success = await safe_edit_message_text(
             message=callback.message,
             text=confirm_msg,
-            reply_markup=get_account_deletion_confirmation_keyboard(language) # Теперь здесь только кнопка отмены
+            reply_markup=get_account_deletion_confirmation_keyboard(language)
         )
-        
+
         if not success:
             logger.error(f"[confirm_account_deletion_final] Не удалось отредактировать сообщение для пользователя {user.telegram_id}")
             await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
             return
-            
+
         await state_manager.set_state(state, SettingsStates.waiting_for_deletion_confirmation_text)
         await safe_answer_callback(callback)
     except Exception as e:
@@ -550,37 +545,28 @@ async def process_account_deletion_confirmation_text(message: Message, user, lan
         error_msg = get_message('account_deletion_error', language)
         await message.answer(error_msg)
 
+
 @router.callback_query(F.data == "delete_account_cancel")
 @log_user_activity('delete_profile', metadata_extra={'context': 'Отмена удаления'})
 async def cancel_account_deletion(callback: CallbackQuery, user, language: str, state: FSMContext):
     """Отмена удаления аккаунта - возврат в главное меню"""
     try:
-        # Показываем сообщение об отмене
         cancel_msg = get_message('account_deletion_cancelled', language)
-        # Используем safe_edit_message_text, чтобы избежать ошибки "message is not modified"
-        # при редактировании сообщения с подтверждением.
         success = await safe_edit_message_text(
             message=callback.message,
             text=cancel_msg,
-            reply_markup=None # Убираем клавиатуру подтверждения
+            reply_markup=None
         )
         if not success:
             logger.warning(f"[cancel_account_deletion] Не удалось отредактировать сообщение для отмены удаления у пользователя {user.telegram_id}, возможно, оно не изменилось. Продолжаем с возвратом в главное меню.")
 
-        # Очищаем состояние FSM
         await state_manager.clear_state(state)
-
-        # Ждем короткое время, чтобы пользователь увидел сообщение об отмене,
-        # перед тем как обновится до главного меню (опционально)
-        import asyncio
         await asyncio.sleep(0.5)
 
-        # Получаем данные для главного меню через сервис
         menu_data = await build_main_menu_data(user, language)
         main_menu_msg = menu_data['message_text']
         keyboard = menu_data['keyboard']
 
-        # Редактируем сообщение на главное меню
         success_main_menu = await safe_edit_message_text(
             message=callback.message,
             text=main_menu_msg,
@@ -589,21 +575,17 @@ async def cancel_account_deletion(callback: CallbackQuery, user, language: str, 
 
         if not success_main_menu:
             logger.error(f"[cancel_account_deletion] Не удалось отредактировать сообщение на главное меню для пользователя {user.telegram_id}")
-            # Если редактирование не удалось, пробуем отправить новое сообщение
             await callback.message.answer(
                 text=main_menu_msg,
                 reply_markup=keyboard
             )
 
-        # Отвечаем на callback
         await safe_answer_callback(callback)
 
     except Exception as e:
         logger.error(f"Ошибка при отмене удаления аккаунта: {e}", exc_info=True)
-        # Всегда отвечаем на callback
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
-        # Попытка восстановления через отправку главного меню
         try:
             await state_manager.clear_state(state)
             menu_data = await build_main_menu_data(user, language)
@@ -620,9 +602,7 @@ async def cancel_account_deletion(callback: CallbackQuery, user, language: str, 
 @router.callback_query(F.data == "export_user_data")
 @requires_premium(alert_message_key='feature_requires_premium')
 async def handle_export_user_data(callback: CallbackQuery, user, language: str):
-    """
-    Обработчик экспорта данных пользователя в .docx
-    """
+    """Обработчик экспорта данных пользователя в .docx"""
     try:
         status_msg = await callback.message.answer(get_message('export_status_preparing', language))
         export_result = await export_user_data(user)
@@ -639,7 +619,6 @@ async def handle_export_user_data(callback: CallbackQuery, user, language: str):
             pass
         with open(file_path, 'rb') as f:
             file_data = f.read()
-        from aiogram.types import BufferedInputFile
         input_file = BufferedInputFile(file_data, filename='export.docx')
         await callback.message.answer_document(
             document=input_file,
@@ -654,6 +633,7 @@ async def handle_export_user_data(callback: CallbackQuery, user, language: str):
         logger.error(f"Ошибка при экспорте данных пользователя {user.telegram_id}: {e}", exc_info=True)
         await callback.message.answer(get_message('export_error', language))
         await callback.answer()
+
 
 @router.callback_query(F.data == "get_referral_link")
 @log_user_activity('referral')
