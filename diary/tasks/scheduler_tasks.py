@@ -15,12 +15,12 @@ from aiogram.enums import ParseMode
 from django.db import close_old_connections
 
 from bot.bot_instance import bot as global_bot
+from bot.utils.bot_factory import create_bot_for_task
 from users.models import User, TokenTransaction
 from diary.models import DailyAnalysis
 from diary.services.smart_prompt_manager import smart_prompt_manager
 from bot.services.diary_service import diary_service
 from diary.services.full_day_analysis_service import full_day_analysis_service
-from core.settings import TELEGRAM_BOT_TOKEN
 from bot.utils.message_utils import send_message_to_user
 from messages import get_message, get_button_text
 
@@ -245,7 +245,7 @@ async def _send_timezone_reminder_async():
         logger.debug(f"Найдено {len(users)} пользователей с UTC часовым поясом (не заблокировали бота)")
         success_count = 0
         error_count = 0
-        bot = Bot(token=TELEGRAM_BOT_TOKEN, parse_mode=ParseMode.HTML)
+        bot = await create_bot_for_task()
         for user in users:
             try:
                 language = await get_user_language(user)

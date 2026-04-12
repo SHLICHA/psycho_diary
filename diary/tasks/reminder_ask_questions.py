@@ -12,7 +12,6 @@ from aiogram.fsm.context import FSMContext
 from django.db import close_old_connections
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-from core.settings import TELEGRAM_BOT_TOKEN
 from core.constants import TASK_TYPES
 from diary.models import DiaryEntry, PsychoAnalysis
 from diary.services.daily_state_service import daily_state_service
@@ -20,6 +19,7 @@ from users.models import User
 from bot.services.diary_service import diary_service
 from bot.services.psycho_analysis_service import psycho_analysis_service
 from bot.services.deepseek_api import deepseek_api_service
+from bot.utils.bot_factory import create_bot_for_task
 from prompts import get_prompt
 from messages import get_message, get_button_text
 from bot.utils.state_manager import state_manager
@@ -90,7 +90,7 @@ async def _send_reminder_async(entry: DiaryEntry):
     user = entry.user
     bot_instance = None
     try:
-        bot_instance = Bot(token=TELEGRAM_BOT_TOKEN, parse_mode=ParseMode.HTML)
+        bot_instance = await create_bot_for_task()
         await bot_instance.send_message(
             chat_id=user.telegram_id,
             text=get_message('reminder_clarification', user.language),
@@ -151,7 +151,7 @@ async def _force_process_async(entry: DiaryEntry):
         await sync_to_async(close_old_connections)()
         await sync_to_async(entry.save)(update_fields=['analysis_processed_at'])
         logger.debug(f"[reminder_ask_questions] analysis_processed_at установлен для записи {entry.id} перед принудительной обработкой.")
-        bot_instance = Bot(token=TELEGRAM_BOT_TOKEN, parse_mode=ParseMode.HTML)
+        bot_instance = await create_bot_for_task()
         status_message_sent = await bot_instance.send_message(
             chat_id=user.telegram_id,
             text=get_message('processing', user.language)

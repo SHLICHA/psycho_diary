@@ -17,11 +17,11 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from bot.utils.message_utils import send_message_to_user
 from bot.services import deepseek_api_service
+from bot.utils.bot_factory import create_bot_for_task
 from diary.models import TherapyTask, DiaryEntry
 from users.models import User
 from messages import get_message, get_button_text
 from prompts.get_prompt import get_prompt
-from core.settings import TELEGRAM_BOT_TOKEN
 from bot.utils.diary_utils import get_user_streaks
 
 logger = logging.getLogger(__name__)
@@ -122,7 +122,7 @@ async def _send_entry_reminders_async():
         error_count = 0
         sent_entry_reminder_count = 0
         sent_questionnaire_reminder_count = 0
-        bot = Bot(token=TELEGRAM_BOT_TOKEN, parse_mode=ParseMode.HTML)
+        bot = await create_bot_for_task()
         for user in users:
             try:
                 user_timezone_str = user.timezone if user.timezone else 'UTC'

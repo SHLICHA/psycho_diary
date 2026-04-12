@@ -19,9 +19,9 @@ from bot.utils.message_utils import send_message_to_user
 from users.models import User, UserProfileHistory
 from diary.models import CombinedDiaryEntry, DailyAnalysis
 from messages import get_message, get_button_text
-from core.settings import TELEGRAM_BOT_TOKEN
 from bot.services.deepseek_api import deepseek_api_service
 from bot.utils.diary_utils import get_recoverable_gap_info
+from bot.utils.bot_factory import create_bot_for_task
 from prompts.get_prompt import get_prompt
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ async def _send_morning_motivation_async():
         success_count = 0
         error_count = 0
         sent_motivation_count = 0
-        bot_instance = Bot(token=TELEGRAM_BOT_TOKEN, parse_mode=ParseMode.HTML)
+        bot_instance = await create_bot_for_task()
         utc_now = datetime.now(pytz.utc)
         for user in users:
             try:

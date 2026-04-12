@@ -17,12 +17,12 @@ from django.db import close_old_connections
 
 from bot.utils.message_utils import send_message_to_user
 from bot.services import deepseek_api_service
+from bot.utils.bot_factory import create_bot_for_task
 from diary.models import TherapyTask, DiaryEntry, CombinedDiaryEntry, DailyAnalysis
 from diary.services.task_management_service import get_uncompleted_tasks_count_for_user
 from users.models import User
 from messages import get_message, get_button_text
 from prompts.get_prompt import get_prompt
-from core.settings import TELEGRAM_BOT_TOKEN
 from bot.utils.diary_utils import get_user_streaks
 
 logger = logging.getLogger(__name__)
@@ -108,7 +108,7 @@ async def _send_entry_reminders_async():
         success_count = 0
         error_count = 0
         sent_entry_reminder_count = 0
-        bot = Bot(token=TELEGRAM_BOT_TOKEN, parse_mode=ParseMode.HTML)
+        bot = await create_bot_for_task()
         
         for user in users:
             try:
