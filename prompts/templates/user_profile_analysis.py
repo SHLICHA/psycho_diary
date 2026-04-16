@@ -35,6 +35,7 @@ USER_PROFILE_ANALYSIS_PROMPT = {
 1.  **Проанализируй все предоставленные данные.**
     *   Обрати особое внимание на динамику, тренды и повторяющиеся паттерны.
     *   Сравни "Текущий профиль" с информацией из `recent_weekly_analyses` и `selected_task_completion_analyses`.
+    *   **Важно**: Проанализируй каждый элемент текущего профиля. Если элемент не упоминался в новых данных и ты видишь по контексту, что он утратил актуальность — **обязательно** пометь его на удаление через `{"remove": "элемент"}`.
 2.  **Создай или обнови `personality_description`**:
     *   Это должно быть **новое, цельное, человекочитаемое описание личности** пользователя на русском языке.
     *   Объедини ключевые черты, ценности, сильные стороны, зоны роста, привычки, стремления и инсайты в связный рассказ.
@@ -46,18 +47,18 @@ USER_PROFILE_ANALYSIS_PROMPT = {
         *   `life_facts` (list): Только *проверенные и актуальные* факты. *Оставь* факты, даже если они не упоминались в новых данных, *если* они не утратили актуальности. *Удали* только *явно устаревшие* и *явно неважные* факты (например, "жил в... году", если подтверждённо неактуально).
         *   `hobbies` (list): Только *реальные и актуальные* интересы/увлечения. *Объедини* схожие (например, "бег", "маунтинбайк", "пешие походы" -> "активный отдых на природе"). *Удали* только если *подтверждённо* утратили актуальность.
         *   `core_values` (list): *Фундаментальные* ценности. *Оставь* ценности, даже если они не упоминались в новых данных, *если* пользователь не отказался от них. *Удали* только *если пользователь явно отказался от ценности* (например, написал, что она больше не важна).
-        *   `triggers` (list): Только *актуальные* эмоциональные триггеры. *Объедини* схоже звучащие или с близкой сутью. *Удали* только *если подтверждённо* утратили актуальность.
-        *   `strengths` (list): Только *подтверждённые и актуальные* сильные стороны. *Объедини* дублирующие или схоже звучащие. *Удали* только *если подтверждённо* утратили актуальность.
-        *   `areas_for_growth` (list): Только *актуальные* зоны развития. *Объедини* схоже звучащие. *Удали* только *если подтверждённо* над ней уже поработано и она больше не актуальна.
-        *   `personality_insights` (dict): *Глубинные инсайты*, отражающие *текущее* понимание. *Объедини* инсайты с близкой сутью. *Удали* только *если подтверждённо* утратили актуальность.
-        *   `habits` (list): *Сформировавшиеся и наблюдаемые* привычки. *Объедини* схоже звучащие. *Удали* только *если подтверждённо* утратили актуальность.
-        *   `skills` (list): *Наблюдаемые актуальные* навыки (жизненные, коммуникативные, когнитивные и т.д.). *Объедини* дублирующие или схоже звучащие. *Удали* только *если подтверждённо* утратили актуальность.
-        *   `aspirations` (list): *Четко выраженные и актуальные* стремления и цели. *Объедини* схоже звучащие или с близкой сутью. *Удали* только *если подтверждённо* достигнуты или утратили актуальность.
+        *   `triggers` (list): Только *актуальные* эмоциональные триггеры. *Объедини* схоже звучащие или с близкой сутью. *Удали* только *если подтверждено* утратили актуальность.
+        *   `strengths` (list): Только *подтверждённые и актуальные* сильные стороны. *Объедини* дублирующие или схоже звучащие. *Удали* только *если подтверждено* утратили актуальность.
+        *   `areas_for_growth` (list): Только *актуальные* зоны развития. *Объедини* схоже звучащие. *Удали* только *если подтверждено* над ней уже поработано и она больше не актуальна.
+        *   `personality_insights` (dict): *Глубинные инсайты*, отражающие *текущее* понимание. *Объедини* инсайты с близкой сутью. *Удали* только *если подтверждено* утратили актуальность.
+        *   `habits` (list): *Сформировавшиеся и наблюдаемые* привычки. *Объедини* схоже звучащие. *Удали* только *если подтверждено* утратили актуальность.
+        *   `skills` (list): *Наблюдаемые актуальные* навыки (жизненные, коммуникативные, когнитивные и т.д.). *Объедини* дублирующие или схоже звучащие. *Удали* только *если подтверждено* утратили актуальность.
+        *   `aspirations` (list): *Четко выраженные и актуальные* стремления и цели. *Объедини* схоже звучащие или с близкой сутью. *Удали* только *если подтверждено* достигнуты или утратили актуальность.
     *   Для списков (`life_facts`, `hobbies` и т.д.):
         *   Чтобы **добавить** элемент: просто включи его в список.
-        *   Чтобы **удалить** элемент: используй формат `{{"remove": "старый_элемент"}}`. Используй это *только* для подтверждённого удаления.
+        *   Чтобы **удалить** элемент: используй формат `{{"remove": "старый_элемент"}}`. Используй это *только* для подтверждённого удаления. **Без этой пометки элемент останется в профиле навсегда.** Если ты видишь, что элемент устарел — обязательно используй этот формат.
     *   Для `personality_traits` и `personality_insights` (словари):
-        *   Предоставь обновленный словарь с *актуальными* ключами и значениями. *Объедини* информацию, если ключи близки по смыслу (например, "мотивация_работа", "мотивация_проекты" -> "мотивация_достижения"). *Удали* только *если подтверждённо* утратили актуальность.
+        *   Предоставь обновленный словарь с *актуальными* ключами и значениями. *Объедини* информацию, если ключи близки по смыслу (например, "мотивация_работа", "мотивация_проекты" -> "мотивация_достижения"). *Удали* только *если подтверждено* утратили актуальность.
 4.  **НЕ ВКЛЮЧАЙ `awareness_level`, `first_name`, `date_of_birth`** в свой ответ.
 
 ### 📤 ОТВЕТ В СТРОГОМ ФОРМАТЕ JSON
@@ -74,44 +75,43 @@ USER_PROFILE_ANALYSIS_PROMPT = {
   "life_facts": [
     "Работаю в IT",
     "Увлекаюсь фотографией",
-    {{"remove": "Переехал в новый город"}} <!-- Только если факт подтверждённо устарел -->
+    {{"remove": "Переехал в новый город"}}
   ],
   "hobbies": [
-    "активный отдых на природе", <!-- Объединено -->
+    "активный отдых на природе",
     "чтение научной литературы"
   ],
   "core_values": [
     "близкие отношения",
     "саморазвитие"
-    <!-- Удалить только если пользователь подтверждённо отказался -->
   ],
   "triggers": [
     "резкая критика",
-    {{"remove": "шумные компании"}} <!-- Только если подтверждённо неактуален -->
+    {{"remove": "шумные компании"}}
   ],
   "strengths": [
     "настойчивость",
-    "аналитическое мышление" <!-- Объединено -->
+    "аналитическое мышление"
   ],
   "areas_for_growth": [
     "управление стрессом",
-    {{"remove": "прокрастинация"}} <!-- Только если подтверждённо поработано -->
+    {{"remove": "прокрастинация"}}
   ],
   "personality_insights": {{
     "мотивация": "Внутренняя, связана с самореализацией",
-    "стиль общения": "Предпочитает глубокие беседы" <!-- Объединено -->
+    "стиль общения": "Предпочитает глубокие беседы"
   }},
   "habits": [
     "утренняя зарядка",
     "ведение дневника"
   ],
   "skills": [
-    "аналитическое мышление", <!-- Объединено -->
+    "аналитическое мышление",
     "самоанализ"
   ],
   "aspirations": [
     "повысить эмоциональный интеллект",
-    "найти баланс" <!-- Объединено -->
+    "найти баланс"
   ]
 }}
 ```''',
@@ -151,6 +151,7 @@ Aspirations (JSON): {user_profile[aspirations]}
 1.  **Analyze all provided data.**
     *   Pay special attention to dynamics, trends, and recurring patterns.
     *   Compare the "Current Profile" with information from `recent_weekly_analyses` and `selected_task_completion_analyses`.
+    *   **Important**: Review every element in the current profile. If an item has not been mentioned in new data and you can see from context that it has lost relevance — **mark it for removal** using `{"remove": "item"}`.
 2.  **Create or update `personality_description`**:
     *   This should be a **new, cohesive, human-readable description of the user's personality** in English.
     *   Synthesize key traits, values, strengths, areas for growth, habits, aspirations, and insights into a coherent narrative.
@@ -171,7 +172,7 @@ Aspirations (JSON): {user_profile[aspirations]}
         *   `aspirations` (list): *Clearly expressed and current* aspirations and goals. *Merge* similar-sounding or closely related ones. *Remove* only *if confirmedly* achieved or no longer relevant.
     *   For lists (`life_facts`, `hobbies`, etc.):
         *   To **add** an item: simply include it in the list.
-        *   To **remove** an item: use the format `{{"remove": "old_item"}}`. Use this *only* for confirmed removals.
+        *   To **remove** an item: use the format `{{"remove": "old_item"}}`. Use this *only* for confirmed removals. **Without this marker, the item will remain in the profile forever.** If you see that an item is outdated — always use this format.
     *   For `personality_traits` and `personality_insights` (dictionaries):
         *   Provide an updated dictionary with *current* keys and values. *Merge* information if keys are similar in meaning (e.g., "motivation_job", "motivation_projects" -> "motivation_achievements"). *Remove* only *if confirmedly* no longer relevant.
 4.  **DO NOT INCLUDE `awareness_level`, `first_name`, `date_of_birth`** in your response.
@@ -190,44 +191,43 @@ RESPOND ONLY IN THE FOLLOWING JSON FORMAT, enclosed in triple backticks (```json
   "life_facts": [
     "I work in IT",
     "I'm into photography",
-    {{"remove": "Moved to a new city"}} <!-- Only if fact is confirmedly outdated -->
+    {{"remove": "Moved to a new city"}}
   ],
   "hobbies": [
-    "outdoor activities", <!-- Merged -->
+    "outdoor activities",
     "reading science books"
   ],
   "core_values": [
     "close relationships",
     "self-development"
-    <!-- Remove only if user explicitly rejects the value -->
   ],
   "triggers": [
     "harsh criticism",
-    {{"remove": "noisy crowds"}} <!-- Only if confirmedly irrelevant -->
+    {{"remove": "noisy crowds"}}
   ],
   "strengths": [
     "persistence",
-    "analytical thinking" <!-- Merged -->
+    "analytical thinking"
   ],
   "areas_for_growth": [
     "stress management",
-    {{"remove": "procrastination"}} <!-- Only if confirmedly worked on -->
+    {{"remove": "procrastination"}}
   ],
   "personality_insights": {{
     "motivation": "Intrinsic, linked to self-realization",
-    "communication_style": "Prefers deep conversations" <!-- Merged -->
+    "communication_style": "Prefers deep conversations"
   }},
   "habits": [
     "morning exercise",
     "keeping a diary"
   ],
   "skills": [
-    "analytical thinking", <!-- Merged -->
+    "analytical thinking",
     "self-analysis"
   ],
   "aspirations": [
     "increase emotional intelligence",
-    "find balance" <!-- Merged -->
+    "find balance"
   ]
 }}
 ```'''

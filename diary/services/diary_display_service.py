@@ -408,11 +408,12 @@ class DiaryDisplayService:
         analysis: PsychoAnalysis,
         user: User,
         language: str,
-        back_callback: str = "main_menu"
+        back_callback: str = "main_menu",
+        task=None
     ) -> InlineKeyboardMarkup:
         """
         Создает полную клавиатуру для результата анализа записи.
-        Включает: рейтинг + комментарий + назад.
+        Включает: рейтинг + комментарий + кнопки задания (если есть) + назад.
 
         Args:
             entry: Запись.
@@ -420,6 +421,7 @@ class DiaryDisplayService:
             user: Пользователь (передаётся явно, чтобы избежать entry.user в async контексте).
             language: Язык.
             back_callback: Callback для кнопки 'Назад'.
+            task: TherapyTask, если была назначена (опционально).
 
         Returns:
             InlineKeyboardMarkup: Клавиатура.
@@ -436,6 +438,12 @@ class DiaryDisplayService:
         if comment_button:
             reply_markup.inline_keyboard.append(comment_button)
 
+        # Кнопки задания (если есть задание)
+        if task:
+            task_buttons = self._build_task_action_buttons(task, language)
+            if task_buttons:
+                reply_markup.inline_keyboard.extend(task_buttons)
+
         # Кнопка назад
         back_buttons = [
             InlineKeyboardButton(
@@ -447,6 +455,29 @@ class DiaryDisplayService:
 
         return reply_markup
 
+    def _build_task_action_buttons(self, task, language: str) -> List[List[InlineKeyboardButton]]:
+        """Создаёт урезанную клавиатуру действий для задания."""
+        buttons = []
+        buttons.append([
+            InlineKeyboardButton(
+                text=get_button_text('btn_complete_task', language),
+                callback_data=f"complete_task:{task.id}"
+            )
+        ])
+        buttons.append([
+            InlineKeyboardButton(
+                text=get_button_text('btn_skip_task', language),
+                callback_data=f"skip_task:{task.id}"
+            )
+        ])
+        buttons.append([
+            InlineKeyboardButton(
+                text=get_button_text('btn_delete_task', language),
+                callback_data=f"delete_task:{task.id}"
+            )
+        ])
+        return buttons
+
 
 diary_display_service = DiaryDisplayService()
 
@@ -456,11 +487,12 @@ async def build_entry_result_keyboard_from_service(
     analysis: PsychoAnalysis,
     user: User,
     language: str,
-    back_callback: str = "main_menu"
+    back_callback: str = "main_menu",
+    task=None
 ) -> InlineKeyboardMarkup:
     """
     Удобная функция для создания клавиатуры.
     """
     return await diary_display_service.build_entry_result_keyboard(
-        entry, analysis, user, language, back_callback
+        entry, analysis, user, language, back_callback, task
     )

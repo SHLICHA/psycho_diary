@@ -269,30 +269,40 @@ class UserProfileAnalysisService:
                 current_list = getattr(user, field_name, [])
                 if not isinstance(current_list, list):
                     current_list = []
-                
-                new_list = []
+
+                # Фильтруем "remove" элементы и собираем новые
+                removals = []
+                new_items = []
                 for item in updates_for_field:
                     if isinstance(item, dict) and 'remove' in item:
-                        # Удалить значение из текущего списка
                         val_to_remove = item['remove']
+                        # Поиск по точному совпадению и нормализованному
                         if val_to_remove in current_list:
                             current_list.remove(val_to_remove)
                             logger.debug(f"[UserProfileAnalysisService] Удалено '{val_to_remove}' из '{field_name}'")
+                        else:
+                            # Пробуем нормализованное сравнение
+                            normalized_remove = val_to_remove.strip().lower()
+                            for existing in current_list[:]:
+                                if isinstance(existing, str) and existing.strip().lower() == normalized_remove:
+                                    current_list.remove(existing)
+                                    logger.debug(f"[UserProfileAnalysisService] Удалено (норм.) '{val_to_remove}' из '{field_name}'")
+                                    break
+                        removals.append(val_to_remove)
                     elif isinstance(item, (str, int, float, bool)):
-                        # Добавить значение в новый список
-                        new_list.append(item)
+                        if isinstance(item, str) and item.strip():
+                            new_items.append(item)
+                        else:
+                            new_items.append(item)
                     else:
                         logger.warning(f"[UserProfileAnalysisService] Неподдерживаемый элемент в '{field_name}': {item}. Пропущен.")
 
-                # Объединяем оставшиеся элементы из current_list с новыми
-                final_list = current_list + new_list
-                # Убираем дубликаты, сохранив порядок
-                seen = set()
-                unique_final_list = []
-                for item in final_list:
-                    if item not in seen:
-                        seen.add(item)
-                        unique_final_list.append(item)
+                # Объединяем оставшиеся элементы с новыми
+                final_list = current_list + new_items
+
+                # Дедупликация через утилиты
+                from core.profile_field_utils import deduplicate_list
+                unique_final_list = deduplicate_list(final_list)
 
                 updates_to_apply[field_name] = unique_final_list
                 fields_updated.append(field_name)
@@ -346,8 +356,35 @@ class UserProfileAnalysisService:
                             setattr(user, field, value)
                         user.save(update_fields=fields_updated)
                     logger.debug(f"[SYNC] Изменения профиля пользователя {user.telegram_id} сохранены.")
-                
+
                 await _save_updates_sync()
+
+                # После обновления — запускаем безопасную очистку дубликатов
+                try:
+                    from core.profile_field_utils import get_profile_field_utils
+                    pfu = get_profile_field_utils()
+                    cleanup_result = pfu.cleanup_user_profile(user)
+                    if cleanup_result:
+                        # Сохраняем результаты очистки
+                        @sync_to_async
+                        def _save_cleanup_sync():
+                            with transaction.atomic():
+                                for field_name in cleanup_result:
+                                    new_val = getattr(user, field_name, [])
+                                    if isinstance(new_val, list):
+                                        setattr(user, field_name, new_val)
+                                    elif isinstance(new_val, dict):
+                                        setattr(user, field_name, {k: v for k, v in new_val.items() if v is not None})
+                                user.save(update_fields=list(cleanup_result.keys()))
+                        await _save_cleanup_sync()
+                        logger.info(
+                            f"[UserProfileAnalysisService] Очистка дубликатов для пользователя {user.telegram_id}: "
+                            f"{cleanup_result}"
+                        )
+                except Exception as cleanup_error:
+                    logger.warning(
+                        f"[UserProfileAnalysisService] Ошибка при очистке дубликатов: {cleanup_error}"
+                    )
 
                 # После обновления профиля — генерируем compressed_psych_profile
                 try:

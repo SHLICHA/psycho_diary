@@ -23,7 +23,6 @@ from bot.keyboards import (
     get_single_button_keyboard,
     format_entry_text_for_editing,
     get_back_keyboard,
-    get_task_pagination_keyboard,
     get_smart_calendar_keyboard,
     get_delete_entry_confirmation_keyboard,
     get_calendar_back_keyboard,
@@ -148,7 +147,6 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
         suggested_task_obj = result['suggested_task']
         streak_bonus_info = result['streak_bonus_info']
         task_info = ""
-        reply_markup = get_back_keyboard(language)
         if suggested_task_obj:
             preview = suggested_task_obj.description[:150] + "..." if len(suggested_task_obj.description) > 150 else suggested_task_obj.description
             task_info = get_message(
@@ -156,7 +154,6 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
                 language,
                 title=suggested_task_obj.title,
                 description=preview)
-            reply_markup = get_task_pagination_keyboard(suggested_task_obj.id, 0, 1, language, exclude_skip_delete_buttons=True)
 
         final_text = get_message('entry_saved', language, score=analysis_obj.mood_score, mood=get_message(f'mood_{analysis_obj.mood_score}', language), comment=analysis_obj.comment, recommendation=analysis_obj.recommendation) + task_info
         if streak_bonus_info.get("awarded"):
@@ -169,7 +166,7 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
             final_text += f"\n{reward_text}"
 
         reply_markup = await diary_display_service.build_entry_result_keyboard(
-            diary_entry, analysis_obj, user, language
+            diary_entry, analysis_obj, user, language, task=suggested_task_obj
         )
 
         await status_msg.edit_text(final_text, reply_markup=reply_markup)
