@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     'core',
     'rest_framework',
     'rest_framework_simplejwt',
+    'django_celery_beat',
     'api',
 ]
 
@@ -162,6 +163,10 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
+
+# Используем БД для хранения расписания Celery Beat
+# Это предотвращает повторный запуск задач после перезапуска контейнера
+CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 
 AUTH_USER_MODEL = 'users.User'
 YANDEX_SPEECHKIT_API_KEY = config('YANDEX_SPEECHKIT_API_KEY')

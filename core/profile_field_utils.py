@@ -1,18 +1,543 @@
 """
-Утилиты для очистки и поддержки актуальности полей психологического профиля.
+Утилиты для работы с полями психологического профиля.
 
-Подход: безопасная очистка без изменения структуры данных и без миграций.
-- Не меняет формат хранения (списки остаются списками, словари — словарями)
-- Основные принципы:
-  1. ИИ сам должен решать, что удалить (через {"remove": ...} маркеры)
-  2. Автоматическая чистка — только для ЯВНЫХ дубликатов (точное текстовое совпадение)
-  3. Консервативно: лучше оставить лишнее, чем удалить нужное
+Включает:
+1. Очистка от дубликатов (существующая функциональность)
+2. Конвертация в обогащённый формат с весами (НОВОЕ)
+3. Валидация элементов профиля (НОВОЕ)
+4. TTL логика (НОВОЕ)
 """
 
 import logging
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple, Optional
+from datetime import datetime, timedelta
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
+
+# Константы для TTL
+DAYS_UNTIL_STALE = 30
+DAYS_UNTIL_DELETE = 60
+MIN_FREQUENCY_TO_KEEP = 2
+MAX_ITEMS_PER_FIELD = 10
+
+# Поля профиля для миграции
+PROFILE_FIELDS = [
+    'triggers',
+    'life_facts',
+    'hobbies',
+    'core_values',
+    'strengths',
+    'areas_for_growth',
+    'habits',
+    'skills',
+    'aspirations'
+]
+
+
+# ============== АДАПТЕРЫ ДЛЯ СОВМЕСТИМОСТИ (ЭТАП 1.5) ==============
+
+def field_to_ai_format(field_data: List[Any], field_name: str) -> List[str]:
+    """
+    Конвертирует данные поля в формат для AI промптов.
+    
+    Старый формат: ["шум", "толпа"] → возвращаем как есть
+    Новый формат: [{"value": "шум", ...}] → берём только value
+    
+    Args:
+        field_data: Данные поля (строки или dict)
+        field_name: Имя поля для логирования
+        
+    Returns:
+        Список строк для AI
+    """
+    if not field_data:
+        return []
+    
+    # Определяем формат по первому элементу
+    if isinstance(field_data[0], str):
+        # Старый формат — возвращаем как есть
+        return [str(item) for item in field_data if item]
+    
+    if isinstance(field_data[0], dict):
+        # Новый формат — берём только value
+        result = []
+        for item in field_data:
+            value = item.get("value")
+            if value:
+                result.append(str(value))
+        return result
+    
+    # Неизвестный формат — логируем и возвращаем как есть
+    logger.warning(f"[field_to_ai_format] Неизвестный формат поля {field_name}: {type(field_data[0])}")
+    return [str(item) for item in field_data if item]
+
+
+def field_to_display_format(field_data: List[Any], field_name: str) -> List[str]:
+    """
+    Конвертирует данные поля в формат для отображения пользователю.
+    
+    Старый формат: ["шум", "толпа"] → возвращаем как есть
+    Новый формат: [{"value": "шум", "weight": 0.85, "frequency": 12}] → форматируем
+    
+    Args:
+        field_data: Данные поля (строки или dict)
+        field_name: Имя поля для логирования
+        
+    Returns:
+        Список строк для отображения
+    """
+    if not field_data:
+        return []
+    
+    if isinstance(field_data[0], str):
+        # Старый формат — возвращаем как есть
+        return [str(item) for item in field_data if item]
+    
+    if isinstance(field_data[0], dict):
+        # Новый формат — используем format_for_user_display
+        return format_for_user_display(field_data)
+    
+    # Неизвестный формат
+    logger.warning(f"[field_to_display_format] Неизвестный формат поля {field_name}: {type(field_data[0])}")
+    return [str(item) for item in field_data if item]
+
+
+def get_profile_field_for_ai(user, field_name: str) -> List[str]:
+    """
+    Получает данные поля профиля в формате для AI.
+    
+    Универсальная функция для любого поля профиля.
+    
+    Args:
+        user: Объект User
+        field_name: Имя поля (triggers, life_facts, etc.)
+        
+    Returns:
+        Список строк для AI
+    """
+    field_data = getattr(user, field_name, None)
+    if not field_data or not isinstance(field_data, list):
+        return []
+    
+    return field_to_ai_format(field_data, field_name)
+
+
+def get_profile_field_for_display(user, field_name: str) -> List[str]:
+    """
+    Получает данные поля профиля в формате для отображения.
+    
+    Универсальная функция для любого поля профиля.
+    
+    Args:
+        user: Объект User
+        field_name: Имя поля (triggers, life_facts, etc.)
+        
+    Returns:
+        Список строк для отображения
+    """
+    field_data = getattr(user, field_name, None)
+    if not field_data or not isinstance(field_data, list):
+        return []
+    
+    return field_to_display_format(field_data, field_name)
+
+
+# Алиасы для конкретных полей (удобство)
+def triggers_to_ai_format(triggers) -> List[str]:
+    """Конвертирует triggers для AI промптов."""
+    return field_to_ai_format(triggers, 'triggers')
+
+
+def triggers_to_display_format(triggers) -> List[str]:
+    """Конвертирует triggers для отображения пользователю."""
+    return field_to_display_format(triggers, 'triggers')
+
+
+def life_facts_to_ai_format(life_facts) -> List[str]:
+    """Конвертирует life_facts для AI промптов."""
+    return field_to_ai_format(life_facts, 'life_facts')
+
+
+def life_facts_to_display_format(life_facts) -> List[str]:
+    """Конвертирует life_facts для отображения пользователю."""
+    return field_to_display_format(life_facts, 'life_facts')
+
+
+def hobbies_to_ai_format(hobbies) -> List[str]:
+    """Конвертирует hobbies для AI промптов."""
+    return field_to_ai_format(hobbies, 'hobbies')
+
+
+def hobbies_to_display_format(hobbies) -> List[str]:
+    """Конвертирует hobbies для отображения пользователю."""
+    return field_to_display_format(hobbies, 'hobbies')
+
+
+def core_values_to_ai_format(core_values) -> List[str]:
+    """Конвертирует core_values для AI промптов."""
+    return field_to_ai_format(core_values, 'core_values')
+
+
+def core_values_to_display_format(core_values) -> List[str]:
+    """Конвертирует core_values для отображения пользователю."""
+    return field_to_display_format(core_values, 'core_values')
+
+
+def strengths_to_ai_format(strengths) -> List[str]:
+    """Конвертирует strengths для AI промптов."""
+    return field_to_ai_format(strengths, 'strengths')
+
+
+def strengths_to_display_format(strengths) -> List[str]:
+    """Конвертирует strengths для отображения пользователю."""
+    return field_to_display_format(strengths, 'strengths')
+
+
+# ============== НОВЫЕ ФУНКЦИИ ДЛЯ ВЕСОВ И TTL ==============
+
+def create_weighted_item(value: str, weight: float = 0.5) -> Dict[str, Any]:
+    """
+    Создаёт элемент профиля в обогащённом формате с весами.
+    
+    Args:
+        value: Основное значение (строка)
+        weight: Вес/важность (0-1), дефолт 0.5
+        
+    Returns:
+        Dict с metadata
+    """
+    now = timezone.now()
+    return {
+        "value": value,
+        "weight": weight,
+        "frequency": 1,
+        "added_at": now.isoformat(),
+        "last_seen": now.isoformat(),
+        "is_stale": False
+    }
+
+
+def convert_to_weighted_format(items: List[Any]) -> List[Dict[str, Any]]:
+    """
+    Конвертирует список элементов профиля в обогащённый формат с весами.
+    
+    Старый формат: ["шум", "толпа"]
+    Новый формат: [{"value": "шум", "weight": 0.5, "frequency": 1, ...}]
+    
+    Args:
+        items: Список элементов (строки или dict)
+        
+    Returns:
+        Список элементов в новом формате
+    """
+    result = []
+    now = timezone.now()
+    
+    for item in items:
+        if isinstance(item, str):
+            # Старый формат — строка
+            result.append({
+                "value": item.strip(),
+                "weight": 0.5,  # дефолтный вес
+                "frequency": 1,
+                "added_at": now.isoformat(),
+                "last_seen": now.isoformat(),
+                "is_stale": False
+            })
+        elif isinstance(item, dict):
+            # Уже новый формат — проверяем и дополняем
+            if "value" in item:
+                # Дополняем missing fields
+                enriched = {
+                    "value": item.get("value", ""),
+                    "weight": item.get("weight", 0.5),
+                    "frequency": item.get("frequency", 1),
+                    "added_at": item.get("added_at", now.isoformat()),
+                    "last_seen": item.get("last_seen", now.isoformat()),
+                    "is_stale": item.get("is_stale", False)
+                }
+                result.append(enriched)
+            else:
+                # Dict без value — логируем и пропускаем
+                logger.warning(f"[convert_to_weighted] Пропущен элемент без 'value': {item}")
+        else:
+            # Неизвестный формат — логируем и пропускаем
+            logger.warning(f"[convert_to_weighted] Пропущен элемент неизвестного типа: {type(item)}")
+    
+    return result
+
+
+def validate_profile_item(item: Any) -> bool:
+    """
+    Валидирует элемент профиля.
+    
+    Args:
+        item: Элемент (строка или dict)
+        
+    Returns:
+        True если валидный
+    """
+    if isinstance(item, str):
+        return bool(item and item.strip())
+    if isinstance(item, dict):
+        return "value" in item and isinstance(item.get("weight"), (int, float))
+    return False
+
+
+def validate_weighted_field(items: List[Any]) -> Tuple[List[Dict], List[str]]:
+    """
+    Валидирует поле профиля, возвращает валидные и ошибки.
+    
+    Args:
+        items: Список элементов
+        
+    Returns:
+        (valid_items, error_messages)
+    """
+    valid = []
+    errors = []
+    
+    for i, item in enumerate(items):
+        if validate_profile_item(item):
+            if isinstance(item, dict):
+                valid.append(item)
+            else:
+                # Конвертируем строку в dict
+                valid.append(create_weighted_item(item))
+        else:
+            errors.append(f"Элемент {i}: невалидный формат — {item}")
+    
+    return valid, errors
+
+
+def update_item_frequency(items: List[Dict], value: str) -> List[Dict]:
+    """
+    Обновляет frequency для элемента с указанным value.
+    
+    Если элемент найден — увеличиваем frequency и обновляем last_seen.
+    Если не найден — добавляем новый.
+    
+    Args:
+        items: Список элементов в weighted формате
+        value: Значение для поиска/обновления
+        
+    Returns:
+        Обновлённый список
+    """
+    now = timezone.now()
+    found = False
+    
+    for item in items:
+        if item.get("value") == value:
+            item["frequency"] = item.get("frequency", 0) + 1
+            item["last_seen"] = now.isoformat()
+            item["is_stale"] = False
+            found = True
+            break
+    
+    if not found:
+        # Добавляем новый элемент
+        items.append(create_weighted_item(value, weight=0.5))
+    
+    return items
+
+
+def mark_stale_items(items: List[Dict]) -> List[Dict]:
+    """
+    Помечает элементы как stale (устаревшие) на основе TTL.
+    
+    Элемент становится stale если не встречался более DAYS_UNTIL_STALE дней.
+    
+    Args:
+        items: Список элементов в weighted формате
+        
+    Returns:
+        Список с обновлёнными is_stale флагами
+    """
+    now = timezone.now()
+    stale_threshold = now - timedelta(days=DAYS_UNTIL_STALE)
+    
+    for item in items:
+        last_seen_str = item.get("last_seen")
+        if last_seen_str:
+            try:
+                last_seen = datetime.fromisoformat(last_seen_str.replace('Z', '+00:00'))
+                if last_seen < stale_threshold:
+                    item["is_stale"] = True
+            except (ValueError, TypeError):
+                # Не удалось распарсить дату — не помечаем как stale
+                pass
+    
+    return items
+
+
+def cleanup_stale_items(items: List[Dict]) -> List[Dict]:
+    """
+    Удаляет устаревшие элементы на основе TTL.
+    
+    Удаляются если:
+    - is_stale = True И
+    - frequency < MIN_FREQUENCY_TO_KEEP И
+    - старше DAYS_UNTIL_DELETE дней
+    
+    Args:
+        items: Список элементов в weighted формате
+        
+    Returns:
+        Очищенный список
+    """
+    now = timezone.now()
+    delete_threshold = now - timedelta(days=DAYS_UNTIL_DELETE)
+    
+    result = []
+    removed_count = 0
+    
+    for item in items:
+        should_remove = False
+        
+        if item.get("is_stale"):
+            frequency = item.get("frequency", 0)
+            last_seen_str = item.get("last_seen")
+            
+            if frequency < MIN_FREQUENCY_TO_KEEP:
+                # Проверяем возраст
+                if last_seen_str:
+                    try:
+                        last_seen = datetime.fromisoformat(last_seen_str.replace('Z', '+00:00'))
+                        if last_seen < delete_threshold:
+                            should_remove = True
+                    except (ValueError, TypeError):
+                        # Не удалось определить дату — не удаляем
+                        pass
+                else:
+                    # Нет даты — удаляем
+                    should_remove = True
+        
+        if should_remove:
+            removed_count += 1
+            logger.debug(f"[cleanup_stale] Удалён элемент: {item.get('value')}")
+        else:
+            result.append(item)
+    
+    if removed_count > 0:
+        logger.info(f"[cleanup_stale] Удалено {removed_count} устаревших элементов")
+    
+    return result
+
+
+def sort_by_weight(items: List[Dict], reverse: bool = True) -> List[Dict]:
+    """
+    Сортирует элементы по weight.
+    
+    Args:
+        items: Список элементов в weighted формате
+        reverse: Если True — по убыванию (самые важные first)
+        
+    Returns:
+        Отсортированный список
+    """
+    return sorted(items, key=lambda x: x.get("weight", 0.5), reverse=reverse)
+
+
+def get_top_items(items: List[Dict], limit: int = 5) -> List[Dict]:
+    """
+    Возвращает топ-N элементов по weight.
+    
+    Args:
+        items: Список элементов в weighted формате
+        limit: Количество элементов
+        
+    Returns:
+        Топ-N элементов
+    """
+    sorted_items = sort_by_weight(items, reverse=True)
+    return sorted_items[:limit]
+
+
+def format_for_user_display(items: List[Dict]) -> List[str]:
+    """
+    Форматирует элементы для отображения пользователю.
+    
+    Args:
+        items: Список элементов в weighted формате
+        
+    Returns:
+        Список строк для отображения
+    """
+    result = []
+    for item in items:
+        value = item.get("value", "")
+        weight = item.get("weight", 0.5)
+        frequency = item.get("frequency", 1)
+        
+        # Форматируем: "шум (важность: 85%, встречается 12 раз)"
+        weight_pct = int(weight * 100)
+        result.append(f"{value} (важность: {weight_pct}%, встречается {frequency} раз)")
+    
+    return result
+
+
+def merge_profile_items(
+    existing: List[Dict],
+    new_items: List[Dict],
+    strategy: str = "max_weight"
+) -> List[Dict]:
+    """
+    Объединяет существующие элементы с новыми.
+    
+    Strategies:
+    - "max_weight": оставляем max weight
+    - "sum_frequency": суммируем frequency
+    - "replace": заменяем полностью
+    
+    Args:
+        existing: Существующие элементы
+        new_items: Новые элементы от AI
+        strategy: Стратегия объединения
+        
+    Returns:
+        Объединённый список
+    """
+    result = existing.copy()
+    
+    for new_item in new_items:
+        new_value = new_item.get("value")
+        if not new_value:
+            continue
+        
+        # Ищем существующий элемент
+        found = False
+        for existing_item in result:
+            if existing_item.get("value") == new_value:
+                found = True
+                
+                if strategy == "max_weight":
+                    # Оставляем max weight
+                    existing_item["weight"] = max(
+                        existing_item.get("weight", 0.5),
+                        new_item.get("weight", 0.5)
+                    )
+                elif strategy == "sum_frequency":
+                    # Суммируем frequency
+                    existing_item["frequency"] = (
+                        existing_item.get("frequency", 0) + 
+                        new_item.get("frequency", 1)
+                    )
+                # Обновляем last_seen
+                existing_item["last_seen"] = timezone.now().isoformat()
+                existing_item["is_stale"] = False
+                break
+        
+        if not found:
+            # Добавляем новый элемент
+            result.append(new_item)
+    
+    # Ограничиваем количество элементов
+    if len(result) > MAX_ITEMS_PER_FIELD:
+        result = sort_by_weight(result, reverse=True)[:MAX_ITEMS_PER_FIELD]
+    
+    return result
 
 
 def deduplicate_list(items: List[Any]) -> List[Any]:

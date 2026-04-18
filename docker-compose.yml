@@ -25,9 +25,9 @@ services:
 
   # Основное Django-приложение (для админки и API)
   web:
-    build:
-      context: ./app
-      dockerfile: Dockerfile
+    image: shlicha/dairy_bot:v2
+    env_file:
+      - .env
     command: >
       sh -c "python manage.py wait_for_db &&
              python manage.py migrate &&
@@ -65,12 +65,10 @@ services:
 
   # Celery Worker
   celery_worker:
-    build:
-      context: ./app
-      dockerfile: Dockerfile
+    image: shlicha/dairy_bot:v2
+    env_file:
+      - .env
     command: celery -A core worker --loglevel=info
-    volumes:
-      - ./app:/app # Для разработки
     environment:
       - DEBUG=${DEBUG}
       - DATABASE_NAME=${DATABASE_NAME}
@@ -96,12 +94,10 @@ services:
 
   # Celery Beat (для периодических задач)
   celery_beat:
-    build:
-      context: ./app
-      dockerfile: Dockerfile
-    command: celery -A core beat --loglevel=info
-    volumes:
-      - ./app:/app # Для разработки
+    image: shlicha/dairy_bot:v2
+    env_file:
+      - .env
+    command: celery -A core beat -S django_celery_beat.schedulers:DatabaseScheduler --loglevel=info
     environment:
       - DEBUG=${DEBUG}
       - DATABASE_NAME=${DATABASE_NAME}
@@ -127,12 +123,10 @@ services:
 
   # Telegram Bot (отдельный сервис)
   telegram_bot:
-    build:
-      context: ./app
-      dockerfile: Dockerfile
+    image: shlicha/dairy_bot:v2
+    env_file:
+      - .env
     command: python manage.py runbot
-    volumes:
-      - ./app:/app # Для разработки
     environment:
       - DEBUG=${DEBUG}
       - DATABASE_NAME=${DATABASE_NAME}

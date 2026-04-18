@@ -13,6 +13,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import Q
 
 from users.models import User, UserProfileHistory
+from core.profile_field_utils import field_to_ai_format
 from diary.models import WeeklyAnalysis
 from bot.services.deepseek_api import deepseek_api_service
 from prompts.get_prompt import get_prompt
@@ -142,17 +143,18 @@ class UserProfileChangeAnalysisService:
             'first_name': user.first_name or "",
             'awareness_level': user.awareness_level,
             'date_of_birth': user.date_of_birth,
-            "personality_traits": user.personality_traits,
-            "life_facts": user.life_facts,
-            "hobbies": user.hobbies,
-            "core_values": user.core_values,
-            "triggers": user.triggers,
-            "strengths": user.strengths,
-            "areas_for_growth": user.areas_for_growth,
+            # Используем адаптеры для AI
+            "personality_traits": field_to_ai_format(user.personality_traits, 'personality_traits') if user.personality_traits else [],
+            "life_facts": field_to_ai_format(user.life_facts, 'life_facts') if user.life_facts else [],
+            "hobbies": field_to_ai_format(user.hobbies, 'hobbies') if user.hobbies else [],
+            "core_values": field_to_ai_format(user.core_values, 'core_values') if user.core_values else [],
+            "triggers": field_to_ai_format(user.triggers, 'triggers') if user.triggers else [],
+            "strengths": field_to_ai_format(user.strengths, 'strengths') if user.strengths else [],
+            "areas_for_growth": field_to_ai_format(user.areas_for_growth, 'areas_for_growth') if user.areas_for_growth else [],
             "personality_insights": user.personality_insights,
-            "habits": user.habits,
-            "skills": user.skills,
-            "aspirations": user.aspirations,
+            "habits": field_to_ai_format(user.habits, 'habits') if user.habits else [],
+            "skills": field_to_ai_format(user.skills, 'skills') if user.skills else [],
+            "aspirations": field_to_ai_format(user.aspirations, 'aspirations') if user.aspirations else [],
             "personality_description": user.personality_description,
         }
         context['current_profile'] = current_profile_data
@@ -171,20 +173,21 @@ class UserProfileChangeAnalysisService:
 
         historical_snapshots_formatted = []
         for snapshot in historical_snapshots_raw:
+            # Применяем адаптеры к историческим данным
             snapshot_data = {
                 'created_at': snapshot.created_at.isoformat(),
                 'awareness_level': snapshot.awareness_level,
-                "personality_traits": snapshot.personality_traits,
-                "life_facts": snapshot.life_facts,
-                "hobbies": snapshot.hobbies,
-                "core_values": snapshot.core_values,
-                "triggers": snapshot.triggers,
-                "strengths": snapshot.strengths,
-                "areas_for_growth": snapshot.areas_for_growth,
+                "personality_traits": field_to_ai_format(snapshot.personality_traits, 'personality_traits') if snapshot.personality_traits else [],
+                "life_facts": field_to_ai_format(snapshot.life_facts, 'life_facts') if snapshot.life_facts else [],
+                "hobbies": field_to_ai_format(snapshot.hobbies, 'hobbies') if snapshot.hobbies else [],
+                "core_values": field_to_ai_format(snapshot.core_values, 'core_values') if snapshot.core_values else [],
+                "triggers": field_to_ai_format(snapshot.triggers, 'triggers') if snapshot.triggers else [],
+                "strengths": field_to_ai_format(snapshot.strengths, 'strengths') if snapshot.strengths else [],
+                "areas_for_growth": field_to_ai_format(snapshot.areas_for_growth, 'areas_for_growth') if snapshot.areas_for_growth else [],
                 "personality_insights": snapshot.personality_insights,
-                "habits": snapshot.habits,
-                "skills": snapshot.skills,
-                "aspirations": snapshot.aspirations,
+                "habits": field_to_ai_format(snapshot.habits, 'habits') if snapshot.habits else [],
+                "skills": field_to_ai_format(snapshot.skills, 'skills') if snapshot.skills else [],
+                "aspirations": field_to_ai_format(snapshot.aspirations, 'aspirations') if snapshot.aspirations else [],
                 "personality_description": snapshot.personality_description,
             }
             historical_snapshots_formatted.append(snapshot_data)

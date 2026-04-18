@@ -16,6 +16,7 @@ from diary.services.smart_prompt_manager import smart_prompt_manager
 from bot.services.diary_service import diary_service
 from bot.services.deepseek_api import deepseek_api_service
 from prompts.get_prompt import get_prompt
+from core.profile_field_utils import field_to_ai_format
 
 logger = logging.getLogger(__name__)
 
@@ -242,16 +243,17 @@ class FullDayAnalysisService:
             'first_name': user.first_name or "",
             'awareness_level': user.awareness_level,
             'is_premium': user.is_premium,
-            "personality_traits": user.personality_traits,
-            "life_facts": user.life_facts,
-            "hobbies": user.hobbies,
-            "core_values": user.core_values,
-            "triggers": user.triggers,
-            "strengths": user.strengths,
-            "areas_for_growth": user.areas_for_growth,
-            "habits": user.habits,
-            "skills": user.skills,
-            "aspirations": user.aspirations
+            # Используем адаптеры для AI — возвращают простой формат
+            "personality_traits": field_to_ai_format(user.personality_traits, 'personality_traits') if user.personality_traits else [],
+            "life_facts": field_to_ai_format(user.life_facts, 'life_facts') if user.life_facts else [],
+            "hobbies": field_to_ai_format(user.hobbies, 'hobbies') if user.hobbies else [],
+            "core_values": field_to_ai_format(user.core_values, 'core_values') if user.core_values else [],
+            "triggers": field_to_ai_format(user.triggers, 'triggers') if user.triggers else [],
+            "strengths": field_to_ai_format(user.strengths, 'strengths') if user.strengths else [],
+            "areas_for_growth": field_to_ai_format(user.areas_for_growth, 'areas_for_growth') if user.areas_for_growth else [],
+            "habits": field_to_ai_format(user.habits, 'habits') if user.habits else [],
+            "skills": field_to_ai_format(user.skills, 'skills') if user.skills else [],
+            "aspirations": field_to_ai_format(user.aspirations, 'aspirations') if user.aspirations else [],
         }
         context = {
             "user_profile": extended_user_profile,

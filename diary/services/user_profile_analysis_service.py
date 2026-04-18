@@ -17,6 +17,7 @@ from users.models import User, UserProfileHistory
 from diary.models import WeeklyAnalysis, TaskCompletionAnalysis
 from bot.services.deepseek_api import deepseek_api_service
 from prompts.get_prompt import get_prompt
+from core.profile_field_utils import field_to_ai_format
 
 logger = logging.getLogger(__name__)
 
@@ -155,17 +156,18 @@ class UserProfileAnalysisService:
             'first_name': user.first_name or "",
             'awareness_level': user.awareness_level,
             'date_of_birth': user.date_of_birth,
-            "personality_traits": json.dumps(user.personality_traits, cls=DjangoJSONEncoder, ensure_ascii=False),
-            "life_facts": json.dumps(user.life_facts, cls=DjangoJSONEncoder, ensure_ascii=False),
-            "hobbies": json.dumps(user.hobbies, cls=DjangoJSONEncoder, ensure_ascii=False),
-            "core_values": json.dumps(user.core_values, cls=DjangoJSONEncoder, ensure_ascii=False),
-            "triggers": json.dumps(user.triggers, cls=DjangoJSONEncoder, ensure_ascii=False),
-            "strengths": json.dumps(user.strengths, cls=DjangoJSONEncoder, ensure_ascii=False),
-            "areas_for_growth": json.dumps(user.areas_for_growth, cls=DjangoJSONEncoder, ensure_ascii=False),
-            "personality_insights": json.dumps(user.personality_insights, cls=DjangoJSONEncoder, ensure_ascii=False),
-            "habits": json.dumps(user.habits, cls=DjangoJSONEncoder, ensure_ascii=False),
-            "skills": json.dumps(user.skills, cls=DjangoJSONEncoder, ensure_ascii=False),
-            "aspirations": json.dumps(user.aspirations, cls=DjangoJSONEncoder, ensure_ascii=False),
+            # Используем адаптеры для AI — возвращают простой формат ["значение1", "значение2"]
+            "personality_traits": json.dumps(field_to_ai_format(user.personality_traits, 'personality_traits'), cls=DjangoJSONEncoder, ensure_ascii=False) if user.personality_traits else "[]",
+            "life_facts": json.dumps(field_to_ai_format(user.life_facts, 'life_facts'), cls=DjangoJSONEncoder, ensure_ascii=False) if user.life_facts else "[]",
+            "hobbies": json.dumps(field_to_ai_format(user.hobbies, 'hobbies'), cls=DjangoJSONEncoder, ensure_ascii=False) if user.hobbies else "[]",
+            "core_values": json.dumps(field_to_ai_format(user.core_values, 'core_values'), cls=DjangoJSONEncoder, ensure_ascii=False) if user.core_values else "[]",
+            "triggers": json.dumps(field_to_ai_format(user.triggers, 'triggers'), cls=DjangoJSONEncoder, ensure_ascii=False) if user.triggers else "[]",
+            "strengths": json.dumps(field_to_ai_format(user.strengths, 'strengths'), cls=DjangoJSONEncoder, ensure_ascii=False) if user.strengths else "[]",
+            "areas_for_growth": json.dumps(field_to_ai_format(user.areas_for_growth, 'areas_for_growth'), cls=DjangoJSONEncoder, ensure_ascii=False) if user.areas_for_growth else "[]",
+            "personality_insights": json.dumps(user.personality_insights, cls=DjangoJSONEncoder, ensure_ascii=False) if user.personality_insights else "{}",
+            "habits": json.dumps(field_to_ai_format(user.habits, 'habits'), cls=DjangoJSONEncoder, ensure_ascii=False) if user.habits else "[]",
+            "skills": json.dumps(field_to_ai_format(user.skills, 'skills'), cls=DjangoJSONEncoder, ensure_ascii=False) if user.skills else "[]",
+            "aspirations": json.dumps(field_to_ai_format(user.aspirations, 'aspirations'), cls=DjangoJSONEncoder, ensure_ascii=False) if user.aspirations else "[]",
             "personality_description": user.personality_description,
         }
         context['user_profile'] = user_profile_data

@@ -230,44 +230,39 @@ class UserProfileService:
         error = None
 
         try:
+            # Импортируем адаптеры для нового формата
+            from core.profile_field_utils import field_to_display_format
+            
             if isinstance(field_value, list):
                 if field_value:
-                    formatted_items = []
-                    item_emoji = "\n🔸"
-                    for item in field_value:
-                        if isinstance(item, dict):
-                            item_text = item.get('text') or item.get('name') or item.get('theme') or item.get('emotion') or item.get('category') or str(item)
-                            item_text = item_text or item.get('insight') or item.get('pattern') or item_text
-                            if 'text' in item and 'category' in item:
-                                insight_text = item['text']
-                                insight_category = item['category']
-                                formatted_items.append(f"{item_emoji} {insight_text} ({get_message('category', language)}: {insight_category})")
-                            elif 'emotion' in item and 'context' in item:
-                                emotion_text = item['emotion']
-                                emotion_context = item['context']
-                                formatted_items.append(f"{item_emoji} {emotion_text} ({get_message('context', language)}: {emotion_context})")
-                            else:
-                                formatted_items.append(f"{item_emoji} {item_text}")
-                        else:
-                            formatted_items.append(f"{item_emoji} {item}")
-                    joined_items = "".join(formatted_items)
-                    full_text_candidate = f"<b>{field_display_name}</b>{joined_items}"
-                    if len(full_text_candidate) > MAX_MESSAGE_LENGTH:
-                        header = f"<b>{field_display_name}</b>"
-                        current_length = len(header)
-                        truncated_items = []
-                        for item_str in formatted_items:
-                            if current_length + len(item_str) <= MAX_MESSAGE_LENGTH:
-                                truncated_items.append(item_str)
-                                current_length += len(item_str)
-                            else:
-                                trunc_indicator = get_message('profile_field_truncated_indicator', language)
-                                if current_length + len(trunc_indicator) <= MAX_MESSAGE_LENGTH:
-                                    truncated_items.append(trunc_indicator)
-                                break
-                        field_text = header + "".join(truncated_items)
+                    # Используем адаптер для корректного отображения
+                    # (работает и со старым форматом ["строка"], и с новым [{"value": ...}])
+                    formatted_items = field_to_display_format(field_value, field_key)
+                    
+                    if formatted_items:
+                        item_emoji = "\n🔸"
+                        formatted_with_emoji = [f"{item_emoji} {item}" for item in formatted_items]
+                        joined_items = "".join(formatted_with_emoji)
+                        field_text = f"<b>{field_display_name}</b>{joined_items}"
+                        
+                        # Проверка на максимальную длину
+                        if len(field_text) > MAX_MESSAGE_LENGTH:
+                            header = f"<b>{field_display_name}</b>"
+                            current_length = len(header)
+                            truncated_items = []
+                            for item_str in formatted_items:
+                                item_with_emoji = f"{item_emoji} {item_str}"
+                                if current_length + len(item_with_emoji) <= MAX_MESSAGE_LENGTH:
+                                    truncated_items.append(item_with_emoji)
+                                    current_length += len(item_with_emoji)
+                                else:
+                                    trunc_indicator = get_message('profile_field_truncated_indicator', language)
+                                    if current_length + len(trunc_indicator) <= MAX_MESSAGE_LENGTH:
+                                        truncated_items.append(trunc_indicator)
+                                    break
+                            field_text = header + "".join(truncated_items)
                     else:
-                        field_text = full_text_candidate
+                        field_text = f"<b>{field_display_name}</b>" + get_message('profile_field_empty_list', language)
                 else:
                     field_text = f"<b>{field_display_name}</b>" + get_message('profile_field_empty_list', language)
             elif isinstance(field_value, dict):
