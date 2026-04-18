@@ -81,26 +81,21 @@ class TherapyChatService:
         try:
             history_str = "\n".join([f"{item['role']}: {item['content']}" for item in current_history])
             base_profile = await user.aget_profile_data()
+            # Используем compressed_psych_profile для экономии токенов
+            import json
+            compressed_profile = user.compressed_psych_profile or {}
+            compressed_profile_json = json.dumps(compressed_profile, ensure_ascii=False, indent=2)
             extended_user_context = {
                 "first_name": base_profile.get('first_name', 'Пользователь'),
                 "awareness_level": base_profile.get('awareness_level', 1),
                 "is_premium": base_profile.get('is_premium', False),
                 "entries_count": base_profile.get('entries_count', 0),
-                "personality_traits": user.personality_traits,
-                "life_facts": user.life_facts,
-                "hobbies": user.hobbies,
-                "core_values": user.core_values,
-                "triggers": user.triggers,
-                "strengths": user.strengths,
-                "areas_for_growth": user.areas_for_growth,
-                "habits": user.habits,
-                "skills": user.skills,
-                "aspirations": user.aspirations
             }
             prompt = get_prompt(
                 key='therapy_chat',
                 language=user.language,
                 user_profile=extended_user_context,
+                compressed_psych_profile_json=compressed_profile_json,
                 history=history_str or "",
                 user_message=user_message_text
             )

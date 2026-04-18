@@ -15,9 +15,15 @@ logger = logging.getLogger(__name__)
 
 class User(AbstractUser):
     """
-    Расширенная модель пользователя для Telegram бота
+    Расширенная модель пользователя для Telegram бота и web-версии.
     """
-    telegram_id = models.BigIntegerField(unique=True, verbose_name="Telegram ID")
+    telegram_id = models.BigIntegerField(
+        unique=True, 
+        null=True, 
+        blank=True,
+        verbose_name="Telegram ID",
+        help_text="Может быть NULL для web-only пользователей"
+    )
     language = models.CharField(
         max_length=2, 
         choices=[('ru', 'Русский'), ('en', 'English')], 
@@ -91,8 +97,19 @@ class User(AbstractUser):
             "emotional_style, main_triggers, coping_style, current_focus."
         )
     )
+    full_psych_profile = EncryptedJSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Полный психологический профиль",
+        help_text=(
+            "Полный психологический профиль для пользователя. "
+            "Генерируется weekly analysis. Содержит: summary, traits, values, "
+            "triggers, strengths, growth_areas, insights, habits, skills, aspirations."
+        )
+    )
     date_of_birth = models.DateField(null=True, blank=True, verbose_name="Дата рождения")
     email = EncryptedEmailField(blank=True, verbose_name="Email")
+    email_hash = models.CharField(max_length=64, blank=True, editable=False, verbose_name="Email hash (для поиска)")
     token_balance = models.PositiveIntegerField(default=0, verbose_name="Баланс токенов")
     last_streak_reward_7 = models.PositiveIntegerField(
         default=0,
@@ -117,8 +134,14 @@ class User(AbstractUser):
 
     def __str__(self):
         return f"{self.username} ({self.telegram_id})"
-    
     def save(self, *args, **kwargs):
+        # Генерируем hash email для поиска (deterministic)
+        if self.email:
+            import hashlib
+            self.email_hash = hashlib.sha256(self.email.lower().encode()).hexdigest()
+        else:
+            self.email_hash = ''
+        
         if not self.referral_link:
             self.referral_link = f"ref_{self.telegram_id}_{secrets.token_urlsafe(8)}"
         super().save(*args, **kwargs)
@@ -449,6 +472,7 @@ class Payment(models.Model):
         ('subscription_year', 'Подписка (год)'),
         ('tokens_custom', 'Токены (произвольно)'),
         ('tokens_10', 'Токены (10 шт)'),
+        ('tokens_50', 'Токены (50 шт)'),
         ('tokens_100', 'Токены (100 шт)'),
         ('tokens_200', 'Токены (200 шт)'),
         ('tokens_500', 'Токены (500 шт)'),

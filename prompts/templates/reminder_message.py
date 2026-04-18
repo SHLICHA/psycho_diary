@@ -5,9 +5,9 @@ REMINDER_MESSAGE_PROMPT = {
 
 ### 📥 ВХОДНЫЕ ДАННЫЕ
 
-**Профиль пользователя:**
-{user_profile}
-*Содержит: имя (first_name), уровень осознанности (awareness_level), черты характера (personality_traits), факты о жизни (life_facts), увлечения (hobbies), ценности (core_values), триггеры (triggers), сильные стороны (strengths), зоны роста (areas_for_growth), привычки (habits), навыки (skills), стремления (aspirations).*
+**Сжатый психологический профиль (compressed_psych_profile):**
+{compressed_psych_profile_json}
+*Используй этот профиль для персонализации: psych_summary, core_patterns, emotional_style, main_triggers, coping_style, current_focus.*
 
 **Количество незавершенных заданий:**
 {uncompleted_tasks_count}
@@ -50,9 +50,9 @@ REMINDER_MESSAGE_PROMPT = {
 
 ### 📥 INPUT DATA
 
-**User Profile:**
-{user_profile}
-*Contains: first_name, awareness_level, personality_traits, life_facts, hobbies, core_values, triggers, strengths, areas_for_growth, habits, skills, aspirations.*
+**Compressed psychological profile (compressed_psych_profile):**
+{compressed_psych_profile_json}
+*Use this profile for personalization: psych_summary, core_patterns, emotional_style, main_triggers, coping_style, current_focus.*
 
 **Number of uncompleted tasks:**
 {uncompleted_tasks_count}

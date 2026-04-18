@@ -129,6 +129,12 @@ async def _send_morning_motivation_async():
                         def get_entries_count():
                             return user.diary_entries.count()
                         entries_count = await get_entries_count()
+                        
+                        # Используем compressed_psych_profile для экономии токенов
+                        import json
+                        compressed_profile = user.compressed_psych_profile or {}
+                        compressed_profile_json = json.dumps(compressed_profile, ensure_ascii=False, indent=2)
+                        
                         user_profile_data = {
                             'first_name': user.first_name or user.username or f'Пользователь {user.telegram_id}',
                             'awareness_level': user.awareness_level,
@@ -136,7 +142,9 @@ async def _send_morning_motivation_async():
                             'entries_count': entries_count,
                             'username': user.username,
                             'language': user.language,
-                            'telegram_id': user.telegram_id
+                            'telegram_id': user.telegram_id,
+                            # Сжатый профиль для AI (вместо полного профиля)
+                            'compressed_psych_profile_json': compressed_profile_json,
                         }
                         profile_change_summary_for_ai = ""
                         if profile_update_info.get('changed'):
@@ -166,6 +174,7 @@ async def _send_morning_motivation_async():
                             key='morning_motivation',
                             language=user_language,
                             user_profile=user_profile_data,
+                            compressed_psych_profile_json=compressed_profile_json,
                             previous_day_analysis=previous_day_analysis_data,
                             # --- ПЕРЕДАЧА ИНФОРМАЦИИ ОБ ИЗМЕНЕНИИ ПРОФИЛЯ ---
                             profile_changed=profile_update_info.get('changed', False),

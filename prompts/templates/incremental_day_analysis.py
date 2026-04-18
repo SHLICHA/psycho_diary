@@ -391,11 +391,9 @@ INCREMENTAL_DAY_ANALYSIS_LITE_PROMPT = {
 **Текущее состояние дня:**
 {ai_state_data}
 
-**Профиль пользователя:**
-Имя: {first_name}
-Факты о жизни: {user_life_facts}
-Сильные стороны: {user_strengths}
-Триггеры: {user_triggers}
+**Сжатый психологический профиль (compressed_psych_profile):**
+{compressed_psych_profile_json}
+
 ---
 
 ### 🧠 ИНСТРУКЦИЯ
@@ -411,7 +409,13 @@ INCREMENTAL_DAY_ANALYSIS_LITE_PROMPT = {
     *   Сформируй `analysis` — **одно предложение** с кратким резюме дня.
     *   Обнови `updated_ai_state_data` — 1-2 предложения о ключевых темах дня для дальнейшего анализа.
 
-    *Используй факты о жизни, сильные стороны и триггеры пользователя для персонализации.*
+    *Используй данные из `compressed_psych_profile` для персонализации:*
+    *   `psych_summary` — общее описание личности
+    *   `core_patterns` — ключевые паттерны поведения
+    *   `emotional_style` — эмоциональный стиль
+    *   `main_triggers` — основные триггеры
+    *   `coping_style` — стиль совладания
+    *   `current_focus` — текущий фокус внимания
 
     *В конце `analysis` или `comment` можно кратко и ненавязчиво упомянуть:*
     _«Полный анализ с заданиями и уточняющими вопросами доступен с подпиской.»_
@@ -448,11 +452,9 @@ INCREMENTAL_DAY_ANALYSIS_LITE_PROMPT = {
 **Current day state:**
 {ai_state_data}
 
-**User Profile:**
-Name: {first_name}
-Life Facts: {user_life_facts}
-Strengths: {user_strengths}
-Triggers: {user_triggers}
+**Compressed psychological profile (compressed_psych_profile):**
+{compressed_psych_profile_json}
+
 ---
 
 ### 🧠 INSTRUCTIONS
@@ -468,7 +470,13 @@ Triggers: {user_triggers}
     *   Form an `analysis` — **one sentence** summarizing the day.
     *   Update `updated_ai_state_data` — 1-2 sentences on key themes of the day for further analysis.
 
-    *Use the user's life facts, strengths, and triggers to personalize the response.*
+    *Use data from `compressed_psych_profile` for personalization:*
+    *   `psych_summary` — overall personality description
+    *   `core_patterns` — key behavioral patterns
+    *   `emotional_style` — emotional style
+    *   `main_triggers` — main triggers
+    *   `coping_style` — coping style
+    *   `current_focus` — current focus of attention
 
     *At the end of `analysis` or `comment`, you can briefly and unobtrusively mention:*
     _"Full analysis with tasks and clarifying questions is available with a subscription."_

@@ -8,8 +8,9 @@ THERAPY_CHAT_PROMPT = {
 
 ### 📥 ВХОДНЫЕ ДАННЫЕ
 
-**Профиль пользователя:**
-{user_profile}
+**Сжатый психологический профиль (compressed_psych_profile):**
+{compressed_psych_profile_json}
+*Используй этот профиль для персонализации: psych_summary, core_patterns, emotional_style, main_triggers, coping_style, current_focus.*
 
 **История чата (предыдущие сообщения и ответы):**
 {history}
@@ -54,8 +55,9 @@ THERAPY_CHAT_PROMPT = {
 
 ### 📥 INPUT DATA
 
-**User Profile:**
-{user_profile}
+**Compressed psychological profile (compressed_psych_profile):**
+{compressed_psych_profile_json}
+*Use this profile for personalization: psych_summary, core_patterns, emotional_style, main_triggers, coping_style, current_focus.*
 
 **Chat History (previous messages and responses):**
 {history}

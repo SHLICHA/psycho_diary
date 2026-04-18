@@ -75,17 +75,15 @@ class FullDayAnalysisService:
                 )
                 logger.debug(f"[FullDayAnalysisService] Используется ПОЛНЫЙ промпт (premium) для {user.telegram_id} за {target_date} (длина: {len(prompt)} символов)")
             else:
-                # LITE: сокращённый профиль, но полный entry_analyses
-                lite_profile = {
-                    'first_name': context['user_profile'].get('first_name', ''),
-                    'life_facts': context['user_profile'].get('life_facts', []),
-                    'strengths': context['user_profile'].get('strengths', []),
-                    'triggers': context['user_profile'].get('triggers', []),
-                }
+                # LITE: используем compressed_psych_profile вместо старых полей
+                import json
+                compressed_profile = user.compressed_psych_profile or {}
+                compressed_profile_json = json.dumps(compressed_profile, ensure_ascii=False, indent=2)
+                
                 prompt = get_prompt(
                     key='full_day_analysis_lite',
                     language=user.language,
-                    user_profile=lite_profile,
+                    compressed_psych_profile_json=compressed_profile_json,
                     all_entries_combined_text=context['all_entries_combined_text'],
                     entry_analyses=context['entry_analyses'],
                     daily_mood_scores=context['daily_mood_scores'],

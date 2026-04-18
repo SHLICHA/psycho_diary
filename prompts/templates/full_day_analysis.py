@@ -210,9 +210,9 @@ FULL_DAY_ANALYSIS_LITE_PROMPT = {
 
 ### 📥 ВХОДНЫЕ ДАННЫЕ
 
-**Профиль пользователя:**
-{user_profile}
-*Имя, факты о жизни, сильные стороны, триггеры.*
+**Сжатый психологический профиль (compressed_psych_profile):**
+{compressed_psych_profile_json}
+*Используй этот профиль для персонализации анализа.*
 
 **Все записи за день:**
 {all_entries_combined_text}
@@ -223,8 +223,6 @@ FULL_DAY_ANALYSIS_LITE_PROMPT = {
 
 **Оценки настроения за день:**
 {daily_mood_scores}
-
-*Используй факты о жизни, сильные стороны и триггеры для персонализации анализа.*
 
 ---
 
@@ -286,9 +284,9 @@ FULL_DAY_ANALYSIS_LITE_PROMPT = {
 
 ### 📥 INPUT DATA
 
-**User Profile:**
-{user_profile}
-*Name, life facts, strengths, triggers.*
+**Compressed psychological profile (compressed_psych_profile):**
+{compressed_psych_profile_json}
+*Use this profile for personalization.*
 
 **All entries for the day:**
 {all_entries_combined_text}
@@ -299,8 +297,6 @@ FULL_DAY_ANALYSIS_LITE_PROMPT = {
 
 **Mood scores for the day:**
 {daily_mood_scores}
-
-*Use life facts, strengths, and triggers to personalize the analysis.*
 
 ---
 

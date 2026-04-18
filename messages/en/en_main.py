@@ -89,5 +89,19 @@ Ready to share your thoughts?''',
 
 'unexpected_text_message': '''💬 It seems you'd like to chat with me!\n\nIf you want to have a conversation on any topic — tap "💬 Talk to Psychologist" in the main menu.\n\nIf you'd like to make a diary entry for analysis and inclusion in your psychological profile — choose "📝 New Entry".''',
 'unexpected_voice_message': '''💬 Voice message received!\n\nTo have it analyzed as a diary entry — choose "📝 New Entry".\n\nIf you just want to talk — tap "💬 Talk to Psychologist".''',
+
+        # === Web Auth ===
+        'web_link_generated': '''🌐 <b>Web Login Link</b>
+
+Click the link to authorize:
+{auth_url}
+
+Link expires in 5 minutes.''',
+        'web_link_invalid': '❌ Invalid link. Try getting a new one.',
+        'web_link_expired': '⏰ Link expired. Type /web to get a new one.',
+        'web_link_telegram_already_linked': '❌ This Telegram is already linked to another account.',
+        'web_link_account_already_linked': '❌ This account already has another Telegram linked.',
+        'web_link_success': '✅ <b>Telegram successfully linked!</b>\n\nNow you can use {username} in both the bot and web.',
+
     }
 }

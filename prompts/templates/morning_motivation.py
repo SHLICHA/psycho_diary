@@ -5,9 +5,9 @@ MORNING_MOTIVATION_PROMPT = {
 
 ### 📥 ВХОДНЫЕ ДАННЫЕ
 
-**Профиль пользователя:**
-{user_profile}
-*Включает имя, уровень осознанности, дата рождения, психологический портрет: черты характера, факты о жизни, увлечения, ценности, триггеры, сильные стороны, зоны роста, привычки, навыки, стремления.*
+**Сжатый психологический профиль (compressed_psych_profile):**
+{compressed_psych_profile_json}
+*Используй этот профиль для персонализации: psych_summary, core_patterns, emotional_style, main_triggers, coping_style, current_focus.*
 
 **Анализ предыдущего дня (если есть):**
 {previous_day_analysis}
@@ -21,10 +21,9 @@ MORNING_MOTIVATION_PROMPT = {
 2.  **Сформируй короткое (2-5 предложения), позитивное и мотивирующее сообщение.**
 3.  **Постарайся учесть:**
     *   Имя пользователя.
-    *   Зоны роста.
+    *   Данные из `compressed_psych_profile`: текущий фокус, эмоциональный стиль, ключевые паттерны.
     *   Ключевые темы или инсайты из предыдущего дня (если они есть и уместны).
-    *   Ценности или стремления пользователя.
-    *   Его сильные стороны.
+    *   Стиль совладания (coping_style) — как пользователь справляется со стрессом.
 4.  **Сообщение должно быть дружелюбным и поддерживающим.**
 5.  **СООБЩЕНИЕ ДОЛЖНО БЫТЬ ВИЗУАЛЬНО ОФОРМЛЕНО:**
     *   Начинай с приветствия с эмодзи, например: "🌅 <b>Доброе утро, [Имя]!</b>"
@@ -50,9 +49,9 @@ MORNING_MOTIVATION_PROMPT = {
 
 ### 📥 INPUT DATA
 
-**User Profile:**
-{user_profile}
-*Includes name, awareness level, day of birth, psychological profile: personality traits, life facts, hobbies, core values, triggers, strengths, areas for growth, habits, skills, aspirations.*
+**Compressed psychological profile (compressed_psych_profile):**
+{compressed_psych_profile_json}
+*Use this profile for personalization: psych_summary, core_patterns, emotional_style, main_triggers, coping_style, current_focus.*
 
 **Previous day analysis (if any):**
 {previous_day_analysis}
@@ -66,9 +65,9 @@ MORNING_MOTIVATION_PROMPT = {
 2.  **Form a short (2-5 sentences), positive, and motivational message.**
 3.  **Try to consider:**
     *   The user's name.
+    *   Data from `compressed_psych_profile`: current focus, emotional style, key patterns.
     *   Key themes or insights from the previous day (if available and appropriate).
-    *   The user's core values or aspirations.
-    *   The user's strengths.
+    *   Coping style — how the user handles stress.
 4.  **The message should be friendly and supportive.**
 5.  **THE MESSAGE SHOULD BE VISUALLY FORMATTED:**
     *   Start with a greeting with an emoji, for example: "🌅 <b>Good morning, [Name]!</b>"

@@ -56,7 +56,7 @@ class TestHelpStructure:
     def test_help_message_keys_exist(self):
         """Проверка наличия ключей сообщений помощи"""
         # Проверяем messages.py на наличие ключей помощи
-        with open('messages.py', 'r', encoding='utf-8') as f:
+        with open('messages/ru/ru_help.py', 'r', encoding='utf-8') as f:
             content = f.read()
         
         help_keys = [

@@ -386,21 +386,38 @@ class UserProfileAnalysisService:
                         f"[UserProfileAnalysisService] Ошибка при очистке дубликатов: {cleanup_error}"
                     )
 
-                # После обновления профиля — генерируем compressed_psych_profile
-                try:
-                    from diary.services.compressed_profile_service import compressed_profile_service
-                    compressed = compressed_profile_service.generate_for_user(user)
-                    if compressed:
-                        user.compressed_psych_profile = compressed
-                        user.save(update_fields=['compressed_psych_profile'])
-                        logger.debug(
-                            f"[UserProfileAnalysisService] compressed_psych_profile сгенерирован "
-                            f"для пользователя {user.telegram_id}"
-                        )
-                except Exception as compressed_error:
-                    logger.warning(
-                        f"[UserProfileAnalysisService] Ошибка генерации compressed_psych_profile: {compressed_error}"
+                # После обновления профиля — сохраняем compressed_psych_profile из ответа AI
+                # По RECOMENDATIONS_ANALISYS.md: AI генерирует compressed_psych_profile
+                compressed_from_ai = parsed_result.get('compressed_psych_profile')
+                
+                if compressed_from_ai and isinstance(compressed_from_ai, dict):
+                    # Используем AI-сгенерированный профиль
+                    user.compressed_psych_profile = compressed_from_ai
+                    user.save(update_fields=['compressed_psych_profile'])
+                    logger.debug(
+                        f"[UserProfileAnalysisService] compressed_psych_profile сохранён из AI "
+                        f"для пользователя {user.telegram_id}"
                     )
+                else:
+                    # Fallback: используем heuristic (старый способ)
+                    logger.debug(
+                        f"[UserProfileAnalysisService] AI не вернул compressed_psych_profile, "
+                        f"используем heuristic для пользователя {user.telegram_id}"
+                    )
+                    try:
+                        from diary.services.compressed_profile_service import compressed_profile_service
+                        compressed = compressed_profile_service.generate_for_user(user)
+                        if compressed:
+                            user.compressed_psych_profile = compressed
+                            user.save(update_fields=['compressed_psych_profile'])
+                            logger.debug(
+                                f"[UserProfileAnalysisService] compressed_psych_profile сгенерирован "
+                                f"(heuristic) для пользователя {user.telegram_id}"
+                            )
+                    except Exception as compressed_error:
+                        logger.warning(
+                            f"[UserProfileAnalysisService] Ошибка генерации compressed_psych_profile: {compressed_error}"
+                        )
 
                 return True
             else:

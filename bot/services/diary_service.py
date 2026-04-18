@@ -599,6 +599,12 @@ class DiaryService:
             logger.debug(f"[process_new_entry_logic] Используется ПОЛНЫЙ промпт (premium) для пользователя {user.telegram_id}")
         else:
             prompt_key = 'incremental_day_analysis_lite'
+            
+            # Получаем сжатый профиль для LITE промпта
+            import json
+            compressed_profile = user.compressed_psych_profile or {}
+            compressed_profile_json = json.dumps(compressed_profile, ensure_ascii=False, indent=2)
+            
             prompt = get_prompt(
                 key=prompt_key,
                 language=language,
@@ -607,9 +613,7 @@ class DiaryService:
                 new_entry_creation_time_local=new_entry_creation_time_local,
                 ai_state_data=ai_state_data,
                 first_name=extended_user_context["first_name"],
-                user_life_facts=extended_user_context["life_facts"],
-                user_strengths=extended_user_context["strengths"],
-                user_triggers=extended_user_context["triggers"],
+                compressed_psych_profile_json=compressed_profile_json,
             )
             logger.debug(f"[process_new_entry_logic] Используется LITE промпт (без подписки) для пользователя {user.telegram_id}")
 

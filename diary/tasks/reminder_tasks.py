@@ -153,10 +153,15 @@ async def _send_entry_reminders_async():
                         previous_day_text = ""
                         previous_day_analysis = {}
                     user_profile_data = await user.aget_profile_data()
+                    # Используем compressed_psych_profile для экономии токенов
+                    import json
+                    compressed_profile = user.compressed_psych_profile or {}
+                    compressed_profile_json = json.dumps(compressed_profile, ensure_ascii=False, indent=2)
                     prompt = get_prompt(
                         key='reminder_message',
                         language=language,
                         user_profile=user_profile_data,
+                        compressed_psych_profile_json=compressed_profile_json,
                         uncompleted_tasks_count=uncompleted_tasks_count,
                         current_streak=current_streak,
                         longest_streak=longest_streak,

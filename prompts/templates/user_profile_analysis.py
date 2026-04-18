@@ -59,7 +59,17 @@ USER_PROFILE_ANALYSIS_PROMPT = {
         *   Чтобы **удалить** элемент: используй формат `{{"remove": "старый_элемент"}}`. Используй это *только* для подтверждённого удаления. **Без этой пометки элемент останется в профиле навсегда.** Если ты видишь, что элемент устарел — обязательно используй этот формат.
     *   Для `personality_traits` и `personality_insights` (словари):
         *   Предоставь обновленный словарь с *актуальными* ключами и значениями. *Объедини* информацию, если ключи близки по смыслу (например, "мотивация_работа", "мотивация_проекты" -> "мотивация_достижения"). *Удали* только *если подтверждено* утратили актуальность.
-4.  **НЕ ВКЛЮЧАЙ `awareness_level`, `first_name`, `date_of_birth`** в свой ответ.
+4.  **Создай `compressed_psych_profile`** — сжатое представление профиля для использования в кратких анализах (LITE):
+    *   `psych_summary` (3-5 предложений): Краткое описание личности — основные черты, ценности, текущее эмоциональное состояние
+    *   `core_patterns` (3-5 items): Ключевые поведенческие паттерны, которые ты заметил
+    *   `emotional_style` (1 предложение): Как пользователь обычно реагирует на события
+    *   `main_triggers` (2-3 items): Главные эмоциональные триггеры
+    *   `coping_style` (1 предложение): Как пользователь обычно справляется со стрессом
+    *   `current_focus` (1-2 предложения): Что сейчас главное для пользователя
+
+    *Этот профиль будет использоваться в кратких анализах записей вместо полного профиля.*
+
+5.  **НЕ ВКЛЮЧАЙ `awareness_level`, `first_name`, `date_of_birth`** в свой ответ.
 
 ### 📤 ОТВЕТ В СТРОГОМ ФОРМАТЕ JSON
 
@@ -112,7 +122,15 @@ USER_PROFILE_ANALYSIS_PROMPT = {
   "aspirations": [
     "повысить эмоциональный интеллект",
     "найти баланс"
-  ]
+  ],
+  "compressed_psych_profile": {
+    "psych_summary": "Краткое описание личности (3-5 предложений) — основные черты, ценности и текущее состояние",
+    "core_patterns": ["ключевой паттерн 1", "ключевой паттерн 2", "ключевой паттерн 3"],
+    "emotional_style": "Описание эмоционального стиля (1 предложение)",
+    "main_triggers": ["основной триггер 1", "основной триггер 2"],
+    "coping_style": "Описание стиля совладания со стрессом (1 предложение)",
+    "current_focus": "Текущий фокус внимания/главная тема (1-2 предложения)"
+  }
 }}
 ```''',
     'en': '''You are an expert psychologist with a deep understanding of human personality. Your task is to create or update a profound psychological portrait of the user based on the provided data. You will receive their current profile, a history of weekly analyses, and the impact of key completed tasks. Your goal is to synthesize this information into a coherent, accurate, and *current* description of the personality, *merging* items with similar meaning and *cleaning* up duplicates. Only remove items that have *clearly* lost relevance (e.g., a confirmed rejection of a value or an outdated fact).
@@ -175,7 +193,17 @@ Aspirations (JSON): {user_profile[aspirations]}
         *   To **remove** an item: use the format `{{"remove": "old_item"}}`. Use this *only* for confirmed removals. **Without this marker, the item will remain in the profile forever.** If you see that an item is outdated — always use this format.
     *   For `personality_traits` and `personality_insights` (dictionaries):
         *   Provide an updated dictionary with *current* keys and values. *Merge* information if keys are similar in meaning (e.g., "motivation_job", "motivation_projects" -> "motivation_achievements"). *Remove* only *if confirmedly* no longer relevant.
-4.  **DO NOT INCLUDE `awareness_level`, `first_name`, `date_of_birth`** in your response.
+4.  **Create `compressed_psych_profile`** — compact profile representation for use in brief analyses (LITE):
+    *   `psych_summary` (3-5 sentences): Brief personality description — main traits, values, current emotional state
+    *   `core_patterns` (3-5 items): Key behavioral patterns you've noticed
+    *   `emotional_style` (1 sentence): How the user typically responds to events
+    *   `main_triggers` (2-3 items): Main emotional triggers
+    *   `coping_style` (1 sentence): How the user typically copes with stress
+    *   `current_focus` (1-2 sentences): What's currently most important for the user
+
+    *This profile will be used in brief entry analyses instead of the full profile.*
+
+5.  **DO NOT INCLUDE `awareness_level`, `first_name`, `date_of_birth`** in your response.
 
 ### 📤 RESPONSE IN STRICT JSON FORMAT
 
@@ -228,7 +256,15 @@ RESPOND ONLY IN THE FOLLOWING JSON FORMAT, enclosed in triple backticks (```json
   "aspirations": [
     "increase emotional intelligence",
     "find balance"
-  ]
+  ],
+  "compressed_psych_profile": {
+    "psych_summary": "Brief personality description (3-5 sentences) — main traits, values, and current state",
+    "core_patterns": ["key pattern 1", "key pattern 2", "key pattern 3"],
+    "emotional_style": "Description of emotional style (1 sentence)",
+    "main_triggers": ["main trigger 1", "main trigger 2"],
+    "coping_style": "Description of coping style (1 sentence)",
+    "current_focus": "Current focus of attention/main theme (1-2 sentences)"
+  }
 }}
 ```'''
 }

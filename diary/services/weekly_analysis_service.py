@@ -432,6 +432,17 @@ class WeeklyAnalysisService:
                  )
                  weekly_analysis.save()
                  logger.debug(f"[SYNC] WeeklyAnalysis ID {weekly_analysis.id} создан.")
+                 
+                 # ─── Генерируем full_psych_profile ───────────────────
+                 try:
+                     from diary.services.full_profile_service import full_profile_service
+                     full_profile = full_profile_service.generate_for_user(user)
+                     user.full_psych_profile = full_profile
+                     user.save(update_fields=['full_psych_profile'])
+                     logger.debug(f"[SYNC] full_psych_profile обновлён для пользователя {user.telegram_id}")
+                 except Exception as e:
+                     logger.warning(f"[SYNC] Ошибка генерации full_psych_profile: {e}")
+                 
                  return weekly_analysis
         return await _create_sync()
 
