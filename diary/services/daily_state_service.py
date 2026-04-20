@@ -2,15 +2,230 @@
 Сервис для работы с объединенными записями дня (состоянием дня) для инкрементального анализа ИИ.
 """
 
+import json
 import logging
 from datetime import date
-from typing import Optional
+from typing import Optional, Dict, Any
 from django.db import transaction
 from diary.models import CombinedDiaryEntry, DiaryEntry
 from users.models import User
 from asgiref.sync import sync_to_async
 
 logger = logging.getLogger(__name__)
+
+
+def parse_ai_state_data(ai_state_data: str) -> Dict[str, Any]:
+    """
+    Парсит ai_state_data в структурированный словарь.
+    Обеспечивает обратную совместимость со старым текстовым форматом.
+    
+    Args:
+        ai_state_data: Строка с данными состояния (старый текстовый или новый JSON формат)
+    
+    Returns:
+        Словарь с полями: current_mood, mood_trend, dominant_emotion, dominant_pattern, last_event_impact
+    """
+    if not ai_state_data:
+        return {
+            "current_mood": 5,
+            "mood_trend": "unknown",
+            "dominant_emotion": "",
+            "dominant_pattern": "",
+            "last_event_impact": ""
+        }
+    
+    # Пробуем распарсить как JSON
+    try:
+        data = json.loads(ai_state_data)
+        # Проверяем, что это словарь с ожидаемыми полями
+        if isinstance(data, dict):
+            return {
+                "current_mood": data.get("current_mood", 5),
+                "mood_trend": data.get("mood_trend", "unknown"),
+                "dominant_emotion": data.get("dominant_emotion", ""),
+                "dominant_pattern": data.get("dominant_pattern", ""),
+                "last_event_impact": data.get("last_event_impact", "")
+            }
+    except (json.JSONDecodeError, TypeError):
+        pass
+    
+    # Старый текстовый формат — преобразуем в структурированный
+    # Формат обычно: "Тема: ... Паттерн: ..." или просто произвольный текст
+    return {
+        "current_mood": 5,
+        "mood_trend": "unknown",
+        "dominant_emotion": "",
+        "dominant_pattern": _extract_pattern_from_text(ai_state_data),
+        "last_event_impact": ai_state_data[:200] if ai_state_data else ""
+    }
+
+
+def _extract_pattern_from_text(text: str) -> str:
+    """Извлекает паттерн из старого текстового формата."""
+    if not text:
+        return ""
+    # Пытаемся найти "Паттерн:" или "Pattern:"
+    for prefix in ["Паттерн:", "Pattern:", "Тема:", "Theme:"]:
+        if prefix in text:
+            parts = text.split(prefix, 1)
+            if len(parts) > 1:
+                return parts[1].strip().split('.')[0][:100]
+    # Возвращаем первые 100 символов как fallback
+    return text[:100]
+
+
+def create_ai_state_data(
+    mood_score: int,
+    mood_trend: str,
+    dominant_emotion: str,
+    dominant_pattern: str,
+    last_event_impact: str
+) -> str:
+    """
+    Создает структурированный ai_state_data в JSON формате.
+    
+    Args:
+        mood_score: Оценка настроения (1-10)
+        mood_trend: Тренд настроения (stable, improving, declining, unknown)
+        dominant_emotion: Доминирующая эмоция
+        dominant_pattern: Доминирующий паттерн
+        last_event_impact: Влияние последнего события
+    
+    Returns:
+        JSON строка с данными состояния
+    """
+    data = {
+        "current_mood": mood_score,
+        "mood_trend": mood_trend,
+        "dominant_emotion": dominant_emotion,
+        "dominant_pattern": dominant_pattern,
+        "last_event_impact": last_event_impact
+    }
+    return json.dumps(data, ensure_ascii=False)
+
+
+def update_ai_state_from_analysis(
+    current_ai_state: str,
+    new_mood_score: int,
+    comment: str,
+    day_context_summary: Optional[Dict[str, Any]] = None
+) -> str:
+    """
+    Обновляет ai_state_data на основе результатов анализа записи.
+    
+    Args:
+        current_ai_state: Текущее состояние (может быть старым форматом)
+        new_mood_score: Новая оценка настроения из анализа
+        comment: Комментарий анализа (для извлечения влияния события)
+        day_context_summary: Контекст дня из day_context_summary (опционально)
+    
+    Returns:
+        Обновленный ai_state_data в новом JSON формате
+    """
+    # Парсим текущее состояние
+    current = parse_ai_state_data(current_ai_state)
+    
+    # Определяем тренд на основе текущего и нового настроения
+    old_mood = current.get("current_mood", 5)
+    if new_mood_score > old_mood + 1:
+        new_trend = "improving"
+    elif new_mood_score < old_mood - 1:
+        new_trend = "declining"
+    else:
+        new_trend = "stable"
+    
+    # Извлекаем доминирующую эмоцию из комментария (простая эвристика)
+    dominant_emotion = _infer_emotion_from_comment(comment)
+    
+    # Используем паттерн из day_context_summary если доступен
+    dominant_pattern = ""
+    if day_context_summary and isinstance(day_context_summary, dict):
+        dominant_pattern = day_context_summary.get("dominant_pattern", "")
+    
+    if not dominant_pattern:
+        dominant_pattern = current.get("dominant_pattern", "")
+    
+    # Извлекаем влияние последнего события из комментария
+    last_event_impact = _extract_event_impact(comment)
+    
+    return create_ai_state_data(
+        mood_score=new_mood_score,
+        mood_trend=new_trend,
+        dominant_emotion=dominant_emotion,
+        dominant_pattern=dominant_pattern,
+        last_event_impact=last_event_impact
+    )
+
+
+def _infer_emotion_from_comment(comment: str) -> str:
+    """Простая эвристика для определения эмоции из комментария."""
+    comment_lower = comment.lower()
+    
+    emotion_keywords = {
+        "радость": ["радост", "счастлив", "позитив", "хорош", "отлично", "прекрасно", "рада", "рад"],
+        "грусть": ["грустн", "печаль", "тоска", "плохо", "тяжело", "грустно"],
+        "тревога": ["тревог", "волнен", "беспоко", "страх", "переживан"],
+        "спокойствие": ["споко", "умиротвор", "расслаб", "мир", "тихо"],
+        "раздражение": ["раздраж", "злость", "злит", "бесит", "надоел"],
+        "усталость": ["устал", "устало", "измотан", "истощен", "сонлив"],
+        "надежда": ["надежд", "оптим", "вер", "получ"],
+        "благодарность": ["благодар", "спасибо", "признател"]
+    }
+    
+    for emotion, keywords in emotion_keywords.items():
+        if any(kw in comment_lower for kw in keywords):
+            return emotion
+    
+    return ""
+
+
+def _extract_event_impact(comment: str) -> str:
+    """Извлекает влияние события из комментария анализа."""
+    if not comment:
+        return ""
+    
+    # Берем первые 150 символов комментария как описание влияния
+    impact = comment[:150].strip()
+    # Убираем завершающие знаки препинания
+    if impact and impact[-1] in '.!?':
+        impact = impact[:-1]
+    
+    return impact
+
+
+def serialize_ai_state_for_prompt(ai_state_data: str) -> str:
+    """
+    Сериализует ai_state_data в читаемый формат для промпта.
+    Если это старый текстовый формат — возвращает как есть.
+    Если это новый JSON — преобразует в текстовое описание.
+    
+    Args:
+        ai_state_data: Строка с данными состояния
+    
+    Returns:
+        Текстовое описание состояния для промпта
+    """
+    parsed = parse_ai_state_data(ai_state_data)
+    
+    # Формируем читаемое описание
+    parts = []
+    
+    if parsed.get("dominant_pattern"):
+        parts.append(f"Паттерн: {parsed['dominant_pattern']}")
+    
+    if parsed.get("dominant_emotion"):
+        parts.append(f"Эмоция: {parsed['dominant_emotion']}")
+    
+    if parsed.get("last_event_impact"):
+        parts.append(f"Влияние: {parsed['last_event_impact']}")
+    
+    mood = parsed.get("current_mood", 5)
+    trend = parsed.get("mood_trend", "unknown")
+    trend_text = {"stable": "стабильно", "improving": "улучшается", "declining": "ухудшается", "unknown": "неизвестно"}
+    parts.append(f"Настроение: {mood}/10 ({trend_text.get(trend, trend)})")
+    
+    return " | ".join(parts) if parts else "День еще не проанализирован"
+
 
 class DailyStateService:
     """Сервис для управления состоянием дня (CombinedDiaryEntry)."""

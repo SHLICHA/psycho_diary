@@ -45,3 +45,13 @@ class TestMessages:
         
         mood = get_mood_text(7, 'en')
         assert 'good' in mood
+
+    def test_get_message_invalid_language_type_fallback(self):
+        """Некорректный тип language не должен ломать fallback."""
+        msg = get_message('welcome', language={'bad': 'type'})
+        assert 'психологический дневник' in msg
+
+    def test_get_message_unknown_key_returns_generic_error(self):
+        """Неизвестный ключ должен возвращать безопасное generic-сообщение."""
+        msg = get_message('definitely_missing_message_key', 'ru')
+        assert 'Произошла ошибка' in msg

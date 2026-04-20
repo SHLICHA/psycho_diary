@@ -97,16 +97,7 @@
 
 | Входной параметр | Описание |
 |------------------|----------|
-| `user_profile[first_name]` | Имя |
-| `user_profile[awareness_level]` | Уровень осознанности |
-| `user_profile[date_of_birth]` | Дата рождения |
-| `user_profile[personality_traits]` | Черты характера |
-| `user_profile[life_facts]` | Факты о жизни |
-| `user_profile[hobbies]` | Увлечения |
-| `user_profile[core_values]` | Ключевые ценности |
-| `user_profile[triggers]` | Триггеры |
-| `user_profile[strengths]` | Сильные стороны |
-| `user_profile[areas_for_growth]` | Зоны роста |
+| `compressed_psych_profile_json` | Текущий compressed-профиль (premium: полный, free: lite) |
 | `week_statistics` | Статистика недели (записи, настроение, задачи, темы, эмоции, слова) |
 | `daily_analyses` | Полные анализы каждого дня недели (key_themes, emotional_patterns, insights, overall_analysis_text) |
 | `previous_weekly_analysis` | Анализ предыдущей недели (summary_text) |
@@ -247,29 +238,16 @@
 
 | Входной параметр | Описание |
 |------------------|----------|
-| `user_profile[first_name]` | Имя |
-| `user_profile[awareness_level]` | Уровень осознанности |
-| `user_profile[date_of_birth]` | Дата рождения |
-| `user_profile[personality_description]` | Описание личности (текст) |
-| `user_profile[personality_traits]` | Черты (JSON) |
-| `user_profile[life_facts]` | Факты (JSON) |
-| `user_profile[hobbies]` | Увлечения (JSON) |
-| `user_profile[core_values]` | Ценности (JSON) |
-| `user_profile[triggers]` | Триггеры (JSON) |
-| `user_profile[strengths]` | Сильные стороны (JSON) |
-| `user_profile[areas_for_growth]` | Зоны роста (JSON) |
-| `user_profile[personality_insights]` | Инсайты (JSON) |
-| `user_profile[habits]` | Привычки (JSON) |
-| `user_profile[skills]` | Навыки (JSON) |
-| `user_profile[aspirations]` | Стремления (JSON) |
+| `personality_description` | Текущее полное текстовое описание профиля пользователя, на основе которого ИИ пишет новую версию |
+| `compressed_psych_profile_json` | Текущий compressed-профиль в JSON |
+| `personal_fields_json` | Унифицированные личностные поля в changed-format JSON |
 | `recent_weekly_analyses` | Последние недельные анализы |
-| `selected_task_completion_analyses` | Анализы выполненных заданий |
 
 ### Выходные данные (JSON)
 
 | Поле выхода | Описание |
 |-------------|----------|
-| `personality_description` | Обновлённое описание (2-4 абзаца, <3000 символов) |
+| `personality_description` | Новое полное текстовое описание профиля, переписанное с опорой на старое описание (2-4 абзаца, <3000 символов) |
 | `personality_traits` | Обновлённые черты {trait: confidence} |
 | `life_facts` | Обновлённые факты [+ {"remove": "..."}] |
 | `hobbies` | Обновлённые увлечения |
@@ -281,6 +259,7 @@
 | `habits` | Обновлённые привычки |
 | `skills` | Обновлённые навыки |
 | `aspirations` | Обновлённые стремления |
+| `compressed_psych_profile` | Обновлённый compact/LITE профиль |
 
 ---
 
@@ -296,9 +275,11 @@
 
 | Входной параметр | Описание |
 |------------------|----------|
-| `current_profile` | Текущий психологический профиль |
+| `current_personality_description` | Текущее полное текстовое описание личности, которое должно сравниваться с текстовыми описаниями в исторических слепках |
+| `current_compressed_psych_profile_json` | Текущий compressed-профиль в JSON |
+| `current_personal_fields_json` | Текущие унифицированные личностные поля в changed-format JSON |
 | `num_snapshots` | Количество исторических снимков |
-| `historical_profiles` | Исторические профили |
+| `historical_snapshots_json` | Исторические снимки профиля в унифицированном JSON-формате |
 
 ### Выходные данные (JSON)
 

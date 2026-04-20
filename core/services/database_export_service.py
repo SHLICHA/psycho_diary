@@ -11,7 +11,7 @@
 
 import ast
 import logging
-from datetime import datetime
+from datetime import datetime, timezone as dt_timezone
 from io import BytesIO
 from typing import Dict, Any, List, Tuple
 
@@ -310,7 +310,7 @@ class DatabaseExportService:
                 return None
             elif isinstance(value, (datetime, pd.Timestamp)):
                 if value.tzinfo is None:
-                    return timezone.make_aware(value, timezone=timezone.utc)
+                    return timezone.make_aware(value, timezone=dt_timezone.utc)
                 else:
                     return value
             elif isinstance(value, str):
@@ -323,7 +323,7 @@ class DatabaseExportService:
                         parsed_dt = datetime.strptime(value, '%Y-%m-%d')
 
                 if parsed_dt.tzinfo is None:
-                    return timezone.make_aware(parsed_dt, timezone=timezone.utc)
+                    return timezone.make_aware(parsed_dt, timezone=dt_timezone.utc)
                 else:
                     return parsed_dt
             else:

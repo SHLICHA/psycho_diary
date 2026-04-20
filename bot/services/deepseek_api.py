@@ -9,7 +9,7 @@ import json
 import re
 import time
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from prompts import get_prompt
 from core.settings import DEEPSEEK_API_KEY
 from bot.utils.html_sanitizer import sanitize_html_in_dict_or_string
@@ -86,6 +86,20 @@ class DeepSeekAPIService:
                         else:
                             logger.warning(f"[DeepSeek API] Попытка {attempt + 1} получила статус {response.status}. Ответ: {response_text[:200]}...")
                             last_response_text = response_text
+                            if response.status == 400:
+                                response_lower = response_text.lower()
+                                if "maximum context length" in response_lower or "context length" in response_lower:
+                                    logger.error(
+                                        "[DeepSeek API] Контекст запроса превышает лимит модели. "
+                                        "Повторные попытки не выполняются."
+                                    )
+                                    return {
+                                        'success': False,
+                                        'error': 'context_length_exceeded',
+                                        'message': response_text[:500],
+                                        'result': {},
+                                        'raw_response': response_text,
+                                    }
             except asyncio.TimeoutError as te:
                 last_exception = te
                 logger.debug(f"[DeepSeek API] Попытка {attempt + 1} превысила таймаут ({timeout_per_attempt}s): {te}")
@@ -101,15 +115,56 @@ class DeepSeekAPIService:
                 await asyncio.sleep(delay)
             else:
                 logger.debug(f"[DeepSeek API] Все {max_retries} попыток исчерпаны.")
-        error_msg = "Превышено время ожидания" if isinstance(last_exception, asyncio.TimeoutError) else str(last_exception) if last_exception else f"Ошибка API: {last_response_text[:200]}..."
-        error_code = 'timeout' if isinstance(last_exception, asyncio.TimeoutError) else 'request_failed'
-        logger.error(f"[DeepSeek API] send_prompt_and_parse завершился ошибкой после {max_retries} попыток: {error_msg}")
+        failure_payload = self._build_failure_payload(
+            last_exception=last_exception,
+            last_response_text=last_response_text,
+        )
+        logger.error(
+            f"[DeepSeek API] send_prompt_and_parse завершился ошибкой после {max_retries} попыток: {failure_payload['message']}"
+        )
+        return failure_payload
+
+    def _build_failure_payload(
+        self,
+        last_exception: Optional[Exception],
+        last_response_text: str,
+    ) -> Dict[str, Any]:
+        """Build a deterministic failure payload for callers and UI fallbacks."""
+        raw_response = last_response_text if last_response_text else (str(last_exception) if last_exception else '')
+
+        if isinstance(last_exception, asyncio.TimeoutError):
+            return {
+                'success': False,
+                'error': 'timeout',
+                'message': 'Превышено время ожидания',
+                'result': {},
+                'raw_response': raw_response,
+            }
+
+        if isinstance(last_exception, ValueError):
+            return {
+                'success': False,
+                'error': 'response_parse_failed',
+                'message': 'Не удалось обработать ответ AI. Попробуйте позже.',
+                'result': {},
+                'raw_response': raw_response,
+            }
+
+        if isinstance(last_exception, aiohttp.ClientError):
+            return {
+                'success': False,
+                'error': 'upstream_unavailable',
+                'message': 'Внешний AI сервис временно недоступен',
+                'result': {},
+                'raw_response': raw_response,
+            }
+
         return {
             'success': False,
-            'error': error_code,
-            'message': error_msg,
+            'error': 'request_failed',
+            'message': str(last_exception) if last_exception else f"Ошибка API: {last_response_text[:200]}...",
             'result': {},
-            'raw_response': last_response_text if last_response_text else (str(last_exception) if last_exception else '')
+            'raw_response': raw_response,
         }
 
 

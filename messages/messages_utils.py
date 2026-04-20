@@ -314,14 +314,24 @@ def get_message(key: str, language: str = 'ru', **kwargs) -> str:
     #logger.debug(f"Ключ: {key}")
     #logger.debug(f"Язык: {language}")
     #logger.debug(f"Параметры: {kwargs}")
-    if language not in MESSAGES:
+    if not isinstance(language, str) or language not in MESSAGES:
         logger.warning(f"Неподдерживаемый язык: {language}, используем ru")
         language = 'ru'
-    messages = MESSAGES.get(language, MESSAGES['ru'])
-    if key not in messages:
-        logger.error(f"Ключ '{key}' не найден для языка {language}")
-        return f"[ОШИБКА: Сообщение '{key}' не найдено]"
-    message = messages.get(key, f'[Отсутствует сообщение: {key}]')    
+
+    localized_messages = MESSAGES.get(language, MESSAGES['ru'])
+    fallback_messages = MESSAGES['ru']
+
+    if key in localized_messages:
+        message = localized_messages[key]
+    elif key in fallback_messages:
+        logger.warning(
+            f"Ключ '{key}' не найден для языка {language}, используем fallback ru"
+        )
+        message = fallback_messages[key]
+    else:
+        logger.error(f"Ключ '{key}' не найден ни для языка {language}, ни для ru")
+        message = fallback_messages.get('error_generic', 'Произошла ошибка. Попробуйте позже.')
+
     try:
         if kwargs:
             result = message.format(**kwargs)

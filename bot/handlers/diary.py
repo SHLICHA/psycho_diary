@@ -35,11 +35,15 @@ from bot.utils.state_manager import state_manager
 from bot.utils.message_utils import safe_edit_message_text, edit_or_send_message
 from bot.utils.callback_utils import safe_answer_callback
 from bot.utils.decorators import async_error_handler
-from bot.utils.rate_limiter import rate_limiter
-from bot.services import (
-    diary_service, 
-    psycho_analysis_service,
+from bot.presenters.diary_presenter import (
+    build_analysis_result_payload,
+    build_analysis_error_payload,
+    build_new_entry_validation_failure_view,
+    build_new_entry_success_text,
+    build_clarification_questions_view,
 )
+from bot.services.diary_service import diary_service
+from bot.services.psycho_analysis_service import psycho_analysis_service
 from users.models import User
 
 router = Router()
@@ -81,17 +85,9 @@ async def new_entry_simple(callback: CallbackQuery, state: FSMContext, user, lan
 @log_user_activity('entry_process', metadata_extra={'context': 'Обработка записи'})
 async def process_any_entry(message: Message, state: FSMContext, user, language: str):
     status_msg = None
-    if await rate_limiter.is_rate_limited(f'user_{user.telegram_id}_entries'):
-        await message.answer(get_message('rate_limit', language))
-        return
     is_valid, error_code = validate_incoming_message(message)
     if not is_valid:
         await message.answer(get_message(error_code, language))
-        return
-    rate_limit_key = f"user_{user.telegram_id}_entries"
-    is_limited = await rate_limiter.is_rate_limited(rate_limit_key, limit=3, period=60)
-    if is_limited:
-        await message.answer(get_message('rate_limit', language))
         return
     try:
         entry_text = ""
@@ -115,55 +111,34 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
             await message.answer(get_message('invalid_input', language))
             await status_msg.delete()
             return
-        result = await diary_service.process_new_entry_logic(
+        response = await diary_service.process_new_entry_use_case(
             user=user,
             entry_text=entry_text,
             language=language,
             entry_datetime=entry_datetime
         )
-        if not result['success']:
-            formatted_message_ai = result.get('formatted_message_ai', '')
-            validation_comment_ai = result.get('validation_comment_ai', '')
-            if formatted_message_ai:
-                 final_message_text = formatted_message_ai
-            else:
-                 final_message_text = f"❌ <b>Ваша запись не прошла валидацию</b>\n"
-                 if validation_comment_ai:
-                      final_message_text += f"💬 <i>{validation_comment_ai}</i>\n"
-                 else:
-                      final_message_text += f"📝 <i>{get_message('entry_not_validated_generic', language)}</i>\n"
-                 final_message_text += f"🔍 Пожалуйста, попробуйте снова."
-            retry_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text=get_button_text('btn_retry_entry', language), callback_data='new_entry')],
-                [InlineKeyboardButton(text=get_button_text('btn_main_menu', language), callback_data='main_menu')]
-            ])
-            await status_msg.edit_text(final_message_text, reply_markup=retry_keyboard)
+        if not response.success:
+            result = response.data or {}
+            failure_view = build_new_entry_validation_failure_view(result, language)
+            await status_msg.edit_text(
+                failure_view['text'],
+                reply_markup=failure_view['reply_markup']
+            )
             await state_manager.clear_state(state)
             return
+        result = response.data or {}
         diary_entry = result['entry']
         analysis_obj = result['analysis']
         needs_clarification = result['needs_clarification']
         clarification_questions = result['clarification_questions']
         suggested_task_obj = result['suggested_task']
         streak_bonus_info = result['streak_bonus_info']
-        task_info = ""
-        if suggested_task_obj:
-            preview = suggested_task_obj.description[:150] + "..." if len(suggested_task_obj.description) > 150 else suggested_task_obj.description
-            task_info = get_message(
-                'task_assigned',
-                language,
-                title=suggested_task_obj.title,
-                description=preview)
-
-        final_text = get_message('entry_saved', language, score=analysis_obj.mood_score, mood=get_message(f'mood_{analysis_obj.mood_score}', language), comment=analysis_obj.comment, recommendation=analysis_obj.recommendation) + task_info
-        if streak_bonus_info.get("awarded"):
-            rewards = streak_bonus_info.get("rewards", [])
-            reward_strings = [
-                get_message('streak_bonus_earned', language, days=streak, tokens=tokens)
-                for streak, tokens in rewards
-            ]
-            reward_text = " ".join(reward_strings)
-            final_text += f"\n{reward_text}"
+        final_text = build_new_entry_success_text(
+            analysis_obj=analysis_obj,
+            suggested_task_obj=suggested_task_obj,
+            streak_bonus_info=streak_bonus_info,
+            language=language,
+        )
 
         reply_markup = await diary_display_service.build_entry_result_keyboard(
             diary_entry, analysis_obj, user, language, task=suggested_task_obj
@@ -190,10 +165,10 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
                 clarification_questions=clarification_questions
             )
             await state_manager.set_state(state, DiaryStates.asking_clarifying_questions)
-            questions_text = "\n".join([f"{i+1}. {q}" for i, q in enumerate(clarification_questions)])
+            clarification_view = build_clarification_questions_view(clarification_questions, language)
             await status_msg.edit_text(
-                f"{get_message('clarification_needed', language)}\n{questions_text}",
-                reply_markup=get_single_button_keyboard(language, 'main_menu', 'btn_cancel')
+                clarification_view['text'],
+                reply_markup=clarification_view['reply_markup']
             )
             return 
         await state_manager.clear_state(state)
@@ -258,22 +233,15 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
         clarification_answers_dict = {}
         for i, q in enumerate(clarification_questions):
             clarification_answers_dict[q] = answers_list[i] if i < len(answers_list) else "[Ответ не получен]"
-        result = await diary_service.process_clarification_answers_logic(
+        response = await diary_service.process_clarification_answers_use_case(
             user=user,
             diary_entry=diary_entry,
             clarification_answers_dict=clarification_answers_dict,
             language=language
         )
-        if result['success']:
-            analysis_result_for_handler = {
-                'success': True,
-                'result': {
-                    'mood_score': result['analysis'].mood_score,
-                    'comment': result['analysis'].comment,
-                    'recommendation': result['analysis'].recommendation,
-                    'analysis': result['formatted_message_ai']
-                }
-            }
+        result = response.data or {}
+        if response.success:
+            analysis_result_for_handler = build_analysis_result_payload(result)
             await _process_analysis_result(
                 entry=result['entry'],
                 analysis_result=analysis_result_for_handler,
@@ -285,11 +253,9 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
                 context='clarification'
             )
         else:
-            analysis_result_for_handler = {
-                'success': False,
-                'error': 'service_error',
-                'message': 'Ошибка обработки уточнений'
-            }
+            analysis_result_for_handler = build_analysis_error_payload(
+                message=response.message or 'Ошибка обработки уточнений'
+            )
             await _process_analysis_result(
                 entry=diary_entry,
                 analysis_result=analysis_result_for_handler,
@@ -396,21 +362,16 @@ async def process_user_comment(message: Message, state: FSMContext, user, langua
             return
         if status_message is None:
             status_message = await message.answer(get_message('processing', language))
-        result = await diary_service.process_user_comment_logic(
+        response = await diary_service.process_user_comment_use_case(
             user=user,
             diary_entry=diary_entry,
             user_comment_text=user_comment_text,
             language=language
         )
-        analysis_result_for_handler = {
-            'success': True,
-            'result': {
-                'mood_score': result['analysis'].mood_score,
-                'comment': result['analysis'].comment,
-                'recommendation': result['analysis'].recommendation,
-                'analysis': result['formatted_message_ai']
-            }
-        }
+        if not response.success:
+            raise RuntimeError(response.message or 'Ошибка обработки комментария')
+        result = response.data or {}
+        analysis_result_for_handler = build_analysis_result_payload(result)
         await _process_analysis_result(
             entry=result['entry'],
             analysis_result=analysis_result_for_handler,

@@ -90,7 +90,8 @@ class TestDiaryEntryModel:
         """Тест: строковое представление записи."""
         entry = baker.make(DiaryEntry, user=user, text="Запись", language='ru', word_count=2)
 
-        assert "Тестовая запись" in str(entry)
+        assert str(entry.user.username) in str(entry)
+        assert entry.created_at.strftime('%d.%m.%Y') in str(entry)
         assert str(entry.user.username) in str(entry)
 
     def test_entry_day_group_auto_generated(self, user):
@@ -106,11 +107,9 @@ class TestDiaryEntryModel:
     def test_combined_text_primary_entry(self, user):
         """Тест: combined_text для основной записи объединяет все записи дня."""
         today = timezone.now().date()
-        baker.make(DiaryEntry, user=user, text="Запись 1", language='ru', word_count=2)
+        primary_entry = baker.make(DiaryEntry, user=user, text="Запись 1", language='ru', word_count=2, is_primary=True)
         baker.make(DiaryEntry, user=user, text="Запись 2", language='ru', word_count=2)
 
-        # Получаем основную запись
-        primary_entry = DiaryEntry.objects.filter(user=user).first()
         combined = primary_entry.combined_text
 
         assert "Запись 1" in combined
@@ -416,8 +415,8 @@ class TestAnalysisRatingModel:
 
     def test_rating_valid_values(self, analysis):
         """Тест: допустимые значения рейтинга."""
-        user = analysis.entry.user
         for rating_value in range(1, 6):
+            user = baker.make(User, telegram_id=12345 + rating_value)
             rating = baker.make(AnalysisRating, user=user, analysis=analysis, rating=rating_value)
             assert rating.rating == rating_value
 
@@ -703,14 +702,8 @@ class TestModelMigrations:
 
     def test_diary_entry_has_creator_timezone_field(self):
         """Тест: поле creator_timezone существует после миграции."""
-        from django.db import connection
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_name = 'diary_entry' AND column_name = 'creator_timezone'"
-            )
-            # Поле может еще не существовать если миграция не запущена
-            # Этот тест просто проверяет что миграции применимы
+        field_names = {field.name for field in DiaryEntry._meta.fields}
+        assert 'creator_timezone' in field_names
 
     def test_all_expected_models_exist(self):
         """Тест: все ожидаемые модели существуют."""

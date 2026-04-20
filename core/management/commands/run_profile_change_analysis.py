@@ -7,8 +7,7 @@ import logging
 import asyncio
 
 from django.core.management.base import BaseCommand, CommandError
-from django.db import models
-from typing import Any, Dict, List, Type
+from typing import Any, Dict
 
 from users.models import User
 from diary.models import WeeklyAnalysis
@@ -17,6 +16,7 @@ from diary.services.user_profile_analysis_service import user_profile_analysis_s
 from diary.services.user_profile_change_analysis_service import perform_profile_change_analysis
 
 logger = logging.getLogger(__name__)
+
 
 class Command(BaseCommand):
     help = 'Manually triggers the full weekly analysis (including profile change analysis) for a specified user.'
@@ -34,6 +34,9 @@ class Command(BaseCommand):
         telegram_id = options['telegram_id']
         num_snapshots = options['num_snapshots']
 
+        if num_snapshots < 1:
+            raise CommandError('--num-snapshots must be >= 1')
+
         try:
             user = User.objects.get(telegram_id=telegram_id)
         except User.DoesNotExist:
@@ -45,34 +48,20 @@ class Command(BaseCommand):
 
         # Запускаем асинхронный процесс внутри синхронной команды
         try:
-            # Создаём новый event loop
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                # Выполняем основной асинхронный процесс
-                result = loop.run_until_complete(self.async_handle(user, num_snapshots))
-            finally:
-                # Закрываем loop
-                loop.close()
+            result = asyncio.run(self.async_handle(user, num_snapshots))
         except Exception as e:
-            self.stdout.write(
-                self.style.ERROR(f'Error during analysis: {e}')
-            )
-            return
+            logger.error('Error during analysis command execution', exc_info=True)
+            raise CommandError(f'Error during analysis: {e}') from e
 
         if result.get('success'):
             self.stdout.write(
                 self.style.SUCCESS(result['message'])
             )
         else:
-            self.stdout.write(
-                self.style.ERROR(result['message'])
-            )
+            raise CommandError(result.get('message', 'Unknown command failure'))
 
     async def async_handle(self, user: User, num_snapshots: int) -> Dict[str, Any]:
         """Асинхронная логика выполнения команды."""
-        from typing import Dict, Any # Импортируем внутри, чтобы избежать конфликта с верхним уровнем
-
         # 1. Выполнить еженедельный анализ (если еще не выполнен за текущую неделю)
         # (Это создаст WeeklyAnalysis)
         weekly_result = await weekly_analysis_service.perform_weekly_analysis(user)

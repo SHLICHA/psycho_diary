@@ -10,8 +10,10 @@ from . import (
     TASK_EFFECT_ANALYSIS_PROMPT,
     FULL_DAY_ANALYSIS_PROMPT,
     FULL_DAY_ANALYSIS_LITE_PROMPT,
+    FULL_DAY_ANALYSIS_LITE_V2_PROMPT,
     INCREMENTAL_DAY_ANALYSIS_FIRST_ENTRY_PROMPT,
     INCREMENTAL_DAY_ANALYSIS_LITE_PROMPT,
+    INCREMENTAL_DAY_ANALYSIS_LITE_V2_PROMPT,
     WEEKLY_ANALYSIS_PROMPT,
     USER_PROFILE_ANALYSIS_PROMPT,
     NEXT_ENTRY_PROMPT_GENERATION,
@@ -19,7 +21,8 @@ from . import (
     MORNING_MOTIVATION_PROMPT,
     REMINDER_MESSAGE_PROMPT,
     THERAPY_CHAT_PROMPT,
-    PROFILE_CHANGE_ANALYSIS_PROMPT
+    PROFILE_CHANGE_ANALYSIS_PROMPT,
+    PROFILE_FIELD_CLEANUP_PROMPT,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,6 +56,8 @@ PROMPTS['ru']['full_day_analysis'] = FULL_DAY_ANALYSIS_PROMPT['ru']
 PROMPTS['en']['full_day_analysis'] = FULL_DAY_ANALYSIS_PROMPT['en']
 PROMPTS['ru']['full_day_analysis_lite'] = FULL_DAY_ANALYSIS_LITE_PROMPT['ru']
 PROMPTS['en']['full_day_analysis_lite'] = FULL_DAY_ANALYSIS_LITE_PROMPT['en']
+PROMPTS['ru']['full_day_analysis_lite_v2'] = FULL_DAY_ANALYSIS_LITE_V2_PROMPT['ru']
+PROMPTS['en']['full_day_analysis_lite_v2'] = FULL_DAY_ANALYSIS_LITE_V2_PROMPT['en']
 PROMPTS['ru']['clarification_analysis'] = CLARIFICATION_ANALYSIS_PROMPT['ru']
 PROMPTS['en']['clarification_analysis'] = CLARIFICATION_ANALYSIS_PROMPT['en']
 PROMPTS['ru']['punctuation'] = PUNCTUATION_PROMPT['ru']
@@ -61,8 +66,12 @@ PROMPTS['ru']['incremental_day_analysis'] = INCREMENTAL_DAY_ANALYSIS_PROMPT['ru'
 PROMPTS['en']['incremental_day_analysis'] = INCREMENTAL_DAY_ANALYSIS_PROMPT['en']
 PROMPTS['ru']['incremental_day_analysis_lite'] = INCREMENTAL_DAY_ANALYSIS_LITE_PROMPT['ru']
 PROMPTS['en']['incremental_day_analysis_lite'] = INCREMENTAL_DAY_ANALYSIS_LITE_PROMPT['en']
+PROMPTS['ru']['incremental_day_analysis_lite_v2'] = INCREMENTAL_DAY_ANALYSIS_LITE_V2_PROMPT['ru']
+PROMPTS['en']['incremental_day_analysis_lite_v2'] = INCREMENTAL_DAY_ANALYSIS_LITE_V2_PROMPT['en']
 PROMPTS['ru']['task_effect_analysis'] = TASK_EFFECT_ANALYSIS_PROMPT['ru']
 PROMPTS['en']['task_effect_analysis'] = TASK_EFFECT_ANALYSIS_PROMPT['en']
+PROMPTS['ru']['profile_field_cleanup'] = PROFILE_FIELD_CLEANUP_PROMPT['ru']
+PROMPTS['en']['profile_field_cleanup'] = PROFILE_FIELD_CLEANUP_PROMPT['en']
 
 def get_prompt(key: str, language: str = 'ru', **kwargs) -> str:
     #logger.debug(f"=== GET_PROMPT ===")

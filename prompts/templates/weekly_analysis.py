@@ -1,19 +1,11 @@
 WEEKLY_ANALYSIS_PROMPT = {
-    'ru': '''Ты — продвинутый психолог-аналитик ИИ, специализирующийся на анализе дневниковых записей. Твоя задача — провести глубокий еженедельный анализ данных пользователя и предоставить структурированный отчет. Ты получишь полный профиль пользователя для контекста, но НЕ должен возвращать обновленный профиль в своем ответе. Это будет сделано на следующем этапе.
+    'ru': '''Ты — продвинутый психолог-аналитик ИИ, специализирующийся на анализе дневниковых записей. Твоя задача — провести глубокий еженедельный анализ данных пользователя и предоставить структурированный отчет.
 
 ### 🔍 ВХОДНЫЕ ДАННЫЕ
 
-**Профиль пользователя (для контекста):**
-Имя: {user_profile[first_name]}
-Уровень осознанности: {user_profile[awareness_level]}/10
-Дата рождения: {user_profile[date_of_birth]}
-Черты характера: {user_profile[personality_traits]}
-Факты о жизни: {user_profile[life_facts]}
-Увлечения: {user_profile[hobbies]}
-Ключевые ценности: {user_profile[core_values]}
-Триггеры: {user_profile[triggers]}
-Сильные стороны: {user_profile[strengths]}
-Зоны роста: {user_profile[areas_for_growth]}
+**Сжатый психологический профиль (compressed_psych_profile):**
+{compressed_psych_profile_json}
+*Это сжатая версия профиля пользователя, включающая: психологическое резюме, ключевые паттерны, эмоциональный стиль, основные триггеры, стиль совладания и текущий фокус.*
 
 **Еженедельная статистика:**
 {week_statistics}
@@ -96,21 +88,13 @@ WEEKLY_ANALYSIS_PROMPT = {
   }}
 }}
 ```''',
-    'en': '''You are an advanced psychological analyst AI specializing in diary entry analysis. Your task is to perform a deep weekly analysis of the user's data and provide a structured report. You will receive the user's full profile for context, but you MUST NOT return an updated profile in your response. This will be handled in a subsequent step.
+    'en': '''You are an advanced psychological analyst AI specializing in diary entry analysis. Your task is to perform a deep weekly analysis of the user's data and provide a structured report.
 
 ### 🔍 INPUT DATA
 
-**User Profile (for context):**
-Name: {user_profile[first_name]}
-Awareness Level: {user_profile[awareness_level]}/10
-Date of birth: {user_profile[date_of_birth]}
-Personality Traits: {user_profile[personality_traits]}
-Life Facts: {user_profile[life_facts]}
-Hobbies: {user_profile[hobbies]}
-Core Values: {user_profile[core_values]}
-Triggers: {user_profile[triggers]}
-Strengths: {user_profile[strengths]}
-Areas for Growth: {user_profile[areas_for_growth]}
+**Compressed psychological profile (compressed_psych_profile):**
+{compressed_psych_profile_json}
+*This is a compressed version of the user profile, including: psych_summary, core_patterns, emotional_style, main_triggers, coping_style, and current_focus.*
 
 **Weekly Statistics:**
 {week_statistics}

@@ -16,7 +16,7 @@ from diary.services.smart_prompt_manager import smart_prompt_manager
 from bot.services.diary_service import diary_service
 from bot.services.deepseek_api import deepseek_api_service
 from prompts.get_prompt import get_prompt
-from core.profile_field_utils import field_to_ai_format
+from core.profile_field_utils import normalize_compressed_profile_for_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -63,23 +63,61 @@ class FullDayAnalysisService:
 
             # Проверяем подписку для выбора промпта
             is_premium_active = await sync_to_async(user.is_premium_active)()
+            
+            # Проверяем возможность использования LITE v2
+            from django.conf import settings
+            use_lite_v2 = (
+                settings.USE_LITE_V2 and 
+                user.compressed_psych_profile and 
+                combined_entry.day_context_summary
+            )
 
             if is_premium_active:
+                import json
+                compressed_profile = normalize_compressed_profile_for_prompt(user.compressed_psych_profile or {})
+                compressed_profile_json = json.dumps(compressed_profile, ensure_ascii=False, separators=(",", ":"))
                 prompt = get_prompt(
                     key='full_day_analysis',
                     language=user.language,
-                    user_profile=context['user_profile'],
+                    compressed_psych_profile_json=compressed_profile_json,
                     all_entries_combined_text=context['all_entries_combined_text'],
                     entry_analyses=context['entry_analyses'],
                     daily_mood_scores=context['daily_mood_scores'],
                     completed_tasks=context['completed_tasks'],
                 )
                 logger.debug(f"[FullDayAnalysisService] Используется ПОЛНЫЙ промпт (premium) для {user.telegram_id} за {target_date} (длина: {len(prompt)} символов)")
-            else:
-                # LITE: используем compressed_psych_profile вместо старых полей
+            elif use_lite_v2:
+                # LITE v2: использует compressed_psych_profile + day_context_summary
                 import json
-                compressed_profile = user.compressed_psych_profile or {}
-                compressed_profile_json = json.dumps(compressed_profile, ensure_ascii=False, indent=2)
+                compressed_profile = normalize_compressed_profile_for_prompt(user.compressed_psych_profile or {})
+                compressed_profile_json = json.dumps(compressed_profile, ensure_ascii=False, separators=(",", ":"))
+                day_context_json = json.dumps(combined_entry.day_context_summary or {}, ensure_ascii=False, separators=(",", ":"))
+                
+                # Создаём краткую сводку из текста записей (первые 200 символов)
+                compressed_entries_summary = context['all_entries_combined_text'][:200] + "..." if len(context['all_entries_combined_text']) > 200 else context['all_entries_combined_text']
+                
+                prompt = get_prompt(
+                    key='full_day_analysis_lite_v2',
+                    language=user.language,
+                    compressed_psych_profile_json=compressed_profile_json,
+                    day_context_summary_json=day_context_json,
+                    compressed_entries_summary=compressed_entries_summary,
+                    daily_mood_scores=context['daily_mood_scores'],
+                )
+                logger.debug(f"[FullDayAnalysisService] Используется LITE v2 промпт для {user.telegram_id} за {target_date} (длина: {len(prompt)} символов)")
+                
+                # Логирование для мониторинга
+                logger.info(
+                    f"[LiteV2] User {user.telegram_id}: using lite_v2_full_day, "
+                    f"compressed={bool(user.compressed_psych_profile)}, "
+                    f"day_context={bool(combined_entry.day_context_summary)}, "
+                    f"prompt_length={len(prompt)}"
+                )
+            else:
+                # LITE v1: используем compressed_psych_profile вместо старых полей
+                import json
+                compressed_profile = normalize_compressed_profile_for_prompt(user.compressed_psych_profile or {})
+                compressed_profile_json = json.dumps(compressed_profile, ensure_ascii=False, separators=(",", ":"))
                 
                 prompt = get_prompt(
                     key='full_day_analysis_lite',
@@ -89,7 +127,15 @@ class FullDayAnalysisService:
                     entry_analyses=context['entry_analyses'],
                     daily_mood_scores=context['daily_mood_scores'],
                 )
-                logger.debug(f"[FullDayAnalysisService] Используется LITE промпт (без подписки) для {user.telegram_id} за {target_date} (длина: {len(prompt)} символов)")
+                logger.debug(f"[FullDayAnalysisService] Используется LITE v1 промпт (без подписки) для {user.telegram_id} за {target_date} (длина: {len(prompt)} символов)")
+                
+                # Логирование для мониторинга
+                logger.info(
+                    f"[LiteV2] User {user.telegram_id}: fallback to lite_v1, "
+                    f"compressed={bool(user.compressed_psych_profile)}, "
+                    f"day_context={bool(combined_entry.day_context_summary)}, "
+                    f"USE_LITE_V2={settings.USE_LITE_V2}"
+                )
             api_result = await deepseek_api_service.send_prompt_and_parse(prompt, language=user.language)
             logger.debug(f"[FullDayAnalysisService] Ответ API от DeepSeek: success={api_result.get('success')}")
             if not api_result.get('success'):
@@ -238,25 +284,7 @@ class FullDayAnalysisService:
                         })
                 except TaskCompletion.DoesNotExist:
                     logger.debug(f"[FullDayAnalysisService] Completion для задания {task.id} отсутствует, несмотря на статус 'completed'.")
-        extended_user_profile = {
-            'username': user.username or f"user_{user.telegram_id}",
-            'first_name': user.first_name or "",
-            'awareness_level': user.awareness_level,
-            'is_premium': user.is_premium,
-            # Используем адаптеры для AI — возвращают простой формат
-            "personality_traits": field_to_ai_format(user.personality_traits, 'personality_traits') if user.personality_traits else [],
-            "life_facts": field_to_ai_format(user.life_facts, 'life_facts') if user.life_facts else [],
-            "hobbies": field_to_ai_format(user.hobbies, 'hobbies') if user.hobbies else [],
-            "core_values": field_to_ai_format(user.core_values, 'core_values') if user.core_values else [],
-            "triggers": field_to_ai_format(user.triggers, 'triggers') if user.triggers else [],
-            "strengths": field_to_ai_format(user.strengths, 'strengths') if user.strengths else [],
-            "areas_for_growth": field_to_ai_format(user.areas_for_growth, 'areas_for_growth') if user.areas_for_growth else [],
-            "habits": field_to_ai_format(user.habits, 'habits') if user.habits else [],
-            "skills": field_to_ai_format(user.skills, 'skills') if user.skills else [],
-            "aspirations": field_to_ai_format(user.aspirations, 'aspirations') if user.aspirations else [],
-        }
         context = {
-            "user_profile": extended_user_profile,
             "all_entries_combined_text": all_entries_text,
             "entry_analyses": entry_analyses_data,
             "daily_mood_scores": daily_mood_scores,
@@ -360,6 +388,8 @@ class FullDayAnalysisService:
         """
         Обновляет поля профиля пользователя на основе данных от ИИ.
 
+        Теперь использует weighted format с автоматическим подсчётом весов и частоты.
+
         Args:
             user: Объект пользователя.
             profile_updates: Словарь обновлений из ответа ИИ (user_profile_updates).
@@ -374,124 +404,154 @@ class FullDayAnalysisService:
             logger.debug("[FullDayAnalysisService] Нет данных для обновления профиля пользователя.")
             return True
 
+        # Импортируем утилиты для работы с весами
+        from core.profile_field_utils import (
+            merge_profile_items,
+            update_item_frequency,
+            mark_stale_items,
+            create_weighted_item,
+            convert_to_weighted_format,
+            sort_by_weight,
+            MAX_ITEMS_PER_FIELD
+        )
+        from django.utils import timezone
+
         fields_updated = []
         try:
             # --- Обработка personality_traits ---
             new_traits_data = profile_updates.get('personality_traits')
-            if new_traits_data is not None: # Проверяем, что данные есть
-                # Предполагаем, что ИИ может прислать как список, так и словарь
+            if new_traits_data is not None:
                 traits_changed = False
 
-                # Инициализируем user.personality_traits как словарь, если он не таков
                 if not isinstance(user.personality_traits, dict):
-                    logger.warning("[FullDayAnalysisService] user.personality_traits не является словарем. Переинициализируем.")
+                    logger.warning("[FullDayAnalysisService] user.personality_traits не является словарём. Переинициализируем.")
                     user.personality_traits = {}
                     traits_changed = True
 
                 if isinstance(new_traits_data, list):
-                    # Если ИИ прислал список строк
-                    logger.debug(f"[FullDayAnalysisService] Обработка personality_traits как списка: {new_traits_data}")
-                    initial_weight = 1.0
+                    # AI прислал список строк — добавляем с весом
                     for trait_name in new_traits_data:
-                        if isinstance(trait_name, str):
-                            if trait_name in user.personality_traits:
-                                # Увеличиваем вес, если уже существует
-                                old_weight = user.personality_traits[trait_name]
-                                user.personality_traits[trait_name] = old_weight + initial_weight
-                                logger.debug(f"[FullDayAnalysisService] Увеличен вес personality_trait '{trait_name}': {old_weight} -> {user.personality_traits[trait_name]}")
-                            else:
-                                # Добавляем новый трейт с начальным весом
-                                user.personality_traits[trait_name] = initial_weight
-                                logger.debug(f"[FullDayAnalysisService] Добавлен новый personality_trait '{trait_name}' с весом {initial_weight}")
+                        if isinstance(trait_name, str) and trait_name.strip():
+                            old_weight = user.personality_traits.get(trait_name, 0)
+                            # Увеличиваем вес: new_weight = old + 0.5, max 3.0
+                            new_weight = min(old_weight + 0.5, 3.0)
+                            user.personality_traits[trait_name] = new_weight
                             traits_changed = True
-                        else:
-                            logger.warning(f"[FullDayAnalysisService] Некорректный элемент (не строка) в списке personality_traits: {trait_name} (тип: {type(trait_name)})")
+                            logger.debug(f"[FullDayAnalysisService] Черта '{trait_name}': {old_weight} -> {new_weight}")
                 elif isinstance(new_traits_data, dict):
-                    # Если ИИ прислал словарь (например, {'аккуратность': 2.5, 'открытость': 1.0})
-                    logger.debug(f"[FullDayAnalysisService] Обработка personality_traits как словаря: {new_traits_data}")
-                    for trait_name, trait_value in new_traits_data.items():
-                        if isinstance(trait_name, str):
-                            # Проверяем, является ли значение числом (весом)
-                            if isinstance(trait_value, (int, float)):
-                                # Просто перезаписываем или устанавливаем значение
-                                old_value = user.personality_traits.get(trait_name)
-                                user.personality_traits[trait_name] = trait_value
-                                logger.debug(f"[FullDayAnalysisService] personality_trait '{trait_name}' обновлён: {old_value} -> {trait_value}")
-                                traits_changed = True
-                            else:
-                                # Если значение не число, можно логировать или игнорировать
-                                logger.warning(f"[FullDayAnalysisService] Значение для '{trait_name}' не является числом: {trait_value} (тип: {type(trait_value)}). Игнорируется.")
-                        else:
-                            logger.warning(f"[FullDayAnalysisService] Ключ (имя черты) в словаре personality_traits не строка: {trait_name} (тип: {type(trait_name)})")
-                else:
-                    # Если пришел какой-то другой тип данных
-                    logger.warning(f"[FullDayAnalysisService] Некорректный формат для personality_traits: {type(new_traits_data)}. Ожидается список строк или словарь. Игнорируется.")
+                    # AI прислал словарь с весами
+                    for trait_name, trait_weight in new_traits_data.items():
+                        if isinstance(trait_name, str) and isinstance(trait_weight, (int, float)):
+                            old_weight = user.personality_traits.get(trait_name, 0)
+                            # Берём max веса
+                            user.personality_traits[trait_name] = max(old_weight, trait_weight)
+                            traits_changed = True
 
                 if traits_changed:
                     fields_updated.append('personality_traits')
-                    logger.debug(f"[FullDayAnalysisService] Поле personality_traits обновлено для {user.telegram_id}.")
 
-            # --- Обработка остальных полей (list_field_names) ---
-            # Логика для life_facts, hobbies, core_values, triggers, strengths, areas_for_growth
-            # останется без изменений
+            # --- Обработка list полей с весами ---
+            # Используем merge_profile_items для интеллектуального объединения
             list_field_names = ['life_facts', 'hobbies', 'core_values', 'triggers', 'strengths', 'areas_for_growth']
+            
             for field_name in list_field_names:
                 updates_for_field = profile_updates.get(field_name)
                 if updates_for_field is None:
                     continue
                 if not isinstance(updates_for_field, list):
-                    logger.warning(f"[FullDayAnalysisService] Некорректный формат для {field_name}: {type(updates_for_field)}. Ожидается список.")
+                    logger.warning(f"[FullDayAnalysisService] Некорректный формат для {field_name}: {type(updates_for_field)}")
                     continue
 
-                current_user_list = getattr(user, field_name, [])
-                if not isinstance(current_user_list, list):
-                    logger.warning(f"[FullDayAnalysisService] Текущее значение {field_name} у пользователя не является списком. Перезаписываем.")
-                    current_user_list = []
+                current_field = getattr(user, field_name, [])
+                if not isinstance(current_field, list):
+                    current_field = []
 
-                items_to_add = []
+                # Конвертируем в weighted формат если нужно
+                if current_field and isinstance(current_field[0], dict):
+                    # Уже в weighted формате
+                    existing_weighted = current_field
+                elif current_field and isinstance(current_field[0], str):
+                    # Старый формат — конвертируем
+                    existing_weighted = convert_to_weighted_format(current_field)
+                else:
+                    existing_weighted = []
+
+                # Обрабатываем updates от AI
+                new_weighted_items = []
                 items_to_remove = []
+                
                 for item in updates_for_field:
-                    if isinstance(item, str):
-                        items_to_add.append(item)
-                    elif isinstance(item, dict) and 'remove' in item:
-                        item_to_remove = item['remove']
-                        if isinstance(item_to_remove, str):
-                            items_to_remove.append(item_to_remove)
-                        else:
-                            logger.warning(f"[FullDayAnalysisService] Некорректный формат 'remove' в {field_name}: {item_to_remove}")
-                    else:
-                        logger.warning(f"[FullDayAnalysisService] Некорректный элемент в {field_name}: {item}")
+                    if isinstance(item, str) and item.strip():
+                        # Строка — создаём элемент с дефолтным весом
+                        new_weighted_items.append(create_weighted_item(item.strip(), weight=0.5))
+                    elif isinstance(item, dict):
+                        if 'remove' in item:
+                            # Удаление
+                            items_to_remove.append(item['remove'])
+                        elif 'value' in item:
+                            # Уже в weighted формате от AI
+                            new_weighted_items.append({
+                                "value": item.get('value', ''),
+                                "weight": item.get('weight', 0.5),
+                                "frequency": item.get('frequency', 1),
+                                "added_at": item.get('added_at'),
+                                "last_seen": timezone.now().isoformat(),
+                                "is_stale": False
+                            })
 
-                new_list = [item for item in current_user_list if item not in items_to_remove]
-                for item in items_to_add:
-                    if item not in new_list:
-                        new_list.append(item)
+                # Удаляем элементы
+                if items_to_remove:
+                    existing_weighted = [
+                        e for e in existing_weighted 
+                        if e.get('value') not in items_to_remove
+                    ]
 
-                # Сравнение списков
-                try:
-                    sorted_final = sorted(new_list, key=lambda x: str(x))
-                    sorted_current = sorted(current_user_list, key=lambda x: str(x))
-                    lists_are_equal = sorted_final == sorted_current
-                except TypeError:
-                    import json
-                    try:
-                        json_final = json.dumps(new_list, sort_keys=True, default=str)
-                        json_current = json.dumps(current_user_list, sort_keys=True, default=str)
-                        lists_are_equal = json_final == json_current
-                    except (TypeError, ValueError) as json_error:
-                        logger.error(f"[FullDayAnalysisService] Ошибка сериализации при сравнении списков {field_name} для {user.telegram_id}: {json_error}. Предполагаем, что списки отличаются.")
-                        lists_are_equal = False
+                # Объединяем с новыми элементами (стратегия: max weight)
+                if new_weighted_items:
+                    existing_weighted = merge_profile_items(
+                        existing_weighted, 
+                        new_weighted_items, 
+                        strategy="max_weight"
+                    )
+                    
+                    # Обновляем frequency для существующих элементов
+                    for new_item in new_weighted_items:
+                        existing_weighted = update_item_frequency(
+                            existing_weighted, 
+                            new_item.get('value', '')
+                        )
 
-                if not lists_are_equal:
-                    setattr(user, field_name, new_list)
+                # Помечаем stale элементы
+                existing_weighted = mark_stale_items(existing_weighted)
+
+                # Ограничиваем количество элементов (топ по весу)
+                if len(existing_weighted) > MAX_ITEMS_PER_FIELD:
+                    existing_weighted = sort_by_weight(existing_weighted, reverse=True)[:MAX_ITEMS_PER_FIELD]
+
+                # Проверяем изменилось ли поле
+                current_str = str(current_field)
+                new_str = str(existing_weighted)
+                
+                if current_str != new_str:
+                    setattr(user, field_name, existing_weighted)
                     fields_updated.append(field_name)
-                    logger.debug(f"[FullDayAnalysisService] Поле {field_name} обновлено для {user.telegram_id}.")
+                    logger.debug(f"[FullDayAnalysisService] Поле {field_name} обновлено с {len(current_field)} до {len(existing_weighted)} элементов")
 
             # --- Сохранение изменений ---
             if fields_updated:
-                logger.debug(f"[FullDayAnalysisService] Обновлены поля профиля пользователя {user.telegram_id}: {fields_updated}")
+                logger.debug(f"[FullDayAnalysisService] Обновлены поля профиля: {fields_updated}")
                 await sync_to_async(user.save)(update_fields=fields_updated)
-                logger.debug(f"[FullDayAnalysisService] Изменения профиля пользователя {user.telegram_id} сохранены.")
+                
+                # После обновления профиля — обновляем compressed_psych_profile
+                try:
+                    from diary.services.compressed_profile_service import compressed_profile_service
+                    new_compressed = compressed_profile_service.generate_for_user(user)
+                    if new_compressed:
+                        user.compressed_psych_profile = new_compressed
+                        await sync_to_async(user.save)(update_fields=['compressed_psych_profile'])
+                        logger.debug(f"[FullDayAnalysisService] compressed_psych_profile обновлён для {user.telegram_id}")
+                except Exception as e:
+                    logger.warning(f"[FullDayAnalysisService] Не удалось обновить compressed_psych_profile: {e}")
             else:
                 logger.debug(f"[FullDayAnalysisService] Нет изменений для сохранения в профиле пользователя {user.telegram_id}.")
 

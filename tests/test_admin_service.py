@@ -4,6 +4,7 @@
 import pytest
 from datetime import timedelta
 from model_bakery import baker
+from asgiref.sync import sync_to_async
 from django.utils import timezone
 from django.test import override_settings
 
@@ -191,13 +192,29 @@ class TestAdminServiceIntegration:
     async def test_full_stats_flow(self):
         """Тест: полный поток сбора статистики."""
         # Создаем пользователей
-        user1 = baker.make(User, telegram_id=300, is_blocked=False, deletion_status='active',
-                          deleted_at=None, token_balance=100, language='ru', timezone='Europe/Moscow')
-        user2 = baker.make(User, telegram_id=301, is_blocked=False, deletion_status='active',
-                          deleted_at=None, token_balance=0, language='en', timezone='UTC')
+        user1 = await sync_to_async(baker.make)(
+            User,
+            telegram_id=300,
+            is_blocked=False,
+            deletion_status='active',
+            deleted_at=None,
+            token_balance=100,
+            language='ru',
+            timezone='Europe/Moscow'
+        )
+        user2 = await sync_to_async(baker.make)(
+            User,
+            telegram_id=301,
+            is_blocked=False,
+            deletion_status='active',
+            deleted_at=None,
+            token_balance=0,
+            language='en',
+            timezone='UTC'
+        )
 
         # Создаем записи
-        entry = baker.make(DiaryEntry, user=user1, text="Запись", language='ru', word_count=2)
+        await sync_to_async(baker.make)(DiaryEntry, user=user1, text="Запись", language='ru', word_count=2)
 
         # Получаем статистику
         stats = await admin_service.get_admin_stats()

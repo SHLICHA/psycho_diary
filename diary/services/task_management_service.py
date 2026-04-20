@@ -21,6 +21,8 @@ from diary.services.daily_state_service import daily_state_service
 from bot.services.deepseek_api import deepseek_api_service
 from prompts.get_prompt import get_prompt
 from messages import get_message
+from core.profile_field_utils import build_personal_fields_payload_for_ai
+from diary.services.compressed_profile_service import compressed_profile_service
 
 logger = logging.getLogger(__name__)
 
@@ -314,22 +316,20 @@ class TaskManagementService:
                 "text": completion_combined_entry.text if completion_combined_entry else "",
                 "analysis_result": completion_combined_entry.analysis_result if completion_combined_entry else {}
             }
-            user_profile_data = {
-                'username': user.username or f"user_{user.telegram_id}",
-                'first_name': user.first_name or "",
-                'awareness_level': user.awareness_level,
-                'personality_traits': user.personality_traits,
-                'life_facts': user.life_facts,
-                'hobbies': user.hobbies,
-                'core_values': user.core_values,
-                'triggers': user.triggers,
-                'strengths': user.strengths,
-                'areas_for_growth': user.areas_for_growth,
-            }
+            personal_fields_payload = build_personal_fields_payload_for_ai(user)
+            compressed_profile = user.compressed_psych_profile or {}
+            if not compressed_profile:
+                generated_profile = compressed_profile_service.generate_for_user(user)
+                compressed_profile = generated_profile or {}
+
+            compressed_profile_json = json.dumps(compressed_profile, ensure_ascii=False, indent=2)
+            personal_fields_json = json.dumps(personal_fields_payload, ensure_ascii=False, indent=2)
+
             prompt = get_prompt(
                 'task_effect_analysis',
                 language=user.language,
-                user_profile=user_profile_data,
+                compressed_psych_profile_json=compressed_profile_json,
+                personal_fields_json=personal_fields_json,
                 assigned_date=assigned_date_str,
                 assigned_day_text=assigned_day_context['text'],
                 assigned_day_analysis=json.dumps(assigned_day_context['analysis_result'], ensure_ascii=False, indent=2),

@@ -89,6 +89,34 @@
 - **PostgreSQL** (или другая СУБД, используемая с Django)
 - **Redis** (для кэширования и рейт-лимитов)
 
+## REST API: единый формат ошибок
+
+Для всех API-ошибок используется единый JSON-контракт:
+
+```json
+{
+	"error": {
+		"code": "machine_readable_code",
+		"message": "Human readable message",
+		"details": {
+			"field": ["Validation message"]
+		}
+	}
+}
+```
+
+Пояснения:
+- `error.code`: стабильный код для логики фронтенда.
+- `error.message`: текст для отображения пользователю или логов.
+- `error.details`: опциональный объект с деталями валидации/исключения.
+
+Типовые коды:
+- `validation_error`
+- `authentication_failed`
+- `permission_denied`
+- `not_found`
+- доменные коды endpoints, например `invalid_token`, `invalid_date_format`, `user_comment_required`.
+
 ## Установка и запуск
 
 (Вам нужно будет предоставить инструкции по установке, если проект предполагает локальный запуск, включая настройку `.env`, установку зависимостей, миграции БД и т.д.)

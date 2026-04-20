@@ -21,7 +21,7 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 
 
-async def test_proxy():
+async def run_proxy_test():
     """Тестируем подключение через прокси."""
     print("=" * 60)
     print("ТЕСТ ПОДКЛЮЧЕНИЯ БОТА ЧЕРЕЗ ПРОКСИ")
@@ -105,7 +105,7 @@ async def test_proxy():
 
 if __name__ == "__main__":
     try:
-        result = asyncio.run(test_proxy())
+        result = asyncio.run(run_proxy_test())
         sys.exit(0 if result else 1)
     except KeyboardInterrupt:
         print("\n\n⚠️  Тест прерван пользователем")

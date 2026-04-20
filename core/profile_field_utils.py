@@ -9,6 +9,7 @@
 """
 
 import logging
+import re
 from typing import Any, Dict, List, Set, Tuple, Optional
 from datetime import datetime, timedelta
 from django.utils import timezone
@@ -34,10 +35,32 @@ PROFILE_FIELDS = [
     'aspirations'
 ]
 
+# Личностные поля для AI-контекста в новом формате
+PERSONAL_LIST_FIELDS = [
+    'life_facts',
+    'hobbies',
+    'core_values',
+    'triggers',
+    'strengths',
+    'areas_for_growth',
+    'habits',
+    'skills',
+    'aspirations',
+]
+
+PROMPT_COMPRESSED_PROFILE_KEYS = [
+    'psych_summary',
+    'core_patterns',
+    'emotional_style',
+    'main_triggers',
+    'coping_style',
+    'current_focus',
+]
+
 
 # ============== АДАПТЕРЫ ДЛЯ СОВМЕСТИМОСТИ (ЭТАП 1.5) ==============
 
-def field_to_ai_format(field_data: List[Any], field_name: str) -> List[str]:
+def field_to_ai_format(field_data: Any, field_name: str) -> List[str]:
     """
     Конвертирует данные поля в формат для AI промптов.
     
@@ -45,13 +68,22 @@ def field_to_ai_format(field_data: List[Any], field_name: str) -> List[str]:
     Новый формат: [{"value": "шум", ...}] → берём только value
     
     Args:
-        field_data: Данные поля (строки или dict)
+        field_data: Данные поля (list или dict)
         field_name: Имя поля для логирования
         
     Returns:
         Список строк для AI
     """
     if not field_data:
+        return []
+
+    if isinstance(field_data, dict):
+        if field_name == 'personality_traits':
+            return [str(key) for key, value in field_data.items() if key and value is not None]
+        return [str(value) for value in field_data.values() if value]
+
+    if not isinstance(field_data, list):
+        logger.warning(f"[field_to_ai_format] Поле {field_name} не является list/dict: {type(field_data)}")
         return []
     
     # Определяем формат по первому элементу
@@ -192,6 +224,244 @@ def strengths_to_ai_format(strengths) -> List[str]:
 def strengths_to_display_format(strengths) -> List[str]:
     """Конвертирует strengths для отображения пользователю."""
     return field_to_display_format(strengths, 'strengths')
+
+
+def compact_weighted_items(items: List[Any]) -> List[Dict[str, Any]]:
+    """
+    Приводит элементы профиля к компактному weighted-формату для AI.
+
+    Возвращает только ключи, нужные для анализа:
+    - value
+    - weight
+    - frequency
+    - is_stale
+    """
+    weighted_items = convert_to_weighted_format(items or [])
+    result: List[Dict[str, Any]] = []
+
+    for item in weighted_items:
+        value = item.get("value")
+        if not value:
+            continue
+        result.append({
+            "value": str(value),
+            "weight": float(item.get("weight", 0.5)),
+            "frequency": int(item.get("frequency", 1)),
+            "is_stale": bool(item.get("is_stale", False)),
+        })
+
+    return result
+
+
+def compact_personality_traits(traits: Any) -> List[Dict[str, Any]]:
+    """
+    Нормализует personality_traits в компактный changed-формат.
+
+    Поддерживает:
+    - dict: {"trait": 0.8}
+    - list[str]
+    - list[dict] (weighted)
+    """
+    if not traits:
+        return []
+
+    if isinstance(traits, dict):
+        result: List[Dict[str, Any]] = []
+        for trait, weight in traits.items():
+            if not trait:
+                continue
+            if isinstance(weight, (int, float)):
+                trait_weight = float(weight)
+            else:
+                trait_weight = 0.5
+            result.append({
+                "value": str(trait),
+                "weight": trait_weight,
+                "frequency": 1,
+                "is_stale": False,
+            })
+        return result
+
+    if isinstance(traits, list):
+        return compact_weighted_items(traits)
+
+    return []
+
+
+def build_personal_fields_payload_for_ai(user: Any) -> Dict[str, Any]:
+    """
+    Собирает унифицированный payload личностных полей для AI.
+
+    Это canonical входной формат для анализ-промптов.
+    """
+    payload: Dict[str, Any] = {
+        "awareness_level": getattr(user, "awareness_level", 0),
+        "personality_traits": compact_personality_traits(
+            getattr(user, "personality_traits", {})
+        ),
+    }
+
+    for field_name in PERSONAL_LIST_FIELDS:
+        payload[field_name] = compact_weighted_items(getattr(user, field_name, []))
+
+    return payload
+
+
+def normalize_compressed_profile_for_prompt(
+    profile: Any,
+    *,
+    max_items_per_list: int = 8,
+    max_text_len: int = 600,
+    date_format: str = "%Y-%m-%d",
+) -> Dict[str, Any]:
+    """
+    Приводит compressed profile к компактному и устойчивому виду для AI-промптов.
+
+    Поддерживает legacy/смешанные форматы и возвращает только canonical keys:
+    - psych_summary
+    - core_patterns
+    - emotional_style
+    - main_triggers
+    - coping_style
+    - current_focus
+
+    Для списков оставляет только: value, weight, frequency, is_stale.
+    """
+    if not isinstance(profile, dict):
+        profile = {}
+
+    normalized: Dict[str, Any] = {
+        "psych_summary": _truncate_prompt_text(profile.get("psych_summary", ""), max_text_len),
+        "core_patterns": _normalize_prompt_weighted_list(
+            profile.get("core_patterns", []),
+            max_items=max_items_per_list,
+            date_format=date_format,
+        ),
+        "emotional_style": _truncate_prompt_text(profile.get("emotional_style", ""), max_text_len),
+        "main_triggers": _normalize_prompt_weighted_list(
+            profile.get("main_triggers", []),
+            max_items=max_items_per_list,
+            date_format=date_format,
+        ),
+        "coping_style": _truncate_prompt_text(profile.get("coping_style", ""), max_text_len),
+        "current_focus": _truncate_prompt_text(profile.get("current_focus", ""), max_text_len),
+    }
+
+    # Поддержка legacy полей в fallback-режиме
+    if not normalized["core_patterns"]:
+        normalized["core_patterns"] = _normalize_prompt_weighted_list(
+            profile.get("personality_traits", []),
+            max_items=max_items_per_list,
+            date_format=date_format,
+        )
+
+    if not normalized["main_triggers"]:
+        normalized["main_triggers"] = _normalize_prompt_weighted_list(
+            profile.get("triggers", []),
+            max_items=max_items_per_list,
+            date_format=date_format,
+        )
+
+    return normalized
+
+
+def _truncate_prompt_text(value: Any, max_len: int) -> str:
+    text = str(value or "").strip()
+    if len(text) <= max_len:
+        return text
+    return text[:max_len].rstrip()
+
+
+def _canonicalize_text(value: str) -> str:
+    normalized = re.sub(r"\s+", " ", value.strip().lower())
+    normalized = re.sub(r"[^\w\s]", "", normalized)
+    return normalized
+
+
+def _normalize_prompt_date(value: Any, date_format: str) -> str:
+    if not value:
+        return ""
+
+    if isinstance(value, datetime):
+        return value.strftime(date_format)
+
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return ""
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            return dt.strftime(date_format)
+        except ValueError:
+            return ""
+
+    return ""
+
+
+def _normalize_prompt_weighted_list(
+    raw_items: Any,
+    *,
+    max_items: int,
+    date_format: str,
+) -> List[Dict[str, Any]]:
+    if isinstance(raw_items, str):
+        raw_items = [raw_items]
+    if not isinstance(raw_items, list) or max_items <= 0:
+        return []
+
+    merged: Dict[str, Dict[str, Any]] = {}
+
+    for item in raw_items:
+        value = ""
+        weight = 0.5
+        frequency = 1
+        is_stale = False
+
+        if isinstance(item, str):
+            value = item.strip()
+        elif isinstance(item, dict):
+            value = str(item.get("value") or item.get("text") or "").strip()
+            weight = float(item.get("weight", 0.5) or 0.5)
+            frequency = int(item.get("frequency", 1) or 1)
+            is_stale = bool(item.get("is_stale", False))
+            # Нормализуем даты в фоне, чтобы выявить заведомо битые legacy-значения
+            _ = _normalize_prompt_date(item.get("added_at"), date_format)
+            _ = _normalize_prompt_date(item.get("last_seen"), date_format)
+        else:
+            continue
+
+        if not value:
+            continue
+
+        canonical_key = _canonicalize_text(value)
+        if not canonical_key:
+            continue
+
+        current = merged.get(canonical_key)
+        if not current:
+            merged[canonical_key] = {
+                "value": value,
+                "weight": max(0.0, min(1.0, weight)),
+                "frequency": max(1, frequency),
+                "is_stale": is_stale,
+            }
+            continue
+
+        current["weight"] = max(float(current.get("weight", 0.0)), max(0.0, min(1.0, weight)))
+        current["frequency"] = max(int(current.get("frequency", 1)), max(1, frequency))
+        current["is_stale"] = bool(current.get("is_stale", False)) and is_stale
+
+    result = list(merged.values())
+    result.sort(
+        key=lambda x: (
+            bool(x.get("is_stale", False)),
+            -float(x.get("weight", 0.0)),
+            -int(x.get("frequency", 0)),
+            x.get("value", ""),
+        )
+    )
+
+    return result[:max_items]
 
 
 # ============== НОВЫЕ ФУНКЦИИ ДЛЯ ВЕСОВ И TTL ==============

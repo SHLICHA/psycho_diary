@@ -10,13 +10,13 @@ import json
 
 from asgiref.sync import sync_to_async
 from django.core.serializers.json import DjangoJSONEncoder
-from django.db.models import Q
 
 from users.models import User, UserProfileHistory
-from core.profile_field_utils import field_to_ai_format
+from core.profile_field_utils import build_personal_fields_payload_for_ai
 from diary.models import WeeklyAnalysis
 from bot.services.deepseek_api import deepseek_api_service
 from prompts.get_prompt import get_prompt
+from diary.services.compressed_profile_service import compressed_profile_service
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +64,10 @@ class UserProfileChangeAnalysisService:
             prompt = get_prompt(
                 key='profile_change_analysis',
                 language=user.language,
-                current_profile=context['current_profile'],
-                historical_profiles=context['historical_snapshots_str'], # Передаём сериализованный JSON как строку
+                current_compressed_psych_profile_json=context['current_compressed_psych_profile_json'],
+                current_personal_fields_json=context['current_personal_fields_json'],
+                current_personality_description=context['current_personality_description'],
+                historical_snapshots_json=context['historical_snapshots_str'],
                 num_snapshots=num_snapshots_to_compare
             )
             logger.debug(f"[UserProfileChangeAnalysisService] Промпт анализа изменений сформирован для {user.telegram_id} (длина: {len(prompt)} символов)")
@@ -131,33 +133,23 @@ class UserProfileChangeAnalysisService:
         logger.debug(f"[UserProfileChangeAnalysisService] Сбор контекста для анализа изменений, snapshots: {num_snapshots}")
 
         context = {
-            'current_profile': {},
+            'current_compressed_psych_profile_json': '{}',
+            'current_personal_fields_json': '{}',
+            'current_personality_description': '',
             'historical_snapshots': [],
             'historical_snapshots_str': "" # Для передачи в промпт
         }
 
         # --- 1. Текущий профиль ---
-        current_profile_data = {
-            # 'id': user.id, # Необязательно для ИИ
-            'username': user.username or f"user_{user.telegram_id}",
-            'first_name': user.first_name or "",
-            'awareness_level': user.awareness_level,
-            'date_of_birth': user.date_of_birth,
-            # Используем адаптеры для AI
-            "personality_traits": field_to_ai_format(user.personality_traits, 'personality_traits') if user.personality_traits else [],
-            "life_facts": field_to_ai_format(user.life_facts, 'life_facts') if user.life_facts else [],
-            "hobbies": field_to_ai_format(user.hobbies, 'hobbies') if user.hobbies else [],
-            "core_values": field_to_ai_format(user.core_values, 'core_values') if user.core_values else [],
-            "triggers": field_to_ai_format(user.triggers, 'triggers') if user.triggers else [],
-            "strengths": field_to_ai_format(user.strengths, 'strengths') if user.strengths else [],
-            "areas_for_growth": field_to_ai_format(user.areas_for_growth, 'areas_for_growth') if user.areas_for_growth else [],
-            "personality_insights": user.personality_insights,
-            "habits": field_to_ai_format(user.habits, 'habits') if user.habits else [],
-            "skills": field_to_ai_format(user.skills, 'skills') if user.skills else [],
-            "aspirations": field_to_ai_format(user.aspirations, 'aspirations') if user.aspirations else [],
-            "personality_description": user.personality_description,
-        }
-        context['current_profile'] = current_profile_data
+        current_personal_fields = build_personal_fields_payload_for_ai(user)
+        context['current_personal_fields_json'] = json.dumps(current_personal_fields, cls=DjangoJSONEncoder, ensure_ascii=False)
+        context['current_personality_description'] = user.personality_description or ''
+
+        current_compressed_profile = user.compressed_psych_profile or {}
+        if not current_compressed_profile:
+            generated_profile = compressed_profile_service.generate_for_user(user)
+            current_compressed_profile = generated_profile or {}
+        context['current_compressed_psych_profile_json'] = json.dumps(current_compressed_profile, cls=DjangoJSONEncoder, ensure_ascii=False)
 
         # --- 2. Исторические слепки ---
         @sync_to_async
@@ -173,22 +165,13 @@ class UserProfileChangeAnalysisService:
 
         historical_snapshots_formatted = []
         for snapshot in historical_snapshots_raw:
-            # Применяем адаптеры к историческим данным
+            snapshot_personal_fields = build_personal_fields_payload_for_ai(snapshot)
+            snapshot_compressed_profile = getattr(snapshot, 'compressed_psych_profile', None) or {}
             snapshot_data = {
-                'created_at': snapshot.created_at.isoformat(),
-                'awareness_level': snapshot.awareness_level,
-                "personality_traits": field_to_ai_format(snapshot.personality_traits, 'personality_traits') if snapshot.personality_traits else [],
-                "life_facts": field_to_ai_format(snapshot.life_facts, 'life_facts') if snapshot.life_facts else [],
-                "hobbies": field_to_ai_format(snapshot.hobbies, 'hobbies') if snapshot.hobbies else [],
-                "core_values": field_to_ai_format(snapshot.core_values, 'core_values') if snapshot.core_values else [],
-                "triggers": field_to_ai_format(snapshot.triggers, 'triggers') if snapshot.triggers else [],
-                "strengths": field_to_ai_format(snapshot.strengths, 'strengths') if snapshot.strengths else [],
-                "areas_for_growth": field_to_ai_format(snapshot.areas_for_growth, 'areas_for_growth') if snapshot.areas_for_growth else [],
-                "personality_insights": snapshot.personality_insights,
-                "habits": field_to_ai_format(snapshot.habits, 'habits') if snapshot.habits else [],
-                "skills": field_to_ai_format(snapshot.skills, 'skills') if snapshot.skills else [],
-                "aspirations": field_to_ai_format(snapshot.aspirations, 'aspirations') if snapshot.aspirations else [],
-                "personality_description": snapshot.personality_description,
+                'created_at': snapshot.created_at.date().isoformat(),
+                'compressed_psych_profile': snapshot_compressed_profile,
+                'personal_fields': snapshot_personal_fields,
+                'personality_description': snapshot.personality_description or '',
             }
             historical_snapshots_formatted.append(snapshot_data)
 

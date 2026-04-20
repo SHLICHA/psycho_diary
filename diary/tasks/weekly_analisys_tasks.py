@@ -10,6 +10,7 @@ from celery import shared_task
 from asgiref.sync import async_to_sync
 
 from users.models import User
+from diary.services.profile_cleanup_service import profile_cleanup_service
 from diary.services.weekly_analysis_service import weekly_analysis_service
 from diary.services.user_profile_analysis_service import user_profile_analysis_service
 from diary.services.user_profile_change_analysis_service import perform_profile_change_analysis
@@ -22,7 +23,9 @@ def perform_weekly_analysis_for_user_task(self, user_id: int) -> dict:
     Celery задача для выполнения еженедельного анализа и последующего анализа профиля для одного пользователя.
     """
     
-    logger.debug(f"[Celery Task] Запуск еженедельного анализа, анализа профиля и анализа изменений профиля для пользователя ID {user_id}")
+    logger.debug(
+        f"[Celery Task] Запуск еженедельного анализа, анализа профиля, cleanup и анализа изменений профиля для пользователя ID {user_id}"
+    )
     try:
         user = User.objects.get(id=user_id)
         if user.is_blocked:
@@ -44,6 +47,7 @@ def perform_weekly_analysis_for_user_task(self, user_id: int) -> dict:
                 'weekly_result': weekly_result,
                 'profile_result': None,
                 'profile_change_result': None,
+                'cleanup_result': None,
                 'user_id': user_id
             }
         
@@ -73,6 +77,25 @@ def perform_weekly_analysis_for_user_task(self, user_id: int) -> dict:
             # так как он использует текущий (потенциально частично обновлённый) профиль и историю.
             # Поэтому не возвращаем ошибку здесь, а идём дальше.
 
+        logger.debug(f"[Celery Task] -> Выполнение cleanup профиля пользователя {user_id}...")
+        perform_cleanup_sync = async_to_sync(profile_cleanup_service.cleanup_user_profile)
+        cleanup_result = perform_cleanup_sync(user)
+
+        if cleanup_result['success']:
+            logger.info(
+                f"[Celery Task] -> Cleanup профиля пользователя {user_id} завершён: "
+                f"changed={cleanup_result.get('changed')}, "
+                f"changed_fields={cleanup_result.get('changed_fields', [])}, "
+                f"removed_items={cleanup_result.get('removed_items', 0)}, "
+                f"stale_items={cleanup_result.get('stale_items', 0)}, "
+                f"compressed_action={cleanup_result.get('compressed_profile_action', 'skipped')}"
+            )
+        else:
+            logger.error(
+                f"[Celery Task] -> Ошибка cleanup профиля для пользователя {user_id}: "
+                f"{cleanup_result.get('error', 'Unknown error')}"
+            )
+
         # Теперь запускаем анализ изменений, используя успешно созданный weekly_analysis_obj
         logger.debug(f"[Celery Task] -> Выполнение анализа изменений профиля пользователя {user_id}...")
         # Вызываем новый сервис
@@ -88,6 +111,7 @@ def perform_weekly_analysis_for_user_task(self, user_id: int) -> dict:
                 'status': 'completed_with_change_error', 
                 'weekly_result': weekly_result, 
                 'profile_result': profile_result,
+                'cleanup_result': cleanup_result,
                 'profile_change_error': profile_change_result.get('error'), 
                 'profile_change_message': profile_change_result.get('message'),
                 'user_id': user_id
@@ -98,6 +122,7 @@ def perform_weekly_analysis_for_user_task(self, user_id: int) -> dict:
             'status': 'completed', 
             'weekly_result': weekly_result, 
             'profile_result': profile_result,
+            'cleanup_result': cleanup_result,
             'profile_change_result': profile_change_result,
             'user_id': user_id
         }

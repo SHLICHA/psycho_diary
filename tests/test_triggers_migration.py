@@ -5,7 +5,6 @@
 """
 
 import os
-import sys
 import unittest
 import importlib.util
 
@@ -15,22 +14,6 @@ _MODULE_PATH = os.path.join(_PROJECT_ROOT, 'diary', 'management', 'commands', 'm
 
 _spec = importlib.util.spec_from_file_location('migrate_triggers', _MODULE_PATH)
 _mt = importlib.util.module_from_spec(_spec)
-
-# Мокаем Django
-sys.modules['django'] = type(sys)('django')
-sys.modules['django.core'] = type(sys)('django.core')
-sys.modules['django.core.management'] = type(sys)('django.core.management')
-sys.modules['django.core.management.base'] = type(sys)('django.core.management.base')
-sys.modules['django.utils'] = type(sys)('django.utils')
-sys.modules['django.utils.timezone'] = type(sys)('django.utils.timezone')
-
-class MockTimezone:
-    @staticmethod
-    def now():
-        import datetime
-        return datetime.datetime(2026, 4, 18, 12, 0, 0)
-
-sys.modules['django.utils.timezone'].timezone = MockTimezone
 
 try:
     _spec.loader.exec_module(_mt)

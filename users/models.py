@@ -136,10 +136,12 @@ class User(AbstractUser):
         return f"{self.username} ({self.telegram_id})"
     def save(self, *args, **kwargs):
         # Генерируем hash email для поиска (deterministic)
-        if self.email:
+        if self.email and isinstance(self.email, str):
             import hashlib
             self.email_hash = hashlib.sha256(self.email.lower().encode()).hexdigest()
         else:
+            if self.email is not None and not isinstance(self.email, str):
+                self.email = ''
             self.email_hash = ''
         
         if not self.referral_link:

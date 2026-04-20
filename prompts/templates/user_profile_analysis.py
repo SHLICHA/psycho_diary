@@ -1,43 +1,29 @@
 USER_PROFILE_ANALYSIS_PROMPT = {
-    'ru': '''Ты — эксперт-психолог с глубоким пониманием человеческой личности. Твоя задача — на основе предоставленных данных создать или обновить глубокий психологический портрет пользователя. Ты получишь его текущий профиль, историю анализа недель и влияния ключевых заданий. Твоя цель — синтезировать эту информацию в целостное, точное и *актуальное* описание личности, *объединив* схожие по смыслу данные и *очистив* от дубликатов. Удаляй *только* то, что *явно* утратило актуальность (например, подтверждённый отказ от ценности или устаревший факт).
+    'ru': '''Ты — эксперт-психолог с глубоким пониманием человеческой личности. Твоя задача — на основе предоставленных данных создать или обновить глубокий психологический портрет пользователя. Ты получишь его текущий профиль и историю анализа недель. Твоя цель — синтезировать эту информацию в целостное, точное и *актуальное* описание личности, *объединив* схожие по смыслу данные и *очистив* от дубликатов. Удаляй *только* то, что *явно* утратило актуальность (например, подтверждённый отказ от ценности или устаревший факт).
 
 ### 🔍 ВХОДНЫЕ ДАННЫЕ
 
-**Текущий психологический профиль пользователя (данные в формате JSON-строк):**
-Имя: {user_profile[first_name]}
-Уровень осознанности: {user_profile[awareness_level]}/10
-Дата рождения: {user_profile[date_of_birth]}
+**Текущее полное текстовое описание профиля пользователя:**
+{personality_description}
 
-**Текстовое описание личности (Текущее):**
-{user_profile[personality_description]}
+**Сжатый психологический профиль (JSON):**
+{compressed_psych_profile_json}
 
-**Структурированные данные профиля (Текущие) - представлены как JSON-строки:**
-Черты характера (JSON): {user_profile[personality_traits]}
-Факты о жизни (JSON): {user_profile[life_facts]}
-Увлечения (JSON): {user_profile[hobbies]}
-Ключевые ценности (JSON): {user_profile[core_values]}
-Триггеры (JSON): {user_profile[triggers]}
-Сильные стороны (JSON): {user_profile[strengths]}
-Зоны роста (JSON): {user_profile[areas_for_growth]}
-Глубинные инсайты (JSON): {user_profile[personality_insights]}
-Привычки (JSON): {user_profile[habits]}
-Навыки (JSON): {user_profile[skills]}
-Стремления (JSON): {user_profile[aspirations]}
+**Унифицированные личностные поля (JSON, changed-format):**
+{personal_fields_json}
 
 **Анализы последних недель:**
 {recent_weekly_analyses}
-
-**Анализы влияния ключевых выполненных заданий:**
-{selected_task_completion_analyses}
 
 ### 🧠 ИНСТРУКЦИЯ
 
 1.  **Проанализируй все предоставленные данные.**
     *   Обрати особое внимание на динамику, тренды и повторяющиеся паттерны.
-    *   Сравни "Текущий профиль" с информацией из `recent_weekly_analyses` и `selected_task_completion_analyses`.
-    *   **Важно**: Проанализируй каждый элемент текущего профиля. Если элемент не упоминался в новых данных и ты видишь по контексту, что он утратил актуальность — **обязательно** пометь его на удаление через `{"remove": "элемент"}`.
+    *   Сравни текущие данные профиля с информацией из `recent_weekly_analyses`.
+    *   **Важно**: Проанализируй каждый элемент `personal_fields_json`. Если элемент не упоминался в новых данных и ты видишь по контексту, что он утратил актуальность — **обязательно** пометь его на удаление через `{{"remove": "элемент"}}`.
 2.  **Создай или обнови `personality_description`**:
-    *   Это должно быть **новое, цельное, человекочитаемое описание личности** пользователя на русском языке.
+  *   Это должно быть **новое, цельное, полное человекочитаемое описание профиля** пользователя на русском языке.
+  *   **Обязательно опирайся на текущее текстовое описание профиля**: сохрани подтверждённые устойчивые характеристики, перепиши устаревшие или неточные формулировки и встрои новые данные в уже существующий целостный портрет.
     *   Объедини ключевые черты, ценности, сильные стороны, зоны роста, привычки, стремления и инсайты в связный рассказ.
     *   Учитывай уровень осознанности.
     *   Объем: 2-4 абзацев, **обязательно** не более 3000 символов. Избегай списков и форматирования.
@@ -77,7 +63,7 @@ USER_PROFILE_ANALYSIS_PROMPT = {
 
 ```json
 {{
-  "personality_description": "Новое, обобщенное текстовое описание личности пользователя, 2-4 абзацев, на русском языке. Без списков и форматирования.",
+  "personality_description": "Новое полное текстовое описание профиля пользователя, переписанное на основе старого описания и новых данных; 2-4 абзацев, на русском языке. Без списков и форматирования.",
   "personality_traits": {{
     "рефлексивность": 0.85,
     "оптимизм": 0.75
@@ -123,55 +109,41 @@ USER_PROFILE_ANALYSIS_PROMPT = {
     "повысить эмоциональный интеллект",
     "найти баланс"
   ],
-  "compressed_psych_profile": {
+  "compressed_psych_profile": {{
     "psych_summary": "Краткое описание личности (3-5 предложений) — основные черты, ценности и текущее состояние",
     "core_patterns": ["ключевой паттерн 1", "ключевой паттерн 2", "ключевой паттерн 3"],
     "emotional_style": "Описание эмоционального стиля (1 предложение)",
     "main_triggers": ["основной триггер 1", "основной триггер 2"],
     "coping_style": "Описание стиля совладания со стрессом (1 предложение)",
     "current_focus": "Текущий фокус внимания/главная тема (1-2 предложения)"
-  }
+  }}
 }}
 ```''',
-    'en': '''You are an expert psychologist with a deep understanding of human personality. Your task is to create or update a profound psychological portrait of the user based on the provided data. You will receive their current profile, a history of weekly analyses, and the impact of key completed tasks. Your goal is to synthesize this information into a coherent, accurate, and *current* description of the personality, *merging* items with similar meaning and *cleaning* up duplicates. Only remove items that have *clearly* lost relevance (e.g., a confirmed rejection of a value or an outdated fact).
+    'en': '''You are an expert psychologist with a deep understanding of human personality. Your task is to create or update a profound psychological portrait of the user based on the provided data. You will receive their current profile and a history of weekly analyses. Your goal is to synthesize this information into a coherent, accurate, and *current* description of the personality, *merging* items with similar meaning and *cleaning* up duplicates. Only remove items that have *clearly* lost relevance (e.g., a confirmed rejection of a value or an outdated fact).
 
 ### 🔍 INPUT DATA
 
-**User's Current Psychological Profile (data as JSON strings):**
-Name: {user_profile[first_name]}
-Awareness Level: {user_profile[awareness_level]}/10
-Date of birth: {user_profile[date_of_birth]}
+**Current full textual profile description:**
+{personality_description}
 
-**Personality Description (Current):**
-{user_profile[personality_description]}
+**Compressed psychological profile (JSON):**
+{compressed_psych_profile_json}
 
-**Structured Profile Data (Current) - Provided as JSON strings:**
-Personality Traits (JSON): {user_profile[personality_traits]}
-Life Facts (JSON): {user_profile[life_facts]}
-Hobbies (JSON): {user_profile[hobbies]}
-Core Values (JSON): {user_profile[core_values]}
-Triggers (JSON): {user_profile[triggers]}
-Strengths (JSON): {user_profile[strengths]}
-Areas for Growth (JSON): {user_profile[areas_for_growth]}
-Deep Insights (JSON): {user_profile[personality_insights]}
-Habits (JSON): {user_profile[habits]}
-Skills (JSON): {user_profile[skills]}
-Aspirations (JSON): {user_profile[aspirations]}
+**Unified personal fields (JSON, changed-format):**
+{personal_fields_json}
 
 **Recent Weekly Analyses:**
 {recent_weekly_analyses}
-
-**Analyses of Key Completed Task Impacts:**
-{selected_task_completion_analyses}
 
 ### 🧠 INSTRUCTIONS
 
 1.  **Analyze all provided data.**
     *   Pay special attention to dynamics, trends, and recurring patterns.
-    *   Compare the "Current Profile" with information from `recent_weekly_analyses` and `selected_task_completion_analyses`.
-    *   **Important**: Review every element in the current profile. If an item has not been mentioned in new data and you can see from context that it has lost relevance — **mark it for removal** using `{"remove": "item"}`.
+    *   Compare the current profile data with information from `recent_weekly_analyses`.
+    *   **Important**: Review every element in `personal_fields_json`. If an item has not been mentioned in new data and you can see from context that it has lost relevance — **mark it for removal** using `{{"remove": "item"}}`.
 2.  **Create or update `personality_description`**:
-    *   This should be a **new, cohesive, human-readable description of the user's personality** in English.
+  *   This should be a **new, cohesive, full human-readable profile description** of the user in English.
+  *   **You must explicitly build on the current textual profile description**: keep confirmed stable characteristics, rewrite outdated or imprecise wording, and integrate new signals into the existing portrait instead of replacing it blindly.
     *   Synthesize key traits, values, strengths, areas for growth, habits, aspirations, and insights into a coherent narrative.
     *   Consider the awareness level.
     *   Length: 2-4 paragraphs, **strictly** no more than 3000 characters. Avoid lists and formatting.
@@ -211,7 +183,7 @@ RESPOND ONLY IN THE FOLLOWING JSON FORMAT, enclosed in triple backticks (```json
 
 ```json
 {{
-  "personality_description": "New, comprehensive textual description of the user's personality, 2-4 paragraphs, in English. No lists or formatting.",
+  "personality_description": "New full textual profile description of the user, rewritten from the old description plus new data; 2-4 paragraphs, in English. No lists or formatting.",
   "personality_traits": {{
     "reflectiveness": 0.85,
     "optimism": 0.75
@@ -257,14 +229,14 @@ RESPOND ONLY IN THE FOLLOWING JSON FORMAT, enclosed in triple backticks (```json
     "increase emotional intelligence",
     "find balance"
   ],
-  "compressed_psych_profile": {
+  "compressed_psych_profile": {{
     "psych_summary": "Brief personality description (3-5 sentences) — main traits, values, and current state",
     "core_patterns": ["key pattern 1", "key pattern 2", "key pattern 3"],
     "emotional_style": "Description of emotional style (1 sentence)",
     "main_triggers": ["main trigger 1", "main trigger 2"],
     "coping_style": "Description of coping style (1 sentence)",
     "current_focus": "Current focus of attention/main theme (1-2 sentences)"
-  }
+  }}
 }}
 ```'''
 }

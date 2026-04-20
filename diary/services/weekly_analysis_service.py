@@ -16,7 +16,6 @@ from diary.models import (
 )
 from bot.services.deepseek_api import deepseek_api_service
 from prompts.get_prompt import get_prompt
-from core.profile_field_utils import field_to_ai_format
 
 logger = logging.getLogger(__name__)
 
@@ -66,10 +65,26 @@ class WeeklyAnalysisService:
                     "error": "no_data"
                 }
             logger.debug(f"[WeeklyAnalysisService] Контекст собран для недели {week_start_date}")
+            
+            # ВСЕ пользователи используют compressed_psych_profile
+            import json
+            compressed_profile = user.compressed_psych_profile or {}
+            
+            # Проверяем подписку для выбора версии профиля
+            is_premium_active = await sync_to_async(user.is_premium_active)()
+            
+            if is_premium_active:
+                # Premium: полный compressed profile
+                compressed_profile_json = json.dumps(compressed_profile, ensure_ascii=False, indent=2)
+            else:
+                # Non-premium: LITE версия
+                lite_profile = self._create_lite_profile(compressed_profile)
+                compressed_profile_json = json.dumps(lite_profile, ensure_ascii=False, indent=2)
+            
             prompt = get_prompt(
                 key='weekly_analysis',
                 language=user.language,
-                user_profile=context['user_profile'],
+                compressed_psych_profile_json=compressed_profile_json,
                 daily_analyses=context['daily_analyses'],
                 previous_weekly_analysis=context['previous_weekly_analysis'],
                 week_statistics=context['week_statistics']
@@ -171,28 +186,10 @@ class WeeklyAnalysisService:
 
         context = {
             'has_data': False,
-            'user_profile': {},
             'daily_analyses': [],
             'previous_weekly_analysis': None,
             'week_statistics': {}
         }
-
-        # Профиль пользователя — используем адаптеры для AI
-        extended_user_profile = {
-            'username': user.username or f"user_{user.telegram_id}",
-            'first_name': user.first_name or "",
-            'awareness_level': user.awareness_level,
-            'date_of_birth': user.date_of_birth,
-            # Адаптеры возвращают простой формат для AI
-            "personality_traits": field_to_ai_format(user.personality_traits, 'personality_traits') if user.personality_traits else [],
-            "life_facts": field_to_ai_format(user.life_facts, 'life_facts') if user.life_facts else [],
-            "hobbies": field_to_ai_format(user.hobbies, 'hobbies') if user.hobbies else [],
-            "core_values": field_to_ai_format(user.core_values, 'core_values') if user.core_values else [],
-            "triggers": field_to_ai_format(user.triggers, 'triggers') if user.triggers else [],
-            "strengths": field_to_ai_format(user.strengths, 'strengths') if user.strengths else [],
-            "areas_for_growth": field_to_ai_format(user.areas_for_growth, 'areas_for_growth') if user.areas_for_growth else [],
-        }
-        context['user_profile'] = extended_user_profile
 
         # DailyAnalysis за неделю
         daily_analyses_data = []
@@ -447,6 +444,46 @@ class WeeklyAnalysisService:
                  
                  return weekly_analysis
         return await _create_sync()
+
+    def _create_lite_profile(self, full_profile: dict) -> dict:
+        """
+        Создаёт LITE версию compressed profile для не-premium пользователей.
+        
+        Args:
+            full_profile: Полный compressed_psych_profile
+            
+        Returns:
+            dict: LITE версия профиля
+        """
+        if not full_profile:
+            return {}
+        
+        lite = {}
+        
+        # psych_summary - обрезаем до 200 символов
+        summary = full_profile.get('psych_summary', '')
+        if len(summary) > 200:
+            summary = summary[:200].rsplit('. ', 1)[0] + '.'
+        lite['psych_summary'] = summary
+        
+        # core_patterns - только топ-2 вместо 5
+        patterns = full_profile.get('core_patterns', [])
+        lite['core_patterns'] = patterns[:2] if patterns else []
+        
+        # emotional_style - без изменений
+        lite['emotional_style'] = full_profile.get('emotional_style', '')
+        
+        # main_triggers - только топ-3
+        triggers = full_profile.get('main_triggers', [])
+        lite['main_triggers'] = triggers[:3] if triggers else []
+        
+        # coping_style - без изменений
+        lite['coping_style'] = full_profile.get('coping_style', '')
+        
+        # current_focus - без изменений
+        lite['current_focus'] = full_profile.get('current_focus', '')
+        
+        return lite
 
 
 weekly_analysis_service = WeeklyAnalysisService()

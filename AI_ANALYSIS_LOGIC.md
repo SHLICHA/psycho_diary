@@ -1,710 +1,508 @@
-# 🧠 Полная логика AI-анализов Psycho Diary
+# AI Analysis Logic (actual)
 
-> **Дата:** 2026-04-09
-> **Версия:** 1.0
-> **Назначение:** Документация всех AI-анализов для передачи специалисту
-
----
-
-## 📋 Оглавление
-
-1. [Архитектура AI-взаимодействия](#архитектура-ai-взаимодействия)
-2. [Анализ #1: Инкрементальный анализ записи](#анализ-1-инкрементальный-анализ-записи)
-3. [Анализ #2: Полный анализ дня](#анализ-2-полный-анализ-дня)
-4. [Анализ #3: Анализ с уточняющими вопросами](#анализ-3-анализ-с-уточняющими-вопросами)
-5. [Анализ #4: Анализ комментария пользователя](#анализ-4-анализ-комментария-пользователя)
-6. [Анализ #5: Еженедельный анализ](#анализ-5-еженедельный-анализ)
-7. [Анализ #6: Анализ психологического профиля](#анализ-6-анализ-психологического-профиля)
-8. [Анализ #7: Анализ изменений профиля](#анализ-7-анализ-изменений-профиля)
-9. [Анализ #8: Анализ эффекта задания](#анализ-8-анализ-эффекта-задания)
-10. [Анализ #9: Терапевтический чат](#анализ-9-терапевтический-чат)
-11. [Анализ #10: Утреннее напоминание](#анализ-10-утреннее-напоминание)
-12. [Анализ #11: Напоминание о записи](#анализ-11-напоминание-о-записи)
-13. [Анализ #12: Генерация подсказок](#анализ-12-генерация-подсказок)
-14. [Вспомогательные AI-вызовы](#вспомогательные-ai-вызовы)
-15. [Сводная таблица](#сводная-таблица)
+> Дата обновления: 2026-04-19
+> Ветка: version2.0
+> Цель: единый актуальный справочник по всем AI-промптам с фокусом на:
+> 1. Данные на входе
+> 2. Данные на выходе
+> 3. Краткое описание
 
 ---
 
-## Архитектура AI-взаимодействия
+## Общая схема
 
-### Модель и API
-- **API:** DeepSeek API (`https://api.deepseek.com/v1/chat/completions`)
-- **Модель:** `deepseek-chat`
-- **Температура:** 0.3 (анализы), 0.1 (утилиты)
-- **Max tokens:** 8100 (анализы), 5000 (пунктуация), 1000 (утилиты)
-- **Таймаут:** 100 сек (анализы), 80 сек (пунктуация), 30 сек (утилиты)
-- **Retry:** до 5 попыток с экспоненциальной задержкой
-
-### Центральный сервис
-Все AI-вызовы проходят через `bot/services/deepseek_api.py` → `DeepSeekAPIService.send_prompt_and_parse()`:
-1. Отправляет POST-запрос с промптом
-2. Парсит JSON из ответа (поддерживает markdown-блоки ```json ... ```)
-3. Санитизирует HTML
-4. Возвращает `{'success': bool, 'result': dict, 'raw_response': str, 'api_usage': dict}`
+- Все шаблоны регистрируются в prompts/get_prompt.py.
+- Фактический вызов LLM идет через bot/services/deepseek_api.py (send_prompt_and_parse).
+- Ответы ожидаются в JSON (кроме punctuation), затем сохраняются/применяются сервисами.
+- Основной актуальный вектор персонализации:
+  - compressed_psych_profile_json
+  - personal_fields_json (changed-format) для ряда анализов
 
 ---
 
-## Анализ #1: Инкрементальный анализ записи
+## 1) incremental_day_analysis (premium)
 
-**Когда срабатывает:** Каждая новая запись пользователя в дневник.
-**Файл:** `bot/services/diary_service.py` → `process_new_entry_logic()`
-**Промпты:**
-- Premium: `incremental_day_analysis`
-- Free: `incremental_day_analysis_lite`
-- Первая запись новичка: `incremental_day_analysis_first_entry`
+Краткое описание:
+- Инкрементальный анализ новой записи в течение дня для premium-пользователя.
+- Выполняет валидацию записи, оценивает настроение, обновляет ai_state, может запросить уточнения и предложить задачу.
 
-### Что отправляем
+Данные на входе:
+- all_entries_combined
+- new_entry_text
+- new_entry_creation_time_local
+- ai_state_data
+- first_name
+- awareness_level
+- entries_count
+- user_personality_traits
+- user_life_facts
+- user_hobbies
+- user_core_values
+- user_triggers
+- user_strengths
+- user_areas_for_growth
 
-| Поле | Premium | Free | Первая запись |
-|------|---------|------|---------------|
-| Все записи за день (текст) | ✅ | ✅ | — |
-| Новая запись | ✅ | ✅ | ✅ |
-| Текущее состояние дня (ai_state_data) | ✅ | ✅ | — |
-| Имя пользователя | ✅ | ✅ | ✅ |
-| Уровень осознанности | ✅ | — | — |
-| Кол-во записей | ✅ | — | — |
-| Черты характера | ✅ | — | — |
-| Факты о жизни | ✅ | ✅ | — |
-| Увлечения | ✅ | — | — |
-| Ценности | ✅ | — | — |
-| Триггеры | ✅ | ✅ | — |
-| Сильные стороны | ✅ | ✅ | — |
-| Зоны роста | ✅ | — | — |
-| Привычки, навыки, стремления | ✅ | — | — |
-| Время создания записи (локальное) | ✅ | — | ✅ |
+Примечание по объему персональных полей:
+- Для `user_personality_traits`, `user_triggers`, `user_strengths` используется top-20 (по приоритету: non-stale, weight desc, frequency desc).
 
-### Что получаем
-
-```json
-{
-  "is_valid": true,
-  "validation_comment": "",
-  "formatted_message": "",
-  "mood_score": 7,
-  "comment": "поддерживающий комментарий 1-2 предложения",
-  "recommendation": "персональная рекомендение",
-  "analysis": "краткий анализ дня",
-  "updated_ai_state_data": "обновлённое состояние дня",
-  "needs_clarification": false,
-  "clarification_questions": ["уточняющий вопрос?"],
-  "suggested_task": {
-    "title": "Название задания",
-    "description": "Описание задания",
-    "type": "mindfulness|reflection|etc",
-    "priority": "low|medium|high"
-  }
-}
-```
-
-### Что сохраняем
-
-| Модель | Поля |
-|--------|------|
-| `PsychoAnalysis` | mood_score, comment, recommendation, analysis_text, api_response |
-| `CombinedDiaryEntry` | ai_state_data (обновляется), daily_mood_scores (дополняется) |
-| `TherapyTask` | создаётся если есть suggested_task и лимит заданий не исчерпан |
-| `DiaryEntry` | clarification_questions, clarification_answers (если needs_clarification) |
-
-### Логика валидации
-
-Запись **НЕВАЛИДНА** только если:
-- Бессмысленный набор символов ("ыфва ыва", "12345", "......")
-- Только эмодзи без текста
-- Техническая ошибка ("test", "привет бот", "1", пустое сообщение)
-- Нет никакой информации о внутреннем состоянии
-
-Запись **ВАЛИДНА** даже если:
-- Короткая ("Опять всё то же", "День прошёл как обычно")
-- Негативная ("Ничего не хочу", "Всё плохо")
-- Повторяющаяся (может быть важным паттерном)
+Данные на выходе:
+- is_valid
+- validation_comment
+- formatted_message
+- mood_score
+- comment
+- recommendation
+- analysis
+- updated_ai_state_data
+- needs_clarification
+- clarification_questions
+- suggested_task
 
 ---
 
-## Анализ #2: Полный анализ дня
+## 2) incremental_day_analysis_first_entry
 
-**Когда срабатывает:** Автоматически на следующий день (Celery, ежедневно в 00:01 UTC).
-**Файл:** `diary/services/full_day_analysis_service.py`
-**Промпты:**
-- Premium: `full_day_analysis`
-- Free: `full_day_analysis_lite`
+Краткое описание:
+- Специальный анализ первой записи новичка (онбординг).
+- Без уточнений и без назначения задания.
 
-### Что отправляем
+Данные на входе:
+- new_entry_text
+- new_entry_creation_time_local
+- first_name
+- user_profile
 
-| Поле | Premium | Free |
-|------|---------|------|
-| Профиль: имя | ✅ | ✅ |
-| Профиль: уровень осознанности | ✅ | — |
-| Профиль: is_premium | ✅ | — |
-| Профиль: черты характера | ✅ | — |
-| Профиль: факты о жизни | ✅ | ✅ |
-| Профиль: увлечения | ✅ | — |
-| Профиль: ценности | ✅ | — |
-| Профиль: триггеры | ✅ | ✅ |
-| Профиль: сильные стороны | ✅ | ✅ |
-| Профиль: зоны роста | ✅ | — |
-| Профиль: привычки | ✅ | — |
-| Профиль: навыки | ✅ | — |
-| Профиль: стремления | ✅ | — |
-| Все записи за день (объединённый текст) | ✅ | ✅ |
-| Анализы отдельных записей (mood, comment, recommendation, user_comment) | ✅ | ✅ |
-| Оценки настроения за день (список) | ✅ | ✅ |
-| Выполненные задания за день | ✅ | — |
-
-### Что получаем
-
-**Premium:**
-```json
-{
-  "daily_analysis": {
-    "mood_trend": "stable|improving|declining|volatile",
-    "key_themes": [{"theme": "работа", "mentions": 3, "significance": 0.8}],
-    "emotional_patterns": [{"emotion": "тревога", "frequency": 2, "context": "перед встречами"}],
-    "insights": [{"text": "...", "category": "behavior", "significance": 0.9}],
-    "recommendations": ["Попробуйте выделить 10 минут утром для планирования"],
-    "overall_analysis_text": "связный анализ дня, 3-5 предложений"
-  },
-  "user_profile_updates": {
-    "life_facts": ["новый факт"],
-    "strengths": ["..."],
-    "personality_traits": {"черта": 0.8},
-    "triggers": [{"remove": "старый триггер"}]
-  },
-  "awareness_level_adjustment": {"new_level": 7, "reasoning": "..."}
-}
-```
-
-**Free (сокращённый):**
-```json
-{
-  "daily_analysis": {
-    "mood_trend": "stable",
-    "key_themes": [{"theme": "работа", "significance": 0.8}],
-    "insights": [{"text": "...", "category": "behavior", "significance": 0.7}],
-    "overall_analysis_text": "очень краткий анализ, 1-2 предложения"
-  },
-  "user_profile_updates": {"life_facts": [...], "strengths": []},
-  "awareness_level_adjustment": {"new_level": 6, "reasoning": "..."}
-}
-```
-
-### Что сохраняем
-
-| Модель | Поля |
-|--------|------|
-| `DailyAnalysis` | mood_trend, key_themes, emotional_patterns, insights, recommendations, overall_analysis_text, api_response |
-| `CombinedDiaryEntry` | is_analyzed = True |
-| `User` | personality_traits, life_facts, hobbies, core_values, triggers, strengths, areas_for_growth (add/remove/merge) |
-| `User` | awareness_level (если есть adjustment) |
+Данные на выходе:
+- is_valid
+- validation_comment
+- formatted_message
+- mood_score
+- comment
+- recommendation
+- analysis
+- updated_ai_state_data
+- needs_clarification (ожидается false)
+- clarification_questions (ожидается [])
+- suggested_task (ожидается {})
 
 ---
 
-## Анализ #3: Анализ с уточняющими вопросами
+## 3) incremental_day_analysis_lite (free, v1)
 
-**Когда срабатывает:** Когда инкрементальный анализ вернул `needs_clarification: true`. Пользователь отвечает на уточняющие вопросы.
-**Файл:** `bot/services/diary_service.py` → `process_clarification_answers_logic()`
-**Также:** `diary/tasks/reminder_ask_questions.py` (принудительная обработка по таймеру)
-**Промпт:** `clarification_analysis`
+Краткое описание:
+- Короткий инкрементальный анализ для free-пользователя.
+- Без блока уточнений/задач в ответе контракта.
 
-### Что отправляем
+Данные на входе:
+- all_entries_combined
+- new_entry_text
+- ai_state_data
+- compressed_psych_profile_json
 
-| Поле | Описание |
-|------|----------|
-| Оригинальный текст записи | Исходный текст DiaryEntry |
-| Уточняющие вопросы | Список вопросов, заданных ранее |
-| Ответы пользователя | Ответы на каждый вопрос |
-| Текущее состояние дня (ai_state_data) | Накопленный контекст дня |
-| Полный профиль пользователя | Все поля профиля |
-
-### Что получаем
-
-```json
-{
-  "mood_score": 7,
-  "comment": "поддерживающий комментарий с учётом ответов",
-  "recommendation": "персонализированная рекомендация",
-  "analysis": "детальный анализ",
-  "updated_ai_state_data": "обновлённое состояние дня",
-  "suggested_task": {"title": "...", "description": "...", "type": "...", "complexity": "low|medium|high"}
-}
-```
-
-### Что сохраняем
-
-| Модель | Поля |
-|--------|------|
-| `PsychoAnalysis` | mood_score, comment, recommendation, analysis_text (обновляются) |
-| `CombinedDiaryEntry` | ai_state_data (обновляется) |
-| `DiaryEntry` | clarification_questions, clarification_answers (сбрасываются), is_processed = True |
-| `TherapyTask` | создаётся если есть suggested_task |
+Данные на выходе:
+- is_valid
+- validation_comment
+- mood_score
+- comment
+- recommendation
+- analysis
+- updated_ai_state_data
 
 ---
 
-## Анализ #4: Анализ комментария пользователя
+## 4) incremental_day_analysis_lite_v2
 
-**Когда срабатывает:** Пользователь добавляет комментарий к уже проанализированной записи.
-**Файл:** `bot/services/diary_service.py` → `process_user_comment_logic()`
-**Промпт:** `comment_analysis`
+Краткое описание:
+- LITE v2 инкрементальный анализ с упором на экономию токенов.
+- Использует compressed профиль + day context summary.
 
-### Что отправляем
+Данные на входе:
+- user_plan
+- first_name
+- awareness_level
+- entries_count
+- compressed_psych_profile_json
+- day_context_summary_json
+- user_personality_traits (changed-format, weight/frequency)
+- user_triggers (changed-format, weight/frequency)
+- user_strengths (changed-format, weight/frequency)
 
-| Поле | Описание |
-|------|----------|
-| Оригинальный текст записи | Исходный текст DiaryEntry |
-| Предыдущий анализ ИИ | comment, recommendation, analysis_text |
-| Комментарий пользователя | Новый комментарий пользователя |
-| Полный профиль пользователя | Все поля профиля |
-| Уточнения (если были) | Вопросы и ответы |
+Примечание по объему персональных полей:
+- Для `user_personality_traits`, `user_triggers`, `user_strengths` используется top-10 (по приоритету: non-stale, weight desc, frequency desc).
+- new_entry_text
+- new_entry_creation_time_local
+- ai_state_data
 
-### Что получаем
-
-```json
-{
-  "mood_score": 7,
-  "comment": "обновлённый комментарий",
-  "recommendation": "обновлённая рекомендация",
-  "analysis": "обновлённый анализ",
-  "updated_ai_state_data": "обновлённое состояние дня",
-  "suggested_task": {"title": "...", "description": "...", "type": "..."}
-}
-```
-
-### Что сохраняем
-
-| Модель | Поля |
-|--------|------|
-| `PsychoAnalysis` | mood_score, comment, recommendation, analysis_text (обновляются) |
-| `CombinedDiaryEntry` | is_analyzed = False (сбрасывается для повторного анализа дня) |
-
----
-
-## Анализ #5: Еженедельный анализ
-
-**Когда срабатывает:** Каждый понедельник ~03:00 по часовому поясу пользователя (Celery).
-**Файл:** `diary/services/weekly_analysis_service.py`
-**Промпт:** `weekly_analysis`
-
-### Что отправляем
-
-| Поле | Описание |
-|------|----------|
-| **Профиль пользователя** | Имя, уровень осознанности, дата рождения, черты характера, факты о жизни, увлечения, ценности, триггеры, сильные стороны, зоны роста |
-| **Анализы дней недели** | Для каждого дня: date, mood_trend, key_themes, emotional_patterns, insights, overall_analysis_text, average_mood_score |
-| **Статистика недели** | total_entries, streak_days_current, avg_mood_score, tasks_assigned, tasks_completed, unique_themes_count, unique_emotions_count, word_count_total |
-| **Анализ предыдущей недели** | summary_text (если есть) |
-
-### Что получаем
-
-```json
-{
-  "summary_text": "краткое резюме недели, 2-3 предложения",
-  "progress_insights": {
-    "mood_trend": "stable|improving|declining|volatile",
-    "key_insights": [{"text": "...", "significance": 0.8}],
-    "notable_patterns": [{"pattern": "...", "frequency": 5}],
-    "progress_notes": "1-2 предложения"
-  },
-  "awareness_level_adjustment": {"new_level": 7, "reasoning": "..."},
-  "statistics": {...},
-  "comparison_with_previous": {
-    "previous_week_start": "2026-03-28",
-    "mood_comparison": "...",
-    "consistency_comparison": "...",
-    "progress_comment": "..."
-  }
-}
-```
-
-### Что сохраняем
-
-| Модель | Поля |
-|--------|------|
-| `WeeklyAnalysis` | summary_text, progress_insights, statistics, comparison_with_previous, api_response |
-| `WeeklyAnalysis` | consolidated_user_profile → awareness_level (если есть adjustment) |
+Данные на выходе:
+- is_valid
+- validation_comment
+- formatted_message
+- mood_score
+- comment
+- recommendation
+- analysis
+- updated_ai_state_data (ожидается JSON-объект)
+- needs_clarification
+- clarification_questions
+- suggested_task
 
 ---
 
-## Анализ #6: Анализ психологического профиля
+## 5) clarification_analysis
 
-**Когда срабатывается:** Сразу после еженедельного анализа (Celery, в цепочке).
-**Файл:** `diary/services/user_profile_analysis_service.py`
-**Промпт:** `user_profile_analysis`
+Краткое описание:
+- Дозавершение анализа записи после ответов на уточняющие вопросы.
+- Обновляет тональность, mood_score и контекст дня.
 
-### Что отправляем
+Данные на входе:
+- original_text
+- clarification_questions
+- clarification_answers
+- ai_state_data
+- compressed_psych_profile_json
+- personal_fields_json
 
-| Поле | Описание |
-|------|----------|
-| **Текущий профиль** | ВСЕ поля: awareness_level, date_of_birth, personality_description, personality_traits, life_facts, hobbies, core_values, triggers, strengths, areas_for_growth, personality_insights, habits, skills, aspirations (сериализованные в JSON-строки) |
-| **Еженедельные анализы** | Последние 4 недели: summary_text, progress_insights, statistics, comparison_with_previous |
-| **Анализы влияния заданий** | Топ-5 TaskCompletionAnalysis по mood_impact_score: effect_description, mood_impact_score, comment, recommendation, detailed_analysis |
-
-### Что получаем
-
-```json
-{
-  "personality_description": "цельное описание, 2-4 абзаца, до 3000 символов",
-  "personality_traits": {"черта": 0.8, "другая_черта": 0.6},
-  "life_facts": ["факт 1", "факт 2"],
-  "hobbies": ["хобби 1"],
-  "core_values": ["ценность 1"],
-  "triggers": ["триггер 1"],
-  "strengths": ["сильная сторона 1"],
-  "areas_for_growth": ["зона роста 1"],
-  "personality_insights": {"ключ": "значение"},
-  "habits": ["привычка 1"],
-  "skills": ["навык 1"],
-  "aspirations": ["стремление 1"]
-}
-```
-
-### Что сохраняем
-
-| Модель | Поля |
-|--------|------|
-| `UserProfileHistory` | Снимок ВСЕХ полей профиля ДО обновления (создаётся перед обновлением) |
-| `User` | ВСЕ поля профиля обновляются (merge + dedup + remove) |
+Данные на выходе:
+- mood_score
+- comment
+- recommendation
+- analysis
+- updated_ai_state_data
+- suggested_task
 
 ---
 
-## Анализ #7: Анализ изменений профиля
+## 6) comment_analysis
 
-**Когда срабатывается:** После анализа профиля (Celery, в цепочке).
-**Файл:** `diary/services/user_profile_change_analysis_service.py`
-**Промпт:** `profile_change_analysis`
+Краткое описание:
+- Переанализ записи с учетом комментария пользователя к уже существующему разбору.
+- Учитывает предыдущий AI-анализ и, при наличии, блок уточнений.
 
-### Что отправляем
+Данные на входе:
+- original_text
+- previous_comment
+- previous_recommendation
+- previous_analysis
+- user_comment
+- compressed_psych_profile_json
+- personal_fields_json
+- clarification_questions
+- clarification_answers
 
-| Поле | Описание |
-|------|----------|
-| **Текущий профиль** | ВСЕ поля профиля (после обновления) |
-| **Исторические профили** | Последние N снимков UserProfileHistory (по умолчанию 3) |
-
-### Что получаем
-
-```json
-{
-  "summary": "краткое резюме изменений, 1-2 предложения",
-  "key_changes": ["описание изменения 1", "описание изменения 2"],
-  "stable_traits": ["описание стабильной черты 1"]
-}
-```
-
-### Что сохраняем
-
-| Модель | Поля |
-|--------|------|
-| `WeeklyAnalysis` | profile_changes_summary (JSON) |
+Данные на выходе:
+- mood_score
+- comment
+- recommendation
+- analysis
+- updated_ai_state_data
+- suggested_task
 
 ---
 
-## Анализ #8: Анализ эффекта задания
+## 7) full_day_analysis (premium)
 
-**Когда срабатывает:** Пользователь описывает выполнение терапевтического задания.
-**Файл:** `diary/services/task_management_service.py` → `analyze_task_completion_effect()`
-**Промпт:** `task_effect_analysis`
+Краткое описание:
+- Полный суточный анализ aggregated дня.
+- Может возвращать user_profile_updates и awareness_level_adjustment.
 
-### Что отправляем
+Данные на входе:
+- compressed_psych_profile_json
+- all_entries_combined_text
+- entry_analyses
+- daily_mood_scores
+- completed_tasks
 
-| Поле | Описание |
-|------|----------|
-| **Профиль пользователя** | Имя, уровень осознанности, черты характера, факты о жизни, увлечения, ценности, триггеры, сильные стороны, зоны роста |
-| **Контекст дня назначения** | Дата, текст CombinedDiaryEntry, анализ DailyAnalysis |
-| **Контекст дня выполнения** | Дата, текст CombinedDiaryEntry, анализ DailyAnalysis |
-| **Задание** | title, description, complexity |
-| **Результат выполнения** | completion_text, feelings_text |
-
-### Что получаем
-
-```json
-{
-  "is_valid": true,
-  "validation_comment": "",
-  "effect_description": "1-2 предложения об эффекте задания",
-  "mood_impact_score": 3,
-  "comment": "поддерживающий комментарий об изменении состояния",
-  "recommendation": "персонализированная рекомендия",
-  "tokens_awarded": 2,
-  "detailed_analysis": "обоснование оценки",
-  "formatted_message": "<b>HTML</b> сообщение с эмодзи"
-}
-```
-
-### Что сохраняем
-
-| Модель | Поля |
-|--------|------|
-| `TaskCompletionAnalysis` | effect_description, mood_impact_score, comment, recommendation, detailed_analysis, tokens_awarded, api_response |
-| `TokenTransaction` | tokens_awarded → user.token_balance |
-| `TaskCompletionAnalysis` | Предыдущие анализы для того же задания → is_obsolete = True |
-| `TherapyTask` | Если is_valid=false → status = 'pending', TaskCompletion удаляется |
+Данные на выходе:
+- daily_analysis:
+  - mood_trend
+  - key_themes
+  - emotional_patterns
+  - insights
+  - recommendations
+  - overall_analysis_text
+- user_profile_updates
+- awareness_level_adjustment
 
 ---
 
-## Анализ #9: Терапевтический чат
+## 8) full_day_analysis_lite (free, v1)
 
-**Когда срабатывает:** Каждое сообщение пользователя в чате с ИИ-психологом.
-**Файл:** `diary/services/therapy_chat_service.py`
-**Промпт:** `therapy_chat`
+Краткое описание:
+- Сокращенный суточный анализ для free.
+- Меньше глубины, но совместимый JSON-каркас для downstream обработки.
 
-### Что отправляем
+Данные на входе:
+- compressed_psych_profile_json
+- all_entries_combined_text
+- entry_analyses
+- daily_mood_scores
 
-| Поле | Описание |
-|------|----------|
-| **Профиль пользователя** | first_name, awareness_level, is_premium, entries_count, personality_traits, life_facts, hobbies, core_values, triggers, strengths, areas_for_growth, habits, skills, aspirations |
-| **История чата** | Последние 10 пар сообщений (role + content) |
-| **Новое сообщение** | Текущее сообщение пользователя |
-
-### Что получаем
-
-```json
-{
-  "is_valid": true,
-  "response_text": "<b>поддерживающий, эмпатичный ответ</b> с эмодзи"
-}
-```
-
-### Что сохраняем
-
-НЕ сохраняется в БД. Ответ отправляется напрямую пользователю в Telegram.
+Данные на выходе:
+- daily_analysis (укороченный вариант)
+- user_profile_updates (ограниченно)
+- awareness_level_adjustment
 
 ---
 
-## Анализ #10: Утреннее напоминание
+## 9) full_day_analysis_lite_v2
 
-**Когда срабатывает:** Ежедневно (Celery, каждый час, проверяет локальное время пользователя).
-**Файл:** `diary/tasks/morning_motivations.py`
-**Промпт:** `morning_motivation`
+Краткое описание:
+- LITE v2 суточный анализ с compressed контекстом вместо полного набора данных.
+- Ориентирован на экономию токенов.
 
-### Что отправляем
+Данные на входе:
+- compressed_psych_profile_json
+- day_context_summary_json
+- compressed_entries_summary
+- daily_mood_scores
 
-| Поле | Описание |
-|------|----------|
-| **Профиль пользователя** | Все поля |
-| **Анализ предыдущего дня** | mood_trend, key_themes, emotional_patterns, insights, recommendations, average_mood_score (из DailyAnalysis + CombinedDiaryEntry) |
-| **Изменения профиля** | profile_changes_summary из WeeklyAnalysis (если есть) |
-
-### Что получаем
-
-```json
-{
-  "motivation_message": "<b>короткое мотивирующее сообщение</b> с эмодзи, 2-5 предложений"
-}
-```
-
-### Что сохраняем
-
-НЕ сохраняется в БД. Отправляется напрямую пользователю.
+Данные на выходе:
+- daily_analysis:
+  - mood_trend
+  - key_themes
+  - emotional_patterns
+  - insights
+  - recommendations
+  - overall_analysis_text
+- user_profile_updates
+- awareness_level_adjustment
 
 ---
 
-## Анализ #11: Напоминание о записи
+## 10) weekly_analysis
 
-**Когда срабатывает:** Ежедневно в определённое время (Celery, каждый час, проверяет).
-**Файл:** `diary/tasks/reminder_tasks.py`
-**Промпт:** `reminder_message`
+Краткое описание:
+- Глубокий недельный анализ динамики и паттернов.
+- Не должен возвращать user_profile_updates (по инструкции шаблона).
 
-### Что отправляем
+Данные на входе:
+- compressed_psych_profile_json (premium: full compressed, free: lite compressed)
+- week_statistics
+- daily_analyses
+- previous_weekly_analysis
 
-| Поле | Описание |
-|------|----------|
-| **Профиль пользователя** | Все поля |
-| **Кол-во незавершённых заданий** | Число |
-| **Текущая серия** | Дней подряд |
-| **Максимальная серия** | Лучший результат |
-| **Анализ вчерашнего дня** | mood_trend, key_themes, emotional_patterns, insights, recommendations |
-
-### Что получаем
-
-```json
-{
-  "motivation_message": "персонализированное напоминание с эмодзи"
-}
-```
-
-### Что сохраняем
-
-НЕ сохраняется в БД. Отправляется напрямую пользователю.
+Данные на выходе:
+- summary_text
+- progress_insights
+- awareness_level_adjustment (опционально)
+- statistics
+- comparison_with_previous
 
 ---
 
-## Анализ #12: Генерация подсказок
+## 11) user_profile_analysis
 
-**Когда срабатывает:** Когда у пользователя нет записей за день (Celery, для генерации подсказки).
-**Файл:** `diary/services/smart_prompt_manager.py` → `_call_ai_prompt_generation()`
-**Промпт:** `next_entry_prompt_generation`
+Краткое описание:
+- Глубокое обновление психологического профиля пользователя на основе weekly-history.
+- На вход получает полное текущее текстовое описание профиля и пишет новое полное описание, опираясь на старую версию и новые данные.
+- Генерирует как текстовый профиль, так и структурированные поля, плюс compressed профиль.
 
-### Что отправляем
+Данные на входе:
+- personality_description (полное текущее текстовое описание профиля)
+- compressed_psych_profile_json
+- personal_fields_json
+- recent_weekly_analyses
 
-| Поле | Описание |
-|------|----------|
-| Имя пользователя | first_name |
-| Уровень осознанности | awareness_level/10 |
-| Дней с последней записи | Число |
-| Контекст анализа (опц.) | key_themes, mood_trend из DailyAnalysis |
-
-### Что получаем
-
-```json
-{
-  "prompt_text": "вдохновляющая подсказка, 1-2 предложения с эмодзи"
-}
-```
-
-### Что сохраняем
-
-| Модель | Поля |
-|--------|------|
-| `NextEntryPrompt` | prompt_text, target_date, is_used = False |
-
----
-
-## Вспомогательные AI-вызовы
-
-### Пунктуация
-
-**Когда:** После распознавания голосовой записи (Yandex SpeechKit).
-**Файл:** `bot/services/deepseek_api.py` → `punctuate_and_format_text()`
-**Промпт:** `punctuation`
-
-**Отправляем:** Сырой текст без знаков препинания.
-**Получаем:** Текст с расставленными знаками препинания и абзацами.
-**Параметры:** temperature=0.3, max_tokens=5000, retry=2, timeout=80сек
-
-### Определение часового пояса
-
-**Когда:** Пользователь вводит название города в настройках.
-**Файл:** `bot/services/deepseek_api.py` → `detect_timezone_by_city()`
-**Промпт:** `timezone_detection`
-
-**Отправляем:** Название города.
-**Получаем:** `{"success": true, "timezone": "Europe/Moscow", "city": "...", "country": "..."}`
-**Параметры:** temperature=0.1, max_tokens=1000, retry=3, timeout=30сек
+Данные на выходе:
+- personality_description (новое полное текстовое описание профиля)
+- personality_traits
+- life_facts
+- hobbies
+- core_values
+- triggers
+- strengths
+- areas_for_growth
+- personality_insights
+- habits
+- skills
+- aspirations
+- compressed_psych_profile
 
 ---
 
-## Сводная таблица
+## 12) profile_change_analysis
 
-| # | Анализ | Промпт | Триггер | Premium/Free | Контекст (размер) | Сохраняется |
-|---|--------|--------|---------|--------------|-------------------|-------------|
-| 1 | Инкрементальный анализ записи | `incremental_day_analysis` / `lite` / `first_entry` | Новая запись | ✅ Разные промпты | Средний | PsychoAnalysis, CombinedDiaryEntry, TherapyTask |
-| 2 | Полный анализ дня | `full_day_analysis` / `lite` | Celery (следующий день) | ✅ Разные промпты | Большой | DailyAnalysis, User, CombinedDiaryEntry |
-| 3 | Анализ с уточнениями | `clarification_analysis` | Ответы на вопросы | ❌ Одинаковый | Средний | PsychoAnalysis, CombinedDiaryEntry |
-| 4 | Анализ комментария | `comment_analysis` | Комментарий к записи | ❌ Одинаковый | Средний | PsychoAnalysis, CombinedDiaryEntry |
-| 5 | Еженедельный анализ | `weekly_analysis` | Celery (понедельник) | ❌ Одинаковый | **Очень большой** | WeeklyAnalysis |
-| 6 | Анализ профиля | `user_profile_analysis` | После weekly analysis | ❌ Одинаковый | **Очень большой** | User, UserProfileHistory |
-| 7 | Анализ изменений профиля | `profile_change_analysis` | После анализа профиля | ❌ Одинаковый | Большой | WeeklyAnalysis.profile_changes_summary |
-| 8 | Анализ эффекта задания | `task_effect_analysis` | Выполнение задания | ❌ Одинаковый | Большой | TaskCompletionAnalysis, TokenTransaction |
-| 9 | Терапевтический чат | `therapy_chat` | Сообщение в чате | ❌ Одинаковый | Средний (10 пар) | ❌ Не сохраняется |
-| 10 | Утреннее напоминание | `morning_motivation` | Celery (утро) | ❌ Одинаковый | Средний | ❌ Не сохраняется |
-| 11 | Напоминание о записи | `reminder_message` | Celery (напоминание) | ❌ Одинаковый | Средний | ❌ Не сохраняется |
-| 12 | Генерация подсказок | `next_entry_prompt_generation` | Нет записей | ❌ Одинаковый | Малый | NextEntryPrompt |
-| 13 | Пунктуация | `punctuation` | Голосовая запись | ❌ Одинаковый | Малый (текст) | ❌ Не сохраняется |
-| 14 | Определение TZ | `timezone_detection` | Ввод города | ❌ Одинаковый | Минимальный | ❌ Не сохраняется |
+Краткое описание:
+- Анализ изменений профиля относительно исторических слепков.
+- Обязательно опирается на полное текущее текстовое описание личности и сопоставляет его с полными текстовыми описаниями в исторических слепках.
+- Краткий executive summary изменений и стабильных черт.
 
----
+Данные на входе:
+- current_personality_description (полное текущее текстовое описание личности)
+- current_compressed_psych_profile_json
+- current_personal_fields_json
+- historical_snapshots_json
+- num_snapshots
 
-## Цепочка Celery-анализов (понедельник)
-
-```
-schedule_weekly_analyses_task (каждый час)
-  └── perform_weekly_analysis_for_user_task (если понедельник 03:00 по TZ пользователя)
-       ├── 1. weekly_analysis_service.perform_weekly_analysis()
-       │      └── Создаёт WeeklyAnalysis
-       │
-       ├── 2. user_profile_analysis_service.perform_user_profile_analysis()
-       │      ├── Создаёт UserProfileHistory (снимок ДО)
-       │      ├── Вызывает AI → обновляет User
-       │      └── Обновляет awareness_level из WeeklyAnalysis
-       │
-       └── 3. perform_profile_change_analysis()
-              ├── Сравнивает текущий профиль с историческими
-              ├── Вызывает AI → анализ изменений
-              └── Сохраняет в WeeklyAnalysis.profile_changes_summary
-```
+Данные на выходе:
+- summary
+- key_changes
+- stable_traits
 
 ---
 
-## Различия Premium / Free
+## 13) task_effect_analysis
 
-### Инкрементальный анализ записи
+Краткое описание:
+- Анализ эффекта выполнения терапевтического задания между днем назначения и днем выполнения.
+- Дополнительно валидирует адекватность отчета о выполнении.
 
-| Аспект | Premium | Free |
-|--------|---------|------|
-| Профиль | 10+ полей | 3 поля (имя, факты, сильные стороны, триггеры) |
-| Комментарий | Развёрнутый, 2+ предложения | Краткий, 1-2 предложения |
-| Рекомендация | Персонализированная | Одна короткая |
-| Анализ дня | Детальный | Одно предложение |
-| Уточняющие вопросы | ✅ | ❌ |
-| Задания | ✅ | ❌ |
+Данные на входе:
+- compressed_psych_profile_json
+- personal_fields_json
+- assigned_date
+- assigned_day_text
+- assigned_day_analysis
+- completion_date
+- completion_day_text
+- completion_day_analysis
+- task_title
+- task_description
+- task_complexity
+- completion_text
+- feelings_text
 
-### Полный анализ дня
-
-| Аспект | Premium | Free |
-|--------|---------|------|
-| Профиль | ВСЕ поля | 4 поля |
-| Выполненные задания | ✅ | ❌ |
-| Emotional patterns | ✅ | ❌ |
-| Recommendations | ✅ | ❌ |
-| overall_analysis_text | 3-5 предложений | 1-2 предложения |
-| Подсказка о подписке | ❌ | ✅ (опционально) |
-
----
-
-## Схема данных: что ИИ знает о пользователе
-
-### Полный профиль (Premium, полный анализ дня, профиль, чат)
-```
-{
-  first_name,
-  awareness_level,
-  is_premium,
-  entries_count,
-  date_of_birth,
-  personality_description,
-  personality_traits: {trait: weight},
-  life_facts: [...],
-  hobbies: [...],
-  core_values: [...],
-  triggers: [...],
-  strengths: [...],
-  areas_for_growth: [...],
-  personality_insights: {...},
-  habits: [...],
-  skills: [...],
-  aspirations: [...]
-}
-```
-
-### Сокращённый профиль (Free, инкрементальный)
-```
-{
-  first_name,
-  life_facts: [...],
-  strengths: [...],
-  triggers: [...]
-}
-```
+Данные на выходе:
+- is_valid
+- validation_comment
+- effect_description
+- mood_impact_score
+- comment
+- recommendation
+- tokens_awarded
+- detailed_analysis
+- formatted_message
 
 ---
 
-## Обработка ошибок AI
+## 14) therapy_chat
 
-Все AI-вызовы имеют retry-логику:
+Краткое описание:
+- Ответ AI-психолога в интерактивном чате.
+- Сервис хранит историю в памяти сессии, не в отдельной AI-модели БД анализа.
 
-| Параметр | Значение |
-|----------|----------|
-| Макс. попыток | 5 (анализы), 2 (пунктуация), 3 (TZ) |
-| Базовая задержка | 1.5 сек (анализы), 1.0 сек (пунктуация) |
-| Экспонента | delay = base_delay × (attempt + 1) |
-| Таймаут | 100 сек (анализы) |
+Данные на входе:
+- compressed_psych_profile_json
+- history
+- user_message
+- user_profile (safe-блок: first_name, awareness_level, is_premium, entries_count)
 
-Если все попытки исчерпаны:
-- Возвращается `{'success': False, 'error': 'timeout|request_failed', ...}`
-- Для инкрементального анализа: запись остаётся is_processed=False
-- Для полного анализа дня: CombinedDiaryEntry остаётся is_analyzed=False
-- Celery-задачи имеют max_retries=3 с повтором через 5 минут
+Данные на выходе:
+- is_valid
+- response_text
 
 ---
 
-> **Документ создан:** 2026-04-09
-> **Актуален для:** ветки version2.0
+## 15) morning_motivation
+
+Краткое описание:
+- Генерация утреннего мотивационного сообщения.
+- Использует вчерашний анализ и compressed профиль.
+
+Данные на входе:
+- compressed_psych_profile_json
+- previous_day_analysis
+- user_profile (сервис передает дополнительные поля, включая first_name и meta)
+- profile_changed
+- profile_change_summary
+
+Данные на выходе:
+- motivation_message
+
+---
+
+## 16) reminder_message
+
+Краткое описание:
+- Персонализированное напоминание сделать запись и завершать задания.
+
+Данные на входе:
+- compressed_psych_profile_json
+- uncompleted_tasks_count
+- current_streak
+- longest_streak
+- previous_day_analysis
+- user_profile
+
+Данные на выходе:
+- motivation_message
+
+---
+
+## 17) next_entry_prompt_generation
+
+Краткое описание:
+- Генерация короткой подсказки для следующей записи дневника.
+
+Данные на входе:
+- first_name
+- awareness_level
+- days_since_last_entry
+- analysis_context
+
+Данные на выходе:
+- prompt_text
+
+---
+
+## 18) punctuation
+
+Краткое описание:
+- Постобработка текста (обычно после STT): пунктуация + абзацы.
+- Единственный prompt, где ожидается не JSON, а чистый текст.
+
+Данные на входе:
+- text
+
+Данные на выходе:
+- formatted text (строка)
+
+---
+
+## 19) timezone_detection
+
+Краткое описание:
+- Определение TZ по названию города.
+- Поддержка single result / multiple options / not found.
+
+Данные на входе:
+- city_name
+
+Данные на выходе:
+- success
+- timezone, city, country (single)
+- multiple + options[] (multiple matches)
+- error (not found)
+
+---
+
+## Что реально сохраняется после AI-вызовов (кратко)
+
+- incremental / clarification / comment:
+  - PsychoAnalysis
+  - CombinedDiaryEntry.ai_state_data и daily_mood_scores
+  - иногда TherapyTask
+- full_day_*:
+  - DailyAnalysis
+  - обновления профиля User (через user_profile_updates)
+  - awareness_level (при наличии adjustment)
+- weekly_analysis:
+  - WeeklyAnalysis (summary/progress/statistics/comparison/api_response)
+- user_profile_analysis:
+  - UserProfileHistory (снапшот до обновления)
+  - User (поля профиля + compressed_psych_profile)
+- profile_change_analysis:
+  - WeeklyAnalysis.profile_changes_summary
+- task_effect_analysis:
+  - TaskCompletionAnalysis
+  - TokenTransaction (если tokens_awarded > 0)
+- morning_motivation / reminder_message / therapy_chat / punctuation / timezone_detection / next_entry_prompt_generation:
+  - зависят от сценария, обычно возвращают текст/данные для отправки пользователю
+  - next_entry_prompt_generation дополнительно сохраняется в NextEntryPrompt
+
+---
+
+## Важное текущее замечание
+
+- Основные анализы уже приведены к unified-контракту персонализации через compressed_psych_profile_json и personal_fields_json.
+- Есть legacy-ветка принудительной обработки уточнений в diary/tasks/reminder_ask_questions.py, где clarification_analysis вызывается со старым user_profile. Это не блокирует выполнение (из-за fallback в get_prompt), но технически не идеально и требует доунификации.

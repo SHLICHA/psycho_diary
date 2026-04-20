@@ -5,5 +5,6 @@ from diary.tasks import (
     perform_weekly_analysis_for_user_task,
     schedule_weekly_analyses_task,
     check_clarification_reminders,
-    force_process_clarifications
+    force_process_clarifications,
+    run_profile_cleanup,
 )

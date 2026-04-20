@@ -243,6 +243,10 @@ def get_api_error_message(error_code: str, language: str = 'ru') -> str:
         'general_error': 'Произошла ошибка при вызове API',
         'speechkit_error': 'Ошибка Yandex SpeechKit API',
         'deepseek_error': 'Ошибка DeepSeek API',
+        'response_parse_failed': 'Не удалось обработать ответ AI',
+        'upstream_unavailable': 'Внешний AI сервис временно недоступен',
+        'context_length_exceeded': 'Контекст запроса превышает лимит модели',
+        'request_failed': 'Не удалось выполнить запрос к AI сервису',
         'unknown': 'Неизвестная ошибка API',
         'api_key_missing': 'API ключ не настроен',
         'api_key_invalid': 'Неверный API ключ',
@@ -258,6 +262,10 @@ def get_api_error_message(error_code: str, language: str = 'ru') -> str:
         'general_error': 'An error occurred during API call',
         'speechkit_error': 'Yandex SpeechKit API error',
         'deepseek_error': 'DeepSeek API error',
+        'response_parse_failed': 'Failed to parse AI response',
+        'upstream_unavailable': 'External AI service is temporarily unavailable',
+        'context_length_exceeded': 'Request context exceeds model limit',
+        'request_failed': 'Failed to complete AI service request',
         'unknown': 'Unknown API error',
         'api_key_missing': 'API key not configured',
         'api_key_invalid': 'Invalid API key',
@@ -323,6 +331,10 @@ def format_api_error_for_analysis(
             'general_error': 'Произошла ошибка при вызове API',
             'speechkit_error': 'Ошибка Yandex SpeechKit API',
             'deepseek_error': 'Ошибка DeepSeek API',
+            'response_parse_failed': 'Не удалось обработать ответ AI',
+            'upstream_unavailable': 'Внешний AI сервис временно недоступен',
+            'context_length_exceeded': 'Контекст запроса превышает лимит модели',
+            'request_failed': 'Не удалось выполнить запрос к AI сервису',
             'unknown': 'Неизвестная ошибка API',
             'api_key_missing': 'API ключ не настроен',
             'api_key_invalid': 'Неверный API ключ',
@@ -338,6 +350,10 @@ def format_api_error_for_analysis(
             'general_error': 'An error occurred during API call',
             'speechkit_error': 'Yandex SpeechKit API error',
             'deepseek_error': 'DeepSeek API error',
+            'response_parse_failed': 'Failed to parse AI response',
+            'upstream_unavailable': 'External AI service is temporarily unavailable',
+            'context_length_exceeded': 'Request context exceeds model limit',
+            'request_failed': 'Failed to complete AI service request',
             'unknown': 'Unknown API error',
             'api_key_missing': 'API key not configured',
             'api_key_invalid': 'Invalid API key',
@@ -349,32 +365,41 @@ def format_api_error_for_analysis(
         error_messages = error_messages_ru if language == 'ru' else error_messages_en
         if error_type == 'timeout':
             comment = f'Анализ записан (превышено время ожидания {"финального " if is_final else ""}API)'
-            analysis_text_suffix = f" из-за таймаута API."
-        elif error_type == 'connection_error':
-            comment = f'Анализ записан (ошибка подключения {"финального " if is_final else ""}API)'
-            analysis_text_suffix = f" из-за ошибки подключения к API."
+            analysis_text_suffix = " из-за таймаута API."
+        elif error_type == 'response_parse_failed':
+            comment = f'Анализ записан (ошибка обработки ответа {"финального " if is_final else ""}AI)'
+            analysis_text_suffix = " из-за ошибки обработки ответа AI."
+        elif error_type in ('upstream_unavailable', 'connection_error'):
+            comment = f'Анализ записан (внешний {"финальный " if is_final else ""}AI сервис недоступен)'
+            analysis_text_suffix = ", так как внешний AI сервис временно недоступен."
+        elif error_type == 'context_length_exceeded':
+            comment = f'Анализ записан (превышен размер контекста {"финального " if is_final else ""}AI запроса)'
+            analysis_text_suffix = " из-за слишком большого объема запроса к AI."
+        elif error_type == 'request_failed':
+            comment = f'Анализ записан (сбой запроса {"финального " if is_final else ""}AI)'
+            analysis_text_suffix = " из-за сбоя запроса к AI сервису."
         elif error_type == 'value_error':
             comment = f'Анализ записан (ошибка данных {"финального " if is_final else ""}API)'
-            analysis_text_suffix = f" из-за ошибки в данных, отправленных в API."
+            analysis_text_suffix = " из-за ошибки в данных, отправленных в API."
         elif error_type in ['speechkit_error', 'deepseek_error']:
             service_name = "Yandex SpeechKit" if error_type == 'speechkit_error' else "DeepSeek API"
             comment = f'Анализ записан (ошибка {service_name})'
             analysis_text_suffix = f" из-за ошибки {service_name}."
         elif error_type == 'rate_limit':
             comment = f'Анализ записан (превышен лимит запросов {"финального " if is_final else ""}API)'
-            analysis_text_suffix = f" из-за превышения лимита запросов к API."
+            analysis_text_suffix = " из-за превышения лимита запросов к API."
         elif error_type == 'invalid_request':
             comment = f'Анализ записан (некорректный запрос {"финального " if is_final else ""}API)'
-            analysis_text_suffix = f" из-за некорректного запроса к API."
+            analysis_text_suffix = " из-за некорректного запроса к API."
         elif error_type == 'server_error':
             comment = f'Анализ записан (ошибка сервера {"финального " if is_final else ""}API)'
-            analysis_text_suffix = f" из-за внутренней ошибки сервера API."
+            analysis_text_suffix = " из-за внутренней ошибки сервера API."
         elif error_type == 'service_unavailable':
             comment = f'Анализ записан (сервис {"финального " if is_final else ""}API недоступен)'
-            analysis_text_suffix = f", так как сервис API временно недоступен."
+            analysis_text_suffix = ", так как сервис API временно недоступен."
         else:
             comment = f'Анализ записан (неизвестная ошибка {"финального " if is_final else ""}API)'
-            analysis_text_suffix = f" из-за неизвестной ошибки API."
+            analysis_text_suffix = " из-за неизвестной ошибки API."
         recommendation = 'Попробуйте позже'
         analysis_text = f"{'Финальный ' if is_final else ''}Анализ не доступен{analysis_text_suffix}"
         specific_error_desc = analysis_result.get('message', error_messages.get(error_type, 'Неизвестная ошибка'))

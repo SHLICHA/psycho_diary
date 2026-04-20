@@ -7,6 +7,7 @@ from model_bakery import baker
 from model_bakery.recipe import Recipe
 from django.utils import timezone
 import pytz
+from asgiref.sync import sync_to_async
 
 from diary.services.diary_display_service import diary_display_service
 from diary.models import DiaryEntry, PsychoAnalysis, CombinedDiaryEntry, DailyAnalysis, AnalysisRating
@@ -80,7 +81,7 @@ class TestDiaryDisplayService:
     @pytest.mark.asyncio
     async def test_build_rating_keyboard_existing_rating(self, user, analysis):
         """Тест: если рейтинг уже существует, возвращается has_rating=True."""
-        baker.make(AnalysisRating, user=user, analysis=analysis, rating=4)
+        await sync_to_async(baker.make)(AnalysisRating, user=user, analysis=analysis, rating=4)
 
         has_rating, rating_buttons = await diary_display_service.build_rating_keyboard(analysis, user, 'ru')
 
@@ -132,7 +133,7 @@ class TestDiaryDisplayService:
     @pytest.mark.asyncio
     async def test_submit_rating_already_rated(self, user, analysis):
         """Тест: если рейтинг уже отправлен, возвращается ошибка."""
-        baker.make(AnalysisRating, user=user, analysis=analysis, rating=4)
+        await sync_to_async(baker.make)(AnalysisRating, user=user, analysis=analysis, rating=4)
 
         result = await diary_display_service.submit_rating(analysis.id, user, 3)
 
@@ -142,7 +143,7 @@ class TestDiaryDisplayService:
     @pytest.mark.asyncio
     async def test_submit_rating_wrong_user(self, user, analysis):
         """Тест: пользователь не может оценить чужой анализ."""
-        other_user = baker.make(User, username='otheruser', telegram_id=99999)
+        other_user = await sync_to_async(baker.make)(User, username='otheruser', telegram_id=99999)
 
         result = await diary_display_service.submit_rating(analysis.id, other_user, 5)
 

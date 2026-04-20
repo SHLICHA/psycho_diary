@@ -563,7 +563,7 @@ async def cancel_account_deletion(callback: CallbackQuery, user, language: str, 
         await state_manager.clear_state(state)
         await asyncio.sleep(0.5)
 
-        menu_data = await build_main_menu_data(user, language)
+        menu_data = await build_main_menu_data(user=user, language=language)
         main_menu_msg = menu_data['message_text']
         keyboard = menu_data['keyboard']
 
@@ -588,7 +588,7 @@ async def cancel_account_deletion(callback: CallbackQuery, user, language: str, 
 
         try:
             await state_manager.clear_state(state)
-            menu_data = await build_main_menu_data(user, language)
+            menu_data = await build_main_menu_data(user=user, language=language)
             main_menu_msg = menu_data['message_text']
             keyboard = menu_data['keyboard']
             await callback.message.answer(

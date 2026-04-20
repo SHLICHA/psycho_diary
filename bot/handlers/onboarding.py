@@ -14,7 +14,7 @@ from bot.utils.message_utils import safe_edit_message_text, send_processing_mess
 from bot.utils.callback_utils import safe_answer_callback
 from bot.utils.state_manager import state_manager
 from bot.utils.audio_utils import process_voice_message
-from bot.services import diary_service
+from bot.services.diary_service import diary_service
 from bot.decorators.analytics_decorator import log_user_activity
 
 router = Router()
@@ -112,14 +112,16 @@ async def process_first_entry(message: Message, state: FSMContext, user, languag
             return
 
         # Используем метод сервиса для обработки первой записи
-        processing_result = await diary_service.process_first_onboarding_entry_logic(
+        response = await diary_service.process_first_onboarding_entry_use_case(
             user=user,
             entry_text=entry_text,
             language=language,
             entry_datetime=None
         )
 
-        if not processing_result.get('success'):
+        processing_result = response.data or {}
+
+        if not response.success:
             logger.debug(f"Первая запись пользователя {user.telegram_id} не прошла валидацию ИИ (новый порядок).")
             formatted_message_ai = processing_result.get('formatted_message_ai')
             try:

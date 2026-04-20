@@ -39,14 +39,16 @@ class TestGetUserStreaks:
         local_dt = user_tz.localize(naive_dt)
         utc_dt = local_dt.astimezone(pytz.utc)
         with transaction.atomic():
-            return DiaryEntry.objects.create(
+            entry = DiaryEntry.objects.create(
                 user=user,
                 text=f"Запись за {entry_date}",
                 language='ru',
                 word_count=5,
-                created_at=utc_dt,
                 creator_timezone=user.timezone or 'UTC'
             )
+            DiaryEntry.objects.filter(pk=entry.pk).update(created_at=utc_dt)
+            entry.refresh_from_db()
+            return entry
 
     @pytest.mark.asyncio
     async def test_no_entries(self, user_moscow):

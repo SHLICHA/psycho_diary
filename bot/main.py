@@ -17,6 +17,7 @@ from bot.middlewares.user_middleware import UserMiddleware
 from bot.middlewares.language_middleware import LanguageMiddleware
 from bot.middlewares.rate_limit_middleware import RateLimitMiddleware
 from bot.middlewares.premium_check_middleware import PremiumCheckMiddleware
+from bot.middlewares.analytics_middleware import AnalyticsMiddleware
 from bot.bot_instance import bot
 
 async def log_update_middleware(handler, event, data):
@@ -80,6 +81,11 @@ async def main():
     dp.message.middleware(language_middleware)
     dp.callback_query.middleware(language_middleware)
     logger.info("LanguageMiddleware зарегистрирован")
+
+    analytics_middleware = AnalyticsMiddleware()
+    dp.message.middleware(analytics_middleware)
+    dp.callback_query.middleware(analytics_middleware)
+    logger.info("AnalyticsMiddleware зарегистрирован")
     
     # 3. RateLimitMiddleware - ограничение частоты запросов
     rate_limit_middleware = RateLimitMiddleware()

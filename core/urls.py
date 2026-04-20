@@ -8,6 +8,7 @@ urlpatterns = [
     
     # REST API
     path('api/v1/auth/', include('api.urls')),
+    path('api/v1/', include('api.urls')),
     
     # JWT Auth
     path('api/v1/auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),

@@ -2,9 +2,13 @@
 Serializers для REST API Psycho Diary.
 """
 
+from typing import Optional
+
 from rest_framework import serializers
-from users.models import User
-from diary.models import DiaryEntry, CombinedDiaryEntry, WeeklyAnalysis, TherapyTask
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema_field
+from users.models import User, UserProfileHistory, TokenTransaction, Payment
+from diary.models import DiaryEntry, CombinedDiaryEntry, WeeklyAnalysis, TherapyTask, UserActivity
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -14,7 +18,7 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            'id', 'username', 'first_name', 'last_name',
+            'id', 'email', 'username', 'first_name', 'last_name',
             'language', 'timezone', 'is_premium', 'awareness_level',
             'created_at', 'token_balance'
         ]
@@ -30,7 +34,7 @@ class ProfileFullSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             # Базовые данные
-            'id', 'username', 'first_name', 'last_name', 'language',
+            'id', 'email', 'username', 'first_name', 'last_name', 'language',
             'timezone', 'is_premium', 'awareness_level', 'date_of_birth',
             'created_at', 'token_balance',
             
@@ -68,8 +72,9 @@ class ProfileCompactSerializer(serializers.ModelSerializer):
             'full_psych_profile_summary', 'compressed_psych_profile'
         ]
         read_only_fields = fields
-    
-    def get_full_psych_profile_summary(self, obj):
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_full_psych_profile_summary(self, obj) -> str:
         """Возвращает summary из full_psych_profile."""
         full = obj.full_psych_profile or {}
         return full.get('summary', '')
@@ -79,7 +84,7 @@ class DiaryEntrySerializer(serializers.ModelSerializer):
     """
     Сериализатор для записей дневника.
     """
-    entry_date = serializers.DateField(source='entry_date', read_only=True)
+    entry_date = serializers.SerializerMethodField()
     
     class Meta:
         model = DiaryEntry
@@ -88,7 +93,19 @@ class DiaryEntrySerializer(serializers.ModelSerializer):
             'language', 'word_count', 'is_processed', 'entry_date',
             'is_primary', 'user_comment'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'word_count', 'is_processed']
+        read_only_fields = ['id', 'user', 'created_at', 'updated_at', 'word_count', 'is_processed', 'entry_date']
+
+    @extend_schema_field(OpenApiTypes.DATE)
+    def get_entry_date(self, obj) -> Optional[str]:
+        """Return the entry date from the property."""
+        entry_date = obj.entry_date
+        return entry_date.isoformat() if entry_date else None
+    
+    def create(self, validated_data):
+        """Create entry and calculate word_count from text."""
+        text = validated_data.get('text', '')
+        validated_data['word_count'] = len(text.split()) if text else 0
+        return super().create(validated_data)
 
 
 class CombinedDiaryEntrySerializer(serializers.ModelSerializer):
@@ -128,10 +145,117 @@ class TherapyTaskSerializer(serializers.ModelSerializer):
     class Meta:
         model = TherapyTask
         fields = [
-            'id', 'user', 'title', 'description', 'task_type',
-            'status', 'assigned_at', 'completed_at', 'effect_rating'
+            'id', 'user', 'title', 'description', 'type',
+            'status', 'assigned_at', 'completed_at', 'complexity'
         ]
-        read_only_fields = ['id', 'assigned_at']
+        read_only_fields = ['id', 'user', 'assigned_at', 'completed_at']
+
+
+class UserProfileHistorySerializer(serializers.ModelSerializer):
+    """Сериализатор для истории изменений профиля."""
+
+    class Meta:
+        model = UserProfileHistory
+        fields = [
+            'id',
+            'created_at',
+            'awareness_level',
+            'personality_traits',
+            'life_facts',
+            'hobbies',
+            'core_values',
+            'triggers',
+            'strengths',
+            'areas_for_growth',
+            'personality_insights',
+            'habits',
+            'skills',
+            'aspirations',
+            'personality_description',
+        ]
+        read_only_fields = fields
+
+
+class TokenTransactionSerializer(serializers.ModelSerializer):
+    """Сериализатор истории транзакций токенов."""
+
+    class Meta:
+        model = TokenTransaction
+        fields = [
+            'id',
+            'amount',
+            'transaction_type',
+            'description',
+            'created_at',
+        ]
+        read_only_fields = fields
+
+
+class PaymentSerializer(serializers.ModelSerializer):
+    """Сериализатор платежей пользователя."""
+
+    class Meta:
+        model = Payment
+        fields = [
+            'id',
+            'yookassa_payment_id',
+            'amount_rub',
+            'payment_type',
+            'tokens_granted',
+            'subscription_days_granted',
+            'status',
+            'created_at',
+        ]
+        read_only_fields = fields
+
+
+class ProgressSummarySerializer(serializers.Serializer):
+    """Сериализатор сводки прогресса пользователя."""
+
+    total_entries = serializers.IntegerField()
+    total_days_with_entries = serializers.IntegerField()
+    total_tasks_completed = serializers.IntegerField()
+    weekly_analyses_count = serializers.IntegerField()
+    avg_mood_score = serializers.FloatField()
+
+
+class ProgressStreakSerializer(serializers.Serializer):
+    """Сериализатор серии активности пользователя."""
+
+    current_streak = serializers.IntegerField()
+    max_streak = serializers.IntegerField()
+    active_days_last_30 = serializers.IntegerField()
+
+
+class MoodPointSerializer(serializers.Serializer):
+    """Точка графика настроения."""
+
+    period = serializers.CharField()
+    avg_mood_score = serializers.FloatField()
+    entries_count = serializers.IntegerField()
+
+
+class UserActivitySerializer(serializers.ModelSerializer):
+    """Сериализатор пользовательской активности."""
+
+    class Meta:
+        model = UserActivity
+        fields = ['id', 'activity_type', 'timestamp', 'metadata']
+        read_only_fields = fields
+
+
+class MoodTimelineSerializer(serializers.Serializer):
+    """Сериализатор ответа графика настроения."""
+
+    period = serializers.CharField()
+    points = MoodPointSerializer(many=True)
+
+
+class UserActivityFeedSerializer(serializers.Serializer):
+    """Сериализатор ответа активности пользователя."""
+
+    summary = serializers.DictField(child=serializers.IntegerField())
+    recent = UserActivitySerializer(many=True)
 
 
 class UserStatisticsSerializer(serializers.Serializer):
@@ -145,6 +269,116 @@ class UserStatisticsSerializer(serializers.Serializer):
     total_tasks_completed = serializers.IntegerField()
     weekly_analyses_count = serializers.IntegerField()
     last_entry_date = serializers.DateField(allow_null=True)
+
+
+class MonitoringSnapshotSerializer(serializers.Serializer):
+    """Сериализатор snapshot метрик monitoring service."""
+    use_cases = serializers.DictField(child=serializers.JSONField(), required=False)
+    ai_calls = serializers.DictField(child=serializers.JSONField(), required=False)
+    transport = serializers.DictField(child=serializers.JSONField(), required=False)
+    totals = serializers.DictField(child=serializers.IntegerField(), required=False)
+
+
+class AICallMetricsSerializer(serializers.Serializer):
+    """Сериализатор для метрик AI вызовов."""
+    total_calls = serializers.IntegerField()
+    successful_calls = serializers.IntegerField()
+    failed_calls = serializers.IntegerField()
+    total_tokens_used = serializers.IntegerField()
+    avg_latency_ms = serializers.FloatField()
+    retry_count = serializers.IntegerField()
+    error_rate = serializers.FloatField()
+
+
+class OnboardingFunnelSerializer(serializers.Serializer):
+    """Сериализатор для воронки онбординга."""
+    started_count = serializers.IntegerField()
+    registered_count = serializers.IntegerField()
+    first_entry_count = serializers.IntegerField()
+    completed_profile_count = serializers.IntegerField()
+    register_conversion = serializers.FloatField()
+    first_entry_conversion = serializers.FloatField()
+
+
+class RetentionMetricsSerializer(serializers.Serializer):
+    """Сериализатор для метрик удержания."""
+    daily_active_users = serializers.IntegerField()
+    weekly_active_users = serializers.IntegerField()
+    monthly_active_users = serializers.IntegerField()
+    users_with_active_streak = serializers.IntegerField()
+    avg_streak_length = serializers.FloatField()
+    max_streak_length = serializers.IntegerField()
+    users_recovered_streak = serializers.IntegerField()
+    churned_users_7d = serializers.IntegerField()
+    returned_users_7d = serializers.IntegerField()
+
+
+class TaskMetricsSerializer(serializers.Serializer):
+    """Сериализатор для метрик задач."""
+    total_tasks_created = serializers.IntegerField()
+    total_tasks_completed = serializers.IntegerField()
+    completion_rate = serializers.FloatField()
+    avg_completion_time_hours = serializers.FloatField()
+
+
+class EntryMetricsSerializer(serializers.Serializer):
+    """Сериализатор для метрик записей."""
+    total_entries = serializers.IntegerField()
+    processed_entries = serializers.IntegerField()
+    failed_entries = serializers.IntegerField()
+    avg_processing_time_ms = serializers.FloatField()
+    entries_with_clarifications = serializers.IntegerField()
+    avg_clarifications_per_entry = serializers.FloatField()
+    user_comments_count = serializers.IntegerField()
+
+
+class UserEngagementSerializer(serializers.Serializer):
+    """Сериализатор для метрик вовлеченности."""
+    avg_entries_per_user = serializers.FloatField()
+    avg_tasks_per_user = serializers.FloatField()
+    users_with_premium = serializers.IntegerField()
+    premium_conversion_rate = serializers.FloatField()
+    total_tokens_purchased = serializers.IntegerField()
+    avg_tokens_per_user = serializers.FloatField()
+
+
+class DailySnapshotSerializer(serializers.Serializer):
+    """Сериализатор для ежедневного снимка."""
+    date = serializers.CharField()
+    dau = serializers.IntegerField()
+    entries_created = serializers.IntegerField()
+    entries_processed = serializers.IntegerField()
+    tasks_completed = serializers.IntegerField()
+    ai_calls = serializers.IntegerField()
+    ai_tokens_used = serializers.IntegerField()
+    ai_avg_latency_ms = serializers.FloatField()
+
+
+class ComprehensiveStatsSerializer(serializers.Serializer):
+    """Сериализатор для комплексной статистики."""
+    timestamp = serializers.CharField()
+    period = serializers.CharField()
+    ai_metrics = AICallMetricsSerializer()
+    onboarding = OnboardingFunnelSerializer()
+    retention = RetentionMetricsSerializer()
+    tasks = TaskMetricsSerializer()
+    entries = EntryMetricsSerializer()
+    engagement = UserEngagementSerializer()
+    daily_snapshots = DailySnapshotSerializer(many=True)
+
+
+class APIErrorDetailSerializer(serializers.Serializer):
+    """Внутренняя структура единого payload ошибки API."""
+
+    code = serializers.CharField()
+    message = serializers.CharField()
+    details = serializers.JSONField(required=False)
+
+
+class APIErrorSerializer(serializers.Serializer):
+    """Единый контракт ошибки API: {"error": {code, message, details?}}."""
+
+    error = APIErrorDetailSerializer()
 
 
 # =====================================================

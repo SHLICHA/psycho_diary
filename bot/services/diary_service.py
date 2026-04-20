@@ -4,6 +4,7 @@
 import pytz
 import logging
 import time
+import json
 
 from asgiref.sync import sync_to_async
 from typing import List, Dict, Any, Optional
@@ -17,8 +18,8 @@ from typing import Dict, Any, List
 from bot.utils.decorators import async_error_handler, database_retry
 from bot.utils.api_utils import format_api_error_for_analysis
 from bot.utils.diary_utils import check_and_award_streak_bonus
-from bot.services import deepseek_api_service
-from bot.services import psycho_analysis_service
+from bot.services.deepseek_api import deepseek_api_service
+from bot.services.psycho_analysis_service import psycho_analysis_service
 from diary.models import DiaryEntry, PsychoAnalysis, CombinedDiaryEntry, TherapyTask
 from diary.services.daily_state_service import (
     get_daily_state,
@@ -30,14 +31,405 @@ from diary.services.daily_state_service import (
 from diary.services.task_management_service import assign_task
 from users.models import User
 from prompts import get_prompt
-from diary.services import daily_state_service
+from diary.services.daily_state_service import daily_state_service
 from asgiref.sync import sync_to_async
 from messages import get_message
+from core.service_response import ServiceResponse
+from core.profile_field_utils import (
+    build_personal_fields_payload_for_ai,
+    normalize_compressed_profile_for_prompt,
+)
+from core.services.monitoring_service import monitoring_service
+from diary.services.compressed_profile_service import compressed_profile_service
 
 logger = logging.getLogger(__name__)
 
+
+def _to_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _to_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _top_profile_items_for_prompt(items: Any, limit: int) -> List[Dict[str, Any]]:
+    """Return top-N weighted items for prompt payload, preferring non-stale and higher weight/frequency."""
+    if not isinstance(items, list) or limit <= 0:
+        return []
+
+    normalized: List[Dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        value = str(item.get("value", "")).strip()
+        if not value:
+            continue
+        normalized.append({
+            "value": value,
+            "weight": _to_float(item.get("weight"), 0.5),
+            "frequency": _to_int(item.get("frequency"), 1),
+            "is_stale": bool(item.get("is_stale", False)),
+        })
+
+    normalized.sort(
+        key=lambda x: (
+            bool(x.get("is_stale", False)),
+            -_to_float(x.get("weight"), 0.0),
+            -_to_int(x.get("frequency"), 0),
+            x.get("value", ""),
+        )
+    )
+    return normalized[:limit]
+
+
+def _truncate_text_for_prompt(value: Any, max_chars: int) -> str:
+    text = str(value or "")
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + "\n... [truncated]"
+
+
+def _trim_list_for_prompt(values: Any, limit: int) -> List[Any]:
+    if not isinstance(values, list) or limit <= 0:
+        return []
+    return values[:limit]
+
 class DiaryService:
     """Сервис для работы с записями дневника"""
+
+    async def _record_use_case_metric(
+        self,
+        use_case: str,
+        success: bool,
+        started_at: float,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Record unified use-case metric without affecting business flow."""
+        duration_ms = (time.perf_counter() - started_at) * 1000
+        await monitoring_service.record_use_case_event(
+            use_case=use_case,
+            success=success,
+            duration_ms=duration_ms,
+            metadata=metadata,
+        )
+
+    async def _call_deepseek_with_metrics(
+        self,
+        flow: str,
+        prompt: str,
+        language: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        **api_kwargs: Any,
+    ) -> Dict[str, Any]:
+        """Call DeepSeek API and record AI-call metrics without altering behavior."""
+        started_at = time.perf_counter()
+        base_metadata = dict(metadata or {})
+        base_metadata["provider"] = "deepseek"
+
+        try:
+            result = await deepseek_api_service.send_prompt_and_parse(
+                prompt,
+                language,
+                **api_kwargs,
+            )
+        except Exception as exc:
+            await monitoring_service.record_ai_call_event(
+                flow=flow,
+                success=False,
+                duration_ms=(time.perf_counter() - started_at) * 1000,
+                metadata={
+                    **base_metadata,
+                    "error": exc.__class__.__name__,
+                },
+            )
+            raise
+
+        result_success = bool(result.get("success"))
+        event_metadata = dict(base_metadata)
+        if not result_success:
+            event_metadata["error"] = result.get("error", "unknown")
+
+        await monitoring_service.record_ai_call_event(
+            flow=flow,
+            success=result_success,
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+            metadata=event_metadata,
+        )
+        return result
+
+    async def process_new_entry_use_case(
+        self,
+        user: User,
+        entry_text: str,
+        language: str,
+        entry_datetime: datetime = None
+    ) -> ServiceResponse:
+        """
+        Универсальный use-case обработки новой записи.
+
+        Возвращает ServiceResponse, чтобы один и тот же контракт можно было
+        переиспользовать из Telegram handler и будущего API слоя.
+        Базовая бизнес-логика пока остается в process_new_entry_logic.
+        """
+        started_at = time.perf_counter()
+        success = False
+        response: ServiceResponse
+        try:
+            result = await self.process_new_entry_logic(
+                user=user,
+                entry_text=entry_text,
+                language=language,
+                entry_datetime=entry_datetime,
+            )
+        except Exception as exc:
+            logger.error(
+                f"[process_new_entry_use_case] Ошибка обработки записи для {user.telegram_id}: {exc}",
+                exc_info=True,
+            )
+            response = ServiceResponse.fail(
+                error='entry_processing_exception',
+                message=get_message('error_processing', language),
+            )
+            await self._record_use_case_metric(
+                use_case='diary.process_new_entry_use_case',
+                success=success,
+                started_at=started_at,
+                metadata={'error': 'entry_processing_exception'},
+            )
+            return response
+
+        if result.get('success'):
+            success = True
+            response = ServiceResponse.ok(
+                data=result,
+                needs_clarification=bool(result.get('needs_clarification')),
+                has_suggested_task=bool(result.get('suggested_task')),
+            )
+            await self._record_use_case_metric(
+                use_case='diary.process_new_entry_use_case',
+                success=success,
+                started_at=started_at,
+            )
+            return response
+
+        error_code = 'entry_validation_failed'
+        if not result.get('formatted_message_ai') and not result.get('validation_comment_ai'):
+            error_code = result.get('error') or 'entry_processing_failed'
+
+        response = ServiceResponse.fail(
+            error=error_code,
+            message=result.get('validation_comment_ai') or result.get('formatted_message_ai'),
+            data=result,
+        )
+        await self._record_use_case_metric(
+            use_case='diary.process_new_entry_use_case',
+            success=success,
+            started_at=started_at,
+            metadata={'error': error_code},
+        )
+        return response
+
+    async def process_first_onboarding_entry_use_case(
+        self,
+        user: User,
+        entry_text: str,
+        language: str,
+        entry_datetime: datetime = None
+    ) -> ServiceResponse:
+        """
+        Универсальный use-case обработки первой записи в онбординге.
+
+        Использует существующую бизнес-логику, но возвращает стандартизированный
+        ServiceResponse для переиспользования из Telegram и будущего API.
+        """
+        started_at = time.perf_counter()
+        success = False
+        response: ServiceResponse
+        try:
+            result = await self.process_first_onboarding_entry_logic(
+                user=user,
+                entry_text=entry_text,
+                language=language,
+                entry_datetime=entry_datetime,
+            )
+        except Exception as exc:
+            logger.error(
+                f"[process_first_onboarding_entry_use_case] Ошибка обработки первой записи для {user.telegram_id}: {exc}",
+                exc_info=True,
+            )
+            response = ServiceResponse.fail(
+                error='onboarding_entry_processing_exception',
+                message=get_message('error_processing', language),
+            )
+            await self._record_use_case_metric(
+                use_case='diary.process_first_onboarding_entry_use_case',
+                success=success,
+                started_at=started_at,
+                metadata={'error': 'onboarding_entry_processing_exception'},
+            )
+            return response
+
+        if result.get('success'):
+            success = True
+            response = ServiceResponse.ok(
+                data=result,
+                onboarding_completed=False,
+            )
+            await self._record_use_case_metric(
+                use_case='diary.process_first_onboarding_entry_use_case',
+                success=success,
+                started_at=started_at,
+            )
+            return response
+
+        error_code = result.get('error') or 'onboarding_entry_validation_failed'
+        response = ServiceResponse.fail(
+            error=error_code,
+            message=result.get('formatted_message_ai') or get_message('error_processing', language),
+            data=result,
+        )
+        await self._record_use_case_metric(
+            use_case='diary.process_first_onboarding_entry_use_case',
+            success=success,
+            started_at=started_at,
+            metadata={'error': error_code},
+        )
+        return response
+
+    async def process_clarification_answers_use_case(
+        self,
+        user: User,
+        diary_entry: DiaryEntry,
+        clarification_answers_dict: Dict[str, str],
+        language: str
+    ) -> ServiceResponse:
+        """
+        Универсальный use-case обработки ответов на уточняющие вопросы.
+        """
+        started_at = time.perf_counter()
+        success = False
+        response: ServiceResponse
+        try:
+            result = await self.process_clarification_answers_logic(
+                user=user,
+                diary_entry=diary_entry,
+                clarification_answers_dict=clarification_answers_dict,
+                language=language,
+            )
+        except Exception as exc:
+            logger.error(
+                f"[process_clarification_answers_use_case] Ошибка для {user.telegram_id}: {exc}",
+                exc_info=True,
+            )
+            response = ServiceResponse.fail(
+                error='clarification_processing_exception',
+                message=get_message('error_processing', language),
+            )
+            await self._record_use_case_metric(
+                use_case='diary.process_clarification_answers_use_case',
+                success=success,
+                started_at=started_at,
+                metadata={'error': 'clarification_processing_exception'},
+            )
+            return response
+
+        if result.get('success'):
+            success = True
+            response = ServiceResponse.ok(
+                data=result,
+                entry_id=getattr(result.get('entry'), 'id', None),
+            )
+            await self._record_use_case_metric(
+                use_case='diary.process_clarification_answers_use_case',
+                success=success,
+                started_at=started_at,
+            )
+            return response
+
+        error_code = result.get('error') or 'clarification_processing_failed'
+        response = ServiceResponse.fail(
+            error=error_code,
+            message=result.get('message') or get_message('error_processing', language),
+            data=result,
+        )
+        await self._record_use_case_metric(
+            use_case='diary.process_clarification_answers_use_case',
+            success=success,
+            started_at=started_at,
+            metadata={'error': error_code},
+        )
+        return response
+
+    async def process_user_comment_use_case(
+        self,
+        user: User,
+        diary_entry: DiaryEntry,
+        user_comment_text: str,
+        language: str
+    ) -> ServiceResponse:
+        """
+        Универсальный use-case обработки комментария пользователя к записи.
+        """
+        started_at = time.perf_counter()
+        success = False
+        response: ServiceResponse
+        try:
+            result = await self.process_user_comment_logic(
+                user=user,
+                diary_entry=diary_entry,
+                user_comment_text=user_comment_text,
+                language=language,
+            )
+        except Exception as exc:
+            logger.error(
+                f"[process_user_comment_use_case] Ошибка для {user.telegram_id}: {exc}",
+                exc_info=True,
+            )
+            response = ServiceResponse.fail(
+                error='comment_processing_exception',
+                message=get_message('error_processing', language),
+            )
+            await self._record_use_case_metric(
+                use_case='diary.process_user_comment_use_case',
+                success=success,
+                started_at=started_at,
+                metadata={'error': 'comment_processing_exception'},
+            )
+            return response
+
+        if result.get('success'):
+            success = True
+            response = ServiceResponse.ok(
+                data=result,
+                entry_id=getattr(result.get('entry'), 'id', None),
+            )
+            await self._record_use_case_metric(
+                use_case='diary.process_user_comment_use_case',
+                success=success,
+                started_at=started_at,
+            )
+            return response
+
+        error_code = result.get('error') or 'comment_processing_failed'
+        response = ServiceResponse.fail(
+            error=error_code,
+            message=result.get('message') or get_message('error_processing', language),
+            data=result,
+        )
+        await self._record_use_case_metric(
+            use_case='diary.process_user_comment_use_case',
+            success=success,
+            started_at=started_at,
+            metadata={'error': error_code},
+        )
+        return response
 
     @async_error_handler('diary_service')
     @database_retry(max_retries=3)
@@ -561,6 +953,21 @@ class DiaryService:
             "skills": user.skills,
             "aspirations": user.aspirations
         }
+
+        personal_fields_payload = build_personal_fields_payload_for_ai(user)
+        premium_top_personality_traits = _top_profile_items_for_prompt(
+            personal_fields_payload.get("personality_traits", []),
+            limit=20,
+        )
+        premium_top_triggers = _top_profile_items_for_prompt(
+            personal_fields_payload.get("triggers", []),
+            limit=20,
+        )
+        premium_top_strengths = _top_profile_items_for_prompt(
+            personal_fields_payload.get("strengths", []),
+            limit=20,
+        )
+
         try:
             user_tz_str = user.timezone if user.timezone else 'UTC'
             user_tz = pytz.timezone(user_tz_str)
@@ -568,15 +975,17 @@ class DiaryService:
             if created_at.tzinfo is None:
                 created_at = pytz.utc.localize(created_at)
             localized_time = created_at.astimezone(user_tz)
-            new_entry_creation_time_local = localized_time.strftime('%d.%m.%Y %H:%M')
+            new_entry_creation_time_local = localized_time.strftime('%Y-%m-%d')
             logger.debug(f"[process_new_entry_logic] Локализованное время создания записи {diary_entry.id}: {new_entry_creation_time_local}")
         except Exception as e:
             logger.error(f"[process_new_entry_logic] Ошибка при определении локального времени для записи {diary_entry.id}: {e}")
-            new_entry_creation_time_local = diary_entry.created_at.strftime('%d.%m.%Y %H:%M UTC')
+            new_entry_creation_time_local = diary_entry.created_at.strftime('%Y-%m-%d')
 
         # Выбираем промпт: полный для premium, сокращённый для обычных
+        prompt_mode = "unknown"
         if is_premium_active:
             prompt_key = 'incremental_day_analysis'
+            prompt_mode = "premium"
             prompt = get_prompt(
                 key=prompt_key,
                 language=language,
@@ -587,38 +996,229 @@ class DiaryService:
                 first_name=extended_user_context["first_name"],
                 awareness_level=extended_user_context["awareness_level"],
                 is_premium=extended_user_context["is_premium"],
-                user_personality_traits=extended_user_context["personality_traits"],
+                user_personality_traits=json.dumps(
+                    premium_top_personality_traits,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
                 user_life_facts=extended_user_context["life_facts"],
                 user_hobbies=extended_user_context["hobbies"],
                 user_core_values=extended_user_context["core_values"],
-                user_triggers=extended_user_context["triggers"],
-                user_strengths=extended_user_context["strengths"],
+                user_triggers=json.dumps(
+                    premium_top_triggers,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+                user_strengths=json.dumps(
+                    premium_top_strengths,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
                 user_areas_for_growth=extended_user_context["areas_for_growth"],
                 entries_count=extended_user_context["entries_count"],
             )
             logger.debug(f"[process_new_entry_logic] Используется ПОЛНЫЙ промпт (premium) для пользователя {user.telegram_id}")
         else:
-            prompt_key = 'incremental_day_analysis_lite'
-            
-            # Получаем сжатый профиль для LITE промпта
-            import json
-            compressed_profile = user.compressed_psych_profile or {}
-            compressed_profile_json = json.dumps(compressed_profile, ensure_ascii=False, indent=2)
-            
-            prompt = get_prompt(
-                key=prompt_key,
-                language=language,
-                all_entries_combined=all_entries_text,
-                new_entry_text=entry_text,
-                new_entry_creation_time_local=new_entry_creation_time_local,
-                ai_state_data=ai_state_data,
-                first_name=extended_user_context["first_name"],
-                compressed_psych_profile_json=compressed_profile_json,
+            # Проверяем возможность использования LITE v2
+            from django.conf import settings
+            use_lite_v2 = (
+                settings.USE_LITE_V2 and 
+                user.compressed_psych_profile and 
+                combined_entry and combined_entry.day_context_summary
             )
-            logger.debug(f"[process_new_entry_logic] Используется LITE промпт (без подписки) для пользователя {user.telegram_id}")
+            
+            if use_lite_v2:
+                # LITE v2: использует compressed_psych_profile + day_context_summary
+                prompt_key = 'incremental_day_analysis_lite_v2'
+                prompt_mode = "lite_v2"
+                compressed_profile = normalize_compressed_profile_for_prompt(user.compressed_psych_profile or {})
+                compressed_profile_json = json.dumps(compressed_profile, ensure_ascii=False, separators=(",", ":"))
+                day_context_json = json.dumps(combined_entry.day_context_summary or {}, ensure_ascii=False, separators=(",", ":"))
+                free_top_personality_traits = _top_profile_items_for_prompt(
+                    personal_fields_payload.get("personality_traits", []),
+                    limit=10,
+                )
+                free_top_triggers = _top_profile_items_for_prompt(
+                    personal_fields_payload.get("triggers", []),
+                    limit=10,
+                )
+                free_top_strengths = _top_profile_items_for_prompt(
+                    personal_fields_payload.get("strengths", []),
+                    limit=10,
+                )
+                lite_v2_personality_traits_json = json.dumps(
+                    free_top_personality_traits,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+                lite_v2_triggers_json = json.dumps(
+                    free_top_triggers,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+                lite_v2_strengths_json = json.dumps(
+                    free_top_strengths,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+                
+                prompt = get_prompt(
+                    key=prompt_key,
+                    language=language,
+                    user_plan='free',
+                    first_name=extended_user_context["first_name"],
+                    awareness_level=extended_user_context["awareness_level"],
+                    entries_count=extended_user_context["entries_count"],
+                    compressed_psych_profile_json=compressed_profile_json,
+                    day_context_summary_json=day_context_json,
+                    user_personality_traits=lite_v2_personality_traits_json,
+                    user_triggers=lite_v2_triggers_json,
+                    user_strengths=lite_v2_strengths_json,
+                    new_entry_text=entry_text,
+                    new_entry_creation_time_local=new_entry_creation_time_local,
+                    ai_state_data=ai_state_data,
+                )
+                logger.debug(f"[process_new_entry_logic] Используется LITE v2 промпт для пользователя {user.telegram_id}")
+                
+                # Логирование для мониторинга
+                logger.info(
+                    f"[LiteV2] User {user.telegram_id}: using lite_v2_incremental, "
+                    f"compressed={bool(user.compressed_psych_profile)}, "
+                    f"day_context={bool(combined_entry and combined_entry.day_context_summary)}, "
+                    f"prompt_length={len(prompt)}"
+                )
+            else:
+                # LITE v1: используем compressed_psych_profile
+                prompt_key = 'incremental_day_analysis_lite'
+                prompt_mode = "lite_v1"
+                compressed_profile = normalize_compressed_profile_for_prompt(user.compressed_psych_profile or {})
+                compressed_profile_json = json.dumps(compressed_profile, ensure_ascii=False, separators=(",", ":"))
+                
+                prompt = get_prompt(
+                    key=prompt_key,
+                    language=language,
+                    all_entries_combined=all_entries_text,
+                    new_entry_text=entry_text,
+                    new_entry_creation_time_local=new_entry_creation_time_local,
+                    ai_state_data=ai_state_data,
+                    first_name=extended_user_context["first_name"],
+                    compressed_psych_profile_json=compressed_profile_json,
+                )
+                logger.debug(f"[process_new_entry_logic] Используется LITE v1 промпт (без подписки) для пользователя {user.telegram_id}")
+                
+                # Логирование для мониторинга
+                logger.info(
+                    f"[LiteV2] User {user.telegram_id}: fallback to lite_v1, "
+                    f"compressed={bool(user.compressed_psych_profile)}, "
+                    f"day_context={bool(combined_entry and combined_entry.day_context_summary)}, "
+                    f"USE_LITE_V2={settings.USE_LITE_V2}"
+                )
 
         api_start_time = time.time()
-        analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
+        analysis_result = await self._call_deepseek_with_metrics(
+            flow='diary.process_new_entry_logic',
+            prompt=prompt,
+            language=language,
+            metadata={'prompt_mode': prompt_mode, 'attempt': 'primary'},
+        )
+
+        if (not analysis_result.get('success')) and analysis_result.get('error') == 'context_length_exceeded':
+            logger.warning(
+                f"[process_new_entry_logic] context_length_exceeded для {user.telegram_id}, "
+                f"режим={prompt_mode}. Пробуем fallback prompt."
+            )
+
+            fallback_prompt = None
+            if prompt_mode == "lite_v2":
+                fallback_compressed_profile_json = json.dumps(
+                    normalize_compressed_profile_for_prompt(user.compressed_psych_profile or {}),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+                fallback_traits = _top_profile_items_for_prompt(
+                    personal_fields_payload.get("personality_traits", []),
+                    limit=3,
+                )
+                fallback_strengths = _top_profile_items_for_prompt(
+                    personal_fields_payload.get("strengths", []),
+                    limit=3,
+                )
+                fallback_prompt = get_prompt(
+                    key='incremental_day_analysis_lite_v2',
+                    language=language,
+                    user_plan='free',
+                    first_name=extended_user_context["first_name"],
+                    awareness_level=extended_user_context["awareness_level"],
+                    entries_count=extended_user_context["entries_count"],
+                    compressed_psych_profile_json=fallback_compressed_profile_json,
+                    day_context_summary_json='{}',
+                    user_personality_traits=json.dumps(fallback_traits, ensure_ascii=False, separators=(",", ":")),
+                    user_triggers='[]',
+                    user_strengths=json.dumps(fallback_strengths, ensure_ascii=False, separators=(",", ":")),
+                    new_entry_text=entry_text,
+                    new_entry_creation_time_local=new_entry_creation_time_local,
+                    ai_state_data=_truncate_text_for_prompt(ai_state_data, 2000),
+                )
+
+            elif prompt_mode == "premium":
+                fallback_prompt = get_prompt(
+                    key='incremental_day_analysis',
+                    language=language,
+                    all_entries_combined=_truncate_text_for_prompt(all_entries_text, 12000),
+                    new_entry_text=entry_text,
+                    new_entry_creation_time_local=new_entry_creation_time_local,
+                    ai_state_data=_truncate_text_for_prompt(ai_state_data, 3000),
+                    first_name=extended_user_context["first_name"],
+                    awareness_level=extended_user_context["awareness_level"],
+                    is_premium=extended_user_context["is_premium"],
+                    user_personality_traits=json.dumps(
+                        _top_profile_items_for_prompt(personal_fields_payload.get("personality_traits", []), limit=10),
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                    user_life_facts=_trim_list_for_prompt(extended_user_context["life_facts"], 10),
+                    user_hobbies=_trim_list_for_prompt(extended_user_context["hobbies"], 10),
+                    user_core_values=_trim_list_for_prompt(extended_user_context["core_values"], 10),
+                    user_triggers=json.dumps(
+                        _top_profile_items_for_prompt(personal_fields_payload.get("triggers", []), limit=10),
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                    user_strengths=json.dumps(
+                        _top_profile_items_for_prompt(personal_fields_payload.get("strengths", []), limit=10),
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                    user_areas_for_growth=_trim_list_for_prompt(extended_user_context["areas_for_growth"], 10),
+                    entries_count=extended_user_context["entries_count"],
+                )
+
+            elif prompt_mode == "lite_v1":
+                fallback_prompt = get_prompt(
+                    key='incremental_day_analysis_lite',
+                    language=language,
+                    all_entries_combined=_truncate_text_for_prompt(all_entries_text, 12000),
+                    new_entry_text=entry_text,
+                    new_entry_creation_time_local=new_entry_creation_time_local,
+                    ai_state_data=_truncate_text_for_prompt(ai_state_data, 3000),
+                    first_name=extended_user_context["first_name"],
+                    compressed_psych_profile_json=json.dumps(
+                        normalize_compressed_profile_for_prompt(user.compressed_psych_profile or {}),
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                )
+
+            if fallback_prompt:
+                analysis_result = await self._call_deepseek_with_metrics(
+                    flow='diary.process_new_entry_logic',
+                    prompt=fallback_prompt,
+                    language=language,
+                    metadata={'prompt_mode': prompt_mode, 'attempt': 'fallback'},
+                    max_retries=1,
+                    timeout_per_attempt=90,
+                )
+
         total_api_time = time.time() - api_start_time
         logger.debug(f"[process_new_entry_logic] 🕒 Полное время API запроса: {total_api_time:.3f} секунд")
 
@@ -670,16 +1270,51 @@ class DiaryService:
         logger.debug(f"[process_new_entry_logic] Создан/обновлен PsychoAnalysis ID {analysis_obj.id} для записи {diary_entry.id}")
 
         # 4.4. Обновление CombinedDiaryEntry с новым состоянием ИИ
+        # Используем новый структурированный формат
+        from diary.services.daily_state_service import update_ai_state_from_analysis
+        
+        current_ai_state = combined_entry.ai_state_data if combined_entry else ""
+        
         if 'updated_ai_state_data' in result_data:
-            new_state = result_data['updated_ai_state_data']
+            # AI already returns structured data in v2 prompts, or text in v1
+            # Try to parse as JSON first, if fails - use old format conversion
+            new_state_raw = result_data['updated_ai_state_data']
+            try:
+                parsed = json.loads(new_state_raw)
+                if isinstance(parsed, dict) and 'current_mood' in parsed:
+                    # Already structured - use as is
+                    new_state = json.dumps(parsed, ensure_ascii=False)
+                else:
+                    # Text format from v1 - convert to structured
+                    new_state = update_ai_state_from_analysis(
+                        current_ai_state=current_ai_state,
+                        new_mood_score=mood_score,
+                        comment=result_data.get('comment', ''),
+                        day_context_summary=None
+                    )
+            except (json.JSONDecodeError, TypeError):
+                # Not JSON - convert text to structured format
+                new_state = update_ai_state_from_analysis(
+                    current_ai_state=current_ai_state,
+                    new_mood_score=mood_score,
+                    comment=new_state_raw,
+                    day_context_summary=None
+                )
         else:
-            new_state = analysis_text
+            # Fallback: create from analysis
+            new_state = update_ai_state_from_analysis(
+                current_ai_state=current_ai_state,
+                new_mood_score=mood_score,
+                comment=result_data.get('comment', ''),
+                day_context_summary=None
+            )
+        
         await daily_state_service.update_daily_state(
             combined_entry=combined_entry,
             new_ai_state_data=new_state,
             latest_mood_score=mood_score
         )
-        logger.debug(f"[process_new_entry_logic] Обновлен CombinedDiaryEntry ID {combined_entry.id} с новым состоянием")
+        logger.debug(f"[process_new_entry_logic] Обновлен CombinedDiaryEntry ID {combined_entry.id} с новым состоянием (структурированный формат)")
 
         # 4.5. Создание задания от ИИ (если предложено и лимит не превышен)
         suggested_task_obj = None
@@ -772,21 +1407,15 @@ class DiaryService:
         await sync_to_async(diary_entry.save)(update_fields=['clarification_answers'])
 
         # 2. Подготовка данных и вызов ИИ
-        user_profile = await user.aget_profile_data()
-        extended_user_profile_for_clarification = {
-            "first_name": user_profile.get('first_name', 'Пользователь'),
-            "awareness_level": user_profile['awareness_level'],
-            "personality_traits": user.personality_traits,
-            "life_facts": user.life_facts,
-            "hobbies": user.hobbies,
-            "core_values": user.core_values,
-            "triggers": user.triggers,
-            "strengths": user.strengths,
-            "areas_for_growth": user.areas_for_growth,
-            "habits": user.habits,
-            "skills": user.skills,
-            "aspirations": user.aspirations
-        }
+        personal_fields_payload = build_personal_fields_payload_for_ai(user)
+        compressed_profile = user.compressed_psych_profile or {}
+        if not compressed_profile:
+            generated_profile = compressed_profile_service.generate_for_user(user)
+            compressed_profile = generated_profile or {}
+        compressed_profile = normalize_compressed_profile_for_prompt(compressed_profile)
+
+        personal_fields_json = json.dumps(personal_fields_payload, ensure_ascii=False, separators=(",", ":"))
+        compressed_profile_json = json.dumps(compressed_profile, ensure_ascii=False, separators=(",", ":"))
 
         entry_date = await diary_entry.aentry_date()
         combined_entry = await daily_state_service.get_daily_state(user, entry_date)
@@ -800,11 +1429,16 @@ class DiaryService:
             clarification_questions="\n".join(clarification_questions),
             clarification_answers="\n".join([f"{q}: {a}" for q, a in clarification_answers_dict.items()]),
             ai_state_data=ai_state_data,
-            user_profile=extended_user_profile_for_clarification
+            compressed_psych_profile_json=compressed_profile_json,
+            personal_fields_json=personal_fields_json,
         )
 
         api_start_time = time.time()
-        analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
+        analysis_result = await self._call_deepseek_with_metrics(
+            flow='diary.process_clarification_answers_logic',
+            prompt=prompt,
+            language=language,
+        )
         total_api_time = time.time() - api_start_time
 
         # 3. Обработка результата ИИ
@@ -842,15 +1476,38 @@ class DiaryService:
         )
 
         # 5. Обновление CombinedDiaryEntry с новым состоянием ИИ
-        # Проверяем, есть ли 'updated_ai_state_data' в result_data, который теперь всегда определён
+        # Используем новый структурированный формат
+        from diary.services.daily_state_service import update_ai_state_from_analysis
+        
+        current_ai_state = combined_entry.ai_state_data if combined_entry else ""
+        
         if 'updated_ai_state_data' in result_data:
-            new_ai_state_data = result_data['updated_ai_state_data']
+            new_state_raw = result_data['updated_ai_state_data']
+            try:
+                parsed = json.loads(new_state_raw)
+                if isinstance(parsed, dict) and 'current_mood' in parsed:
+                    new_ai_state_data = json.dumps(parsed, ensure_ascii=False)
+                else:
+                    new_ai_state_data = update_ai_state_from_analysis(
+                        current_ai_state=current_ai_state,
+                        new_mood_score=mood_score,
+                        comment=result_data.get('comment', ''),
+                        day_context_summary=None
+                    )
+            except (json.JSONDecodeError, TypeError):
+                new_ai_state_data = update_ai_state_from_analysis(
+                    current_ai_state=current_ai_state,
+                    new_mood_score=mood_score,
+                    comment=new_state_raw,
+                    day_context_summary=None
+                )
+            
             await daily_state_service.update_daily_state(
                 combined_entry=combined_entry,
                 new_ai_state_data=new_ai_state_data,
                 latest_mood_score=mood_score
             )
-            logger.debug(f"[process_clarification_answers_logic] Обновлен CombinedDiaryEntry ID {combined_entry.id} с новым состоянием из updated_ai_state_data.")
+            logger.debug(f"[process_clarification_answers_logic] Обновлен CombinedDiaryEntry ID {combined_entry.id} с новым состоянием (структурированный формат).")
         else:
             logger.debug(f"[process_clarification_answers_logic] Поле 'updated_ai_state_data' отсутствует в ответе ИИ. CombinedDiaryEntry ID {combined_entry.id} не обновляется.")
 
@@ -930,21 +1587,15 @@ class DiaryService:
         clarification_answers_dict = diary_entry.clarification_answers
         clarification_answers_str = "\n".join([f"{q}: {a}" for q, a in clarification_answers_dict.items()]) if clarification_answers_dict else "Нет ответов на уточнения."
 
-        user_profile = await user.aget_profile_data()
-        extended_user_profile_for_comment = {
-            "first_name": user_profile.get('first_name', 'Пользователь'),
-            "awareness_level": user_profile['awareness_level'],
-            "personality_traits": user.personality_traits,
-            "life_facts": user.life_facts,
-            "hobbies": user.hobbies,
-            "core_values": user.core_values,
-            "triggers": user.triggers,
-            "strengths": user.strengths,
-            "areas_for_growth": user.areas_for_growth,
-            "habits": user.habits,
-            "skills": user.skills,
-            "aspirations": user.aspirations
-        }
+        personal_fields_payload = build_personal_fields_payload_for_ai(user)
+        compressed_profile = user.compressed_psych_profile or {}
+        if not compressed_profile:
+            generated_profile = compressed_profile_service.generate_for_user(user)
+            compressed_profile = generated_profile or {}
+        compressed_profile = normalize_compressed_profile_for_prompt(compressed_profile)
+
+        personal_fields_json = json.dumps(personal_fields_payload, ensure_ascii=False, separators=(",", ":"))
+        compressed_profile_json = json.dumps(compressed_profile, ensure_ascii=False, separators=(",", ":"))
 
         # 4. Генерация промпта и вызов ИИ
         prompt = get_prompt(
@@ -955,13 +1606,18 @@ class DiaryService:
             previous_recommendation=previous_recommendation,
             previous_analysis=previous_analysis_text,
             user_comment=user_comment_text,
-            user_profile=extended_user_profile_for_comment,
+            compressed_psych_profile_json=compressed_profile_json,
+            personal_fields_json=personal_fields_json,
             clarification_questions=clarification_questions,
             clarification_answers=clarification_answers_str,
         )
 
         api_start_time = time.time()
-        analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
+        analysis_result = await self._call_deepseek_with_metrics(
+            flow='diary.process_user_comment_logic',
+            prompt=prompt,
+            language=language,
+        )
         total_api_time = time.time() - api_start_time
 
         # 5. Обработка результата ИИ
@@ -1074,11 +1730,11 @@ class DiaryService:
                 if created_at.tzinfo is None:
                     created_at = pytz.utc.localize(created_at)
                 localized_time = created_at.astimezone(user_tz)
-                new_entry_creation_time_local = localized_time.strftime('%d.%m.%Y %H:%M')
+                new_entry_creation_time_local = localized_time.strftime('%Y-%m-%d')
                 logger.debug(f"[process_first_onboarding_entry_logic] Локализованное время создания первой записи {diary_entry.id}: {new_entry_creation_time_local}")
             except Exception as e:
                 logger.error(f"[process_first_onboarding_entry_logic] Ошибка при определении локального времени для первой записи {diary_entry.id}: {e}")
-                new_entry_creation_time_local = diary_entry.created_at.strftime('%d.%m.%Y %H:%M UTC')
+                new_entry_creation_time_local = diary_entry.created_at.strftime('%Y-%m-%d')
             prompt = get_prompt(
                 key='incremental_day_analysis_first_entry',
                 language=language,
@@ -1089,7 +1745,11 @@ class DiaryService:
             )
             logger.debug(f"[process_first_onboarding_entry_logic] Используется промпт: incremental_day_analysis_first_entry, для пользователя {user.telegram_id}")
             api_start_time = time.time()
-            analysis_result = await deepseek_api_service.send_prompt_and_parse(prompt, language)
+            analysis_result = await self._call_deepseek_with_metrics(
+                flow='diary.process_first_onboarding_entry_logic',
+                prompt=prompt,
+                language=language,
+            )
             total_api_time = time.time() - api_start_time
             if not analysis_result.get('success'):
                 comment, recommendation, analysis_text, _ = format_api_error_for_analysis(analysis_result, language, is_final=True)
@@ -1216,6 +1876,15 @@ async def process_new_entry_logic(
     """Удобная функция для обработки новой записи."""
     return await diary_service.process_new_entry_logic(user, entry_text, language, entry_datetime)
 
+async def process_new_entry_use_case(
+    user: User,
+    entry_text: str,
+    language: str,
+    entry_datetime: datetime = None
+) -> ServiceResponse:
+    """Удобная функция для универсального use-case обработки новой записи."""
+    return await diary_service.process_new_entry_use_case(user, entry_text, language, entry_datetime)
+
 async def process_clarification_answers_logic(
     user: User,
     diary_entry: DiaryEntry,
@@ -1224,6 +1893,15 @@ async def process_clarification_answers_logic(
 ) -> Dict[str, Any]:
     """Удобная функция для обработки уточнений."""
     return await diary_service.process_clarification_answers_logic(user, diary_entry, clarification_answers_dict, language)
+
+async def process_clarification_answers_use_case(
+    user: User,
+    diary_entry: DiaryEntry,
+    clarification_answers_dict: Dict[str, str],
+    language: str
+) -> ServiceResponse:
+    """Удобная функция для универсального use-case уточнений."""
+    return await diary_service.process_clarification_answers_use_case(user, diary_entry, clarification_answers_dict, language)
 
 async def process_user_comment_logic(
     user: User,
@@ -1234,6 +1912,15 @@ async def process_user_comment_logic(
     """Удобная функция для обработки комментария."""
     return await diary_service.process_user_comment_logic(user, diary_entry, user_comment_text, language)
 
+async def process_user_comment_use_case(
+    user: User,
+    diary_entry: DiaryEntry,
+    user_comment_text: str,
+    language: str
+) -> ServiceResponse:
+    """Удобная функция для универсального use-case комментария пользователя."""
+    return await diary_service.process_user_comment_use_case(user, diary_entry, user_comment_text, language)
+
 async def prepare_combined_entry_for_analysis(user: User, target_date: date) -> Optional[CombinedDiaryEntry]:
     """Удобная функция для подготовки CombinedDiaryEntry для анализа."""
     return await diary_service.prepare_combined_entry_for_analysis(user, target_date)
@@ -1241,3 +1928,12 @@ async def prepare_combined_entry_for_analysis(user: User, target_date: date) -> 
 async def process_first_onboarding_entry_logic(user: User,entry_text: str,language: str,entry_datetime: datetime = None) -> Dict[str, Any]:
     """Удобная функция для обработки первой записи в онбординге."""
     return await diary_service.process_first_onboarding_entry_logic(user, entry_text, language, entry_datetime)
+
+async def process_first_onboarding_entry_use_case(
+    user: User,
+    entry_text: str,
+    language: str,
+    entry_datetime: datetime = None
+) -> ServiceResponse:
+    """Удобная функция для универсального use-case первой записи в онбординге."""
+    return await diary_service.process_first_onboarding_entry_use_case(user, entry_text, language, entry_datetime)

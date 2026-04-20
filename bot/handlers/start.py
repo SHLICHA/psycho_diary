@@ -60,7 +60,74 @@ async def cmd_web(message: Message, user, language: str, **kwargs):
         await message.answer(get_message('error_generic', language))
 
 
-@router.message(Command("start"))
+@router.message(Command("start", magic=F.args.startswith(WEB_LINK_PATTERN)))
+async def cmd_start_link(message: Message, user, language: str, state: FSMContext, **kwargs):
+    """
+    Обработчик /start link_XXX для привязки Telegram к web-аккаунту.
+    """
+    try:
+        # Получаем текст команды после /start
+        command_text = message.text or ""
+        logger.debug(f"[cmd_start_link] Получена команда: {command_text}")
+
+        # Проверяем, начинается ли с "link_"
+        if not command_text.startswith(f"/start {WEB_LINK_PATTERN}"):
+            # Это обычный /start, не обработка ссылки
+            return
+
+        # Извлекаем токен
+        token = command_text.replace(f"/start {WEB_LINK_PATTERN}", "", 1).strip()
+
+        if not token:
+            await message.answer(get_message('web_link_invalid', language))
+            return
+
+        # Валидируем токен
+        web_user_id = validate_web_link_token(token)
+
+        if not web_user_id:
+            await message.answer(get_message('web_link_expired', language))
+            return
+
+        # Получаем web-пользователя
+        try:
+            web_user = await User.objects.aget(id=web_user_id)
+        except User.DoesNotExist:
+            await message.answer(get_message('error_generic', language))
+            return
+
+        # Проверяем, не привязан ли уже этот telegram_id
+        existing_user = None
+        try:
+            existing_user = await User.objects.aget(telegram_id=user.telegram_id)
+        except User.DoesNotExist:
+            pass
+
+        if existing_user and existing_user.id != web_user.id:
+            # Telegram уже привязан к другому аккаунту
+            await message.answer(get_message('web_link_telegram_already_linked', language))
+            return
+
+        # Проверяем, не привязан ли уже другой telegram_id к этому web-аккаунту
+        if web_user.telegram_id and web_user.telegram_id != user.telegram_id:
+            await message.answer(get_message('web_link_account_already_linked', language))
+            return
+
+        # Привязываем telegram_id к web-аккаунту
+        web_user.telegram_id = user.telegram_id
+        await web_user.asave()
+
+        logger.info(f"[cmd_start_link] Telegram {user.telegram_id} привязан к web-аккаунту {web_user.id}")
+
+        success_msg = get_message('web_link_success', language, username=web_user.username or str(web_user.id))
+        await message.answer(success_msg)
+
+    except Exception as e:
+        logger.error(f"[cmd_start_link] Ошибка: {e}", exc_info=True)
+        await message.answer(get_message('error_generic', language))
+
+
+@router.message(Command("start", magic=F.args.is_(None)))
 @log_user_activity('command', metadata_extra={'context': '/start'})
 async def cmd_start(message: Message, user, language: str, state: FSMContext, data: dict = None, **kwargs):
     """
@@ -122,7 +189,7 @@ async def cmd_start(message: Message, user, language: str, state: FSMContext, da
                 first_name=user.first_name or user.username or get_message('user_default_name', language)
             )
             await message.answer(reactivation_msg)
-        menu_data = await build_main_menu_data(user, language)
+        menu_data = await build_main_menu_data(user=user, language=language)
         main_menu_msg = menu_data['message_text']
         keyboard = menu_data['keyboard']
         await message.answer(
@@ -134,73 +201,6 @@ async def cmd_start(message: Message, user, language: str, state: FSMContext, da
         await message.answer(get_message('error_generic', language))
 
 
-@router.message(Command("start"))
-async def cmd_start_link(message: Message, user, language: str, state: FSMContext, **kwargs):
-    """
-    Обработчик /start link_XXX для привязки Telegram к web-аккаунту.
-    """
-    try:
-        # Получаем текст команды после /start
-        command_text = message.text or ""
-        logger.debug(f"[cmd_start_link] Получена команда: {command_text}")
-        
-        # Проверяем, начинается ли с "link_"
-        if not command_text.startswith(f"/start {WEB_LINK_PATTERN}"):
-            # Это обычный /start, не обработка ссылки
-            return
-        
-        # Извлекаем токен
-        token = command_text.replace(f"/start {WEB_LINK_PATTERN}", "", 1).strip()
-        
-        if not token:
-            await message.answer(get_message('web_link_invalid', language))
-            return
-        
-        # Валидируем токен
-        web_user_id = validate_web_link_token(token)
-        
-        if not web_user_id:
-            await message.answer(get_message('web_link_expired', language))
-            return
-        
-        # Получаем web-пользователя
-        try:
-            web_user = await User.objects.aget(id=web_user_id)
-        except User.DoesNotExist:
-            await message.answer(get_message('error_generic', language))
-            return
-        
-        # Проверяем, не привязан ли уже этот telegram_id
-        existing_user = None
-        try:
-            existing_user = await User.objects.aget(telegram_id=user.telegram_id)
-        except User.DoesNotExist:
-            pass
-        
-        if existing_user and existing_user.id != web_user.id:
-            # Telegram уже привязан к другому аккаунту
-            await message.answer(get_message('web_link_telegram_already_linked', language))
-            return
-        
-        # Проверяем, не привязан ли уже другой telegram_id к этому web-аккаунту
-        if web_user.telegram_id and web_user.telegram_id != user.telegram_id:
-            await message.answer(get_message('web_link_account_already_linked', language))
-            return
-        
-        # Привязываем telegram_id к web-аккаунту
-        web_user.telegram_id = user.telegram_id
-        await web_user.asave()
-        
-        logger.info(f"[cmd_start_link] Telegram {user.telegram_id} привязан к web-аккаунту {web_user.id}")
-        
-        success_msg = get_message('web_link_success', language, username=web_user.username or str(web_user.id))
-        await message.answer(success_msg)
-        
-    except Exception as e:
-        logger.error(f"[cmd_start_link] Ошибка: {e}", exc_info=True)
-        await message.answer(get_message('error_generic', language))
-
-
 @router.callback_query(F.data == "main_menu")
 @log_user_activity('button', metadata_extra={'context': 'Главное меню'})
 async def back_to_main_menu(callback: CallbackQuery, state: FSMContext, user, language: str):
@@ -208,7 +208,7 @@ async def back_to_main_menu(callback: CallbackQuery, state: FSMContext, user, la
     
     try:
         await state_manager.clear_state(state)
-        menu_data = await build_main_menu_data(user, language)
+        menu_data = await build_main_menu_data(user=user, language=language)
         main_menu_msg = menu_data['message_text']
         keyboard = menu_data['keyboard']
         await safe_edit_message_text(

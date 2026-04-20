@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     'core',
     'rest_framework',
     'rest_framework_simplejwt',
+    'drf_spectacular',
     'django_celery_beat',
     'api',
 ]
@@ -127,6 +128,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'diary.tasks.weekly_analisys_tasks.schedule_weekly_analyses_task',
         'schedule': crontab(minute=0),
         #'schedule': 120,
+    },
+    'run-profile-cleanup-daily': {
+        'task': 'diary.tasks.profile_cleanup.run_profile_cleanup',
+        'schedule': crontab(minute=15, hour=4),
     },
     'check-clarification-reminders': {
         'task': 'diary.tasks.reminder_ask_questions.check_clarification_reminders',
@@ -269,8 +274,27 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated', # По умолчанию требовать аутентификацию
     ],
+    'DEFAULT_THROTTLE_RATES': {
+        'auth': '10/minute',
+        'refresh': '20/minute',
+        'link_generation': '6/hour',
+        'monitoring': '30/minute',
+        'monitoring_heavy': '10/minute',
+        'entry_mutation': '30/minute',
+        'task_mutation': '30/minute',
+    },
+    'EXCEPTION_HANDLER': 'api.exceptions.custom_exception_handler',
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Psycho Diary API',
+    'DESCRIPTION': 'REST API for Psycho Diary application',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'DISABLE_ERRORS_AND_WARNINGS': True,
 }
 
 SIMPLE_JWT = {
@@ -279,3 +303,14 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
 }
+
+# ============================================================
+# Compressed Profile Feature Flags
+# ============================================================
+COMPRESSED_PROFILE_ENABLED = True  # Мастер-переключатель
+USE_LITE_V2 = False                 # Использовать v2 промпты для LITE (пока False)
+
+# ============================================================
+# Monitoring Access Controls
+# ============================================================
+MONITORING_REQUIRE_PRIVILEGED = config('MONITORING_REQUIRE_PRIVILEGED', default=False, cast=bool)

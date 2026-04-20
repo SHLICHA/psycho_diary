@@ -172,14 +172,16 @@ class TestTelegramAuthView:
         response = api_client.get('/api/v1/auth/telegram/', {'token': 'invalid_token'})
         
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data['error'] == 'invalid_token'
+        assert response.data['error']['code'] == 'invalid_token'
+        assert response.data['error']['message'] == 'Token is invalid or expired'
 
     @pytest.mark.django_db
     def test_telegram_auth_no_token(self, api_client):
         response = api_client.get('/api/v1/auth/telegram/')
         
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data['error'] == 'token_required'
+        assert response.data['error']['code'] == 'token_required'
+        assert response.data['error']['message'] == 'Token is required'
 
 
 class TestLoginView:
@@ -204,6 +206,7 @@ class TestLoginView:
         })
         
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.data['error']['code'] == 'authentication_failed'
 
 
 class TestGenerateLinkView:
@@ -229,6 +232,27 @@ class TestGenerateLinkView:
         response = api_client.post('/api/v1/auth/generate-link/')
         
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.data['error']['code'] == 'authentication_failed'
+
+    @pytest.mark.django_db
+    @patch('api.views.create_web_link_token')
+    def test_link_telegram_alias_authenticated(self, mock_create_token, user_with_email, api_client):
+        mock_create_token.return_value = 'alias_token_123'
+
+        api_client.force_authenticate(user=user_with_email)
+        response = api_client.post('/api/v1/auth/link-telegram/')
+
+        assert response.status_code == status.HTTP_200_OK
+        assert 'link' in response.data
+        assert 'alias_token_123' in response.data['link']
+        assert response.data['expires_in'] == 600
+
+    @pytest.mark.django_db
+    def test_link_telegram_alias_unauthenticated(self, api_client):
+        response = api_client.post('/api/v1/auth/link-telegram/')
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.data['error']['code'] == 'authentication_failed'
 
 
 class TestCompleteRegistrationView:

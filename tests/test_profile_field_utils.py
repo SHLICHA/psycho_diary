@@ -36,6 +36,10 @@ life_facts_to_ai_format = _pfu.life_facts_to_ai_format
 hobbies_to_ai_format = _pfu.hobbies_to_ai_format
 core_values_to_ai_format = _pfu.core_values_to_ai_format
 strengths_to_ai_format = _pfu.strengths_to_ai_format
+compact_weighted_items = _pfu.compact_weighted_items
+compact_personality_traits = _pfu.compact_personality_traits
+build_personal_fields_payload_for_ai = _pfu.build_personal_fields_payload_for_ai
+normalize_compressed_profile_for_prompt = _pfu.normalize_compressed_profile_for_prompt
 
 # Новые функции для весов (НОВОЕ)
 create_weighted_item = _pfu.create_weighted_item
@@ -61,6 +65,7 @@ class FakeUser:
     """Фейковый пользователь для тестов (без Django)."""
     def __init__(self, **kwargs):
         self.telegram_id = kwargs.get('telegram_id', 'test_user')
+        self.awareness_level = kwargs.get('awareness_level', 0)
         self.life_facts = kwargs.get('life_facts', [])
         self.hobbies = kwargs.get('hobbies', [])
         self.core_values = kwargs.get('core_values', [])
@@ -481,6 +486,11 @@ class TestFieldToAIFormat(unittest.TestCase):
     def test_empty_list(self):
         self.assertEqual(field_to_ai_format([], 'triggers'), [])
 
+    def test_dict_personality_traits_format(self):
+        traits = {"рефлексивность": 0.8, "эмпатия": 0.6}
+        result = field_to_ai_format(traits, 'personality_traits')
+        self.assertEqual(result, ["рефлексивность", "эмпатия"])
+
     def test_none_values_filtered(self):
         triggers = ["шум", None, "толпа"]
         result = field_to_ai_format(triggers, 'triggers')
@@ -572,6 +582,99 @@ class TestSpecificFieldAliases(unittest.TestCase):
         strengths = [{"value": "сила", "weight": 0.8}]
         result = strengths_to_ai_format(strengths)
         self.assertEqual(result, ["сила"])
+
+
+class TestChangedFormatPayload(unittest.TestCase):
+    """Тесты normalized changed-format payload для AI."""
+
+    def test_compact_weighted_items_from_strings(self):
+        result = compact_weighted_items(["шум", "толпа"])
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["value"], "шум")
+        self.assertIn("weight", result[0])
+        self.assertIn("frequency", result[0])
+        self.assertIn("is_stale", result[0])
+
+    def test_compact_personality_traits_from_dict(self):
+        traits = {"рефлексивность": 0.8, "эмпатия": 0.6}
+        result = compact_personality_traits(traits)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["value"], "рефлексивность")
+        self.assertEqual(result[0]["weight"], 0.8)
+
+    def test_build_personal_fields_payload_for_ai(self):
+        user = FakeUser(
+            awareness_level=7,
+            personality_traits={"эмпатия": 0.7},
+            life_facts=["работа в IT"],
+            triggers=[{"value": "критика", "weight": 0.9, "frequency": 3}],
+            strengths=["устойчивость"],
+        )
+        payload = build_personal_fields_payload_for_ai(user)
+
+        self.assertEqual(payload["awareness_level"], 7)
+        self.assertEqual(payload["personality_traits"][0]["value"], "эмпатия")
+        self.assertEqual(payload["life_facts"][0]["value"], "работа в IT")
+        self.assertEqual(payload["triggers"][0]["value"], "критика")
+        self.assertEqual(payload["strengths"][0]["value"], "устойчивость")
+
+
+class TestCompressedProfilePromptNormalizer(unittest.TestCase):
+    """Тесты normalize_compressed_profile_for_prompt."""
+
+    def test_normalizer_returns_canonical_keys(self):
+        result = normalize_compressed_profile_for_prompt({})
+        self.assertEqual(
+            sorted(result.keys()),
+            sorted([
+                "psych_summary",
+                "core_patterns",
+                "emotional_style",
+                "main_triggers",
+                "coping_style",
+                "current_focus",
+            ])
+        )
+
+    def test_normalizer_compacts_and_deduplicates_list_items(self):
+        profile = {
+            "core_patterns": [
+                {"value": "Рефлексия", "weight": 0.7, "frequency": 2, "is_stale": False},
+                {"value": "рефлексия", "weight": 0.9, "frequency": 5, "is_stale": False},
+                {"value": "Прокрастинация", "weight": 0.6, "frequency": 1, "is_stale": True},
+            ],
+            "main_triggers": ["Критика", "критика", "Игнорирование"],
+        }
+
+        result = normalize_compressed_profile_for_prompt(profile, max_items_per_list=10)
+        core_patterns = result["core_patterns"]
+        main_triggers = result["main_triggers"]
+
+        self.assertEqual(len(core_patterns), 2)
+        self.assertEqual(core_patterns[0]["value"].lower(), "рефлексия")
+        self.assertEqual(core_patterns[0]["weight"], 0.9)
+        self.assertEqual(core_patterns[0]["frequency"], 5)
+
+        trigger_values = [item["value"].lower() for item in main_triggers]
+        self.assertEqual(trigger_values.count("критика"), 1)
+        self.assertIn("игнорирование", trigger_values)
+
+    def test_normalizer_truncates_long_text_fields(self):
+        long_text = "x" * 2000
+        result = normalize_compressed_profile_for_prompt(
+            {
+                "psych_summary": long_text,
+                "emotional_style": long_text,
+                "coping_style": long_text,
+                "current_focus": long_text,
+            },
+            max_text_len=120,
+        )
+
+        self.assertEqual(len(result["psych_summary"]), 120)
+        self.assertEqual(len(result["emotional_style"]), 120)
+        self.assertEqual(len(result["coping_style"]), 120)
+        self.assertEqual(len(result["current_focus"]), 120)
 
 
 if __name__ == '__main__':

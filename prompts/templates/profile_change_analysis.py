@@ -3,15 +3,22 @@ PROFILE_CHANGE_ANALYSIS_PROMPT = {
 
 ### 🔍 ВХОДНЫЕ ДАННЫЕ
 
-**Текущий профиль пользователя (на момент анализа):**
-{current_profile}
+**Текущее полное текстовое описание личности:**
+{current_personality_description}
 
-**Исторические профили (последние {num_snapshots}):**
-{historical_profiles}
+**Текущий сжатый профиль (JSON):**
+{current_compressed_psych_profile_json}
+
+**Текущие личностные поля (JSON, changed-format):**
+{current_personal_fields_json}
+
+**Исторические слепки (последние {num_snapshots}, JSON):**
+{historical_snapshots_json}
 
 ### 🧠 ИНСТРУКЦИЯ
 
-1.  Сравни текущий профиль с историческими.
+1.  Сравни текущие данные профиля с историческими слепками.
+  *   Обязательно опирайся на **полное текущее текстовое описание личности** и сопоставляй его с полными текстовыми описаниями внутри исторических слепков, а не только со структурированными полями.
 2.  Выяви **ключевые изменения** в следующих аспектах (если таковые имеются):
     *   Черты характера
     *   Факты о жизни
@@ -52,15 +59,22 @@ PROFILE_CHANGE_ANALYSIS_PROMPT = {
 
 ### 🔍 INPUT DATA
 
-**Current User Profile (at the time of analysis):**
-{current_profile}
+**Current full personality description:**
+{current_personality_description}
 
-**Historical Profiles (last {num_snapshots}):**
-{historical_profiles}
+**Current compressed profile (JSON):**
+{current_compressed_psych_profile_json}
+
+**Current personal fields (JSON, changed-format):**
+{current_personal_fields_json}
+
+**Historical snapshots (last {num_snapshots}, JSON):**
+{historical_snapshots_json}
 
 ### 🧠 INSTRUCTIONS
 
-1.  Compare the current profile with the historical ones.
+1.  Compare the current profile data with the historical snapshots.
+  *   You must explicitly rely on the **full current textual personality description** and compare it against the full textual descriptions inside the historical snapshots, not just the structured fields.
 2.  Identify **key changes** in the following aspects (if any):
     *   Personality Traits
     *   Life Facts

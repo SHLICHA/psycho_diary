@@ -400,7 +400,7 @@ async def select_timezone_from_options_modified(callback: CallbackQuery, state: 
             return
         success_msg = get_message('timezone_changed', language, timezone=timezone_str)
         from diary.services.main_menu_service import build_main_menu_data
-        menu_data = await build_main_menu_data(user, language)
+        menu_data = await build_main_menu_data(user=user, language=language)
         main_menu_msg = menu_data['message_text']
         from bot.keyboards import get_main_menu_keyboard
         main_menu_keyboard = await get_main_menu_keyboard(language, user)
@@ -430,7 +430,7 @@ async def confirm_timezone_by_city_modified(callback: CallbackQuery, state: FSMC
             return
         success_msg = get_message('timezone_changed', language, timezone=result['new_timezone'])
         from diary.services.main_menu_service import build_main_menu_data
-        menu_data = await build_main_menu_data(user, language)
+        menu_data = await build_main_menu_data(user=user, language=language)
         main_menu_msg = menu_data['message_text']
         from bot.keyboards import get_main_menu_keyboard
         main_menu_keyboard = await get_main_menu_keyboard(language, user)
@@ -513,7 +513,7 @@ async def set_timezone(callback: CallbackQuery, state: FSMContext, user, languag
             logger.debug(f"[Settings] Часовой пояс установлен в обычном режиме для {user.telegram_id}.")
             success_msg = get_message('timezone_changed', language, timezone=result['new_timezone'])
             from diary.services.main_menu_service import build_main_menu_data
-            menu_data = await build_main_menu_data(user, language)
+            menu_data = await build_main_menu_data(user=user, language=language)
             main_menu_msg = menu_data['message_text']
             from bot.keyboards import get_main_menu_keyboard
             main_menu_keyboard = await get_main_menu_keyboard(language, user)
