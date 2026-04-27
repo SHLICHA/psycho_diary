@@ -168,6 +168,49 @@ class DeepSeekAPIService:
         }
 
 
+    def _extract_json_from_raw_text(self, text: str) -> Optional[dict]:
+        """
+        Пытается найти первый валидный JSON-объект или массив в произвольном тексте
+        методом поиска первого { или [ с совпадающим закрывающим символом.
+        Возвращает распарсенный объект или None при неудаче.
+        """
+        for start_char, end_char in [('{', '}'), ('[', ']')]:
+            start = text.find(start_char)
+            if start == -1:
+                continue
+            # Находим позицию последнего совпадающего закрывающего символа
+            depth = 0
+            end = -1
+            in_string = False
+            escape_next = False
+            for i, ch in enumerate(text[start:], start=start):
+                if escape_next:
+                    escape_next = False
+                    continue
+                if ch == '\\' and in_string:
+                    escape_next = True
+                    continue
+                if ch == '"':
+                    in_string = not in_string
+                    continue
+                if in_string:
+                    continue
+                if ch == start_char:
+                    depth += 1
+                elif ch == end_char:
+                    depth -= 1
+                    if depth == 0:
+                        end = i
+                        break
+            if end == -1:
+                continue
+            candidate = text[start:end + 1]
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                pass
+        return None
+
     async def _parse_analysis_response(self, response_text: str, language: str) -> dict:
         """
         Парсит ответ от DeepSeek.
@@ -214,15 +257,19 @@ class DeepSeekAPIService:
                         logger.debug(f"[DeepSeek API] Ошибка парсинга блока {i+1}: {je}. Пробуем следующий блок.")
                         continue # Переходим к следующему блоку
                 else:
-                    # Если цикл завершился без break (ни один блок не распарсился)
+                    # Если цикл завершился без break — пробуем raw-поиск JSON в тексте
+                    result = self._extract_json_from_raw_text(response_text)
+                    if result is None:
+                        logger.warning("[DeepSeek API] Ни один JSON-блок не удалось распарсить корректно.")
+                        logger.error(f"[DeepSeek API] Ни прямой JSON, ни блок Markdown не удалось распарсить корректно. Ответ API: {response_text[:500]}...")
+                        raise ValueError("Не удалось распарсить корректный JSON из ответа API.")
+            else:
+                # Если блоки не найдены — пробуем raw-поиск JSON в тексте
+                result = self._extract_json_from_raw_text(response_text)
+                if result is None:
                     logger.warning("[DeepSeek API] Ни один JSON-блок не удалось распарсить корректно.")
                     logger.error(f"[DeepSeek API] Ни прямой JSON, ни блок Markdown не удалось распарсить корректно. Ответ API: {response_text[:500]}...")
                     raise ValueError("Не удалось распарсить корректный JSON из ответа API.")
-            else:
-                # Если блоки не найдены
-                logger.warning("[DeepSeek API] Ни один JSON-блок не удалось распарсить корректно.")
-                logger.error(f"[DeepSeek API] Ни прямой JSON, ни блок Markdown не удалось распарсить корректно. Ответ API: {response_text[:500]}...")
-                raise ValueError("Не удалось распарсить корректный JSON из ответа API.")
 
         except Exception as e:
             # На всякий случай, если в первом `try` произойдёт что-то неожиданное

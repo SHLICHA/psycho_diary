@@ -495,7 +495,7 @@ class FullDayAnalysisService:
                                 "weight": item.get('weight', 0.5),
                                 "frequency": item.get('frequency', 1),
                                 "added_at": item.get('added_at'),
-                                "last_seen": timezone.now().isoformat(),
+                                "last_seen": timezone.now().date().isoformat(),
                                 "is_stale": False
                             })
 

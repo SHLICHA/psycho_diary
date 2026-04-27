@@ -38,7 +38,7 @@ INCREMENTAL_DAY_ANALYSIS_LITE_V2_PROMPT = {
 **Новая запись:**
 {new_entry_text}
 
-**Время создания новой записи:**
+**Дата и время новой записи:**
 {new_entry_creation_time_local}
 
 **Текущее состояние:**
@@ -66,6 +66,7 @@ INCREMENTAL_DAY_ANALYSIS_LITE_V2_PROMPT = {
 2. **Если запись валидна (`is_valid = true`):**
   * Проанализируй новую запись в контексте дня и уже известных паттернов.
   * Обязательно учитывай время записи (`new_entry_creation_time_local`) при интерпретации эмоций/напряжения.
+    * День недели, время года и дата — лёгкий фоновый контекст. Используй их, только если чувствуешь органичную связь с записью.
   * Оцени настроение: `mood_score` от 1 до 10.
   * Сформируй:
     - `comment`: 2-3 предложения, с эмпатией и ощущением, что ИИ понял пользователя.
@@ -144,7 +145,7 @@ Entries count: {entries_count}
 **New entry:**
 {new_entry_text}
 
-**New entry creation time:**
+**Entry date and time:**
 {new_entry_creation_time_local}
 
 **Current state:**
@@ -172,6 +173,7 @@ Entries count: {entries_count}
 2. **If valid (`is_valid = true`):**
   * Analyze in context of day trajectory and known patterns.
   * Use `new_entry_creation_time_local` to adjust interpretation when relevant.
+    * Day of week, season, and date are light background context — use only if you sense a natural connection to the entry.
   * Set `mood_score` from 1 to 10.
   * Produce:
     - `comment`: 2-3 empathic sentences showing clear understanding.

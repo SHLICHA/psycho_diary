@@ -247,6 +247,14 @@ class TestCreateWeightedItem(unittest.TestCase):
         item = create_weighted_item("тест")
         self.assertEqual(item["weight"], 0.5)
 
+    def test_dates_are_date_only(self):
+        """added_at и last_seen должны быть в формате YYYY-MM-DD, без времени."""
+        import re
+        item = create_weighted_item("тест")
+        date_pattern = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+        self.assertRegex(item["added_at"], date_pattern, "added_at должен быть YYYY-MM-DD")
+        self.assertRegex(item["last_seen"], date_pattern, "last_seen должен быть YYYY-MM-DD")
+
 
 class TestConvertToWeightedFormat(unittest.TestCase):
     """Тесты конвертации в обогащённый формат."""
@@ -258,6 +266,14 @@ class TestConvertToWeightedFormat(unittest.TestCase):
         self.assertEqual(result[0]["value"], "шум")
         self.assertEqual(result[0]["weight"], 0.5)
         self.assertEqual(result[0]["frequency"], 1)
+
+    def test_dates_are_date_only(self):
+        """Конвертированные элементы должны иметь даты YYYY-MM-DD."""
+        import re
+        result = convert_to_weighted_format(["шум"])
+        date_pattern = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+        self.assertRegex(result[0]["added_at"], date_pattern)
+        self.assertRegex(result[0]["last_seen"], date_pattern)
 
     def test_preserves_existing_weighted_format(self):
         items = [{"value": "шум", "weight": 0.9, "frequency": 5}]

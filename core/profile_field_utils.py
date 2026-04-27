@@ -478,12 +478,13 @@ def create_weighted_item(value: str, weight: float = 0.5) -> Dict[str, Any]:
         Dict с metadata
     """
     now = timezone.now()
+    today = now.date().isoformat()
     return {
         "value": value,
         "weight": weight,
         "frequency": 1,
-        "added_at": now.isoformat(),
-        "last_seen": now.isoformat(),
+        "added_at": today,
+        "last_seen": today,
         "is_stale": False
     }
 
@@ -503,6 +504,7 @@ def convert_to_weighted_format(items: List[Any]) -> List[Dict[str, Any]]:
     """
     result = []
     now = timezone.now()
+    today = now.date().isoformat()
     
     for item in items:
         if isinstance(item, str):
@@ -511,8 +513,8 @@ def convert_to_weighted_format(items: List[Any]) -> List[Dict[str, Any]]:
                 "value": item.strip(),
                 "weight": 0.5,  # дефолтный вес
                 "frequency": 1,
-                "added_at": now.isoformat(),
-                "last_seen": now.isoformat(),
+                "added_at": today,
+                "last_seen": today,
                 "is_stale": False
             })
         elif isinstance(item, dict):
@@ -523,8 +525,8 @@ def convert_to_weighted_format(items: List[Any]) -> List[Dict[str, Any]]:
                     "value": item.get("value", ""),
                     "weight": item.get("weight", 0.5),
                     "frequency": item.get("frequency", 1),
-                    "added_at": item.get("added_at", now.isoformat()),
-                    "last_seen": item.get("last_seen", now.isoformat()),
+                    "added_at": item.get("added_at", today),
+                    "last_seen": item.get("last_seen", today),
                     "is_stale": item.get("is_stale", False)
                 }
                 result.append(enriched)
@@ -601,7 +603,7 @@ def update_item_frequency(items: List[Dict], value: str) -> List[Dict]:
     for item in items:
         if item.get("value") == value:
             item["frequency"] = item.get("frequency", 0) + 1
-            item["last_seen"] = now.isoformat()
+            item["last_seen"] = now.date().isoformat()
             item["is_stale"] = False
             found = True
             break
@@ -795,7 +797,7 @@ def merge_profile_items(
                         new_item.get("frequency", 1)
                     )
                 # Обновляем last_seen
-                existing_item["last_seen"] = timezone.now().isoformat()
+                existing_item["last_seen"] = timezone.now().date().isoformat()
                 existing_item["is_stale"] = False
                 break
         

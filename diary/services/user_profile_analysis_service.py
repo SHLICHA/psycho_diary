@@ -192,9 +192,11 @@ class UserProfileAnalysisService:
                 'cleaned_items': prepared_items,
             }
 
+        # no-op по умолчанию — поле не меняется при любой ошибке
         cleaned_items = prepared_items
         used_fallback = False
         error_text: Optional[str] = None
+        ai_success = False
 
         try:
             field_items_json = json.dumps(
@@ -225,19 +227,71 @@ class UserProfileAnalysisService:
             ai_items = self._extract_cleaned_items(parsed, field_name)
             if not ai_items:
                 raise ValueError('cleanup_payload_empty')
-            cleaned_items = self._merge_cleanup_items(prepared_items, ai_items)
+
+            # Sanity-check: AI не должен увеличивать количество элементов
+            if len(ai_items) > len(prepared_items):
+                raise ValueError(
+                    f'cleanup_growth_rejected: ai={len(ai_items)} > before={len(prepared_items)}'
+                )
+
+            # Replace: используем только нормализованный результат AI, без union с baseline
+            cleaned_items = self._normalize_cleaned_items(ai_items, prepared_items)
+            ai_success = True
+
         except Exception as cleanup_error:
+            # no-op: при любой ошибке оставляем поле как было
             used_fallback = True
             error_text = str(cleanup_error)
-            cleaned_items = self._fallback_cleanup_items(prepared_items)
+            cleaned_items = prepared_items
+            logger.warning(
+                f"[UserProfileAnalysisService] Pre-cleanup no-op для '{field_name}': {cleanup_error}"
+            )
 
         return {
             'field_name': field_name,
-            'updated': cleaned_items != prepared_items,
+            'updated': ai_success and cleaned_items != prepared_items,
             'used_fallback': used_fallback,
             'error': error_text,
             'cleaned_items': cleaned_items,
         }
+
+    def _normalize_cleaned_items(
+        self,
+        ai_items: List[Dict[str, Any]],
+        original_items: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """
+        Нормализует AI-результат очистки поля перед replace:
+        - Конвертирует в weighted-формат через convert_to_weighted_format.
+        - Сохраняет added_at из оригинала для совпадающих по canonical-ключу значений
+          (чтобы не терять историю).
+        - Проставляет last_seen = сегодня для всех элементов.
+        """
+        from django.utils import timezone
+
+        original_by_canonical: Dict[str, Dict[str, Any]] = {}
+        for item in original_items:
+            key = self._canonical_key(str(item.get('value', '')))
+            if key:
+                original_by_canonical[key] = item
+
+        today = timezone.now().date().isoformat()
+        result = []
+        for item in convert_to_weighted_format(ai_items):
+            key = self._canonical_key(str(item.get('value', '')))
+            orig = original_by_canonical.get(key)
+            if orig:
+                item['added_at'] = orig.get('added_at') or item.get('added_at') or today
+            else:
+                item.setdefault('added_at', today)
+            item['last_seen'] = today
+            result.append(item)
+        return result
+
+    def _canonical_key(self, value: str) -> str:
+        """Canonical-ключ для нечёткого сопоставления значений."""
+        normalized = re.sub(r'\s+', ' ', value.strip().lower())
+        return re.sub(r'[^\w\s]', '', normalized)
 
     def _extract_cleaned_items(self, parsed: Any, field_name: str) -> List[Dict[str, Any]]:
         """Извлекает cleaned list из ответа AI в устойчивом формате."""
@@ -330,7 +384,7 @@ class UserProfileAnalysisService:
         for item in convert_to_weighted_format(incoming_items):
             _store(item, prefer_value=True)
 
-        now_iso = timezone.now().isoformat()
+        now_iso = timezone.now().date().isoformat()
         result: List[Dict[str, Any]] = []
         for item in merged.values():
             result.append({
@@ -338,8 +392,8 @@ class UserProfileAnalysisService:
                 'weight': float(item['weight']),
                 'frequency': int(item['frequency']),
                 'is_stale': bool(item['is_stale']),
-                'added_at': item['added_at'].isoformat() if item['added_at'] else now_iso,
-                'last_seen': item['last_seen'].isoformat() if item['last_seen'] else now_iso,
+                'added_at': item['added_at'].date().isoformat() if hasattr(item['added_at'], 'date') else (item['added_at'] if item['added_at'] else now_iso),
+                'last_seen': item['last_seen'].date().isoformat() if hasattr(item['last_seen'], 'date') else (item['last_seen'] if item['last_seen'] else now_iso),
             })
 
         result.sort(
@@ -575,8 +629,17 @@ class UserProfileAnalysisService:
                     current_list = []
 
                 existing_weighted = convert_to_weighted_format(current_list)
-                items_to_remove = []
-                new_weighted_items = []
+
+                # Строим индекс оригинальных элементов по canonical-ключу
+                # чтобы сохранять added_at при replace
+                original_by_canonical: Dict[str, Dict[str, Any]] = {
+                    self._canonical_key(str(e.get('value', ''))): e
+                    for e in existing_weighted
+                    if e.get('value')
+                }
+
+                items_to_remove: List[str] = []
+                new_weighted_items: List[Dict[str, Any]] = []
 
                 for item in updates_for_field:
                     if isinstance(item, dict) and 'remove' in item:
@@ -599,27 +662,54 @@ class UserProfileAnalysisService:
                     else:
                         logger.warning(f"[UserProfileAnalysisService] Неподдерживаемый элемент в '{field_name}': {item}. Пропущен.")
 
+                # Только элементы из ответа AI + перенос added_at из оригинала
+                # (replace-политика: AI возвращает полный актуальный список)
+                today = timezone.now().date().isoformat()
+                replaced_weighted: List[Dict[str, Any]] = []
+                for item in new_weighted_items:
+                    canon = self._canonical_key(str(item.get('value', '')))
+                    orig = original_by_canonical.get(canon)
+                    if orig:
+                        item['added_at'] = orig.get('added_at') or item.get('added_at') or today
+                    else:
+                        item.setdefault('added_at', today)
+                    item['last_seen'] = item.get('last_seen') or today
+                    replaced_weighted.append(item)
+
+                # Применяем remove-маркеры
                 if items_to_remove:
                     remove_set = {val.lower() for val in items_to_remove}
-                    existing_weighted = [
-                        e for e in existing_weighted
-                        if isinstance(e.get('value'), str) and e.get('value', '').strip().lower() not in remove_set
+                    replaced_weighted = [
+                        e for e in replaced_weighted
+                        if isinstance(e.get('value'), str)
+                        and e.get('value', '').strip().lower() not in remove_set
                     ]
 
-                if new_weighted_items:
-                    existing_weighted = self._merge_cleanup_items(
-                        existing_weighted,
-                        new_weighted_items,
+                # Если AI вернул пустой список — это подозрительно; не применяем
+                if not replaced_weighted:
+                    logger.warning(
+                        f"[UserProfileAnalysisService] AI вернул пустой список для '{field_name}', "
+                        f"поле не изменено."
                     )
+                    continue
 
-                existing_weighted = mark_stale_items(existing_weighted)
+                # Anti-growth guard: не применяем, если поле выросло
+                if len(replaced_weighted) > len(existing_weighted):
+                    logger.warning(
+                        f"[UserProfileAnalysisService] Growth guard: поле '{field_name}' "
+                        f"выросло бы {len(existing_weighted)} -> {len(replaced_weighted)}, "
+                        f"обновление отклонено."
+                    )
+                    continue
 
-                if str(existing_weighted) != str(current_list):
-                    updates_to_apply[field_name] = existing_weighted
+                replaced_weighted = mark_stale_items(replaced_weighted)
+
+                if str(replaced_weighted) != str(current_list):
+                    updates_to_apply[field_name] = replaced_weighted
                     fields_updated.append(field_name)
                     logger.debug(
                         f"[UserProfileAnalysisService] Обновлено поле '{field_name}': "
-                        f"{len(current_list)} -> {len(existing_weighted)}"
+                        f"{len(current_list)} -> {len(replaced_weighted)}"
                     )
 
             # --- Обработка словарных полей ---
@@ -669,8 +759,34 @@ class UserProfileAnalysisService:
 
             # --- Сохранение обновлений ---
             if fields_updated:
+                # Total anti-growth guard для list-полей: суммарно не должно быть роста
+                total_before = sum(
+                    len(getattr(user, f, []) or [])
+                    for f in list_field_names
+                )
+                total_after = sum(
+                    len(updates_to_apply.get(f, getattr(user, f, []) or []))
+                    for f in list_field_names
+                )
+                if total_after > total_before:
+                    # Откатываем только list-поля из updates_to_apply
+                    blocked = [f for f in list_field_names if f in updates_to_apply]
+                    for f in blocked:
+                        del updates_to_apply[f]
+                        fields_updated.remove(f)
+                    logger.warning(
+                        f"[UserProfileAnalysisService] Total anti-growth guard: "
+                        f"total_items {total_before} -> {total_after}, "
+                        f"list-обновления отклонены: {blocked}. "
+                        f"Остались: {fields_updated}"
+                    )
+
+                if not fields_updated:
+                    logger.debug(f"[UserProfileAnalysisService] Все обновления отклонены guard'ами для {user.telegram_id}.")
+                    return True
+
                 logger.debug(f"[UserProfileAnalysisService] Обновлены поля профиля пользователя {user.telegram_id}: {fields_updated}")
-                
+
                 @sync_to_async
                 def _save_updates_sync():
                     with transaction.atomic():

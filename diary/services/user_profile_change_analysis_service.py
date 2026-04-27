@@ -12,7 +12,7 @@ from asgiref.sync import sync_to_async
 from django.core.serializers.json import DjangoJSONEncoder
 
 from users.models import User, UserProfileHistory
-from core.profile_field_utils import build_personal_fields_payload_for_ai
+from core.profile_field_utils import build_personal_fields_payload_for_ai, normalize_compressed_profile_for_prompt
 from diary.models import WeeklyAnalysis
 from bot.services.deepseek_api import deepseek_api_service
 from prompts.get_prompt import get_prompt
@@ -149,7 +149,8 @@ class UserProfileChangeAnalysisService:
         if not current_compressed_profile:
             generated_profile = compressed_profile_service.generate_for_user(user)
             current_compressed_profile = generated_profile or {}
-        context['current_compressed_psych_profile_json'] = json.dumps(current_compressed_profile, cls=DjangoJSONEncoder, ensure_ascii=False)
+        normalized_compressed_profile = normalize_compressed_profile_for_prompt(current_compressed_profile)
+        context['current_compressed_psych_profile_json'] = json.dumps(normalized_compressed_profile, cls=DjangoJSONEncoder, ensure_ascii=False)
 
         # --- 2. Исторические слепки ---
         @sync_to_async

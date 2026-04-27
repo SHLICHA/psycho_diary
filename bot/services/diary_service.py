@@ -101,6 +101,28 @@ def _trim_list_for_prompt(values: Any, limit: int) -> List[Any]:
         return []
     return values[:limit]
 
+
+def _format_entry_datetime_for_prompt(dt, language: str = 'ru') -> str:
+    """Возвращает обогащённую строку даты/времени записи: день недели, дата, время, сезон."""
+    _seasons_ru = {1: 'зима', 2: 'зима', 3: 'весна', 4: 'весна', 5: 'весна',
+                   6: 'лето', 7: 'лето', 8: 'лето', 9: 'осень', 10: 'осень',
+                   11: 'осень', 12: 'зима'}
+    _seasons_en = {1: 'winter', 2: 'winter', 3: 'spring', 4: 'spring', 5: 'spring',
+                   6: 'summer', 7: 'summer', 8: 'summer', 9: 'autumn', 10: 'autumn',
+                   11: 'autumn', 12: 'winter'}
+    _weekdays_ru = ['понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота', 'воскресенье']
+    try:
+        if language == 'ru':
+            weekday = _weekdays_ru[dt.weekday()]
+            season = _seasons_ru[dt.month]
+            return dt.strftime(f'{weekday}, %d.%m.%Y, %H:%M ({season})')
+        else:
+            season = _seasons_en[dt.month]
+            return dt.strftime(f'%A, %B %d %Y, %H:%M ({season})')
+    except Exception:
+        return dt.strftime('%Y-%m-%d %H:%M')
+
+
 class DiaryService:
     """Сервис для работы с записями дневника"""
 
@@ -975,11 +997,11 @@ class DiaryService:
             if created_at.tzinfo is None:
                 created_at = pytz.utc.localize(created_at)
             localized_time = created_at.astimezone(user_tz)
-            new_entry_creation_time_local = localized_time.strftime('%Y-%m-%d')
+            new_entry_creation_time_local = _format_entry_datetime_for_prompt(localized_time, language)
             logger.debug(f"[process_new_entry_logic] Локализованное время создания записи {diary_entry.id}: {new_entry_creation_time_local}")
         except Exception as e:
             logger.error(f"[process_new_entry_logic] Ошибка при определении локального времени для записи {diary_entry.id}: {e}")
-            new_entry_creation_time_local = diary_entry.created_at.strftime('%Y-%m-%d')
+            new_entry_creation_time_local = _format_entry_datetime_for_prompt(diary_entry.created_at, language)
 
         # Выбираем промпт: полный для premium, сокращённый для обычных
         prompt_mode = "unknown"
@@ -1730,11 +1752,11 @@ class DiaryService:
                 if created_at.tzinfo is None:
                     created_at = pytz.utc.localize(created_at)
                 localized_time = created_at.astimezone(user_tz)
-                new_entry_creation_time_local = localized_time.strftime('%Y-%m-%d')
+                new_entry_creation_time_local = _format_entry_datetime_for_prompt(localized_time, language)
                 logger.debug(f"[process_first_onboarding_entry_logic] Локализованное время создания первой записи {diary_entry.id}: {new_entry_creation_time_local}")
             except Exception as e:
                 logger.error(f"[process_first_onboarding_entry_logic] Ошибка при определении локального времени для первой записи {diary_entry.id}: {e}")
-                new_entry_creation_time_local = diary_entry.created_at.strftime('%Y-%m-%d')
+                new_entry_creation_time_local = _format_entry_datetime_for_prompt(diary_entry.created_at, language)
             prompt = get_prompt(
                 key='incremental_day_analysis_first_entry',
                 language=language,
