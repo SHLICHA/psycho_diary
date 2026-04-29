@@ -207,8 +207,7 @@ class TestProfileAnalysisStressFailures:
                 strengths=[f"strong-{idx}"],
                 areas_for_growth=[f"growth-{idx}"],
                 personality_insights={"insight": idx},
-                habits=[f"habit-{idx}"],
-                skills=[f"skill-{idx}"],
+                practical_patterns=[f"habit-{idx}", f"skill-{idx}"],
                 aspirations=[f"asp-{idx}"],
                 personality_description={"text": f"snapshot-{idx}"},
             )
@@ -253,8 +252,7 @@ class TestProfileAnalysisStressFailures:
             strengths=["strength"],
             areas_for_growth=["growth"],
             personality_insights={"insight": "v"},
-            habits=["habit"],
-            skills=["skill"],
+            practical_patterns=["habit", "skill"],
             aspirations=["aspiration"],
             personality_description={"text": "snapshot"},
         )
@@ -302,8 +300,7 @@ class TestProfileAnalysisStressFailures:
             strengths=["strength"],
             areas_for_growth=["growth"],
             personality_insights={"insight": "v"},
-            habits=["habit"],
-            skills=["skill"],
+            practical_patterns=["habit", "skill"],
             aspirations=["aspiration"],
             personality_description={"text": "snapshot"},
         )

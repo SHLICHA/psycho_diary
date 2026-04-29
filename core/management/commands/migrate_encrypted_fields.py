@@ -85,8 +85,7 @@ class Command(BaseCommand):
                 'strengths',
                 'areas_for_growth',
                 'personality_insights',
-                'habits',
-                'skills',
+                'practical_patterns',
                 'aspirations',
                 'personality_description',
                 'email'
@@ -100,8 +99,7 @@ class Command(BaseCommand):
                 'strengths',
                 'areas_for_growth',
                 'personality_insights',
-                'habits',
-                'skills',
+                'practical_patterns',
                 'aspirations',
                 'personality_description'
             ],

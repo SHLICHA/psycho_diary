@@ -971,8 +971,7 @@ class DiaryService:
             "triggers": user.triggers,
             "strengths": user.strengths,
             "areas_for_growth": user.areas_for_growth,
-            "habits": user.habits,
-            "skills": user.skills,
+            "practical_patterns": user.practical_patterns,
             "aspirations": user.aspirations
         }
 

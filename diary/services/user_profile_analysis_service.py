@@ -439,8 +439,7 @@ class UserProfileAnalysisService:
                         strengths=snapshot_payload['strengths'],
                         areas_for_growth=snapshot_payload['areas_for_growth'],
                         personality_insights=snapshot_payload['personality_insights'],
-                        habits=snapshot_payload['habits'],
-                        skills=snapshot_payload['skills'],
+                        practical_patterns=snapshot_payload['practical_patterns'],
                         aspirations=snapshot_payload['aspirations'],
                         personality_description=snapshot_payload['personality_description'],
                     )
@@ -464,8 +463,7 @@ class UserProfileAnalysisService:
             'strengths': compact_weighted_items(getattr(user, 'strengths', [])),
             'areas_for_growth': compact_weighted_items(getattr(user, 'areas_for_growth', [])),
             'personality_insights': self._sanitize_insights_for_snapshot(getattr(user, 'personality_insights', {})),
-            'habits': compact_weighted_items(getattr(user, 'habits', [])),
-            'skills': compact_weighted_items(getattr(user, 'skills', [])),
+            'practical_patterns': compact_weighted_items(getattr(user, 'practical_patterns', [])),
             'aspirations': compact_weighted_items(getattr(user, 'aspirations', [])),
             'personality_description': self._sanitize_personality_description(getattr(user, 'personality_description', '')),
         }
@@ -608,7 +606,7 @@ class UserProfileAnalysisService:
             list_field_names = [
                 'life_facts', 'hobbies', 'core_values', 
                 'triggers', 'strengths', 'areas_for_growth', 
-                'habits', 'skills', 'aspirations'
+                'practical_patterns', 'aspirations'
             ]
             # Поля, которые являются словарями
             dict_field_names = [

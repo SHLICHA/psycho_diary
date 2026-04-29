@@ -53,20 +53,8 @@ class UserProfileService:
             except Exception as e:
                 logger.error(f"Не удалось получить дату последней записи из DiaryEntry для пользователя {user.telegram_id}: {e}")
                 last_entry_date_str = ""
-            MAX_INLINE_FIELD_LENGTH = 150
-            def _format_list_for_display(items_list):
-                if not isinstance(items_list, list):
-                    return get_message('not_specified', user.language or 'ru')
-                filtered_items = cls._filter_remove_items(items_list)
-                if not filtered_items:
-                    return get_message('not_specified', user.language or 'ru')
-                str_items = [str(item) for item in filtered_items if item is not None]
-                full_str = ', '.join(str_items)
-                if len(full_str) > MAX_INLINE_FIELD_LENGTH:
-                    return full_str[:MAX_INLINE_FIELD_LENGTH] + '...'
-                return full_str
-            hobby_str = _format_list_for_display(user.hobbies)
-            life_facts_str = _format_list_for_display(user.life_facts)
+            hobby_str = cls._format_list_for_display(user.hobbies, user.language or 'ru')
+            life_facts_str = cls._format_list_for_display(user.life_facts, user.language or 'ru')
             profile_data = {
                 'user_telegram_id': user.telegram_id,
                 'username': user.username if user.username else '',
@@ -189,7 +177,7 @@ class UserProfileService:
         valid_profile_fields = {
             'personality_traits', 'life_facts', 'hobbies', 'core_values',
             'triggers', 'strengths', 'areas_for_growth', 'personality_insights',
-            'habits', 'skills', 'aspirations', 'personality_description'
+            'practical_patterns', 'aspirations', 'personality_description'
         }
 
         if field_key not in valid_profile_fields:
@@ -218,8 +206,7 @@ class UserProfileService:
             'personality_traits': '🧠',
             'life_facts': '📋',
             'hobbies': '🎨',
-            'habits': '🔄',
-            'skills': '🛠️',
+            'practical_patterns': '🔄',
             'aspirations': '🌟',
         }
         emoji = field_emojis.get(field_key, '📋')
@@ -500,7 +487,7 @@ class UserProfileService:
     @classmethod
     def _format_list_for_display(cls, items_list, language: str = 'ru', max_length: int = 150):
         """
-        Форматирует список для отображения, ограничивая длину.
+        Форматирует список для компактного отображения в inline-экранах.
 
         Args:
             items_list: Список элементов.
@@ -512,10 +499,17 @@ class UserProfileService:
         """
         if not isinstance(items_list, list):
             return get_message('not_specified', language)
+
         filtered_items = cls._filter_remove_items(items_list)
         if not filtered_items:
             return get_message('not_specified', language)
-        str_items = [str(item) for item in filtered_items if item is not None]
+
+        from core.profile_field_utils import field_to_ai_format
+
+        str_items = field_to_ai_format(filtered_items, 'inline_profile_field')
+        if not str_items:
+            return get_message('not_specified', language)
+
         full_str = ', '.join(str_items)
         if len(full_str) > max_length:
             return full_str[:max_length] + '...'

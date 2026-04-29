@@ -84,8 +84,7 @@ PROFILE_CHANGE_ANALYSIS_PROMPT = {
     *   Strengths
     *   Areas for Growth
     *   Deep Insights
-    *   Habits
-    *   Skills
+    *   Practical Patterns
     *   Aspirations
     *   Awareness Level
     *   Personality Description Text

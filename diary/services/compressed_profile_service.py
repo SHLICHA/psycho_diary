@@ -98,8 +98,7 @@ class CompressedProfileService:
             'strengths',
             'areas_for_growth',
             'personality_insights',
-            'habits',
-            'skills',
+            'practical_patterns',
             'aspirations',
         ]
         count = 0

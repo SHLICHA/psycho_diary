@@ -53,8 +53,7 @@ def test_profile_history_tokens_transactions_endpoints(api_client, auth_user, au
         strengths=["consistency"],
         areas_for_growth=["boundaries"],
         personality_insights={"trend": "stable"},
-        habits=["journaling"],
-        skills=["reflection"],
+        practical_patterns=["journaling", "reflection"],
         aspirations=["balance"],
         personality_description={"text": "short profile"},
     )

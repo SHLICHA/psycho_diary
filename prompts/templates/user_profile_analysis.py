@@ -37,8 +37,7 @@ USER_PROFILE_ANALYSIS_PROMPT = {
         *   `strengths` (list): Только *подтверждённые и актуальные* сильные стороны. *Объедини* дублирующие или схоже звучащие. *Удали* только *если подтверждено* утратили актуальность.
         *   `areas_for_growth` (list): Только *актуальные* зоны развития. *Объедини* схоже звучащие. *Удали* только *если подтверждено* над ней уже поработано и она больше не актуальна.
         *   `personality_insights` (dict): *Глубинные инсайты*, отражающие *текущее* понимание. *Объедини* инсайты с близкой сутью. *Удали* только *если подтверждено* утратили актуальность.
-        *   `habits` (list): *Сформировавшиеся и наблюдаемые* привычки. *Объедини* схоже звучащие. *Удали* только *если подтверждено* утратили актуальность.
-        *   `skills` (list): *Наблюдаемые актуальные* навыки (жизненные, коммуникативные, когнитивные и т.д.). *Объедини* дублирующие или схоже звучащие. *Удали* только *если подтверждено* утратили актуальность.
+        *   `practical_patterns` (list): *Сформировавшиеся привычки и навыки* (жизненные, коммуникативные, поведенческие и др.). *Объедини* схожие по смыслу. *Удали* только *если подтверждено* утратили актуальность.
         *   `aspirations` (list): *Четко выраженные и актуальные* стремления и цели. *Объедини* схоже звучащие или с близкой сутью. *Удали* только *если подтверждено* достигнуты или утратили актуальность.
     *   Для списков (`life_facts`, `hobbies` и т.д.):
         *   Чтобы **добавить** элемент: просто включи его в список.
@@ -97,13 +96,10 @@ USER_PROFILE_ANALYSIS_PROMPT = {
     "мотивация": "Внутренняя, связана с самореализацией",
     "стиль общения": "Предпочитает глубокие беседы"
   }},
-  "habits": [
-    "утренняя зарядка",
-    "ведение дневника"
-  ],
-  "skills": [
-    "аналитическое мышление",
-    "самоанализ"
+  "practical_patterns": [
+    "утренная зарядка",
+    "ведение дневника",
+    "аналитическое мышление"
   ],
   "aspirations": [
     "повысить эмоциональный интеллект",
@@ -144,7 +140,7 @@ USER_PROFILE_ANALYSIS_PROMPT = {
 2.  **Create or update `personality_description`**:
   *   This should be a **new, cohesive, full human-readable profile description** of the user in English.
   *   **You must explicitly build on the current textual profile description**: keep confirmed stable characteristics, rewrite outdated or imprecise wording, and integrate new signals into the existing portrait instead of replacing it blindly.
-    *   Synthesize key traits, values, strengths, areas for growth, habits, aspirations, and insights into a coherent narrative.
+    *   Synthesize key traits, values, strengths, areas for growth, practical patterns, aspirations, and insights into a coherent narrative.
     *   Consider the awareness level.
     *   Length: 2-4 paragraphs, **strictly** no more than 3000 characters. Avoid lists and formatting.
 3.  **Update all structured profile fields**:
@@ -157,8 +153,7 @@ USER_PROFILE_ANALYSIS_PROMPT = {
         *   `strengths` (list): Only *confirmed and current* strengths. *Merge* duplicates or similar-sounding ones. *Remove* only *if confirmedly* no longer relevant.
         *   `areas_for_growth` (list): Only *current* areas for development. *Merge* similar-sounding ones. *Remove* only *if confirmedly* worked on and no longer relevant.
         *   `personality_insights` (dict): *Deep insights* reflecting the *current* understanding. *Merge* insights with similar meaning. *Remove* only *if confirmedly* no longer relevant.
-        *   `habits` (list): *Formed and observed* habits. *Merge* similar-sounding ones. *Remove* only *if confirmedly* no longer relevant.
-        *   `skills` (list): *Observed current* skills (life, communication, cognitive, etc.). *Merge* duplicates or similar-sounding ones. *Remove* only *if confirmedly* no longer relevant.
+        *   `practical_patterns` (list): *Formed habits and observed skills* (life, communication, behavioral, cognitive, etc.). *Merge* similar-sounding or closely related ones. *Remove* only *if confirmedly* no longer relevant.
         *   `aspirations` (list): *Clearly expressed and current* aspirations and goals. *Merge* similar-sounding or closely related ones. *Remove* only *if confirmedly* achieved or no longer relevant.
     *   For lists (`life_facts`, `hobbies`, etc.):
         *   To **add** an item: simply include it in the list.
@@ -217,13 +212,10 @@ RESPOND ONLY IN THE FOLLOWING JSON FORMAT, enclosed in triple backticks (```json
     "motivation": "Intrinsic, linked to self-realization",
     "communication_style": "Prefers deep conversations"
   }},
-  "habits": [
+  "practical_patterns": [
     "morning exercise",
-    "keeping a diary"
-  ],
-  "skills": [
-    "analytical thinking",
-    "self-analysis"
+    "keeping a diary",
+    "analytical thinking"
   ],
   "aspirations": [
     "increase emotional intelligence",

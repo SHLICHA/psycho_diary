@@ -75,7 +75,7 @@ class TestPrecleanupNoopOnFailure:
 
         with patch("diary.services.user_profile_analysis_service.deepseek_api_service.send_prompt_and_parse", mock_api):
             result = await service._precleanup_single_field(
-                field_name="habits",
+                field_name="practical_patterns",
                 raw_items=original,
                 language="ru",
                 semaphore=semaphore,
@@ -102,7 +102,7 @@ class TestPrecleanupNoopOnFailure:
 
         with patch("diary.services.user_profile_analysis_service.deepseek_api_service.send_prompt_and_parse", mock_api):
             result = await service._precleanup_single_field(
-                field_name="skills",
+                field_name="practical_patterns",
                 raw_items=original,
                 language="ru",
                 semaphore=semaphore,
@@ -152,7 +152,7 @@ class TestMainUpdateGrowthGuard:
         user.telegram_id = 999
         user.language = "ru"
         list_fields = ["life_facts", "hobbies", "core_values", "triggers", "strengths",
-                       "areas_for_growth", "habits", "skills", "aspirations"]
+                       "areas_for_growth", "practical_patterns", "aspirations"]
         for f in list_fields:
             setattr(user, f, field_items.get(f, []))
         user.personality_traits = {}
@@ -184,12 +184,12 @@ class TestMainUpdateGrowthGuard:
     async def test_empty_ai_list_not_applied(self):
         """Если AI вернул пустой список для поля — не применять."""
         service = UserProfileAnalysisService()
-        user = self._make_user({"habits": [make_item("бег"), make_item("чтение")]})
-        parsed_result = {"habits": []}
+        user = self._make_user({"practical_patterns": [make_item("бег"), make_item("чтение")]})
+        parsed_result = {"practical_patterns": []}
 
         result = await service._update_user_profile_from_analysis(user, parsed_result)
         assert result is True
-        assert user.habits == [make_item("бег"), make_item("чтение")]
+        assert user.practical_patterns == [make_item("бег"), make_item("чтение")]
 
     @pytest.mark.asyncio
     async def test_valid_replace_applies(self):

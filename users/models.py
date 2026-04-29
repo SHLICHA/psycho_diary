@@ -83,8 +83,7 @@ class User(AbstractUser):
     strengths = EncryptedJSONField(default=list, blank=True, verbose_name="Сильные стороны")
     areas_for_growth = EncryptedJSONField(default=list, blank=True, verbose_name="Зоны роста")
     personality_insights = EncryptedJSONField(default=dict, blank=True, verbose_name="Глубинные инсайты о личности")
-    habits = EncryptedJSONField(default=list, blank=True, verbose_name="Привычки")
-    skills = EncryptedJSONField(default=list, blank=True, verbose_name="Навыки")
+    practical_patterns = EncryptedJSONField(default=list, blank=True, verbose_name="Привычки и навыки")
     aspirations = EncryptedJSONField(default=list, blank=True, verbose_name="Стремления")
     personality_description = EncryptedTextField(blank=True, default="", verbose_name="Текстовое описание личности")
     compressed_psych_profile = EncryptedJSONField(
@@ -104,7 +103,7 @@ class User(AbstractUser):
         help_text=(
             "Полный психологический профиль для пользователя. "
             "Генерируется weekly analysis. Содержит: summary, traits, values, "
-            "triggers, strengths, growth_areas, insights, habits, skills, aspirations."
+            "triggers, strengths, growth_areas, insights, practical_patterns, aspirations."
         )
     )
     date_of_birth = models.DateField(null=True, blank=True, verbose_name="Дата рождения")
@@ -282,8 +281,7 @@ class UserProfileHistory(models.Model):
     strengths = EncryptedJSONField(verbose_name="Сильные стороны")
     areas_for_growth = EncryptedJSONField(null=True, verbose_name="Зоны роста")
     personality_insights = EncryptedJSONField(verbose_name="Глубинные инсайты о личности")
-    habits = EncryptedJSONField(verbose_name="Привычки")
-    skills = EncryptedJSONField(verbose_name="Навыки")
+    practical_patterns = EncryptedJSONField(default=list, blank=True, verbose_name="Привычки и навыки")
     aspirations = EncryptedJSONField(verbose_name="Стремления")
     personality_description = EncryptedJSONField(verbose_name="Текстовое описание личности")
 
@@ -301,7 +299,7 @@ class UserProfileHistory(models.Model):
         json_fields = [
             'personality_traits', 'life_facts', 'hobbies', 'core_values',
             'triggers', 'strengths', 'areas_for_growth', 'personality_insights',
-            'habits', 'skills', 'aspirations'
+            'practical_patterns', 'aspirations'
         ]
         for field_name in json_fields:
             field_value = getattr(self, field_name)

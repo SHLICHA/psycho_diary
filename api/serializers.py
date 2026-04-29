@@ -48,8 +48,7 @@ class ProfileFullSerializer(serializers.ModelSerializer):
             'strengths',
             'areas_for_growth',
             'personality_insights',
-            'habits',
-            'skills',
+            'practical_patterns',
             'aspirations',
             
             # Сгенерированные профили
@@ -168,8 +167,7 @@ class UserProfileHistorySerializer(serializers.ModelSerializer):
             'strengths',
             'areas_for_growth',
             'personality_insights',
-            'habits',
-            'skills',
+            'practical_patterns',
             'aspirations',
             'personality_description',
         ]
@@ -470,3 +468,60 @@ class GenerateLinkSerializer(serializers.Serializer):
     """
     link = serializers.URLField(read_only=True)
     expires_in = serializers.IntegerField(read_only=True)
+
+
+import pytz as _pytz
+
+class ProfileUpdateSerializer(serializers.ModelSerializer):
+    """
+    Сериализатор для обновления профиля и настроек пользователя.
+    Поддерживает PATCH /api/v1/profile/.
+    Обновляемые поля: базовые данные, настройки, пользовательские поля профиля.
+    """
+
+    class Meta:
+        model = User
+        fields = [
+            'first_name',
+            'last_name',
+            'date_of_birth',
+            'language',
+            'timezone',
+            'notifications_enabled',
+            'auto_analysis_enabled',
+            'max_ai_tasks_per_day',
+            'hobbies',
+            'life_facts',
+        ]
+
+    def validate_language(self, value):
+        allowed = {'ru', 'en'}
+        if value not in allowed:
+            raise serializers.ValidationError(f'Допустимые значения: {", ".join(sorted(allowed))}.')
+        return value
+
+    def validate_timezone(self, value):
+        try:
+            _pytz.timezone(value)
+        except _pytz.UnknownTimeZoneError:
+            raise serializers.ValidationError('Неверный часовой пояс.')
+        return value
+
+    def validate_max_ai_tasks_per_day(self, value):
+        if value < 1 or value > 10:
+            raise serializers.ValidationError('Допустимые значения: от 1 до 10.')
+        return value
+
+
+class FeedbackSerializer(serializers.Serializer):
+    """Сериализатор для отправки обратной связи через API."""
+
+    message = serializers.CharField(min_length=5, max_length=4000)
+
+    def create(self, validated_data):
+        from users.models import Feedback as FeedbackModel
+        user = self.context['request'].user
+        return FeedbackModel.objects.create(
+            user=user,
+            message=validated_data['message'],
+        )

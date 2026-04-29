@@ -17,7 +17,7 @@ class Command(BaseCommand):
         json_fields = [
             'personality_traits', 'life_facts', 'hobbies', 'core_values',
             'triggers', 'strengths', 'areas_for_growth', 'personality_insights',
-            'habits', 'skills', 'aspirations', 'personality_description'
+            'practical_patterns', 'aspirations', 'personality_description'
         ]
         
         for profile in UserProfileHistory.objects.all():

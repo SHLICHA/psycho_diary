@@ -13,8 +13,7 @@
     "strengths": [{"name": "сила", "description": "описание"}],
     "growth_areas": [{"area": "зона", "description": "описание"}],
     "insights": [{"text": "инсайт", "date": "2026-01-01"}],
-    "habits": [{"name": "привычка", "frequency": "часто"}],
-    "skills": [{"name": "навык", "level": "высокий"}],
+    "practical_patterns": [{"name": "привычка или навык", "description": "описание"}],
     "aspirations": [{"text": "стремление", "priority": "высокая"}],
     "emotional_pattern": "описание эмоционального паттерна",
     "coping_style": "описание стиля совладания",
@@ -58,8 +57,7 @@ class FullProfileService:
             "strengths": self._format_strengths(user),
             "growth_areas": self._format_growth_areas(user),
             "insights": self._format_insights(user),
-            "habits": self._format_habits(user),
-            "skills": self._format_skills(user),
+            "practical_patterns": self._format_practical_patterns(user),
             "aspirations": self._format_aspirations(user),
             "emotional_pattern": self._infer_emotional_pattern(user),
             "coping_style": self._infer_coping_style(user),
@@ -239,41 +237,20 @@ class FullProfileService:
                 })
         return result
 
-    def _format_habits(self, user) -> List[Dict[str, Any]]:
-        """Форматирует привычки."""
-        habits = self._get_list_field(user, 'habits')
+    def _format_practical_patterns(self, user) -> List[Dict[str, Any]]:
+        """Форматирует привычки и навыки."""
+        practical_patterns = self._get_list_field(user, 'practical_patterns')
         result = []
-        for h in habits:
-            if isinstance(h, str):
+        for item in practical_patterns:
+            if isinstance(item, str):
                 result.append({
-                    "name": h,
-                    "frequency": "регулярно",
+                    "name": item,
                     "description": "Выявлено на основе анализа записей"
                 })
-            elif isinstance(h, dict):
+            elif isinstance(item, dict):
                 result.append({
-                    "name": h.get('name', h.get('text', '')),
-                    "frequency": h.get('frequency', 'регулярно'),
-                    "description": h.get('description', '')
-                })
-        return result
-
-    def _format_skills(self, user) -> List[Dict[str, Any]]:
-        """Форматирует навыки."""
-        skills = self._get_list_field(user, 'skills')
-        result = []
-        for s in skills:
-            if isinstance(s, str):
-                result.append({
-                    "name": s,
-                    "level": "развитый",
-                    "description": "Выявлено на основе анализа"
-                })
-            elif isinstance(s, dict):
-                result.append({
-                    "name": s.get('name', s.get('text', '')),
-                    "level": s.get('level', 'развитый'),
-                    "description": s.get('description', '')
+                    "name": item.get('name', item.get('value', item.get('text', ''))),
+                    "description": item.get('description', '')
                 })
         return result
 
@@ -323,13 +300,13 @@ class FullProfileService:
     def _infer_coping_style(self, user) -> str:
         """Выводит стиль совладания."""
         strengths = self._get_list_field(user, 'strengths')
-        habits = self._get_list_field(user, 'habits')
+        practical_patterns = self._get_list_field(user, 'practical_patterns')
         
-        if not strengths and not habits:
+        if not strengths and not practical_patterns:
             return "Стиль совладания формируется."
         
         # Простая эвристика
-        all_items = ' '.join(strengths + habits).lower()
+        all_items = ' '.join(strengths + practical_patterns).lower()
         
         if 'спорт' in all_items or 'физич' in all_items:
             return "Активный стиль. Предпочитает физическую активность для снятия стресса."

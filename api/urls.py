@@ -11,9 +11,11 @@ from .views import (
     DiaryEntryViewSet, CombinedDiaryEntryViewSet,
     WeeklyAnalysisViewSet, TherapyTaskViewSet, ProgressViewSet,
     RegisterView, TelegramAuthView, CompleteRegistrationView,
-    GenerateLinkView, LoginView, MonitoringSnapshotView, PrometheusMetricsView,
+    GenerateLinkView, LoginView, LogoutView, MonitoringSnapshotView, PrometheusMetricsView,
     RefreshView,
-    ComprehensiveStatsView
+    ComprehensiveStatsView,
+    FeedbackView,
+    RemindersView,
 )
 
 router = DefaultRouter()
@@ -31,6 +33,7 @@ urlpatterns = [
     # Auth endpoints (under /api/v1/auth/)
     path('register/', RegisterView.as_view(), name='auth-register'),
     path('login/', LoginView.as_view(), name='auth-login'),
+    path('logout/', LogoutView.as_view(), name='auth-logout'),
     path('refresh/', RefreshView.as_view(), name='auth-refresh'),
     path('telegram/', TelegramAuthView.as_view(), name='auth-telegram'),
     path('complete-registration/', CompleteRegistrationView.as_view(), name='auth-complete-registration'),
@@ -39,6 +42,8 @@ urlpatterns = [
     path('monitoring/metrics/', MonitoringSnapshotView.as_view(), name='monitoring-metrics'),
     path('monitoring/prometheus/', PrometheusMetricsView.as_view(), name='monitoring-prometheus'),
     path('monitoring/stats/', ComprehensiveStatsView.as_view(), name='monitoring-stats'),
+    path('feedback/', FeedbackView.as_view(), name='feedback'),
+    path('reminders/', RemindersView.as_view(), name='reminders'),
     path('schema/', SpectacularAPIView.as_view(permission_classes=[]), name='api-schema'),
     path('docs/', SpectacularRedocView.as_view(url_name='api-schema'), name='api-redoc'),
 ]

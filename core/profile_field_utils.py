@@ -30,8 +30,7 @@ PROFILE_FIELDS = [
     'core_values',
     'strengths',
     'areas_for_growth',
-    'habits',
-    'skills',
+    'practical_patterns',
     'aspirations'
 ]
 
@@ -43,8 +42,7 @@ PERSONAL_LIST_FIELDS = [
     'triggers',
     'strengths',
     'areas_for_growth',
-    'habits',
-    'skills',
+    'practical_patterns',
     'aspirations',
 ]
 
@@ -906,7 +904,7 @@ def cleanup_profile_fields(user) -> Dict[str, int]:
     list_fields = [
         'life_facts', 'hobbies', 'core_values',
         'triggers', 'strengths', 'areas_for_growth',
-        'habits', 'skills', 'aspirations'
+        'practical_patterns', 'aspirations'
     ]
     
     dict_fields = [
@@ -1029,7 +1027,7 @@ def get_profile_field_stats(user) -> Dict[str, Dict[str, int]]:
     list_fields = [
         'life_facts', 'hobbies', 'core_values',
         'triggers', 'strengths', 'areas_for_growth',
-        'habits', 'skills', 'aspirations'
+        'practical_patterns', 'aspirations'
     ]
     
     stats = {}

@@ -46,7 +46,7 @@ async def run_garbage_collection_async():
                 deleted_at__isnull=True
             ).only(
                 'id', 'telegram_id', 'timezone', 'life_facts', 'hobbies', 'core_values', 'triggers',
-                'strengths', 'areas_for_growth', 'habits', 'skills', 'aspirations'
+                'strengths', 'areas_for_growth', 'practical_patterns', 'aspirations'
             )
         )
 
@@ -76,7 +76,7 @@ async def run_garbage_collection_async():
                     # Поля, которые являются списками
                     list_fields = [
                         'life_facts', 'hobbies', 'core_values', 'triggers',
-                        'strengths', 'areas_for_growth', 'habits', 'skills', 'aspirations'
+                        'strengths', 'areas_for_growth', 'practical_patterns', 'aspirations'
                     ]
 
                     for field_name in list_fields:

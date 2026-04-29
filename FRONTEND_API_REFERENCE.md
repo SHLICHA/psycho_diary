@@ -1,65 +1,72 @@
 # Psycho Diary — API Reference для frontend-разработчика
 
----
-
-## Что такое Psycho Diary
-
-**Psycho Diary** — это сервис психологического дневника с AI-анализом. Пользователь ведёт текстовые записи о своём состоянии, мыслях и событиях — AI анализирует их в реальном времени, формирует персональный психологический профиль и сопровождает пользователя на пути к лучшему самопониманию.
-
-Планируется визуал в виде дневника, тетради. 
-
-Аватар в телегра: Дерево, дремнее, под ним мальчик с книгой.
-
-Поэтому важны такие мотивы.
-
-Далее идет технические моменты
-
-Продукт существует в двух каналах: **Telegram-бот** (основной) и **веб-приложение** (разрабатывается). Оба используют одно REST API.
+> **Версия документа:** 1.0 | **Дата:** апрель 2026 | **API версия:** v1
 
 ---
 
-## Основные сущности и их связи
+## О продукте
+
+**Psycho Diary** — сервис психологического дневника с AI-анализом. Пользователь ведёт текстовые записи о своём состоянии, мыслях и событиях. AI анализирует каждую запись, формирует персональный психологический профиль и сопровождает пользователя на пути к самопониманию.
+
+### Визуальная концепция
+
+Стиль — **дневник / рукописная тетрадь**: тёплые тона бумаги, рукописные шрифты, ощущение живого записанного момента. Логотип и ключевой образ — **старое дерево, под которым сидит мальчик с книгой**. Мотивы: уют, укрытие, рефлексия, рост.
+
+### Каналы
+
+Продукт существует в двух форматах:
+- **Telegram-бот** (основной, уже работает)
+- **Веб-приложение** (разрабатывается, этот документ — для него)
+
+Оба канала используют одно и то же REST API.
+
+---
+
+## Сущности и их связи
 
 ```
 User
- ├── DiaryEntry          — отдельная запись дневника (текст, mood, AI-анализ)
- ├── CombinedDiaryEntry  — агрегат всех записей за один день
+ ├── DiaryEntry          — отдельная запись дневника (текст + AI-анализ)
+ │    └── PsychoAnalysis — результат AI-анализа записи (mood, comment, recommendation)
+ ├── CombinedDiaryEntry  — агрегат всех записей за один день (среднее mood, объединённый текст)
  ├── WeeklyAnalysis      — AI-отчёт за неделю
  ├── TherapyTask         — персональное задание от AI
- ├── PsychoAnalysis      — детальный AI-разбор конкретной записи
+ │    └── TaskCompletion — запись о выполнении (текст + ощущения)
  └── UserActivity        — лента событий активности
 ```
 
 ---
 
-## Пользовательский сценарий (что видит frontend)
+## Пользовательский сценарий
 
-1. **Онбординг** — регистрация/вход (email или через Telegram deep-link).
-2. **Главный экран** — лента дней с настроением, текущий streak, кнопка новой записи.
-3. **Новая запись** — пользователь пишет текст → API принимает → AI анализирует асинхронно (бот/фоновая задача).
-4. **Карточка записи** — текст записи + результат AI-анализа: `mood_score`, `comment`, `recommendation`, `analysis_text`. Пользователь может добавить свой комментарий.
-5. **День** — агрегированная запись дня со средним настроением за все записи.
-6. **Прогресс** — streak, график настроения (daily/weekly/monthly), сводка.
-7. **Задания** — список AI-заданий с фильтрами по статусу и типу, отметка выполнения.
-8. **Профиль** — психологический портрет (формируется AI из записей), уровень осознанности 1–10, баланс токенов.
-9. **Еженедельный отчёт** — автоматически генерируется AI, доступен только чтение.
+1. **Регистрация / вход** — email + пароль или deep-link из Telegram.
+2. **Главный экран** — лента дней со средним настроением, текущий streak, кнопка новой записи.
+3. **Новая запись** — пользователь пишет текст → `POST /entries/` или `POST /entries/create_with_analysis/` (с моментальным AI-анализом).
+4. **Карточка записи** — текст + результат AI: `mood_score`, `comment`, `recommendation`, `analysis_text`. Пользователь может добавить свой комментарий.
+5. **День** — агрегированная запись (`CombinedDiaryEntry`) со средним mood за день.
+6. **Прогресс** — streak, график настроения (daily/weekly/monthly), сводка задач и записей.
+7. **Задания** — список AI-заданий с фильтрами по статусу и типу; можно выполнить, пропустить, восстановить.
+8. **Профиль** — психологический портрет (формируется AI), `awareness_level`, баланс токенов, реферальная ссылка.
+9. **Еженедельный отчёт** — автоматически генерируется AI каждую неделю, доступен только для чтения.
 
 ---
 
-## Бизнес-логика, важная для frontend
+## Ключевая бизнес-логика
 
 | Аспект | Детали |
 |--------|--------|
-| **Язык** | `ru` / `en`. Хранится в профиле пользователя, влияет на язык AI-ответов. |
-| **Часовой пояс** | IANA-строка (`Europe/Moscow`). Дата записи (`entry_date`) рассчитывается на стороне сервера с учётом TZ пользователя. |
-| **AI-анализ** | Создаётся асинхронно после сохранения записи. `is_processed: false` означает, что анализ ещё не готов. Поллить `GET /entries/<id>/analysis/` до появления результата. |
-| **mood_score** | Целое число 1–10. `0` или отсутствие — анализ не завершён. |
-| **is_primary** | Каждый день одна запись помечается как основная (`true`). Остальные — дополнительные. |
-| **Streak** | Количество дней подряд с записями. За 7/30/365 дней начисляются токены. Можно восстановить пропущенный день (за токены). |
-| **Токены** | Внутренняя валюта. Тратятся на AI-функции без подписки. Начисляются за выполнение заданий и streak. |
-| **Premium** | `is_premium: true` + `premium_expires_at` в будущем → подписка активна. Расширяет лимиты AI-функций. |
-| **awareness_level** | 1–10, растёт с активностью. Влияет на лимит заданий в день. |
-| **Шифрование** | Все текстовые поля (текст записей, email, профиль) зашифрованы на сервере. Клиент получает расшифрованные значения — никаких дополнительных действий не нужно. |
+| **Язык** | `"ru"` / `"en"`. Хранится в профиле; влияет на язык AI-ответов. При смене в профиле (`PATCH /profile/`) — новые записи анализируются на новом языке. |
+| **Часовой пояс** | IANA-строка (`"Europe/Moscow"`). Дата записи (`entry_date`) считается **на сервере** с учётом TZ пользователя, зафиксированного в момент создания. Frontend не вычисляет дату — берёт готовое поле `entry_date`. |
+| **AI-анализ (асинхронный)** | `POST /entries/` создаёт запись, анализ готовится фоном. `is_processed: false` — анализ ещё не готов. Frontend должен поллить `GET /entries/<id>/analysis/` до `200` или показывать лоадер. |
+| **AI-анализ (синхронный)** | `POST /entries/create_with_analysis/` — создаёт запись и сразу возвращает анализ. Время ответа 5–30 с. Рекомендуется для UX с мгновенным результатом. |
+| **mood_score** | Целое число 1–10. Пока анализ не готов — поле `null` или отсутствует. |
+| **is_primary** | Один раз в сутки одна запись помечается основной (`true`). Остальные — дополнительные. |
+| **Streak** | Дней подряд с хотя бы одной записью. За 7 / 30 / 365 дней — автоначисление токенов. Можно восстановить пропущенный день через `POST /progress/restore_streak/` (за токены). |
+| **Токены** | Внутренняя валюта. Начисляются за streak, задания, реферальных друзей. Тратятся на AI-функции без Premium. |
+| **Premium** | `is_premium: true` + `premium_expires_at` в будущем → подписка активна. Без Premium — платные AI-вызовы идут за токены. |
+| **awareness_level** | 1–10, автоматически растёт с активностью. Влияет на суточный лимит AI-заданий (`max_ai_tasks_per_day`). |
+| **Шифрование** | Все текстовые поля (текст записей, email, поля профиля) зашифрованы в БД. API возвращает уже расшифрованные значения — никаких дополнительных действий на фронте не нужно. |
+| **Пагинация** | Все списки: 20 элементов на страницу. Управляется параметром `?page=N`. Ответ содержит `count`, `next`, `previous`. |
 
 ---
 
@@ -69,36 +76,42 @@ User
 https://<host>/api/v1/
 ```
 
-Все ресурсные эндпоинты: `/api/v1/<resource>/`  
-Все auth-эндпоинты: `/api/v1/auth/<action>/`
+Интерактивная документация (ReDoc):
 
-Swagger / ReDoc-документация (интерактивная):
-- Schema JSON: `GET /api/v1/auth/schema/`
-- ReDoc UI: `GET /api/v1/auth/docs/`
+```
+GET https://<host>/api/v1/schema/    → OpenAPI JSON
+GET https://<host>/api/v1/docs/      → ReDoc UI
+```
 
 ---
 
 ## Аутентификация
 
-Используется **JWT (Bearer)**. Токен передаётся в заголовке:
+Используется **JWT Bearer**:
 
 ```
 Authorization: Bearer <access_token>
 ```
 
+Access-токен живёт ограниченное время, обновляется через refresh.
+
+---
+
+## Эндпоинты — Auth
+
 ### Регистрация по email
 
 ```
-POST /api/v1/auth/register/
-Content-Type: application/json
+POST /api/v1/register/
 ```
 
-**Тело запроса:**
+**Тело:**
 ```json
 {
   "email": "user@example.com",
   "username": "user123",
-  "password": "StrongPassword1!"
+  "password": "Str0ng!Pass",
+  "password_confirm": "Str0ng!Pass"
 }
 ```
 
@@ -106,72 +119,85 @@ Content-Type: application/json
 ```json
 {
   "user": { "id": 1, "email": "user@example.com", "username": "user123" },
-  "access": "<JWT access token>",
-  "refresh": "<JWT refresh token>"
+  "access": "<JWT access>",
+  "refresh": "<JWT refresh>"
 }
+```
+
+**Валидация:** пароли должны совпадать; email должен быть уникальным.
+
+---
+
+### Логин по email + паролю
+
+```
+POST /api/v1/login/
+```
+
+**Тело:**
+```json
+{ "email": "user@example.com", "password": "Str0ng!Pass" }
+```
+
+> Принимается `email` (не `username`). Внутри подставляется нужный username автоматически.
+
+**Ответ `200`:**
+```json
+{ "access": "<JWT access>", "refresh": "<JWT refresh>" }
 ```
 
 ---
 
-### Логин по email/паролю
+### Обновление access-токена
 
 ```
-POST /api/v1/auth/login/
-Content-Type: application/json
+POST /api/v1/refresh/
 ```
 
-**Тело запроса:**
 ```json
-{
-  "email": "user@example.com",
-  "password": "StrongPassword1!"
-}
+{ "refresh": "<JWT refresh>" }
 ```
-
-> Поле `email` принимается вместо стандартного `username`.
 
 **Ответ `200`:**
 ```json
-{
-  "access": "<JWT access token>",
-  "refresh": "<JWT refresh token>"
-}
+{ "access": "<новый access>" }
 ```
 
 ---
 
-### Обновление токена
+### Logout (выход из сессии)
 
 ```
-POST /api/v1/auth/refresh/
-Content-Type: application/json
+POST /api/v1/logout/
+Authorization: Bearer <access>
 ```
 
 ```json
-{ "refresh": "<JWT refresh token>" }
+{ "refresh": "<JWT refresh>" }
 ```
 
 **Ответ `200`:**
 ```json
-{ "access": "<новый access token>" }
+{ "detail": "Logged out successfully." }
 ```
 
-> Примечание: в проекте также существуют совместимые JWT-эндпоинты:
->
-> - `POST /api/v1/auth/token/`
-> - `POST /api/v1/auth/token/refresh/`
->
-> Для frontend рекомендуется использовать основной flow выше (`/auth/login/` и `/auth/refresh/`),
-> но legacy-точки нужно учитывать при интеграции со старым клиентом.
+**Что делает endpoint:**
+- добавляет переданный refresh-токен в blacklist;
+- после этого этот refresh нельзя использовать для `/api/v1/refresh/`.
+
+**Ошибки:**
+- `400 refresh_required` — не передан `refresh`;
+- `400 invalid_refresh_token` — токен невалидный/просроченный;
+- `401 not_authenticated` — нет access токена в заголовке.
 
 ---
 
 ### Авторизация через Telegram (deep-link)
 
-Пользователь переходит из Telegram-бота — бот выдаёт одноразовый токен.
+Пользователь переходит из Telegram-бота — бот выдаёт одноразовый `token`.
 
 ```
-GET /api/v1/auth/telegram/?token=<telegram_token>
+GET /api/v1/telegram/?token=<telegram_token>
 ```
 
 **Ответ `200`:**
@@ -179,31 +205,47 @@ GET /api/v1/auth/telegram/?token=<telegram_token>
 {
   "user": {
     "id": 1,
-    "email": "user@example.com",
-    "username": "user123",
+    "email": null,
+    "username": "tg_123456789",
     "telegram_id": 123456789,
     "first_name": "Иван"
   },
-  "access": "<JWT access token>",
-  "refresh": "<JWT refresh token>"
+  "access": "<JWT access>",
+  "refresh": "<JWT refresh>"
 }
 ```
 
+> Email у Telegram-пользователей изначально `null`. Установить — через `/complete-registration/`.
+
 ---
 
-### Привязка Telegram к web-аккаунту
+### Завершение регистрации (добавить email к Telegram-аккаунту)
 
 ```
-POST /api/v1/auth/generate-link/
+POST /api/v1/complete-registration/
 Authorization: Bearer <access>
 ```
 
-Алиас этого же метода:
+```json
+{
+  "email": "user@example.com",
+  "password": "Str0ng!Pass",
+  "password_confirm": "Str0ng!Pass"
+}
+```
+
+**Ответ `200`:** возвращает обновлённые `user`, `access`, `refresh`.
+
+---
+
+### Генерация ссылки для привязки Telegram
 
 ```
-POST /api/v1/auth/link-telegram/
+POST /api/v1/generate-link/
 Authorization: Bearer <access>
 ```
+
+*(Алиас: `POST /api/v1/link-telegram/`)*
 
 **Ответ `200`:**
 ```json
@@ -217,36 +259,58 @@ Authorization: Bearer <access>
 
 ---
 
-### Завершение регистрации (Telegram → добавить email)
+### Рекомендуемая стратегия авторизации на frontend
 
-```
-POST /api/v1/auth/complete-registration/
-Authorization: Bearer <access>
-Content-Type: application/json
-```
+1. После `login/register/telegram` сохраняйте `access` и `refresh`.
+2. Каждый API-запрос отправляйте с `Authorization: Bearer <access>`.
+3. При `401` на защищённом endpoint: один раз вызовите `/api/v1/refresh/` и повторите исходный запрос.
+4. Если `/api/v1/refresh/` тоже вернул `401/400` — очистите токены и перенаправьте пользователя на экран входа.
+5. При явном выходе пользователя вызывайте `/api/v1/logout/` с `refresh`, затем локально очищайте токены.
 
-```json
-{
-  "email": "user@example.com",
-  "password": "StrongPassword1!"
-}
-```
-
-**Ответ `200`:**
-```json
-{
-  "user": { "id": 1, "email": "user@example.com", "username": "user123" },
-  "access": "<новый JWT access>",
-  "refresh": "<новый JWT refresh>"
-}
-```
-
-> Важно: `complete-registration` требует уже аутентифицированного пользователя (`Bearer access`).
-> Обычно этот access получается на шаге `GET /api/v1/auth/telegram/?token=...`.
+> Важно: access сам по себе не отзывается мгновенно (он истекает по TTL). Logout инвалидирует refresh и блокирует продление сессии.
 
 ---
 
-## Пользователь и профиль
+### Примеры ошибок авторизации
+
+**Неверный логин/пароль (`POST /api/v1/login/`):**
+```json
+{
+  "detail": "No active account found with the given credentials"
+}
+```
+
+**Просроченный/невалидный refresh (`POST /api/v1/refresh/`):**
+```json
+{
+  "detail": "Token is invalid or expired",
+  "code": "token_not_valid"
+}
+```
+
+**Logout без refresh (`POST /api/v1/logout/`):**
+```json
+{
+  "error": {
+    "code": "refresh_required",
+    "message": "Refresh token is required"
+  }
+}
+```
+
+**Logout с невалидным refresh (`POST /api/v1/logout/`):**
+```json
+{
+  "error": {
+    "code": "invalid_refresh_token",
+    "message": "Refresh token is invalid or expired"
+  }
+}
+```
+
+---
+
+## Эндпоинты — Пользователь
 
 ### Текущий пользователь
 
@@ -272,19 +336,19 @@ Authorization: Bearer <access>
 }
 ```
 
-**Поля:**
-
 | Поле | Тип | Описание |
 |------|-----|----------|
-| `id` | int | ID пользователя |
-| `email` | string | Email (зашифрован в БД) |
-| `language` | `"ru"` \| `"en"` | Язык интерфейса |
-| `timezone` | string | Часовой пояс (IANA: `"Europe/Moscow"`) |
-| `is_premium` | bool | Активная premium-подписка |
+| `id` | int | Внутренний ID |
+| `email` | string\|null | Email (зашифрован в БД, возвращается расшифрованным) |
+| `language` | `"ru"` \| `"en"` | Язык пользователя |
+| `timezone` | string | Часовой пояс (IANA) |
+| `is_premium` | bool | Признак активной Premium-подписки |
 | `awareness_level` | int 1–10 | Уровень психологической осознанности |
-| `token_balance` | int | Баланс внутренних токенов |
+| `token_balance` | int | Баланс токенов |
 
 ---
+
+## Эндпоинты — Профиль
 
 ### Компактный профиль
 
@@ -302,9 +366,18 @@ Authorization: Bearer <access>
   "is_premium": false,
   "awareness_level": 3,
   "full_psych_profile_summary": "Человек с высоким уровнем рефлексии...",
-  "compressed_psych_profile": { ... }
+  "compressed_psych_profile": {
+    "psych_summary": "...",
+    "core_patterns": "...",
+    "emotional_style": "...",
+    "main_triggers": "...",
+    "coping_style": "...",
+    "current_focus": "..."
+  }
 }
 ```
+
+Используйте для хедера / аватара / кратких виджетов.
 
 ---
 
@@ -315,22 +388,93 @@ GET /api/v1/profile/full/
 Authorization: Bearer <access>
 ```
 
-Включает все психологические поля (все — read-only, формируются AI):
+Включает все AI-профильные поля (read-only, формируются автоматически):
 
 | Поле | Тип | Описание |
 |------|-----|----------|
-| `personality_traits` | object | Черты личности |
-| `life_facts` | array | Значимые факты из жизни |
-| `hobbies` | array | Увлечения |
-| `core_values` | array | Ключевые ценности |
-| `triggers` | array | Психологические триггеры |
-| `strengths` | array | Сильные стороны |
-| `areas_for_growth` | array | Зоны роста |
-| `habits` | array | Привычки |
-| `skills` | array | Навыки |
-| `aspirations` | array | Стремления |
-| `compressed_psych_profile` | object | Сжатый AI-профиль (для быстрых запросов) |
-| `full_psych_profile` | object | Полный AI-профиль |
+| `id`, `email`, `username`, `first_name`, `last_name` | — | Базовые данные |
+| `language`, `timezone`, `is_premium`, `awareness_level`, `date_of_birth` | — | Настройки |
+| `token_balance`, `created_at` | — | Финансы и дата |
+| `personality_description` | string | Текстовое описание личности |
+| `personality_traits` | object | Черты характера (ключ → значение) |
+| `life_facts` | array[string] | Значимые факты из жизни |
+| `hobbies` | array[string] | Увлечения |
+| `core_values` | array[string] | Ключевые ценности |
+| `triggers` | array[string] | Психологические триггеры |
+| `strengths` | array[string] | Сильные стороны |
+| `areas_for_growth` | array[string] | Зоны роста |
+| `personality_insights` | object | Глубинные инсайты AI |
+| `practical_patterns` | array | Поведенческие паттерны и привычки |
+| `aspirations` | array[string] | Стремления |
+| `compressed_psych_profile` | object | Сжатый AI-профиль |
+| `full_psych_profile` | object | Полный AI-профиль (summary, traits, values и т.д.) |
+
+> Все эти поля **read-only** — заполняет AI. Для редактирования базовых данных используйте `PATCH /profile/`.
+
+---
+
+### Обновление профиля
+
+```
+PATCH /api/v1/profile/<id>/
+Authorization: Bearer <access>
+Content-Type: application/json
+```
+
+*(Для получения `<id>` используйте `GET /api/v1/profile/` — список возвращает текущего пользователя)*
+
+Поддерживаемые обновляемые поля:
+
+| Поле | Тип | Валидация |
+|------|-----|-----------|
+| `first_name` | string | — |
+| `last_name` | string | — |
+| `date_of_birth` | `YYYY-MM-DD` | — |
+| `language` | `"ru"` \| `"en"` | только эти два значения |
+| `timezone` | string | IANA-строка (`"Europe/Moscow"`) |
+| `notifications_enabled` | bool | — |
+| `auto_analysis_enabled` | bool | — |
+| `max_ai_tasks_per_day` | int | 1–10 |
+| `hobbies` | array | — |
+| `life_facts` | array | — |
+
+**Пример:**
+```json
+{
+  "first_name": "Иван",
+  "language": "en",
+  "timezone": "Europe/Berlin",
+  "notifications_enabled": true,
+  "max_ai_tasks_per_day": 3
+}
+```
+
+**Ответ `200`:** полный профиль (`ProfileFullSerializer`).
+
+**Ошибки:**
+```json
+{ "language": ["Допустимые значения: en, ru."] }
+{ "timezone": ["Неверный часовой пояс."] }
+{ "max_ai_tasks_per_day": ["Допустимые значения: от 1 до 10."] }
+```
+
+---
+
+### Реферальная ссылка
+
+```
+GET /api/v1/profile/referral/
+Authorization: Bearer <access>
+```
+
+**Ответ `200`:**
+```json
+{
+  "referral_link": "https://t.me/<bot>?start=ref_<code>",
+  "invited_count": 3,
+  "reward_info": "За каждого приглашённого друга — 50 токенов"
+}
+```
 
 ---
 
@@ -357,18 +501,38 @@ Authorization: Bearer <access>
 
 ---
 
-### История профиля (снимки AI-изменений)
+### История изменений профиля
 
 ```
 GET /api/v1/profile/history/
 Authorization: Bearer <access>
 ```
 
-Возвращает пагинированный список снимков профиля (как менялся AI-профиль со временем).
+Пагинированный список снимков (`UserProfileHistory`) — как менялся AI-профиль со временем.
+
+**Один снимок:**
+```json
+{
+  "id": 15,
+  "created_at": "2026-04-14T09:00:00Z",
+  "awareness_level": 3,
+  "personality_traits": { ... },
+  "life_facts": [ ... ],
+  "hobbies": [ ... ],
+  "core_values": [ ... ],
+  "triggers": [ ... ],
+  "strengths": [ ... ],
+  "areas_for_growth": [ ... ],
+  "personality_insights": { ... },
+  "practical_patterns": [ ... ],
+  "aspirations": [ ... ],
+  "personality_description": "..."
+}
+```
 
 ---
 
-### Токены и транзакции
+### Баланс токенов
 
 ```
 GET /api/v1/profile/tokens/
@@ -384,6 +548,10 @@ Authorization: Bearer <access>
 }
 ```
 
+---
+
+### История транзакций
+
 ```
 GET /api/v1/profile/transactions/
 Authorization: Bearer <access>
@@ -392,17 +560,34 @@ Authorization: Bearer <access>
 ```json
 {
   "token_transactions": [
-    { "id": 1, "amount": 50, "transaction_type": "reward", "description": "...", "created_at": "..." }
+    {
+      "id": 10,
+      "amount": 50,
+      "transaction_type": "streak_reward",
+      "description": "Серия 7 дней",
+      "created_at": "2026-04-14T00:00:00Z"
+    }
   ],
   "payments": [
-    { "id": 1, "amount_rub": 299.0, "status": "succeeded", "tokens_granted": 200, "created_at": "..." }
+    {
+      "id": 3,
+      "yookassa_payment_id": "pay_xxx",
+      "amount_rub": 299.0,
+      "payment_type": "subscription",
+      "tokens_granted": 0,
+      "subscription_days_granted": 30,
+      "status": "succeeded",
+      "created_at": "2026-03-01T10:00:00Z"
+    }
   ]
 }
 ```
 
+`amount` в токенах: положительное — начисление, отрицательное — списание.
+
 ---
 
-## Записи дневника
+## Эндпоинты — Записи дневника
 
 ### Список записей
 
@@ -411,17 +596,17 @@ GET /api/v1/entries/
 Authorization: Bearer <access>
 ```
 
-**Query параметры:**
+**Query-параметры:**
 
 | Параметр | Тип | Описание |
 |----------|-----|----------|
-| `language` | `"ru"` \| `"en"` | Фильтр по языку |
-| `is_processed` | bool | Фильтр по статусу обработки AI |
-| `is_primary` | bool | Только основные записи дня |
+| `language` | `"ru"` \| `"en"` | Фильтр по языку записи |
+| `is_processed` | bool | `true` — только обработанные AI |
+| `is_primary` | bool | `true` — только основные записи дня |
 | `date_from` | `YYYY-MM-DD` | Начало периода |
 | `date_to` | `YYYY-MM-DD` | Конец периода |
-| `ordering` | string | `created_at`, `-created_at`, `word_count`, `-word_count` |
-| `page` | int | Номер страницы (размер страницы: 20) |
+| `ordering` | string | `created_at`, `-created_at` (по умолч.), `word_count`, `-word_count` |
+| `page` | int | Страница (размер 20) |
 
 **Ответ `200`:**
 ```json
@@ -447,6 +632,20 @@ Authorization: Bearer <access>
 }
 ```
 
+**Поля записи:**
+
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `id` | int | ID записи |
+| `text` | string | Текст записи (расшифрованный) |
+| `created_at` | datetime | Время создания (UTC) |
+| `entry_date` | date | Дата записи **в часовом поясе пользователя** |
+| `language` | string | Язык записи |
+| `word_count` | int | Количество слов |
+| `is_processed` | bool | Завершён ли AI-анализ |
+| `is_primary` | bool | Является ли основной записью дня |
+| `user_comment` | string\|null | Комментарий пользователя к анализу |
+
 ---
 
 ### Создать запись
@@ -464,16 +663,122 @@ Content-Type: application/json
 }
 ```
 
-> Throttle: 30 записей/минуту
+> Throttle: 30 запросов/минуту.
+
+**Ответ `201`:** сериализованная запись (без анализа — он асинхронный).
+
+После создания — поллить `GET /api/v1/entries/<id>/analysis/` каждые 2–5 с до `is_processed: true`.
+
+---
+
+### Создать запись с моментальным AI-анализом
+
+```
+POST /api/v1/entries/create_with_analysis/
+Authorization: Bearer <access>
+Content-Type: application/json
+```
+
+```json
+{ "text": "Текст записи..." }
+```
+
+> Время ответа: **5–30 секунд**. Показывайте пользователю прогресс/лоадер.
+
+**Ответ `201`:**
+```json
+{
+  "entry": {
+    "id": 101,
+    "text": "Текст записи...",
+    "entry_date": "2026-04-20",
+    "is_processed": true,
+    ...
+  },
+  "analysis": {
+    "mood_score": 7,
+    "comment": "Запись позитивная с элементами тревоги...",
+    "recommendation": "Попробуйте технику 5-4-3-2-1...",
+    "analysis_text": "Подробный анализ текста..."
+  },
+  "needs_clarification": false,
+  "clarification_questions": []
+}
+```
+
+**Поле `needs_clarification: true`** — AI хочет задать уточняющие вопросы. Список вопросов в `clarification_questions`. Frontend может предложить пользователю ответить на них.
+
+**Ошибка `400`:**
+```json
+{ "error": { "code": "entry_invalid", "message": "Запись слишком короткая или нерелевантна." } }
+```
+
+---
+
+### Подсказка для следующей записи
+
+```
+GET /api/v1/entries/next-prompt/
+Authorization: Bearer <access>
+```
+
+Возвращает сгенерированную AI подсказку на **сегодня**, если она ещё не использована.
+
+**Ответ `200` — подсказка есть:**
+```json
+{
+  "has_prompt": true,
+  "prompt": {
+    "id": 12,
+    "text": "Расскажи, что сегодня дало тебе ощущение контроля над ситуацией?",
+    "target_date": "2026-04-28",
+    "created_at": "2026-04-28T07:00:00Z"
+  }
+}
+```
+
+**Ответ `200` — подсказки нет:**
+```json
+{ "has_prompt": false, "prompt": null }
+```
+
+Подсказки генерируются AI автоматически. Если на текущий день подсказки нет — значит, она ещё не была создана (пользователь недавно зарегистрировался или AI не сгенерировал её в этот день).
+
+---
+
+### Отметить подсказку использованной
+
+```
+POST /api/v1/entries/next-prompt/mark-used/
+Authorization: Bearer <access>
+Content-Type: application/json
+```
+
+```json
+{ "prompt_id": 12 }
+```
+
+Вызывайте после того, как пользователь прочитал подсказку и начал писать запись (или закрыл её). После этого `GET /entries/next-prompt/` вернёт `has_prompt: false` до следующего дня.
+
+**Ответ `200`:**
+```json
+{ "marked_used": true, "prompt_id": 12 }
+```
+
+**Ошибки:**
+- `400 prompt_id_required` — не передан `prompt_id`
+- `404 prompt_not_found` — подсказка не найдена или принадлежит другому пользователю
 
 ---
 
 ### Записи за конкретную дату
 
 ```
-GET /api/v1/entries/date/<YYYY-MM-DD>/
+GET /api/v1/entries/date/2026-04-20/
 Authorization: Bearer <access>
 ```
+
+Возвращает все записи пользователя за указанную дату (по `entry_date`).
 
 ---
 
@@ -490,14 +795,28 @@ Authorization: Bearer <access>
   "entry_id": 101,
   "analysis_id": 55,
   "mood_score": 7,
-  "comment": "Запись содержит признаки тревоги...",
-  "recommendation": "Попробуйте практику дыхания...",
-  "analysis_text": "Подробный анализ записи...",
+  "comment": "Запись отражает спокойное состояние с лёгкой тревогой...",
+  "recommendation": "Обратите внимание на паттерн избегания...",
+  "analysis_text": "Подробный текст AI-анализа...",
   "processing_time": 3.2,
-  "insights_extracted": true,
+  "insights_extracted": 4,
   "created_at": "2026-04-20T10:31:00Z"
 }
 ```
+
+**Ответ `404`** — анализ ещё не готов (или запись не обработана):
+```json
+{ "error": { "code": "analysis_not_found", "message": "Analysis not found for this entry." } }
+```
+
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `mood_score` | int 1–10 | Оценка настроения |
+| `comment` | string | Краткий комментарий AI |
+| `recommendation` | string | Персональная рекомендация |
+| `analysis_text` | string | Развёрнутый текст анализа |
+| `insights_extracted` | int | Количество извлечённых инсайтов |
+| `processing_time` | float | Время обработки в секундах |
 
 ---
 
@@ -517,22 +836,33 @@ Content-Type: application/json
 ```json
 {
   "message": "Comment saved.",
-  "entry": { ...serialized entry... }
+  "entry": { ...полная запись... }
 }
 ```
 
 ---
 
-## Объединённые записи дня (Days)
+### Получить / обновить / удалить запись
 
-Агрегированные записи: одна запись на день + средний mood.
+```
+GET    /api/v1/entries/<id>/
+PUT    /api/v1/entries/<id>/
+PATCH  /api/v1/entries/<id>/
+DELETE /api/v1/entries/<id>/
+```
+
+---
+
+## Эндпоинты — Дни (CombinedDiaryEntry)
+
+Агрегированный объект: один объект = один день. Только чтение.
 
 ```
 GET /api/v1/days/
 Authorization: Bearer <access>
 ```
 
-**Query параметры:** `date_from`, `date_to` (YYYY-MM-DD)
+**Query-параметры:** `date_from`, `date_to` (YYYY-MM-DD), `page`.
 
 **Ответ `200`:**
 ```json
@@ -546,47 +876,57 @@ Authorization: Bearer <access>
       "entries_count": 2,
       "average_mood": 6.5,
       "daily_mood_scores": [6, 7],
-      "created_at": "...",
-      "updated_at": "..."
+      "created_at": "2026-04-20T23:00:00Z",
+      "updated_at": "2026-04-20T23:00:00Z"
     }
   ]
 }
 ```
 
-> Только чтение (GET).
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `date` | date | Дата дня |
+| `entries_count` | int | Количество записей за день |
+| `average_mood` | float | Среднее настроение за день |
+| `daily_mood_scores` | array[int] | Все оценки mood за день |
 
 ---
 
-## Еженедельные анализы
+## Эндпоинты — Еженедельный анализ
+
+Только чтение. Генерируется AI автоматически.
 
 ```
 GET /api/v1/weekly/
+GET /api/v1/weekly/<id>/
 Authorization: Bearer <access>
 ```
 
 **Ответ `200`:**
 ```json
 {
-  "results": [
-    {
-      "id": 10,
-      "user": 1,
-      "week_start_date": "2026-04-14",
-      "summary_text": "На этой неделе наблюдались...",
-      "progress_insights": { ... },
-      "statistics": { ... },
-      "comparison_with_previous": { ... },
-      "created_at": "2026-04-20T08:00:00Z"
-    }
-  ]
+  "id": 10,
+  "user": 1,
+  "week_start_date": "2026-04-14",
+  "summary_text": "Эта неделя была насыщенной эмоционально...",
+  "progress_insights": { "key_insight": "..." },
+  "statistics": { "avg_mood": 6.8, "entries_count": 7 },
+  "comparison_with_previous": { "mood_change": "+0.4" },
+  "created_at": "2026-04-20T08:00:00Z"
 }
 ```
 
-> Только чтение (GET). Генерируются автоматически.
+| Поле | Описание |
+|------|----------|
+| `week_start_date` | Понедельник недели |
+| `summary_text` | Текстовое резюме от AI |
+| `progress_insights` | Ключевые выводы и инсайты |
+| `statistics` | Агрегированная статистика за неделю |
+| `comparison_with_previous` | Сравнение с предыдущей неделей |
 
 ---
 
-## Терапевтические задания
+## Эндпоинты — Задания
 
 ### Список заданий
 
@@ -595,16 +935,16 @@ GET /api/v1/tasks/
 Authorization: Bearer <access>
 ```
 
-**Query параметры:**
+**Query-параметры:**
 
 | Параметр | Значения | Описание |
 |----------|----------|----------|
 | `status` | `pending`, `completed`, `skipped`, `expired` | Фильтр по статусу |
 | `type` | `daily`, `reflection`, `cognitive`, `creative`, `behavioral`, `mindfulness` | Тип задания |
-| `complexity` | string | Сложность |
-| `assigned_from` | `YYYY-MM-DD` | Дата назначения от |
-| `assigned_to` | `YYYY-MM-DD` | Дата назначения до |
-| `completed` | bool | Только выполненные/невыполненные |
+| `complexity` | `low`, `medium`, `high` | Сложность |
+| `assigned_from` | `YYYY-MM-DD` | Назначено от |
+| `assigned_to` | `YYYY-MM-DD` | Назначено до |
+| `completed` | bool | `true` — только с `completed_at`, `false` — только без |
 | `ordering` | `assigned_at`, `-assigned_at`, `completed_at`, `-completed_at` | Сортировка |
 
 **Запись задания:**
@@ -613,32 +953,86 @@ Authorization: Bearer <access>
   "id": 5,
   "user": 1,
   "title": "Утренняя медитация",
-  "description": "5 минут осознанного дыхания...",
+  "description": "5 минут осознанного дыхания перед зеркалом...",
   "type": "mindfulness",
   "status": "pending",
   "assigned_at": "2026-04-20T00:00:00Z",
   "completed_at": null,
-  "complexity": "easy"
+  "complexity": "low"
 }
 ```
 
+**Статусы задания:**
+
+| Статус | Описание |
+|--------|----------|
+| `pending` | Ожидает выполнения (начальный статус) |
+| `completed` | Выполнено |
+| `skipped` | Пропущено пользователем |
+| `expired` | Истёк срок (автоматически) |
+
 ---
 
-### Выполнить задание
+### Завершить задание
 
 ```
 POST /api/v1/tasks/<id>/complete/
 Authorization: Bearer <access>
 ```
 
+**Тело (опционально):**
+```json
+{
+  "completion_text": "Я провёл медитацию утром, это заняло 10 минут.",
+  "feelings_text": "Почувствовал спокойствие и ясность."
+}
+```
+
+Если переданы оба текстовых поля — запускается AI-анализ выполнения (с начислением токенов). Без текстов — просто меняется статус.
+
 **Ответ `200`:**
 ```json
-{ "status": "completed" }
+{
+  "status": "completed",
+  "task": { ...полное задание... }
+}
 ```
 
 ---
 
-### История заданий
+### Пропустить задание
+
+```
+POST /api/v1/tasks/<id>/skip/
+Authorization: Bearer <access>
+```
+
+Допустимо только из статусов `pending` / `in_progress` / `active`.
+
+**Ответ `200`:**
+```json
+{ "status": "skipped", "task": { ... } }
+```
+
+---
+
+### Восстановить пропущенное задание
+
+```
+POST /api/v1/tasks/<id>/restore/
+Authorization: Bearer <access>
+```
+
+Только для задания в статусе `skipped`. Переводит обратно в `active`.
+
+**Ответ `200`:**
+```json
+{ "status": "restored", "task": { ... } }
+```
+
+---
+
+### История задач
 
 ```
 GET /api/v1/tasks/history/
@@ -649,7 +1043,7 @@ Authorization: Bearer <access>
 
 ---
 
-## Прогресс и аналитика
+## Эндпоинты — Прогресс
 
 ### Сводка прогресса
 
@@ -685,6 +1079,42 @@ Authorization: Bearer <access>
 }
 ```
 
+| Поле | Описание |
+|------|----------|
+| `current_streak` | Текущая непрерывная серия дней |
+| `max_streak` | Рекорд за всё время |
+| `active_days_last_30` | Дней с записями за последние 30 дней |
+
+---
+
+### Восстановление серии
+
+```
+POST /api/v1/progress/restore_streak/
+Authorization: Bearer <access>
+Content-Type: application/json
+```
+
+```json
+{ "target_date": "2026-04-18" }
+```
+
+> Требуется наличие токенов у пользователя.
+
+**Ответ `200`:**
+```json
+{
+  "success": true,
+  "message": "Серия восстановлена за 18 апреля.",
+  "updated_date": "2026-04-18"
+}
+```
+
+**Ошибки:**
+- `400 target_date_required` — не передана дата
+- `400 invalid_date_format` — неверный формат (нужен YYYY-MM-DD)
+- `200 success: false` — не хватает токенов или дата недоступна для восстановления
+
 ---
 
 ### График настроения
@@ -708,9 +1138,54 @@ Authorization: Bearer <access>
 ```
 
 **Формат ключа `period`:**
-- `daily` → `"2026-04-20"`
-- `weekly` → `"2026-W16"`
-- `monthly` → `"2026-04"`
+
+| Режим | Формат | Пример |
+|-------|--------|--------|
+| `daily` | `YYYY-MM-DD` | `"2026-04-20"` |
+| `weekly` | `YYYY-WNN` | `"2026-W16"` |
+| `monthly` | `YYYY-MM` | `"2026-04"` |
+
+---
+
+### Активность пользователя
+
+```
+GET /api/v1/progress/activity/
+Authorization: Bearer <access>
+```
+
+```json
+{
+  "summary": {
+    "entry_created": 87,
+    "task_completed": 23,
+    "weekly_analysis": 6
+  },
+  "recent": [
+    {
+      "id": 200,
+      "activity_type": "entry_created",
+      "timestamp": "2026-04-20T10:30:00Z",
+      "metadata": {}
+    }
+  ]
+}
+```
+
+`recent` — последние 20 событий. `summary` — суммарно по типам.
+
+**Типы активности (`activity_type`):**
+
+| Значение | Описание |
+|----------|----------|
+| `entry_created` | Создана запись |
+| `task_completed` | Выполнено задание |
+| `task_skipped` | Пропущено задание |
+| `profile_updated` | Обновлён профиль |
+| `settings_changed` | Изменены настройки |
+| `archive_viewed` | Просмотрен архив |
+| `analysis_viewed` | Просмотрен анализ дня |
+| `entry_comment` | Добавлен комментарий к записи |
 
 ---
 
@@ -721,26 +1196,89 @@ GET /api/v1/progress/weekly/
 Authorization: Bearer <access>
 ```
 
+Алиас `GET /api/v1/weekly/` — возвращает тот же формат WeeklyAnalysis.
+
 ---
 
-### Лента активности
+---
+
+## Эндпоинты — Напоминания
+
+Управление настройками push-уведомлений (доставляются через Telegram-бот).
+
+### Статус напоминаний
 
 ```
-GET /api/v1/progress/activity/
+GET /api/v1/reminders/
 Authorization: Bearer <access>
 ```
 
+**Ответ `200`:**
 ```json
 {
-  "summary": {
-    "diary_entry": 87,
-    "task_completed": 23,
-    "weekly_analysis": 6
-  },
-  "recent": [
-    { "id": 200, "activity_type": "diary_entry", "timestamp": "2026-04-20T10:30:00Z", "metadata": {} }
-  ]
+  "notifications_enabled": true,
+  "auto_analysis_enabled": true,
+  "timezone": "Europe/Moscow"
 }
+```
+
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `notifications_enabled` | bool | Включены ли push-уведомления в Telegram |
+| `auto_analysis_enabled` | bool | Включён ли автоматический AI-анализ |
+| `timezone` | string | Часовой пояс пользователя (IANA) |
+
+---
+
+### Обновить настройки напоминаний
+
+```
+PATCH /api/v1/reminders/
+Authorization: Bearer <access>
+Content-Type: application/json
+```
+
+Оба поля опциональны — передавайте только то, что нужно изменить.
+
+```json
+{
+  "notifications_enabled": false
+}
+```
+
+**Ответ `200`:**
+```json
+{
+  "updated": { "notifications_enabled": false },
+  "notifications_enabled": false,
+  "auto_analysis_enabled": true
+}
+```
+
+**Ошибки:**
+- `400 invalid_value` — переданное значение не булево
+
+> Те же поля (`notifications_enabled`, `auto_analysis_enabled`) доступны через `PATCH /api/v1/profile/<id>/`. Эндпоинт `/reminders/` удобнее для страниц настроек.
+
+---
+
+## Эндпоинты — Обратная связь
+
+```
+POST /api/v1/feedback/
+Authorization: Bearer <access>
+Content-Type: application/json
+```
+
+```json
+{ "message": "Хочу предложить функцию..." }
+```
+
+**Валидация:** длина `message` — от 5 до 4000 символов.
+
+**Ответ `201`:**
+```json
+{ "id": 5, "message": "Обратная связь принята. Спасибо!" }
 ```
 
 ---
@@ -754,25 +1292,32 @@ Authorization: Bearer <access>
   "error": {
     "code": "invalid_token",
     "message": "Token is invalid or expired",
-    "details": { ... }  // опционально
+    "details": {}
   }
 }
 ```
 
-**Типичные коды ошибок:**
+**Типичные коды:**
 
 | HTTP | `code` | Ситуация |
 |------|--------|----------|
-| 400 | `token_required` | Не передан token |
+| 400 | `token_required` | Отсутствует обязательный token |
 | 400 | `invalid_token` | Токен истёк или неверен |
-| 400 | `user_comment_required` | Пустой комментарий |
 | 400 | `invalid_date_format` | Неверный формат даты (нужен YYYY-MM-DD) |
-| 400 | `invalid_period` | Период не из daily/weekly/monthly |
-| 401 | `not_authenticated` | Отсутствует или неверен JWT |
+| 400 | `invalid_period` | Период не `daily`/`weekly`/`monthly` |
+| 400 | `user_comment_required` | Пустой комментарий |
+| 400 | `entry_invalid` | Запись не прошла AI-валидацию |
+| 400 | `text_required` | Поле `text` пустое |
+| 400 | `target_date_required` | Не передан `target_date` |
+| 400 | `task_not_skippable` | Статус задачи не позволяет пропустить |
+| 400 | `task_not_restorable` | Задача не в статусе `skipped` |
+| 401 | `not_authenticated` | Отсутствует или устарел JWT |
 | 403 | `permission_denied` | Нет доступа к ресурсу |
 | 404 | `user_not_found` | Пользователь не найден |
-| 404 | `analysis_not_found` | AI-анализ для записи ещё не создан |
+| 404 | `analysis_not_found` | AI-анализ для записи ещё не готов |
 | 429 | `throttled` | Превышен лимит запросов |
+
+> DRF validation errors (ошибки полей формы) возвращаются без обёртки `"error"`, в формате `{"field_name": ["Сообщение об ошибке."]}`.
 
 ---
 
@@ -780,21 +1325,19 @@ Authorization: Bearer <access>
 
 | Scope | Лимит | Применяется к |
 |-------|-------|---------------|
-| `auth` | 10/минута | register, login, telegram auth |
-| `refresh` | 20/минута | refresh токена |
-| `link_generation` | 6/час | generate-link |
-| `entry_mutation` | 30/минута | POST/PUT/PATCH/DELETE записей |
-| `task_mutation` | 30/минута | POST/PUT/PATCH/DELETE заданий |
-| `monitoring` | 30/минута | GET /monitoring/metrics/ |
-| `monitoring_heavy` | 10/минута | GET /monitoring/prometheus/ |
+| `auth` | **10/мин** | `/register/`, `/login/`, `/telegram/` |
+| `refresh` | **20/мин** | `/refresh/` |
+| `link_generation` | **6/час** | `/generate-link/`, `/link-telegram/` |
+| `entry_mutation` | **30/мин** | POST/PUT/PATCH/DELETE `/entries/` |
+| `task_mutation` | **30/мин** | POST/PUT/PATCH/DELETE `/tasks/` |
+| `monitoring` | **30/мин** | `/monitoring/metrics/` |
+| `monitoring_heavy` | **10/мин** | `/monitoring/prometheus/`, `/monitoring/stats/` |
 
-При превышении лимита — `HTTP 429` с заголовком `Retry-After`.
+При превышении — `HTTP 429` с заголовком `Retry-After`.
 
 ---
 
 ## Пагинация
-
-Все списочные эндпоинты возвращают:
 
 ```json
 {
@@ -805,22 +1348,111 @@ Authorization: Bearer <access>
 }
 ```
 
-Размер страницы: **20 записей**. Управляется параметром `page`.
+Размер страницы: **20** элементов. Параметр: `?page=N`.
 
 ---
 
-## Типы и константы
+## Полный список эндпоинтов
 
-**Языки:** `"ru"` | `"en"`
+### Auth
 
-**Типы заданий:** `daily`, `reflection`, `cognitive`, `creative`, `behavioral`, `mindfulness`
+| Метод | URL | Описание | Auth |
+|-------|-----|----------|------|
+| POST | `/api/v1/register/` | Регистрация | нет |
+| POST | `/api/v1/login/` | Логин по email | нет |
+| POST | `/api/v1/logout/` | Logout + blacklist refresh | да |
+| POST | `/api/v1/refresh/` | Обновление токена | нет |
+| GET | `/api/v1/telegram/?token=` | Auth через Telegram | нет |
+| POST | `/api/v1/complete-registration/` | Добавить email к TG-аккаунту | да |
+| POST | `/api/v1/generate-link/` | Ссылка привязки TG | да |
+| POST | `/api/v1/link-telegram/` | Алиас generate-link | да |
 
-**Статусы заданий:** `pending`, `completed`, `skipped`, `expired`
+### Пользователь
 
-**Типы активности (activity_type):** `diary_entry`, `task_completed`, `weekly_analysis`, и др.
+| Метод | URL | Описание |
+|-------|-----|----------|
+| GET | `/api/v1/users/` | Список (только текущий) |
+| GET | `/api/v1/users/<id>/` | Детали |
+| GET | `/api/v1/users/me/` | Текущий пользователь |
 
-**Уровень осознанности (awareness_level):** целое число 1–10
+### Профиль
 
-**mood_score:** целое число, обычно 1–10
+| Метод | URL | Описание |
+|-------|-----|----------|
+| GET | `/api/v1/profile/` | Compact список (текущий) |
+| GET | `/api/v1/profile/<id>/` | Полный профиль |
+| PUT/PATCH | `/api/v1/profile/<id>/` | Обновление профиля |
+| GET | `/api/v1/profile/full/` | Полный профиль (action) |
+| GET | `/api/v1/profile/compact/` | Компактный профиль |
+| GET | `/api/v1/profile/statistics/` | Статистика |
+| GET | `/api/v1/profile/history/` | История AI-снимков |
+| GET | `/api/v1/profile/tokens/` | Баланс токенов |
+| GET | `/api/v1/profile/transactions/` | История транзакций |
+| GET | `/api/v1/profile/referral/` | Реферальная ссылка |
 
-**Часовые пояса:** строки IANA, например `"Europe/Moscow"`, `"UTC"`, `"America/New_York"`
+### Записи
+
+| Метод | URL | Описание |
+|-------|-----|----------|
+| GET | `/api/v1/entries/` | Список с фильтрами |
+| POST | `/api/v1/entries/` | Создать запись |
+| GET | `/api/v1/entries/<id>/` | Получить запись |
+| PUT/PATCH | `/api/v1/entries/<id>/` | Обновить запись |
+| DELETE | `/api/v1/entries/<id>/` | Удалить запись |
+| GET | `/api/v1/entries/date/<YYYY-MM-DD>/` | Записи за дату |
+| GET | `/api/v1/entries/<id>/analysis/` | AI-анализ записи |
+| POST | `/api/v1/entries/<id>/comment/` | Добавить комментарий |
+| POST | `/api/v1/entries/create_with_analysis/` | Создать + получить анализ синхронно |
+| GET | `/api/v1/entries/next-prompt/` | Подсказка для следующей записи |
+| POST | `/api/v1/entries/next-prompt/mark-used/` | Отметить подсказку использованной |
+
+### Дни
+
+| Метод | URL | Описание |
+|-------|-----|----------|
+| GET | `/api/v1/days/` | Список дней |
+| GET | `/api/v1/days/<id>/` | Детали дня |
+
+### Еженедельные анализы
+
+| Метод | URL | Описание |
+|-------|-----|----------|
+| GET | `/api/v1/weekly/` | Список |
+| GET | `/api/v1/weekly/<id>/` | Детали |
+
+### Задания
+
+| Метод | URL | Описание |
+|-------|-----|----------|
+| GET | `/api/v1/tasks/` | Список с фильтрами |
+| POST | `/api/v1/tasks/` | Создать задание |
+| GET | `/api/v1/tasks/<id>/` | Получить задание |
+| PUT/PATCH | `/api/v1/tasks/<id>/` | Обновить задание |
+| DELETE | `/api/v1/tasks/<id>/` | Удалить задание |
+| POST | `/api/v1/tasks/<id>/complete/` | Выполнить |
+| POST | `/api/v1/tasks/<id>/skip/` | Пропустить |
+| POST | `/api/v1/tasks/<id>/restore/` | Восстановить |
+| GET | `/api/v1/tasks/history/` | История |
+
+### Прогресс
+
+| Метод | URL | Описание |
+|-------|-----|----------|
+| GET | `/api/v1/progress/` | Сводка |
+| GET | `/api/v1/progress/streak/` | Серия |
+| POST | `/api/v1/progress/restore_streak/` | Восстановить серию |
+| GET | `/api/v1/progress/mood/<period>/` | График настроения |
+| GET | `/api/v1/progress/activity/` | Лента активности |
+| GET | `/api/v1/progress/weekly/` | Недельные анализы |
+
+### Прочее
+
+| Метод | URL | Описание |
+|-------|-----|----------|
+| GET/PATCH | `/api/v1/reminders/` | Статус и настройки напоминаний |
+| POST | `/api/v1/feedback/` | Обратная связь |
+| GET | `/api/v1/schema/` | OpenAPI JSON |
+| GET | `/api/v1/docs/` | ReDoc UI |
+
+
+---

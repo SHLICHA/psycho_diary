@@ -285,7 +285,11 @@ async def edit_profile_hobbies(callback: CallbackQuery, state: FSMContext, user,
             user.hobbies = current_hobbies_list
             await user.asave(update_fields=['hobbies'])
             logger.debug(f"Очищены 'remove' элементы из hobbies пользователя {user.telegram_id}")
-        current_hobbies = UserProfileService._format_list_for_display(current_hobbies_list, user.language or 'ru')
+        current_hobbies = UserProfileService._format_list_for_display(
+            current_hobbies_list,
+            user.language or 'ru',
+            max_length=MAX_INLINE_FIELD_LENGTH,
+        )
         await state_manager.set_state(state, SettingsStates.waiting_for_hobbies_input)
         ask_msg = get_message('ask_new_hobbies', language)
         if current_hobbies:
@@ -314,7 +318,11 @@ async def edit_profile_life_facts(callback: CallbackQuery, state: FSMContext, us
             user.life_facts = current_facts_list
             await user.asave(update_fields=['life_facts'])
             logger.debug(f"Очищены 'remove' элементы из life_facts пользователя {user.telegram_id}")
-        current_facts = UserProfileService._format_list_for_display(current_facts_list, user.language or 'ru')
+        current_facts = UserProfileService._format_list_for_display(
+            current_facts_list,
+            user.language or 'ru',
+            max_length=MAX_INLINE_FIELD_LENGTH,
+        )
         await state_manager.set_state(state, SettingsStates.waiting_for_life_facts_input)
         ask_msg = get_message('ask_new_life_facts', language)
         if current_facts:

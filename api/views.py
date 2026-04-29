@@ -50,6 +50,8 @@ from .serializers import (
     MoodTimelineSerializer,
     UserActivityFeedSerializer,
     APIErrorSerializer,
+    ProfileUpdateSerializer,
+    FeedbackSerializer,
 )
 from .error_utils import api_error_response
 from .permissions import MonitoringAccessPermission
@@ -133,11 +135,6 @@ class ProfileViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         return User.objects.filter(id=self.request.user.id).order_by('id')
-    
-    def get_serializer_class(self):
-        if self.action == 'list':
-            return ProfileCompactSerializer
-        return ProfileFullSerializer
     
     @action(detail=False, methods=['get'])
     @extend_schema(
@@ -289,6 +286,56 @@ class ProfileViewSet(viewsets.ModelViewSet):
             {
                 'token_transactions': TokenTransactionSerializer(token_tx, many=True).data,
                 'payments': PaymentSerializer(payments, many=True).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def get_serializer_class(self):
+        if self.action in ('update', 'partial_update'):
+            return ProfileUpdateSerializer
+        if self.action == 'list':
+            return ProfileCompactSerializer
+        return ProfileFullSerializer
+
+    def update(self, request, *args, **kwargs):
+        """Обновление профиля и настроек (PUT)."""
+        return self._do_update(request, partial=False)
+
+    def partial_update(self, request, *args, **kwargs):
+        """Частичное обновление профиля и настроек (PATCH)."""
+        return self._do_update(request, partial=True)
+
+    def _do_update(self, request, partial: bool):
+        serializer = ProfileUpdateSerializer(
+            request.user, data=request.data, partial=partial, context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(ProfileFullSerializer(request.user).data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'])
+    @extend_schema(
+        summary='Реферальная ссылка',
+        description='Возвращает реферальную ссылку текущего пользователя и количество приглашённых.',
+        tags=['Profile'],
+    )
+    def referral(self, request):
+        """Реферальная ссылка пользователя."""
+        from diary.services.user_profile_service import get_referral_link_info
+        import asyncio
+        language = request.user.language or 'ru'
+        result = asyncio.run(get_referral_link_info(request.user, language))
+        if not result.get('success'):
+            return api_error_response(
+                code='referral_error',
+                message=result.get('error', 'Ошибка получения реферальной ссылки'),
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return Response(
+            {
+                'referral_link': result.get('referral_link'),
+                'invited_count': result.get('invited_count', 0),
+                'reward_info': result.get('reward_info'),
             },
             status=status.HTTP_200_OK,
         )
@@ -464,6 +511,58 @@ class ProgressViewSet(viewsets.ViewSet):
             {
                 'summary': summary,
                 'recent': UserActivitySerializer(recent, many=True).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=['post'])
+    @extend_schema(
+        summary='Восстановить серию',
+        description=(
+            'Попытаться восстановить серию за пропущенный день. '
+            'Требуется `target_date` в формате YYYY-MM-DD.'
+        ),
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'target_date': {'type': 'string', 'format': 'date', 'description': 'Дата для восстановления.'},
+                },
+                'required': ['target_date'],
+            }
+        },
+        responses={200: OpenApiResponse(description='Результат восстановления серии.'), 400: APIErrorSerializer, 401: APIErrorSerializer},
+        tags=['Progress'],
+    )
+    def restore_streak(self, request):
+        """Восстановить серию за указанную дату."""
+        from diary.services.progress_service import attempt_streak_restoration, check_restore_streak_availability
+        import asyncio
+        from datetime import date as date_type
+
+        target_date_str = request.data.get('target_date')
+        if not target_date_str:
+            return api_error_response(
+                code='target_date_required',
+                message='Поле target_date обязательно.',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return api_error_response(
+                code='invalid_date_format',
+                message='Неверный формат даты. Используйте YYYY-MM-DD.',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        language = request.user.language or 'ru'
+        result = asyncio.run(attempt_streak_restoration(request.user, target_date, language))
+        return Response(
+            {
+                'success': result.get('success', False),
+                'message': result.get('message'),
+                'updated_date': result.get('updated_date'),
             },
             status=status.HTTP_200_OK,
         )
@@ -667,6 +766,166 @@ class DiaryEntryViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
+    @action(detail=False, methods=['post'], url_path='create_with_analysis')
+    @extend_schema(
+        summary='Создать запись с AI-анализом',
+        description=(
+            'Создаёт запись дневника и синхронно запускает AI-анализ. '
+            'Возвращает запись + результаты анализа (mood_score, comment, recommendation). '
+            'Время ответа: 5–30 сек в зависимости от скорости AI.'
+        ),
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'text': {'type': 'string', 'description': 'Текст записи.'},
+                },
+                'required': ['text'],
+            }
+        },
+        responses={
+            201: OpenApiResponse(description='Запись создана, анализ завершён.'),
+            400: APIErrorSerializer,
+            401: APIErrorSerializer,
+        },
+        tags=['Entries'],
+    )
+    def create_with_analysis(self, request):
+        """Создать запись дневника и получить AI-анализ синхронно."""
+        from bot.services.diary_service import diary_service as _diary_service
+        import asyncio
+
+        text = (request.data.get('text') or '').strip()
+        if not text:
+            return api_error_response(
+                code='text_required',
+                message='Поле text обязательно.',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        language = request.user.language or 'ru'
+
+        response = asyncio.run(
+            _diary_service.process_new_entry_use_case(
+                user=request.user,
+                entry_text=text,
+                language=language,
+                entry_datetime=None,
+            )
+        )
+
+        if not response.success:
+            data = response.data or {}
+            return api_error_response(
+                code='entry_invalid',
+                message=data.get('error_message') or response.message or 'Запись не прошла валидацию.',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        result = response.data or {}
+        entry = result.get('entry')
+        analysis_obj = result.get('analysis')
+
+        entry_serializer = self.get_serializer(entry)
+        analysis_data = None
+        if analysis_obj:
+            analysis_data = {
+                'mood_score': analysis_obj.mood_score,
+                'comment': analysis_obj.comment,
+                'recommendation': analysis_obj.recommendation,
+                'analysis_text': analysis_obj.analysis_text,
+            }
+
+        return Response(
+            {
+                'entry': entry_serializer.data,
+                'analysis': analysis_data,
+                'needs_clarification': result.get('needs_clarification', False),
+                'clarification_questions': result.get('clarification_questions', []),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=False, methods=['get'], url_path='next-prompt')
+    @extend_schema(
+        summary='Подсказка для следующей записи',
+        description=(
+            'Возвращает активную (неиспользованную) подсказку на сегодня, '
+            'если она была сгенерирована AI. Если подсказки нет — `has_prompt: false`.'
+        ),
+        responses={
+            200: OpenApiResponse(description='Подсказка найдена или отсутствует.'),
+            401: APIErrorSerializer,
+        },
+        tags=['Entries'],
+    )
+    def next_prompt(self, request):
+        """Получить подсказку для следующей записи дневника (сегодня)."""
+        from diary.models import NextEntryPrompt
+        today = date.today()
+        prompt = NextEntryPrompt.objects.filter(
+            user=request.user,
+            target_date=today,
+            is_used=False,
+        ).order_by('-created_at').first()
+
+        if not prompt:
+            return Response({'has_prompt': False, 'prompt': None}, status=status.HTTP_200_OK)
+
+        return Response(
+            {
+                'has_prompt': True,
+                'prompt': {
+                    'id': prompt.id,
+                    'text': prompt.prompt_text,
+                    'target_date': prompt.target_date.isoformat(),
+                    'created_at': prompt.created_at,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=['post'], url_path='next-prompt/mark-used')
+    @extend_schema(
+        summary='Отметить подсказку использованной',
+        description='Помечает подсказку с указанным `prompt_id` как использованную.',
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'prompt_id': {'type': 'integer', 'description': 'ID подсказки'},
+                },
+                'required': ['prompt_id'],
+            }
+        },
+        responses={
+            200: OpenApiResponse(description='Подсказка помечена использованной.'),
+            400: APIErrorSerializer,
+            404: APIErrorSerializer,
+        },
+        tags=['Entries'],
+    )
+    def mark_prompt_used(self, request):
+        """Отметить подсказку как использованную."""
+        from diary.models import NextEntryPrompt
+        prompt_id = request.data.get('prompt_id')
+        if not prompt_id:
+            return api_error_response(
+                code='prompt_id_required',
+                message='Поле prompt_id обязательно.',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            prompt = NextEntryPrompt.objects.get(id=prompt_id, user=request.user)
+        except NextEntryPrompt.DoesNotExist:
+            return api_error_response(
+                code='prompt_not_found',
+                message='Подсказка не найдена.',
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        prompt.mark_as_used()
+        return Response({'marked_used': True, 'prompt_id': prompt.id}, status=status.HTTP_200_OK)
+
 
 @extend_schema_view(
     list=extend_schema(
@@ -801,16 +1060,108 @@ class TherapyTaskViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     @extend_schema(
         summary='Завершить задачу',
-        description='Переводит задачу в статус completed и проставляет completed_at.',
+        description=(
+            'Переводит задачу в статус completed. '
+            'Принимает опциональные `completion_text` и `feelings_text` для запуска AI-анализа выполнения.'
+        ),
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'completion_text': {'type': 'string', 'description': 'Описание того, что было сделано.'},
+                    'feelings_text': {'type': 'string', 'description': 'Описание ощущений после выполнения.'},
+                },
+            }
+        },
         tags=['Tasks'],
     )
     def complete(self, request, pk: int | None = None):
-        """Отметить задание как выполненное."""
+        """Отметить задание как выполненное, опционально с текстом выполнения."""
         task = self.get_object()
-        task.status = 'completed'
-        task.completed_at = timezone.now()
-        task.save()
-        return Response({'status': 'completed'})
+        completion_text = (request.data.get('completion_text') or '').strip()
+        feelings_text = (request.data.get('feelings_text') or '').strip()
+
+        if completion_text and feelings_text:
+            from diary.services.task_management_service import TaskManagementService
+            import asyncio
+            result = asyncio.run(
+                TaskManagementService.complete_task(
+                    task_id=task.id,
+                    user=request.user,
+                    completion_text=completion_text,
+                    feelings_text=feelings_text,
+                )
+            )
+            if not result or not result.get('success'):
+                return api_error_response(
+                    code='task_complete_error',
+                    message=result.get('error', 'Ошибка при завершении задания') if result else 'Ошибка при завершении задания',
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            task.status = 'completed'
+            task.completed_at = timezone.now()
+            task.save(update_fields=['status', 'completed_at'])
+
+        task.refresh_from_db()
+        serializer = self.get_serializer(task)
+        return Response({'status': 'completed', 'task': serializer.data})
+
+    @action(detail=True, methods=['post'])
+    @extend_schema(
+        summary='Пропустить задачу',
+        description='Переводит задачу в статус skipped.',
+        tags=['Tasks'],
+    )
+    def skip(self, request, pk: int | None = None):
+        """Пропустить задание."""
+        task = self.get_object()
+        if task.status not in ('pending', 'in_progress', 'active'):
+            return api_error_response(
+                code='task_not_skippable',
+                message='Задание не может быть пропущено в текущем статусе.',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        from diary.services.task_management_service import TaskManagementService
+        import asyncio
+        success = asyncio.run(TaskManagementService.skip_task(task_id=task.id, user=request.user))
+        if not success:
+            return api_error_response(
+                code='task_skip_error',
+                message='Не удалось пропустить задание.',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        task.refresh_from_db()
+        serializer = self.get_serializer(task)
+        return Response({'status': 'skipped', 'task': serializer.data})
+
+    @action(detail=True, methods=['post'])
+    @extend_schema(
+        summary='Восстановить пропущенную задачу',
+        description='Переводит задачу из статуса skipped обратно в active.',
+        tags=['Tasks'],
+    )
+    def restore(self, request, pk: int | None = None):
+        """Восстановить пропущенное задание."""
+        task = self.get_object()
+        if task.status != 'skipped':
+            return api_error_response(
+                code='task_not_restorable',
+                message='Восстановить можно только пропущенное задание.',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        from diary.services.task_management_service import TaskManagementService
+        import asyncio
+        success = asyncio.run(TaskManagementService.restore_task(task_id=task.id, user=request.user))
+        if not success:
+            return api_error_response(
+                code='task_restore_error',
+                message='Не удалось восстановить задание.',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        task.refresh_from_db()
+        serializer = self.get_serializer(task)
+        return Response({'status': 'restored', 'task': serializer.data})
 
     @action(detail=False, methods=['get'])
     @extend_schema(
@@ -840,6 +1191,8 @@ class TherapyTaskViewSet(viewsets.ModelViewSet):
 
 from rest_framework import generics
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError
 from django.conf import settings
 
 from users.services.auth_token_service import (
@@ -1059,6 +1412,130 @@ class LoginView(TokenObtainPairView):
         return super().post(request, *args, **kwargs)
 
 
+class LogoutView(APIView):
+    """
+    Выход пользователя из сессии.
+    POST /api/v1/logout/
+    """
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [AuthRateThrottle]
+
+    @extend_schema(
+        summary='Logout (инвалидация refresh токена)',
+        description='Добавляет refresh токен в blacklist. После этого refresh больше нельзя использовать.',
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'refresh': {'type': 'string', 'description': 'Refresh JWT token.'},
+                },
+                'required': ['refresh'],
+            }
+        },
+        responses={
+            200: OpenApiResponse(description='Успешный logout.'),
+            400: APIErrorSerializer,
+            401: APIErrorSerializer,
+        },
+        tags=['Auth'],
+    )
+    def post(self, request):
+        refresh_token = request.data.get('refresh')
+        if not refresh_token:
+            return api_error_response(
+                code='refresh_required',
+                message='Refresh token is required',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+        except TokenError:
+            return api_error_response(
+                code='invalid_refresh_token',
+                message='Refresh token is invalid or expired',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response({'detail': 'Logged out successfully.'}, status=status.HTTP_200_OK)
+
+
+class RemindersView(APIView):
+    """
+    GET  — текущие настройки напоминаний.
+    PATCH — обновить notifications_enabled / auto_analysis_enabled.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary='Статус напоминаний',
+        description=(
+            'Возвращает текущие настройки напоминаний пользователя: '
+            '`notifications_enabled` (push в Telegram), `auto_analysis_enabled`.'
+        ),
+        responses={200: OpenApiResponse(description='Настройки напоминаний.')},
+        tags=['Reminders'],
+    )
+    def get(self, request):
+        user = request.user
+        return Response(
+            {
+                'notifications_enabled': user.notifications_enabled,
+                'auto_analysis_enabled': user.auto_analysis_enabled,
+                'timezone': user.timezone,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        summary='Обновить настройки напоминаний',
+        description=(
+            'Обновляет `notifications_enabled` и/или `auto_analysis_enabled`. '
+            'Оба поля опциональны — передавайте только те, которые нужно изменить.'
+        ),
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'notifications_enabled': {'type': 'boolean', 'description': 'Включить push-уведомления в Telegram'},
+                    'auto_analysis_enabled': {'type': 'boolean', 'description': 'Включить автоматический AI-анализ'},
+                },
+            }
+        },
+        responses={
+            200: OpenApiResponse(description='Настройки обновлены.'),
+            400: APIErrorSerializer,
+        },
+        tags=['Reminders'],
+    )
+    def patch(self, request):
+        user = request.user
+        allowed_fields = {'notifications_enabled', 'auto_analysis_enabled'}
+        updated = {}
+        for field in allowed_fields:
+            if field in request.data:
+                value = request.data[field]
+                if not isinstance(value, bool):
+                    return api_error_response(
+                        code='invalid_value',
+                        message=f'Поле {field} должно быть булевым.',
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+                setattr(user, field, value)
+                updated[field] = value
+        if updated:
+            user.save(update_fields=list(updated.keys()))
+        return Response(
+            {
+                'updated': updated,
+                'notifications_enabled': user.notifications_enabled,
+                'auto_analysis_enabled': user.auto_analysis_enabled,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class MonitoringSnapshotView(APIView):
     """Read-only endpoint для snapshot системных метрик мониторинга."""
     serializer_class = MonitoringSnapshotSerializer
@@ -1174,3 +1651,41 @@ class RefreshView(TokenRefreshView):
 
     permission_classes = []
     throttle_classes = [RefreshRateThrottle]
+
+
+class FeedbackView(APIView):
+    """
+    Отправка обратной связи от пользователя.
+    POST /api/v1/feedback/
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary='Отправить обратную связь',
+        description='Создаёт запись обратной связи от текущего пользователя.',
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'message': {'type': 'string', 'description': 'Текст обращения (5–4000 символов).'},
+                },
+                'required': ['message'],
+            }
+        },
+        responses={
+            201: OpenApiResponse(description='Обратная связь принята.'),
+            400: APIErrorSerializer,
+            401: APIErrorSerializer,
+        },
+        tags=['Feedback'],
+    )
+    def post(self, request):
+        """Принять обратную связь от пользователя."""
+        serializer = FeedbackSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        feedback = serializer.create(serializer.validated_data)
+        return Response(
+            {'id': feedback.id, 'message': 'Обратная связь принята. Спасибо!'},
+            status=status.HTTP_201_CREATED,
+        )
+

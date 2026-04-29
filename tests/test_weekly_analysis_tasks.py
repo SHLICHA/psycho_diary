@@ -32,7 +32,7 @@ class TestWeeklyAnalysisTasks:
         cleanup_result = {
             'success': True,
             'changed': True,
-            'changed_fields': ['triggers', 'skills'],
+            'changed_fields': ['triggers', 'practical_patterns'],
             'changed_fields_count': 2,
             'removed_items': 2,
             'stale_items': 4,

@@ -120,7 +120,7 @@ class TestProfileCleanupService:
         user = baker.make(
             User,
             telegram_id=300003,
-            habits=[
+            practical_patterns=[
                 {
                     "value": "дневник",
                     "weight": 0.8,

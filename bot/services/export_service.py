@@ -103,18 +103,11 @@ async def generate_user_docx(user: User) -> str:
             doc.add_paragraph(f'• {insight_key}: {insight_value}')
         doc.add_paragraph()
 
-    # Привычки
-    if user.habits:
-        doc.add_heading('Привычки', level=2)
-        for habit in user.habits:
-            doc.add_paragraph(f'• {habit}')
-        doc.add_paragraph()
-
-    # Навыки
-    if user.skills:
-        doc.add_heading('Навыки', level=2)
-        for skill in user.skills:
-            doc.add_paragraph(f'• {skill}')
+    # Привычки и навыки
+    if user.practical_patterns:
+        doc.add_heading('Привычки и навыки', level=2)
+        for pattern in user.practical_patterns:
+            doc.add_paragraph(f'• {pattern}')
         doc.add_paragraph()
 
     # Стремления

@@ -14,8 +14,7 @@
     python manage.py migrate_profile_field --field=core_values
     python manage.py migrate_profile_field --field=strengths
     python manage.py migrate_profile_field --field=areas_for_growth
-    python manage.py migrate_profile_field --field=habits
-    python manage.py migrate_profile_field --field=skills
+    python manage.py migrate_profile_field --field=practical_patterns
     python manage.py migrate_profile_field --field=aspirations
 """
 
@@ -34,8 +33,7 @@ SUPPORTED_FIELDS = [
     'core_values',
     'strengths',
     'areas_for_growth',
-    'habits',
-    'skills',
+    'practical_patterns',
     'aspirations',
 ]
 
@@ -102,7 +100,7 @@ class Command(BaseCommand):
             '--field',
             type=str,
             required=True,
-            help='Имя поля для миграции (triggers, life_facts, hobbies, core_values, strengths, areas_for_growth, habits, skills, aspirations)'
+            help='Имя поля для миграции (triggers, life_facts, hobbies, core_values, strengths, areas_for_growth, practical_patterns, aspirations)'
         )
         parser.add_argument('--dry-run', action='store_true', help='Тестовый прогон без сохранения')
         parser.add_argument('--check', action='store_true', help='Только проверить статус миграции')
@@ -117,7 +115,7 @@ class Command(BaseCommand):
         limit = options['limit']
 
         # Валидация поля
-        valid_fields = ['triggers', 'life_facts', 'hobbies', 'core_values', 'strengths', 'areas_for_growth', 'habits', 'skills', 'aspirations']
+        valid_fields = ['triggers', 'life_facts', 'hobbies', 'core_values', 'strengths', 'areas_for_growth', 'practical_patterns', 'aspirations']
         if field_name not in valid_fields:
             self.stdout.write(self.style.ERROR(f'❌ Неподдерживаемое поле: {field_name}'))
             self.stdout.write(self.style.INFO(f'Доступные поля: {", ".join(valid_fields)}'))
