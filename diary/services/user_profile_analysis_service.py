@@ -5,7 +5,7 @@
 
 import logging
 import asyncio
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone as dt_timezone
 from typing import Dict, Any, Optional, List
 import json
 import re
@@ -29,6 +29,7 @@ from core.profile_field_utils import (
     normalize_compressed_profile_for_prompt,
 )
 from diary.services.compressed_profile_service import compressed_profile_service
+from diary.services.profile_cluster_service import local_profile_cluster_service
 
 logger = logging.getLogger(__name__)
 
@@ -192,12 +193,52 @@ class UserProfileAnalysisService:
                 'cleaned_items': prepared_items,
             }
 
-        # no-op по умолчанию — поле не меняется при любой ошибке
-        cleaned_items = prepared_items
-        used_fallback = False
-        error_text: Optional[str] = None
-        ai_success = False
+        try:
+            local_result = await sync_to_async(local_profile_cluster_service.cluster_items)(
+                prepared_items,
+                field_name=field_name,
+            )
+            cleaned_items = local_result.get('cleaned_items') or []
+            if not isinstance(cleaned_items, list):
+                raise ValueError('local_cluster_payload_invalid')
 
+            # Локальный путь не должен раздувать список относительно входа.
+            if len(cleaned_items) > len(prepared_items):
+                raise ValueError(
+                    f'local_cluster_growth_rejected: local={len(cleaned_items)} > before={len(prepared_items)}'
+                )
+
+            cleaned_items = self._normalize_cleaned_items(cleaned_items, prepared_items)
+            return {
+                'field_name': field_name,
+                'updated': cleaned_items != prepared_items,
+                'used_fallback': False,
+                'error': None,
+                'cleaned_items': cleaned_items,
+            }
+
+        except Exception as cleanup_error:
+            logger.warning(
+                f"[UserProfileAnalysisService] Local pre-cleanup failed for '{field_name}', falling back to DeepSeek: {cleanup_error}"
+            )
+            return await self._precleanup_single_field_with_deepseek(
+                field_name=field_name,
+                prepared_items=prepared_items,
+                language=language,
+                semaphore=semaphore,
+                error_text=str(cleanup_error),
+            )
+
+    async def _precleanup_single_field_with_deepseek(
+        self,
+        *,
+        field_name: str,
+        prepared_items: List[Dict[str, Any]],
+        language: str,
+        semaphore: asyncio.Semaphore,
+        error_text: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Fallback pre-cleanup через DeepSeek, если локальная кластеризация недоступна."""
         try:
             field_items_json = json.dumps(
                 prepared_items,
@@ -228,32 +269,31 @@ class UserProfileAnalysisService:
             if not ai_items:
                 raise ValueError('cleanup_payload_empty')
 
-            # Sanity-check: AI не должен увеличивать количество элементов
             if len(ai_items) > len(prepared_items):
                 raise ValueError(
                     f'cleanup_growth_rejected: ai={len(ai_items)} > before={len(prepared_items)}'
                 )
 
-            # Replace: используем только нормализованный результат AI, без union с baseline
             cleaned_items = self._normalize_cleaned_items(ai_items, prepared_items)
-            ai_success = True
+            return {
+                'field_name': field_name,
+                'updated': cleaned_items != prepared_items,
+                'used_fallback': True,
+                'error': error_text,
+                'cleaned_items': cleaned_items,
+            }
 
         except Exception as cleanup_error:
-            # no-op: при любой ошибке оставляем поле как было
-            used_fallback = True
-            error_text = str(cleanup_error)
-            cleaned_items = prepared_items
             logger.warning(
-                f"[UserProfileAnalysisService] Pre-cleanup no-op для '{field_name}': {cleanup_error}"
+                f"[UserProfileAnalysisService] Pre-cleanup no-op for '{field_name}': {cleanup_error}"
             )
-
-        return {
-            'field_name': field_name,
-            'updated': ai_success and cleaned_items != prepared_items,
-            'used_fallback': used_fallback,
-            'error': error_text,
-            'cleaned_items': cleaned_items,
-        }
+            return {
+                'field_name': field_name,
+                'updated': False,
+                'used_fallback': True,
+                'error': str(cleanup_error),
+                'cleaned_items': prepared_items,
+            }
 
     def _normalize_cleaned_items(
         self,
@@ -263,12 +303,9 @@ class UserProfileAnalysisService:
         """
         Нормализует AI-результат очистки поля перед replace:
         - Конвертирует в weighted-формат через convert_to_weighted_format.
-        - Сохраняет added_at из оригинала для совпадающих по canonical-ключу значений
-          (чтобы не терять историю).
-        - Проставляет last_seen = сегодня для всех элементов.
+        - Сохраняет историю дат: added_at=min, last_seen=max между
+          исходными и очищенными элементами для совпадающих canonical-ключей.
         """
-        from django.utils import timezone
-
         original_by_canonical: Dict[str, Dict[str, Any]] = {}
         for item in original_items:
             key = self._canonical_key(str(item.get('value', '')))
@@ -280,13 +317,83 @@ class UserProfileAnalysisService:
         for item in convert_to_weighted_format(ai_items):
             key = self._canonical_key(str(item.get('value', '')))
             orig = original_by_canonical.get(key)
+
+            orig_added_at = orig.get('added_at') if orig else None
+            orig_last_seen = orig.get('last_seen') if orig else None
+            item_added_at = item.get('added_at')
+            item_last_seen = item.get('last_seen')
+
+            merged_added_at = self._pick_datetime_value(
+                values=[orig_added_at, item_added_at],
+                strategy='min',
+            )
+            merged_last_seen = self._pick_datetime_value(
+                values=[orig_last_seen, item_last_seen],
+                strategy='max',
+            )
+
             if orig:
-                item['added_at'] = orig.get('added_at') or item.get('added_at') or today
+                item['added_at'] = merged_added_at or orig_added_at or item_added_at or today
             else:
-                item.setdefault('added_at', today)
-            item['last_seen'] = today
+                item['added_at'] = merged_added_at or item_added_at or today
+
+            item['last_seen'] = merged_last_seen or orig_last_seen or item_last_seen or today
             result.append(item)
         return result
+
+    def _pick_datetime_value(self, values: List[Any], strategy: str) -> Optional[str]:
+        """
+        Возвращает ISO-дату по стратегии min/max среди валидных datetime значений.
+
+        strategy:
+        - min: самое раннее значение
+        - max: самое позднее значение
+        """
+        normalized: List[datetime] = []
+        for raw in values:
+            parsed = self._parse_datetime(raw)
+            if parsed is not None:
+                normalized.append(parsed)
+
+        if not normalized:
+            return None
+
+        if strategy == 'min':
+            return min(normalized).isoformat()
+        if strategy == 'max':
+            return max(normalized).isoformat()
+        raise ValueError(f"Unknown datetime pick strategy: {strategy}")
+
+    def _parse_datetime(self, value: Any) -> Optional[datetime]:
+        """Преобразует дату/датавремя в timezone-aware datetime (UTC)."""
+        if value is None:
+            return None
+
+        parsed: Optional[datetime] = None
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, date):
+            parsed = datetime.combine(value, datetime.min.time())
+        elif isinstance(value, str):
+            raw = value.strip()
+            if not raw:
+                return None
+            try:
+                parsed = datetime.fromisoformat(raw.replace('Z', '+00:00'))
+            except ValueError:
+                try:
+                    parsed_date = date.fromisoformat(raw)
+                    parsed = datetime.combine(parsed_date, datetime.min.time())
+                except ValueError:
+                    return None
+        else:
+            return None
+
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=dt_timezone.utc)
+        else:
+            parsed = parsed.astimezone(dt_timezone.utc)
+        return parsed
 
     def _canonical_key(self, value: str) -> str:
         """Canonical-ключ для нечёткого сопоставления значений."""

@@ -57,6 +57,11 @@ services:
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
       - LOG_LEVEL=${LOG_LEVEL}
+      - SENTENCE_TRANSFORMERS_MODEL_NAME=${SENTENCE_TRANSFORMERS_MODEL_NAME:-ai-forever/sbert_large_nlu_ru}
+      - SENTENCE_TRANSFORMERS_DEVICE=${SENTENCE_TRANSFORMERS_DEVICE:-cpu}
+      - SENTENCE_TRANSFORMERS_HOME=${SENTENCE_TRANSFORMERS_HOME:-/app/.cache/sentence-transformers}
+      - HF_HOME=${HF_HOME:-/app/.cache/huggingface}
+      - TRANSFORMERS_CACHE=${TRANSFORMERS_CACHE:-/app/.cache/huggingface/transformers}
     depends_on:
       db:
         condition: service_healthy
@@ -84,6 +89,11 @@ services:
       - REDIS_PORT=${REDIS_PORT}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+      - SENTENCE_TRANSFORMERS_MODEL_NAME=${SENTENCE_TRANSFORMERS_MODEL_NAME:-ai-forever/sbert_large_nlu_ru}
+      - SENTENCE_TRANSFORMERS_DEVICE=${SENTENCE_TRANSFORMERS_DEVICE:-cpu}
+      - SENTENCE_TRANSFORMERS_HOME=${SENTENCE_TRANSFORMERS_HOME:-/app/.cache/sentence-transformers}
+      - HF_HOME=${HF_HOME:-/app/.cache/huggingface}
+      - TRANSFORMERS_CACHE=${TRANSFORMERS_CACHE:-/app/.cache/huggingface/transformers}
     depends_on:
       db:
         condition: service_healthy
@@ -113,6 +123,11 @@ services:
       - REDIS_PORT=${REDIS_PORT}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+      - SENTENCE_TRANSFORMERS_MODEL_NAME=${SENTENCE_TRANSFORMERS_MODEL_NAME:-ai-forever/sbert_large_nlu_ru}
+      - SENTENCE_TRANSFORMERS_DEVICE=${SENTENCE_TRANSFORMERS_DEVICE:-cpu}
+      - SENTENCE_TRANSFORMERS_HOME=${SENTENCE_TRANSFORMERS_HOME:-/app/.cache/sentence-transformers}
+      - HF_HOME=${HF_HOME:-/app/.cache/huggingface}
+      - TRANSFORMERS_CACHE=${TRANSFORMERS_CACHE:-/app/.cache/huggingface/transformers}
     depends_on:
       db:
         condition: service_healthy
@@ -142,6 +157,11 @@ services:
       - REDIS_PORT=${REDIS_PORT}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+      - SENTENCE_TRANSFORMERS_MODEL_NAME=${SENTENCE_TRANSFORMERS_MODEL_NAME:-ai-forever/sbert_large_nlu_ru}
+      - SENTENCE_TRANSFORMERS_DEVICE=${SENTENCE_TRANSFORMERS_DEVICE:-cpu}
+      - SENTENCE_TRANSFORMERS_HOME=${SENTENCE_TRANSFORMERS_HOME:-/app/.cache/sentence-transformers}
+      - HF_HOME=${HF_HOME:-/app/.cache/huggingface}
+      - TRANSFORMERS_CACHE=${TRANSFORMERS_CACHE:-/app/.cache/huggingface/transformers}
     depends_on:
       db:
         condition: service_healthy

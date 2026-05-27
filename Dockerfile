@@ -7,6 +7,11 @@ ARG DEBIAN_FRONTEND=noninteractive
 # Установка переменных окружения
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV SENTENCE_TRANSFORMERS_MODEL_NAME=ai-forever/sbert_large_nlu_ru
+ENV SENTENCE_TRANSFORMERS_DEVICE=cpu
+ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache/sentence-transformers
+ENV HF_HOME=/app/.cache/huggingface
+ENV TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers
 
 # Установка зависимостей системы
 RUN apt-get update \
@@ -20,6 +25,7 @@ RUN apt-get update \
 
 # Создание рабочей директории
 WORKDIR /app
+RUN mkdir -p /app/.cache/sentence-transformers /app/.cache/huggingface/transformers
 
 # Копирование requirements.txt и установка зависимостей Python
 COPY ./requirements.txt /app/requirements.txt
