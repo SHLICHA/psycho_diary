@@ -19,6 +19,8 @@ from bot.middlewares.rate_limit_middleware import RateLimitMiddleware
 from bot.middlewares.premium_check_middleware import PremiumCheckMiddleware
 from bot.middlewares.analytics_middleware import AnalyticsMiddleware
 from bot.bot_instance import bot
+from bot.transports.max.runtime import MaxTransportCoordinator
+from django.conf import settings
 
 async def log_update_middleware(handler, event, data):
     """
@@ -118,6 +120,14 @@ async def main():
     state_manager.set_bot(bot)
     logger.info("Bot instance передан в state_manager")    
     
+    max_runtime_stop_event = asyncio.Event()
+    max_runtime_task = None
+
+    if getattr(settings, 'MAX_TRANSPORT_ENABLED', False):
+        max_runtime_coordinator = MaxTransportCoordinator()
+        max_runtime_task = asyncio.create_task(max_runtime_coordinator.run(max_runtime_stop_event))
+        logger.info("MAX runtime coordinator запущен в фоне")
+
     try:
         logger.info("=" * 60)
         logger.info("ЗАПУСК POLLING")
@@ -130,6 +140,14 @@ async def main():
     except Exception as e:
         logger.error(f"✗ Bot остановлен с ошибкой: {e}", exc_info=True)
     finally:
+        if max_runtime_task is not None:
+            max_runtime_stop_event.set()
+            try:
+                await asyncio.wait_for(max_runtime_task, timeout=5)
+            except asyncio.TimeoutError:
+                max_runtime_task.cancel()
+                await asyncio.gather(max_runtime_task, return_exceptions=True)
+
         logger.info("Bot shutdown завершен")
 
 if __name__ == "__main__":

@@ -37,6 +37,10 @@ class TestBotMain:
         """Проверка существования management команды"""
         assert os.path.exists('core/management/commands/runbot.py'), \
             "Management command file should exist"
+        assert os.path.exists('core/management/commands/runmaxbot.py'), \
+            "MAX management command file should exist"
+        assert os.path.exists('core/management/commands/check_max_bot_config.py'), \
+            "MAX preflight command file should exist"
     
     def test_main_file_syntax(self):
         """Проверка синтаксиса основного файла"""

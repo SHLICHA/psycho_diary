@@ -24,6 +24,7 @@ from bot.utils.message_utils import safe_edit_message_text
 from bot.utils.callback_utils import safe_answer_callback
 from bot.utils.state_manager import state_manager
 from diary.services.main_menu_service import build_main_menu_data
+from diary.services.user_service import resolve_web_link_target, link_telegram_identity
 from diary.services.settings_service import get_timezone_info
 from users.services.auth_token_service import create_telegram_auth_token, validate_web_link_token
 from users.models import User
@@ -89,33 +90,22 @@ async def cmd_start_link(message: Message, user, language: str, state: FSMContex
             await message.answer(get_message('web_link_expired', language))
             return
 
-        # Получаем web-пользователя
-        try:
-            web_user = await User.objects.aget(id=web_user_id)
-        except User.DoesNotExist:
+        # Единая policy проверки identity-linking.
+        web_user, link_error = await resolve_web_link_target(web_user_id, user.telegram_id)
+        if link_error == 'web_user_not_found':
             await message.answer(get_message('error_generic', language))
             return
 
-        # Проверяем, не привязан ли уже этот telegram_id
-        existing_user = None
-        try:
-            existing_user = await User.objects.aget(telegram_id=user.telegram_id)
-        except User.DoesNotExist:
-            pass
-
-        if existing_user and existing_user.id != web_user.id:
-            # Telegram уже привязан к другому аккаунту
+        if link_error == 'telegram_already_linked':
             await message.answer(get_message('web_link_telegram_already_linked', language))
             return
 
-        # Проверяем, не привязан ли уже другой telegram_id к этому web-аккаунту
-        if web_user.telegram_id and web_user.telegram_id != user.telegram_id:
+        if link_error == 'account_already_linked':
             await message.answer(get_message('web_link_account_already_linked', language))
             return
 
-        # Привязываем telegram_id к web-аккаунту
-        web_user.telegram_id = user.telegram_id
-        await web_user.asave()
+        # Привязываем telegram_id к web-аккаунту (idempotent).
+        await link_telegram_identity(web_user, user.telegram_id)
 
         logger.info(f"[cmd_start_link] Telegram {user.telegram_id} привязан к web-аккаунту {web_user.id}")
 

@@ -119,8 +119,8 @@ class TestCompressedProfileService:
     def test_count_filled_fields_full_profile(self, user_full_profile):
         """Тест: правильный подсчёт заполненных полей."""
         count = self.service._count_filled_fields(user_full_profile)
-        # personality_description + 11 полей = 12
-        assert count == 12
+        # personality_description + 10 профильных полей = 11
+        assert count == 11
 
     def test_count_filled_fields_minimal_profile(self, user_minimal_profile):
         """Тест: минимальный профиль — 2 поля."""

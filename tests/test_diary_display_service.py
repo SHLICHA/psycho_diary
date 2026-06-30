@@ -21,7 +21,7 @@ baker.generators.add('core.encrypted_fields.EncryptedJSONField', lambda: {})
 baker.generators.add('core.encrypted_fields.EncryptedEmailField', lambda: "test@test.com")
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 class TestDiaryDisplayService:
     """Тесты для DiaryDisplayService."""
 
@@ -373,6 +373,161 @@ class TestDiaryDisplayService:
 
         assert result['success'] is True
         assert "Общий текстовый анализ отсутствует" in result['text']
+
+    @pytest.mark.asyncio
+    async def test_build_full_day_analysis_view_not_found(self, user, mocker):
+        """Тест: view payload возвращает not_found, если CombinedDiaryEntry отсутствует."""
+        from bot.services.diary_service import diary_service
+
+        mocker.patch.object(
+            diary_service,
+            'get_combined_entry_with_analysis_for_date',
+            new=mocker.AsyncMock(return_value=None),
+        )
+
+        result = await diary_display_service.build_full_day_analysis_view(
+            user=user,
+            target_date=date(2023, 10, 26),
+            language='ru',
+        )
+
+        assert result['success'] is False
+        assert result['error'] == 'not_found'
+
+    @pytest.mark.asyncio
+    async def test_build_full_day_analysis_view_without_daily_analysis(self, user, mocker):
+        """Тест: при отсутствии daily_analysis возвращается fallback view с кнопкой reanalyze."""
+        from bot.services.diary_service import diary_service
+
+        combined = await sync_to_async(baker.make)(
+            CombinedDiaryEntry,
+            user=user,
+            date=date(2023, 10, 26),
+            text="Объединенная запись",
+            entry_count=1,
+        )
+
+        mocker.patch.object(
+            diary_service,
+            'get_combined_entry_with_analysis_for_date',
+            new=mocker.AsyncMock(return_value=combined),
+        )
+
+        result = await diary_display_service.build_full_day_analysis_view(
+            user=user,
+            target_date=date(2023, 10, 26),
+            language='ru',
+        )
+
+        assert result['success'] is True
+        assert 'text' in result
+        assert 'keyboard' in result
+        first_button = result['keyboard'].inline_keyboard[0][0]
+        assert first_button.callback_data == 'reanalyze_day:2023:10:26'
+
+    @pytest.mark.asyncio
+    async def test_build_full_day_analysis_view_with_daily_analysis(self, user, combined_entry_with_analysis, mocker):
+        """Тест: при наличии daily_analysis orchestration делегирует в format_full_day_analysis."""
+        from bot.services.diary_service import diary_service
+
+        expected = {'success': True, 'text': 'ok', 'keyboard': object()}
+        format_mock = mocker.patch.object(
+            diary_display_service,
+            'format_full_day_analysis',
+            new=mocker.AsyncMock(return_value=expected),
+        )
+        mocker.patch.object(
+            diary_service,
+            'get_combined_entry_with_analysis_for_date',
+            new=mocker.AsyncMock(return_value=combined_entry_with_analysis),
+        )
+
+        result = await diary_display_service.build_full_day_analysis_view(
+            user=user,
+            target_date=date(2023, 10, 26),
+            language='ru',
+        )
+
+        assert result == expected
+        format_mock.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_build_day_entries_view_with_entries(self, user, multiple_entries):
+        """Тест: build_day_entries_view возвращает entries-mode с первой записью дня."""
+        target_date = await multiple_entries[0].aentry_date()
+
+        result = await diary_display_service.build_day_entries_view(
+            user=user,
+            target_date=target_date,
+            language='ru',
+        )
+
+        assert result['success'] is True
+        assert result['mode'] == 'entries'
+        assert result['entry'].id == result['entries'][0].id
+        assert len(result['entries']) >= 1
+
+    @pytest.mark.asyncio
+    async def test_build_day_entries_view_without_entries(self, user):
+        """Тест: build_day_entries_view возвращает empty-mode при отсутствии записей."""
+        target_date = date(2022, 1, 1)
+
+        result = await diary_display_service.build_day_entries_view(
+            user=user,
+            target_date=target_date,
+            language='ru',
+        )
+
+        assert result['success'] is True
+        assert result['mode'] == 'empty'
+        assert 'text' in result
+        assert 'keyboard' in result
+
+    @pytest.mark.asyncio
+    async def test_build_entry_delete_confirmation_view_not_found(self, user, mocker):
+        """Тест: возвращается not_found payload, если запись не найдена."""
+        from bot.services.diary_service import diary_service
+
+        mocker.patch.object(
+            diary_service,
+            'get_user_entry_by_id',
+            new=mocker.AsyncMock(return_value=None),
+        )
+
+        result = await diary_display_service.build_entry_delete_confirmation_view(
+            user=user,
+            entry_id=999999,
+            language='ru',
+        )
+
+        assert result['success'] is True
+        assert result['mode'] == 'not_found'
+        assert 'text' in result
+        assert 'keyboard' in result
+
+    @pytest.mark.asyncio
+    async def test_build_entry_delete_confirmation_view_confirm(self, user, diary_entry, mocker):
+        """Тест: возвращается confirm payload с клавиатурой удаления."""
+        from bot.services.diary_service import diary_service
+
+        mocker.patch.object(
+            diary_service,
+            'get_user_entry_by_id',
+            new=mocker.AsyncMock(return_value=diary_entry),
+        )
+
+        result = await diary_display_service.build_entry_delete_confirmation_view(
+            user=user,
+            entry_id=diary_entry.id,
+            language='ru',
+        )
+
+        assert result['success'] is True
+        assert result['mode'] == 'confirm'
+        assert 'text' in result
+        assert 'keyboard' in result
+        first_confirm_button = result['keyboard'].inline_keyboard[0][0]
+        assert first_confirm_button.callback_data.startswith(f'confirm_delete_specific_entry:{diary_entry.id}:')
 
     # === build_entry_result_keyboard ===
 

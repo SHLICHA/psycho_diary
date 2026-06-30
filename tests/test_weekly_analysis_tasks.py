@@ -16,7 +16,7 @@ from users.models import User
 from model_bakery import baker
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 class TestWeeklyAnalysisTasks:
     """Тесты для Celery задач."""
 
@@ -147,7 +147,7 @@ class TestWeeklyAnalysisTasks:
                 assert result['tasks_scheduled'] == 0
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 class TestProfileCleanupTask:
     def test_run_profile_cleanup_aggregates_results(self, mocker):
         first_user = baker.make(User, telegram_id=500001, is_blocked=False)

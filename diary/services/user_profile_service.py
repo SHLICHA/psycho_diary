@@ -14,6 +14,8 @@ from django.conf import settings
 from django.utils import timezone as django_timezone
 
 from users.models import User, UserProfileHistory, TokenTransaction, Payment
+from users.services.identity_policy_service import IdentityPolicyService
+from users.services.email_merge_service import EmailMergeService
 from diary.models import (
     DiaryEntry, TherapyTask, TaskCompletion, TaskCompletionAnalysis,
     CombinedDiaryEntry, PsychoAnalysis, TherapyProgress, DailyAnalysis,
@@ -461,6 +463,31 @@ class UserProfileService:
                     import re
                     if not re.match(email_pattern, new_value):
                         return {'success': False, 'error': 'invalid_email_format'}
+
+                    # Единый identity policy для конфликтов email (общий для Telegram/MAX/Web).
+                    resolution = await IdentityPolicyService.aresolve_email_claim(new_value, requester_user=user)
+                    if resolution.status == 'conflict':
+                        if getattr(settings, 'EMAIL_MERGE_CONFIRMATION_ENABLED', False):
+                            merge_request = await EmailMergeService.acreate_merge_request(
+                                requester_user=user,
+                                email=new_value,
+                                source_platform='telegram',
+                                source_context='profile_edit',
+                            )
+                            return {
+                                'success': False,
+                                'error': 'email_confirmation_required',
+                                'error_code': 'email_confirmation_required',
+                                'confirmation_required': True,
+                                'merge_request_id': merge_request.id,
+                                'confirmation_token': merge_request.confirmation_token,
+                                'target_user_id': merge_request.target_user_id,
+                            }
+                        return {
+                            'success': False,
+                            'error': 'email_already_exists',
+                            'error_code': 'email_already_exists',
+                        }
             elif field_name == 'date_of_birth':
                 if new_value and new_value > datetime.now().date():
                     return {'success': False, 'error': 'invalid_date_future'}

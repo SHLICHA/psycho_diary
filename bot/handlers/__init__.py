@@ -16,6 +16,7 @@ from .feedback import router as feedback_router
 from .database_handlers import router as database_router
 from .therapy_chat_handlers import router as chat_router
 from .payments import router as payment_router
+from .identity_merge import router as identity_merge_router
 from .admin import router as admin_router
 from .fallback import router as fallback_router
 from .diagnostic import router as diagnostic_router
@@ -35,6 +36,7 @@ feedback_router.name = "Feedback_router"
 database_router.name = "Database_router"
 chat_router.name = "Therapy_Chat_router"
 payment_router.name = "Payment_router"
+identity_merge_router.name = "Identity_merge_router"
 fallback_router.name = 'Fallback router'
 diagnostic_router.name = 'Diagnostic_router'
 
@@ -55,6 +57,7 @@ all_routers = [
     database_router,
     chat_router,
     payment_router,
+    identity_merge_router,
     fallback_router
 ]
 
@@ -75,5 +78,6 @@ __all__ = [
     'database_router',
     'chat_router',
     'payment_router',
+    'identity_merge_router',
     'fallback_router'
 ]

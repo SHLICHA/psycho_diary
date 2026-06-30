@@ -22,7 +22,8 @@ class Command(BaseCommand):
     help = 'Manually triggers the full weekly analysis (including profile change analysis) for a specified user.'
 
     def add_arguments(self, parser):
-        parser.add_argument('telegram_id', type=int, help='Telegram ID of the user to analyze')
+        parser.add_argument('telegram_id', type=int, nargs='?', default=None, help='Telegram ID of the user to analyze (legacy mode)')
+        parser.add_argument('--user-id', type=int, default=None, help='Internal user ID (users.User.id)')
         parser.add_argument(
             '--num-snapshots',
             type=int,
@@ -31,19 +32,31 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        telegram_id = options['telegram_id']
+        telegram_id = options.get('telegram_id')
+        user_id = options.get('user_id')
         num_snapshots = options['num_snapshots']
 
         if num_snapshots < 1:
             raise CommandError('--num-snapshots must be >= 1')
 
+        if user_id is not None and telegram_id is not None:
+            raise CommandError('Use either telegram_id or --user-id, not both.')
+
+        if user_id is None and telegram_id is None:
+            raise CommandError('Either telegram_id or --user-id must be provided.')
+
         try:
-            user = User.objects.get(telegram_id=telegram_id)
+            if user_id is not None:
+                user = User.objects.get(id=user_id)
+            else:
+                user = User.objects.get(telegram_id=telegram_id)
         except User.DoesNotExist:
+            if user_id is not None:
+                raise CommandError(f'User with user_id {user_id} does not exist.')
             raise CommandError(f'User with telegram_id {telegram_id} does not exist.')
 
         self.stdout.write(
-            self.style.WARNING(f'Starting weekly analysis for user {user.username} (ID: {user.telegram_id})')
+            self.style.WARNING(f'Starting weekly analysis for user {user.username} (ID: {user.id}, telegram_id: {user.telegram_id})')
         )
 
         # Запускаем асинхронный процесс внутри синхронной команды

@@ -30,6 +30,29 @@ class TaskManagementService:
     """Сервис для работы с терапевтическими заданиями."""
 
     @classmethod
+    async def get_user_task_by_id(
+        cls,
+        user: User,
+        task_id: int,
+    ) -> Optional[TherapyTask]:
+        """Возвращает задание пользователя по ID или None, если не найдено."""
+        try:
+            @sync_to_async
+            def get_task_sync():
+                try:
+                    return TherapyTask.objects.get(id=task_id, user=user)
+                except TherapyTask.DoesNotExist:
+                    return None
+
+            return await get_task_sync()
+        except Exception as e:
+            logger.error(
+                f"[TaskManagementService] Ошибка при получении задания {task_id} пользователя {user.telegram_id}: {e}",
+                exc_info=True,
+            )
+            return None
+
+    @classmethod
     async def assign_task(
         cls,
         user: User,
@@ -548,6 +571,10 @@ async def assign_task(
 async def get_user_active_tasks(user: User) -> List[TherapyTask]:
     """Удобная функция для получения активных заданий"""
     return await TaskManagementService.get_user_active_tasks(user)
+
+async def get_user_task_by_id(user: User, task_id: int) -> Optional[TherapyTask]:
+    """Удобная функция для получения задания пользователя по ID."""
+    return await TaskManagementService.get_user_task_by_id(user, task_id)
 
 async def get_user_completed_tasks(user: User, limit: int = 10) -> List[TherapyTask]:
     """Удобная функция для получения выполненных заданий"""

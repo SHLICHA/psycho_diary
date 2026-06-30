@@ -15,6 +15,7 @@ from bot.keyboards import (
 )
 from bot.utils.admin_utils import send_feedback_to_developer
 from core.services.feedback_service import feedback_service
+from core.services.base_service import BaseService
 from messages import get_message
 
 logger = logging.getLogger(__name__)
@@ -59,8 +60,12 @@ async def skip_photo_handler(callback: CallbackQuery, state: FSMContext, bot: Bo
     data = await state.get_data()
     message_text = data.get("feedback_text", "")
     voice_data = data.get("voice_data")
-    from users.models import User
-    db_user = await User.objects.aget(telegram_id=callback.from_user.id)
+    db_user = await BaseService.get_user_by_telegram_id(callback.from_user.id)
+    if not db_user:
+        await callback.message.edit_text(get_message('error_generic', language))
+        await state.clear()
+        await callback.answer()
+        return
     await send_feedback_to_developer(
         bot=bot,
         user=db_user,
@@ -129,8 +134,9 @@ async def process_feedback_photo(message: Message, state: FSMContext, bot: Bot, 
             return
 
         try:
-            from users.models import User
-            user = await User.objects.aget(telegram_id=message.from_user.id)
+            user = await BaseService.get_user_by_telegram_id(message.from_user.id)
+            if not user:
+                raise ValueError("User not found by telegram_id")
         except Exception as e:
             logger.error(f"Ошибка получения пользователя: {str(e)}")
             await message.answer("❌ Ошибка идентификации пользователя.")
@@ -450,11 +456,9 @@ async def _show_feedback_at_index(message_or_callback, state: FSMContext, index:
         await state.clear()
         return
 
-    from users.models import Feedback
     feedback_id = feedback_ids[index]
-    try:
-        feedback = await Feedback.aget_by_id(feedback_id)
-    except Feedback.DoesNotExist:
+    feedback = await feedback_service.get_feedback_by_id(feedback_id)
+    if not feedback:
         logger.error(f"Обращение с ID {feedback_id} не найдено при отображении.")
         await (message_or_callback.message.edit_text if hasattr(message_or_callback, 'message') else message_or_callback.answer)(f"❌ Обращение с ID {feedback_id} больше не существует.")
         feedback_ids.remove(feedback_id)

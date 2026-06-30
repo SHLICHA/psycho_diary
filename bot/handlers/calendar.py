@@ -20,8 +20,8 @@ from bot.utils.state_manager import state_manager
 from bot.utils.message_utils import safe_edit_message_text
 from bot.utils.callback_utils import safe_answer_callback
 from core.services.calendar_service import calendar_service
+from core.services.base_service import BaseService
 from messages import get_message
-from users.models import User
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -33,7 +33,10 @@ async def show_archive(callback: CallbackQuery, state: FSMContext, language: str
     """Показ архива записей с умным календарём"""
     try:
         await state_manager.clear_state(state)
-        user = await User.objects.aget(telegram_id=callback.from_user.id)
+        user = await BaseService.get_user_by_telegram_id(callback.from_user.id)
+        if not user:
+            await safe_answer_callback(callback, get_message('error_generic', language))
+            return
         archive_msg = get_message('archive_menu', language)
         await safe_edit_message_text(
             message=callback.message,

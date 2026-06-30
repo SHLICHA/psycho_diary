@@ -23,6 +23,7 @@ from messages import get_message, get_button_text
 from diary.models import DiaryEntry, AnalysisRating
 from users.models import User, Payment
 from core.services.admin_service import admin_service
+from core.services.base_service import BaseService
 
 # --- НОВОЕ: Импортируем функции для генерации графиков ---
 from bot.utils.activity_chart import generate_activity_chart_image, generate_hourly_activity_chart_image
@@ -196,7 +197,10 @@ async def cmd_admin_stats(message: Message):
 
         # --- НОВОЕ: Отправляем графики активности ---
         # Получаем администратора для передачи его часового пояса
-        admin_user = await User.objects.aget(telegram_id=message.from_user.id)
+        admin_user = await BaseService.get_user_by_telegram_id(message.from_user.id)
+        if not admin_user:
+            await message.answer("❌ Администратор не найден в базе данных.")
+            return
         try:
             activity_chart_img = await generate_activity_chart_image(admin_user, days=30) # График за 30 дней
             # --- ОБЕРТЫВАЕМ BytesIO в BufferedInputFile ---

@@ -15,6 +15,8 @@ from django.conf import settings
 from django.utils import timezone
 
 from users.models import Payment, User
+from users.services.identity_policy_service import IdentityPolicyService
+from users.services.email_merge_service import EmailMergeService
 from bot.utils.payment_utils import create_yookassa_payment, track_payment_status
 from bot.utils.message_utils import send_message_to_user # <-- ИМПОРТИРУЕМ ДЛЯ track_payment_status
 
@@ -206,6 +208,33 @@ class PaymentService:
                     "error": "Неверный формат email"
                 }
 
+            # Единый identity policy для конфликтов email (общий для Telegram/MAX/Web).
+            resolution = await IdentityPolicyService.aresolve_email_claim(email, requester_user=user)
+            if resolution.status == 'conflict':
+                if getattr(settings, 'EMAIL_MERGE_CONFIRMATION_ENABLED', False):
+                    merge_request = await EmailMergeService.acreate_merge_request(
+                        requester_user=user,
+                        email=email,
+                        source_platform='telegram',
+                        source_context='payment_receipt_email',
+                    )
+                    return {
+                        "success": False,
+                        "confirmation_url": None,
+                        "error": "Требуется подтверждение конфликта email",
+                        "error_code": "email_confirmation_required",
+                        "confirmation_required": True,
+                        "merge_request_id": merge_request.id,
+                        "confirmation_token": merge_request.confirmation_token,
+                        "target_user_id": merge_request.target_user_id,
+                    }
+                return {
+                    "success": False,
+                    "confirmation_url": None,
+                    "error": "Email уже привязан к другому аккаунту",
+                    "error_code": "email_already_exists",
+                }
+
             # Сохраняем email
             user.email = email
             await sync_to_async(user.save)(update_fields=['email'])
@@ -313,7 +342,7 @@ class PaymentService:
             # NOTE: track_payment_status использует send_message_to_user, что делает его Telegram-зависимым.
             # В идеале, логика отслеживания и уведомления должна быть отделена.
             # Пока что мы оставляем вызов здесь, понимая, что track_payment_status остается в bot.utils.
-            asyncio.create_task(track_payment_status(yoo_payment.id, db_payment.id, user.telegram_id))
+            asyncio.create_task(track_payment_status(yoo_payment.id, db_payment.id, user.id))
 
             logger.info(f"[PaymentService] Платёж {yoo_payment.id} создан для пользователя {user.telegram_id}, тип: {payment_type}")
 

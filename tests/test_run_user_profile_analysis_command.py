@@ -16,6 +16,21 @@ def test_run_user_profile_analysis_user_not_found_raises():
         call_command('run_user_profile_analysis', 999999)
 
 
+def test_run_user_profile_analysis_user_id_not_found_raises():
+    with pytest.raises(CommandError, match='user_id 999999 does not exist'):
+        call_command('run_user_profile_analysis', user_id=999999)
+
+
+def test_run_user_profile_analysis_requires_identity_arg():
+    with pytest.raises(CommandError, match='must be provided'):
+        call_command('run_user_profile_analysis')
+
+
+def test_run_user_profile_analysis_rejects_both_identity_args():
+    with pytest.raises(CommandError, match='not both'):
+        call_command('run_user_profile_analysis', 123, user_id=1)
+
+
 def test_run_user_profile_analysis_raises_on_async_error(mocker):
     user = baker.make(User, telegram_id=223344, username='profile_cmd_user')
 
@@ -77,3 +92,31 @@ def test_run_user_profile_analysis_success_prints_details(mocker):
     assert '[DELTA]' in output
     assert 'description_chars_delta=' in output
     assert 'Profile analysis completed successfully' in output
+
+
+def test_run_user_profile_analysis_accepts_internal_user_id(mocker):
+    user = baker.make(User, telegram_id=223347, username='profile_cmd_user_4')
+
+    async_handle_mock = mocker.patch(
+        'core.management.commands.run_user_profile_analysis.Command.async_handle',
+        return_value={
+            'success': True,
+            'message': 'Profile analysis completed successfully: ok',
+            'before': {
+                'personality_description_chars': 100,
+                'compressed_profile_chars': 250,
+                'personal_items_total': 8,
+                'personal_items_per_field': {'life_facts': 2, 'hobbies': 1},
+            },
+            'after': {
+                'personality_description_chars': 120,
+                'compressed_profile_chars': 210,
+                'personal_items_total': 6,
+                'personal_items_per_field': {'life_facts': 1, 'hobbies': 1},
+            },
+        },
+    )
+
+    call_command('run_user_profile_analysis', user_id=user.id)
+    called_user = async_handle_mock.call_args.args[0]
+    assert called_user.id == user.id

@@ -12,7 +12,7 @@ from diary.services.user_profile_change_analysis_service import (
 from users.models import User, UserProfileHistory
 
 
-pytestmark = pytest.mark.django_db
+pytestmark = pytest.mark.django_db(transaction=True)
 
 
 def _build_large_compressed_profile(seed: str = "x"):

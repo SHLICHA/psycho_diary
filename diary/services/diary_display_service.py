@@ -28,6 +28,129 @@ logger = logging.getLogger(__name__)
 class DiaryDisplayService:
     """Сервис для отображения записей дневника."""
 
+    async def build_full_day_analysis_view(
+        self,
+        user: User,
+        target_date: date,
+        language: str,
+    ) -> Dict[str, Any]:
+        """Возвращает готовый view payload для экрана полного анализа дня."""
+        try:
+            from bot.services.diary_service import diary_service
+
+            combined_entry = await diary_service.get_combined_entry_with_analysis_for_date(user, target_date)
+            if not combined_entry:
+                return {'success': False, 'error': 'not_found'}
+
+            year, month, day = target_date.year, target_date.month, target_date.day
+            daily_analysis = combined_entry._state.fields_cache.get('daily_analysis')
+            if daily_analysis is None:
+                no_analysis_msg = get_message('no_full_analysis_yet', language)
+                reanalyze_button = [
+                    [
+                        InlineKeyboardButton(
+                            text=get_button_text('btn_reanalyze_entry', language),
+                            callback_data=f"reanalyze_day:{year}:{month}:{day}"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text=get_button_text('btn_back', language),
+                            callback_data=f"calendar_select_day:{year}:{month}:{day}"
+                        )
+                    ]
+                ]
+                back_keyboard = InlineKeyboardMarkup(inline_keyboard=reanalyze_button)
+                return {
+                    'success': True,
+                    'text': no_analysis_msg,
+                    'keyboard': back_keyboard,
+                }
+
+            return await self.format_full_day_analysis(
+                combined_entry,
+                daily_analysis,
+                year,
+                month,
+                day,
+                language,
+            )
+        except Exception as e:
+            logger.error(f"Ошибка формирования full-day analysis view для пользователя {user.telegram_id}: {e}", exc_info=True)
+            return {'success': False, 'error': 'unexpected'}
+
+    async def build_day_entries_view(
+        self,
+        user: User,
+        target_date: date,
+        language: str,
+    ) -> Dict[str, Any]:
+        """Возвращает payload для отображения записей дня или пустого состояния."""
+        try:
+            from bot.services.diary_service import diary_service
+            from bot.keyboards import get_calendar_back_keyboard
+
+            entries = await diary_service.get_user_entries_for_date(user, target_date)
+            if entries:
+                sorted_entries = sorted(entries, key=lambda e: e.created_at)
+                return {
+                    'success': True,
+                    'mode': 'entries',
+                    'entry': sorted_entries[0],
+                    'entries': sorted_entries,
+                    'target_date': target_date,
+                }
+
+            return {
+                'success': True,
+                'mode': 'empty',
+                'text': get_message('archive_empty', language),
+                'keyboard': get_calendar_back_keyboard(language, target_date.year, target_date.month),
+                'target_date': target_date,
+            }
+        except Exception as e:
+            logger.error(
+                f"Ошибка формирования day-entries view для пользователя {user.telegram_id} и даты {target_date}: {e}",
+                exc_info=True,
+            )
+            return {'success': False, 'error': 'unexpected'}
+
+    async def build_entry_delete_confirmation_view(
+        self,
+        user: User,
+        entry_id: int,
+        language: str,
+    ) -> Dict[str, Any]:
+        """Возвращает payload подтверждения удаления записи (confirm/not_found)."""
+        try:
+            from bot.services.diary_service import diary_service
+            from bot.keyboards import get_back_keyboard, get_delete_entry_confirmation_keyboard
+
+            entry = await diary_service.get_user_entry_by_id(user, entry_id)
+            if not entry:
+                return {
+                    'success': True,
+                    'mode': 'not_found',
+                    'text': get_message('entry_not_found', language),
+                    'keyboard': get_back_keyboard(language),
+                }
+
+            target_date = await entry.aentry_date()
+            return {
+                'success': True,
+                'mode': 'confirm',
+                'text': get_message('confirm_delete_entry_prompt', language),
+                # Важно: порядок аргументов keyboard helper: (language, entry_id, target_date)
+                'keyboard': get_delete_entry_confirmation_keyboard(language, entry_id, target_date),
+                'target_date': target_date,
+            }
+        except Exception as e:
+            logger.error(
+                f"Ошибка формирования delete-confirm view для пользователя {user.telegram_id}, entry_id={entry_id}: {e}",
+                exc_info=True,
+            )
+            return {'success': False, 'error': 'unexpected'}
+
     async def build_rating_keyboard(
         self, analysis: PsychoAnalysis, user: User, language: str
     ) -> Tuple[bool, List[List[InlineKeyboardButton]]]:
@@ -77,12 +200,11 @@ class DiaryDisplayService:
         Returns:
             Optional[List[InlineKeyboardButton]]: Кнопка комментария или None.
         """
-        try:
-            current_entry = await DiaryEntry.objects.aget(id=entry.id)
-            has_user_comment = bool(current_entry.user_comment)
-        except DiaryEntry.DoesNotExist:
+        if getattr(entry, '_state', None) is not None and getattr(entry._state, 'adding', False):
             logger.warning(f"Запись {entry.id} не найдена при проверке комментария")
             return None
+
+        has_user_comment = bool(entry.user_comment)
 
         if has_user_comment:
             return None
@@ -196,7 +318,7 @@ class DiaryDisplayService:
 
         target_date = await current_entry.aentry_date()
 
-        from diary.services.diary_service import diary_service
+        from bot.services.diary_service import diary_service
         entries = await diary_service.get_user_entries_for_date(user, target_date)
 
         if not entries:

@@ -4,7 +4,7 @@ from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from django.urls import reverse
 
-from .models import Feedback, User, CityTimezone, UserProfileHistory, TokenTransaction, Payment
+from .models import Feedback, User, CityTimezone, UserProfileHistory, TokenTransaction, Payment, IdentityLinkEvent, EmailMergeRequest
 
 @admin.register(UserProfileHistory)
 class UserProfileHistoryAdmin(admin.ModelAdmin):
@@ -59,6 +59,94 @@ class UserProfileHistoryAdmin(admin.ModelAdmin):
     user_link.short_description = "Пользователь"
     user_link.admin_order_field = 'user__username' # Позволяет сортировать по имени пользователя
 
+
+@admin.register(IdentityLinkEvent)
+class IdentityLinkEventAdmin(admin.ModelAdmin):
+    """Админка для audit trail привязки identity."""
+
+    list_display = (
+        'id',
+        'created_at',
+        'event_type',
+        'result',
+        'user',
+        'actor_user',
+        'actor_telegram_id',
+        'source_platform',
+        'source_context',
+        'reason_code',
+    )
+    list_filter = ('event_type', 'result', 'source_platform', 'source_context', 'created_at')
+    search_fields = (
+        'user__username',
+        'user__email',
+        'actor_user__username',
+        'actor_telegram_id',
+        'reason_code',
+    )
+    readonly_fields = (
+        'created_at',
+        'user',
+        'actor_user',
+        'actor_telegram_id',
+        'event_type',
+        'result',
+        'source_platform',
+        'source_context',
+        'reason_code',
+        'metadata',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(EmailMergeRequest)
+class EmailMergeRequestAdmin(admin.ModelAdmin):
+    """Админка для подтверждений email merge/conflict."""
+
+    list_display = (
+        'id',
+        'created_at',
+        'status',
+        'requester_user',
+        'target_user',
+        'source_platform',
+        'source_context',
+        'expires_at',
+        'confirmed_at',
+    )
+    list_filter = ('status', 'source_platform', 'source_context', 'created_at', 'expires_at')
+    search_fields = (
+        'requester_user__username',
+        'target_user__username',
+        'confirmation_token',
+        'email_hash',
+    )
+    readonly_fields = (
+        'created_at',
+        'updated_at',
+        'requester_user',
+        'target_user',
+        'email_hash',
+        'confirmation_token',
+        'source_platform',
+        'source_context',
+        'status',
+        'expires_at',
+        'confirmed_at',
+        'metadata',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
 class UserProfileHistoryInline(admin.TabularInline):
     """Встроенный список истории профиля на странице пользователя."""
     model = UserProfileHistory
@@ -106,14 +194,14 @@ class UserAdmin(BaseUserAdmin):
     
     # Настройка отображения в списке пользователей
     list_display = (
-        'username', 'telegram_id', 'first_name', 'last_name', 
+        'username', 'telegram_id', 'max_id', 'first_name', 'last_name', 
         'awareness_level', 'is_premium', 'token_balance', 'is_blocked', 'created_at', 'is_onboarding_completed'
     )
     list_filter = (
         'is_premium', 'is_blocked', 'language', 'created_at', 'last_activity',
         'auto_analysis_enabled', 'notifications_enabled'
     )
-    search_fields = ('username', 'telegram_id', 'first_name', 'last_name', 'email')
+    search_fields = ('username', 'telegram_id', 'max_id', 'first_name', 'last_name', 'email')
     readonly_fields = ('created_at', 'updated_at', 'last_entry', 'last_activity', 'deleted_at')
 
     # Определяем fieldsets, объединяя поля AbstractUser и наши новые поля
@@ -125,7 +213,7 @@ class UserAdmin(BaseUserAdmin):
         # Новые поля для Telegram бота
         (('Telegram и Основное'), {
             'fields': (
-                'telegram_id', 'language', 'timezone', 'is_onboarding_completed',
+                'telegram_id', 'max_id', 'language', 'timezone', 'is_onboarding_completed',
                 'is_premium', 'is_blocked', 'deletion_status', 'deleted_at', 'token_balance',
                 'last_streak_reward_7', 'last_streak_reward_30', 'last_streak_reward_365', 'invited_by',
             )
@@ -168,7 +256,7 @@ class UserAdmin(BaseUserAdmin):
     add_fieldsets = (
         (None, {
             'classes': ('wide',),
-            'fields': ('username', 'telegram_id', 'password1', 'password2'),
+            'fields': ('username', 'telegram_id', 'max_id', 'password1', 'password2'),
         }),
     )
     

@@ -29,9 +29,10 @@ from bot.utils.task_impact_chart import generate_task_impact_chart_image
 from bot.utils.message_utils import send_message_to_user
 from bot.utils.message_utils import safe_edit_message_text
 from bot.utils.callback_utils import safe_answer_callback
-from diary.models import TherapyTask, TaskCompletion, TaskCompletionAnalysis
+from diary.models import TaskCompletion, TaskCompletionAnalysis
 from diary.services.task_management_service import (
     get_user_active_tasks,
+    get_user_task_by_id,
     get_user_completed_tasks,
     complete_task,
     skip_task,
@@ -142,8 +143,8 @@ async def view_specific_task(callback: CallbackQuery, user, language: str):
     """Просмотр конкретного задания"""
     try:
         task_id = int(callback.data.split(":")[1])
-        try:
-            task = await TherapyTask.objects.aget(id=task_id, user=user)
+        task = await get_user_task_by_id(user, task_id)
+        if task:
             task_msg = get_message(
                 'task_assigned',
                 language,
@@ -154,7 +155,7 @@ async def view_specific_task(callback: CallbackQuery, user, language: str):
                 task_msg,
                 reply_markup=get_task_detail_keyboard(task_id, language)
             )
-        except TherapyTask.DoesNotExist:
+        else:
             error_msg = get_message('task_not_found', language)
             await callback.answer(error_msg)
             logger.warning(f"Задание {task_id} не найдено или не принадлежит пользователю {user.telegram_id}")
@@ -170,8 +171,8 @@ async def start_task_completion(callback: CallbackQuery, state: FSMContext, user
     """Начало выполнения задания"""
     try:
         task_id = int(callback.data.split(":")[1])
-        try:
-            task = await TherapyTask.objects.aget(id=task_id, user=user)
+        task = await get_user_task_by_id(user, task_id)
+        if task:
             await state_manager.set_state(state, TaskStates.waiting_for_task_completion)
             await state_manager.update_state_data(
                 state,
@@ -186,7 +187,7 @@ async def start_task_completion(callback: CallbackQuery, state: FSMContext, user
                 completion_msg,
                 reply_markup=get_single_button_keyboard(language, 'tasks', 'btn_back')
             )
-        except TherapyTask.DoesNotExist:
+        else:
             error_msg = get_message('task_not_found', language)
             await safe_answer_callback(callback, error_msg, show_alert=True)
             logger.warning(f"Задание {task_id} не найдено или не принадлежит пользователю {user.telegram_id}")
@@ -559,9 +560,8 @@ async def paginate_task_history(callback: CallbackQuery, state: FSMContext, user
             await safe_answer_callback(callback, get_message('error_generic', language))
             return
         task_id = task_ids_for_pagination[target_index]
-        try:
-            task = await TherapyTask.objects.aget(id=task_id, user=user)
-        except TherapyTask.DoesNotExist:
+        task = await get_user_task_by_id(user, task_id)
+        if not task:
             logger.error(f"Задание {task_id} не найдено при пагинации для пользователя {user.telegram_id}.")
             await safe_answer_callback(callback, get_message('task_not_found', language), show_alert=True)
             return

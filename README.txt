@@ -121,6 +121,39 @@
 
 (Вам нужно будет предоставить инструкции по установке, если проект предполагает локальный запуск, включая настройку `.env`, установку зависимостей, миграции БД и т.д.)
 
+## Запуск MAX-бота (runtime)
+
+Минимальная подготовка `.env`:
+- `MAX_TRANSPORT_ENABLED=true`
+- `MAX_TRANSPORT_MODE=polling` (для локальной разработки) или `webhook` (production)
+- `MAX_BOT_TOKEN=<token>`
+- `MAX_API_BASE_URL=https://platform-api2.max.ru`
+- Для `webhook` режима дополнительно: `MAX_WEBHOOK_URL=https://<your-domain>/api/max/webhook/`
+
+Проверка конфига перед запуском:
+
+```bash
+python manage.py check_max_bot_config
+```
+
+Запуск выделенного MAX runtime локально:
+
+```bash
+python manage.py runmaxbot
+```
+
+Запуск в Docker Compose (выделенный сервис):
+
+```bash
+docker compose up -d max_bot
+```
+
+Health endpoint webhook:
+
+```bash
+GET /api/max/webhook/
+```
+
 ## Лицензия
 
 (Укажите тип лицензии, если применимо.)

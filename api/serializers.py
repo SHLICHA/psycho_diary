@@ -385,6 +385,7 @@ class APIErrorSerializer(serializers.Serializer):
 
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from users.services.identity_policy_service import IdentityPolicyService
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -404,11 +405,10 @@ class RegisterSerializer(serializers.ModelSerializer):
                 'password': 'Passwords do not match'
             })
         
-        # Проверяем уникальность email через hash
+        # Единая policy проверки merge/conflict по email.
         if attrs.get('email'):
-            import hashlib
-            email_hash = hashlib.sha256(attrs['email'].lower().encode()).hexdigest()
-            if User.objects.filter(email_hash=email_hash).exists():
+            resolution = IdentityPolicyService.resolve_email_claim(attrs['email'])
+            if resolution.status == 'conflict':
                 raise serializers.ValidationError({
                     'email': 'Email already exists'
                 })
@@ -442,12 +442,11 @@ class CompleteRegistrationSerializer(serializers.Serializer):
                 'password': 'Passwords do not match'
             })
         
-        # Проверяем, что email не занят другим пользователем (через hash)
+        # Единая policy проверки merge/conflict по email.
         user = self.context.get('user')
         if attrs.get('email'):
-            import hashlib
-            email_hash = hashlib.sha256(attrs['email'].lower().encode()).hexdigest()
-            if User.objects.exclude(id=user.id).filter(email_hash=email_hash).exists():
+            resolution = IdentityPolicyService.resolve_email_claim(attrs['email'], requester_user=user)
+            if resolution.status == 'conflict':
                 raise serializers.ValidationError({
                     'email': 'Email already exists'
                 })
@@ -468,6 +467,12 @@ class GenerateLinkSerializer(serializers.Serializer):
     """
     link = serializers.URLField(read_only=True)
     expires_in = serializers.IntegerField(read_only=True)
+
+
+class ConfirmEmailMergeSerializer(serializers.Serializer):
+    """Сериализатор подтверждения email merge-request."""
+
+    confirmation_token = serializers.CharField(required=True, max_length=128)
 
 
 import pytz as _pytz

@@ -284,3 +284,70 @@ class TestCompleteRegistrationView:
         })
         
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    @pytest.mark.django_db
+    def test_complete_registration_conflict_returns_confirmation_token_when_enabled(self, user_with_email, user_with_telegram, api_client, settings):
+        settings.EMAIL_MERGE_CONFIRMATION_ENABLED = True
+        api_client.force_authenticate(user=user_with_telegram)
+
+        response = api_client.post('/api/v1/auth/complete-registration/', {
+            'email': 'web@example.com',
+            'password': 'securepassword123',
+            'password_confirm': 'securepassword123'
+        })
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data['error']['code'] == 'email_confirmation_required'
+        details = response.data['error'].get('details', {})
+        assert details.get('merge_request_id')
+        assert details.get('confirmation_mode') == 'transport_callbacks_primary'
+        assert int(details.get('target_user_id')) == user_with_email.id
+
+    @pytest.mark.django_db
+    def test_confirm_email_merge_success_when_fallback_enabled(self, user_with_email, user_with_telegram, api_client, settings):
+        settings.EMAIL_MERGE_CONFIRMATION_ENABLED = True
+        settings.EMAIL_MERGE_WEB_CONFIRM_FALLBACK_ENABLED = True
+        api_client.force_authenticate(user=user_with_telegram)
+
+        conflict_response = api_client.post('/api/v1/auth/complete-registration/', {
+            'email': 'web@example.com',
+            'password': 'securepassword123',
+            'password_confirm': 'securepassword123'
+        })
+        merge_request_id = conflict_response.data['error']['details']['merge_request_id']
+
+        from users.models import EmailMergeRequest
+        merge_request = EmailMergeRequest.objects.get(id=merge_request_id)
+        token = merge_request.confirmation_token
+
+        confirm_response = api_client.post('/api/v1/auth/confirm-email-merge/', {
+            'confirmation_token': token,
+        })
+
+        assert confirm_response.status_code == status.HTTP_200_OK
+        assert confirm_response.data['status'] == 'confirmed'
+        assert int(confirm_response.data['target_user_id']) == user_with_email.id
+
+    @pytest.mark.django_db
+    def test_confirm_email_merge_invalid_token(self, user_with_telegram, api_client, settings):
+        settings.EMAIL_MERGE_WEB_CONFIRM_FALLBACK_ENABLED = True
+        api_client.force_authenticate(user=user_with_telegram)
+
+        response = api_client.post('/api/v1/auth/confirm-email-merge/', {
+            'confirmation_token': 'invalid-token',
+        })
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data['error']['code'] == 'merge_request_not_found'
+
+    @pytest.mark.django_db
+    def test_confirm_email_merge_disabled_when_web_fallback_off(self, user_with_telegram, api_client, settings):
+        settings.EMAIL_MERGE_WEB_CONFIRM_FALLBACK_ENABLED = False
+        api_client.force_authenticate(user=user_with_telegram)
+
+        response = api_client.post('/api/v1/auth/confirm-email-merge/', {
+            'confirmation_token': 'any-token',
+        })
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data['error']['code'] == 'merge_web_fallback_disabled'

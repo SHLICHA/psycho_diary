@@ -9,10 +9,38 @@ from aiogram.types import Message
 from aiogram.exceptions import TelegramBadRequest, TelegramAPIError, TelegramForbiddenError
 
 from bot.utils.callback_utils import is_message_not_modified_error 
+from bot.transports.contracts import NormalizedButton, NormalizedOutput
+from bot.transports.unified_send_port import UnifiedSendPort
 from users.models import User
 from messages import get_message
 
 logger = logging.getLogger(__name__)
+
+
+def _build_normalized_output(text: str, reply_markup) -> Optional[NormalizedOutput]:
+    """Build NormalizedOutput from telegram inline keyboard payload."""
+    if reply_markup is None:
+        return NormalizedOutput(text=text)
+
+    if not hasattr(reply_markup, 'inline_keyboard'):
+        return None
+
+    rows = []
+    for row in getattr(reply_markup, 'inline_keyboard', []) or []:
+        normalized_row = []
+        for button in row:
+            button_text = getattr(button, 'text', None)
+            callback_data = getattr(button, 'callback_data', None)
+            # Keep strict callback-only normalization; unsupported buttons fallback to legacy path.
+            if not button_text or not callback_data:
+                return None
+            normalized_row.append(
+                NormalizedButton(text=str(button_text), callback_data=str(callback_data))
+            )
+        if normalized_row:
+            rows.append(normalized_row)
+
+    return NormalizedOutput(text=text, buttons=rows)
 
 async def edit_or_send_message(
     bot: Bot,
@@ -233,6 +261,30 @@ async def send_message_to_user(
     Returns:
         bool: True если сообщение отправлено успешно, False в противном случае
     """
+    if user.telegram_id and not disable_notification:
+        normalized_output = _build_normalized_output(text=text, reply_markup=reply_markup)
+        if normalized_output is not None:
+            send_result = await UnifiedSendPort().send(
+                platform='telegram',
+                recipient_id=int(user.telegram_id),
+                output=normalized_output,
+            )
+            if send_result.success:
+                await User.mark_unblocked(user.telegram_id)
+                logger.debug(f"Пользователь {user.telegram_id} помечен как разблокированный (успешная отправка через UnifiedSendPort).")
+                return True
+
+            if send_result.reason in {'telegram_forbidden', 'telegram_blocked_or_chat_not_found'}:
+                await User.mark_blocked(user.telegram_id)
+                logger.info(
+                    f"Пользователь {user.telegram_id} заблокировал бота или чат недоступен (UnifiedSendPort): {send_result.reason}"
+                )
+                return False
+
+            logger.warning(
+                f"UnifiedSendPort не смог отправить сообщение пользователю {user.telegram_id}, используем legacy fallback: {send_result.reason}"
+            )
+
     try:
         await bot.send_message(
             chat_id=user.telegram_id,

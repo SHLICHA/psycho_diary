@@ -10,6 +10,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from messages import get_message
+from bot.keyboards.identity_merge_keyboard import get_requester_merge_confirmation_keyboard
 from bot.keyboards import (
     get_single_button_keyboard,
     get_premium_keyboard,
@@ -153,6 +154,24 @@ async def process_email_for_subscription(message: Message, user, language: str, 
         result = await process_user_email_for_pending_payment(user, email, pending_payment_data)
 
         if not result['success']:
+            if result.get('error_code') == 'email_confirmation_required':
+                merge_request_id = result.get('merge_request_id')
+                await message.answer(
+                    get_message(
+                        'merge_requester_confirmation_prompt',
+                        language,
+                    ),
+                    reply_markup=(
+                        get_requester_merge_confirmation_keyboard(merge_request_id, language)
+                        if merge_request_id
+                        else None
+                    ),
+                )
+                return
+            if result.get('error_code') == 'email_already_exists':
+                await message.answer(get_message('email_already_exists', language))
+                return
+
             error_msg = result.get('error', 'Неизвестная ошибка')
             await message.answer(error_msg) # Валидатор возвращает строку ошибки
             return
@@ -261,6 +280,24 @@ async def process_email_for_tokens(message: Message, user, language: str, state:
         result = await process_user_email_for_pending_payment(user, email, pending_payment_data)
 
         if not result['success']:
+            if result.get('error_code') == 'email_confirmation_required':
+                merge_request_id = result.get('merge_request_id')
+                await message.answer(
+                    get_message(
+                        'merge_requester_confirmation_prompt',
+                        language,
+                    ),
+                    reply_markup=(
+                        get_requester_merge_confirmation_keyboard(merge_request_id, language)
+                        if merge_request_id
+                        else None
+                    ),
+                )
+                return
+            if result.get('error_code') == 'email_already_exists':
+                await message.answer(get_message('email_already_exists', language))
+                return
+
             error_msg = result.get('error', 'Неизвестная ошибка')
             await message.answer(error_msg) # Валидатор возвращает строку ошибки
             return

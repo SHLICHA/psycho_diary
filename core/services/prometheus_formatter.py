@@ -105,6 +105,39 @@ class PrometheusFormatter:
             )
         
         return output
+
+    @classmethod
+    def _format_max_runtime_diagnostics(cls, snapshot: Dict[str, Any]) -> str:
+        """Format MAX runtime diagnostic gauges derived from transport bucket."""
+        output = ""
+        transport = snapshot.get("transport", {}) or {}
+
+        polling_data = transport.get("max_runtime_polling_iteration", {}) or {}
+        polling_lag_ms = polling_data.get("last_duration_ms", 0)
+        polling_updates_count = (polling_data.get("last_metadata", {}) or {}).get("updates_count", 0)
+
+        webhook_data = transport.get("max_runtime_webhook_register", {}) or {}
+        webhook_outcome = (webhook_data.get("last_metadata", {}) or {}).get("outcome")
+        if webhook_outcome == "success":
+            webhook_outcome_value = 1
+        elif webhook_outcome == "failure":
+            webhook_outcome_value = 0
+        else:
+            webhook_outcome_value = -1
+
+        output += cls._format_counter(
+            f"{cls.PREFIX}_max_runtime_polling_lag_ms",
+            polling_lag_ms,
+        )
+        output += cls._format_counter(
+            f"{cls.PREFIX}_max_runtime_polling_last_updates_count",
+            polling_updates_count,
+        )
+        output += cls._format_counter(
+            f"{cls.PREFIX}_max_runtime_webhook_register_outcome",
+            webhook_outcome_value,
+        )
+        return output
     
     @classmethod
     def format_snapshot(cls, snapshot: Dict[str, Any]) -> str:
@@ -152,6 +185,12 @@ class PrometheusFormatter:
             output += f"# TYPE {cls.PREFIX}_total_success_total counter\n"
             output += f"# HELP {cls.PREFIX}_total_failure_total Total failed events across all buckets\n"
             output += f"# TYPE {cls.PREFIX}_total_failure_total counter\n"
+            output += f"# HELP {cls.PREFIX}_max_runtime_polling_lag_ms Last MAX polling iteration duration in milliseconds\n"
+            output += f"# TYPE {cls.PREFIX}_max_runtime_polling_lag_ms gauge\n"
+            output += f"# HELP {cls.PREFIX}_max_runtime_polling_last_updates_count Number of updates in last MAX polling iteration\n"
+            output += f"# TYPE {cls.PREFIX}_max_runtime_polling_last_updates_count gauge\n"
+            output += f"# HELP {cls.PREFIX}_max_runtime_webhook_register_outcome Last MAX webhook registration outcome: 1 success, 0 failure, -1 unknown\n"
+            output += f"# TYPE {cls.PREFIX}_max_runtime_webhook_register_outcome gauge\n"
             
             # Format bucket metrics
             output += "\n"
@@ -169,6 +208,7 @@ class PrometheusFormatter:
                 f"{cls.PREFIX}_total_failure_total",
                 totals.get("failure", 0),
             )
+            output += cls._format_max_runtime_diagnostics(snapshot)
             
             return output
         except Exception as exc:

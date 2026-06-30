@@ -10,6 +10,9 @@ from typing import Literal
 from django.db import models
 from django.db.models import Avg
 from django.utils import timezone
+from django.utils.crypto import constant_time_compare
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -1200,10 +1203,14 @@ from users.services.auth_token_service import (
     validate_telegram_auth_token,
     create_web_link_token
 )
+from users.services.identity_policy_service import IdentityPolicyService
+from users.services.email_merge_service import EmailMergeService
+from bot.transports.max.inbound import process_merge_target_callback
 from .serializers import (
     RegisterSerializer,
     CompleteRegistrationSerializer,
-    GenerateLinkSerializer
+    GenerateLinkSerializer,
+    ConfirmEmailMergeSerializer,
 )
 
 
@@ -1319,6 +1326,29 @@ class CompleteRegistrationView(APIView):
         tags=['Auth'],
     )
     def post(self, request):
+        if getattr(settings, 'EMAIL_MERGE_CONFIRMATION_ENABLED', False):
+            email = request.data.get('email')
+            if email:
+                resolution = IdentityPolicyService.resolve_email_claim(email, requester_user=request.user)
+                if resolution.status == 'conflict':
+                    merge_request = EmailMergeService.create_merge_request(
+                        requester_user=request.user,
+                        email=email,
+                        source_platform='web',
+                        source_context='complete_registration',
+                    )
+                    return api_error_response(
+                        code='email_confirmation_required',
+                        message='Email is linked to another account. Confirmation is required.',
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        details={
+                            'merge_request_id': merge_request.id,
+                            'expires_in': EmailMergeService.DEFAULT_TTL_SECONDS,
+                            'target_user_id': merge_request.target_user_id,
+                            'confirmation_mode': 'transport_callbacks_primary',
+                        },
+                    )
+
         serializer = CompleteRegistrationSerializer(
             data=request.data,
             context={'user': request.user}
@@ -1339,6 +1369,53 @@ class CompleteRegistrationView(APIView):
             'access': str(refresh.access_token),
             'refresh': str(refresh),
         })
+
+
+class ConfirmEmailMergeView(APIView):
+    """Подтверждение explicit merge-request для конфликтного email."""
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [AuthRateThrottle]
+
+    @extend_schema(
+        summary='Подтверждение merge-конфликта по email',
+        description='Подтверждает merge-request токен и фиксирует намерение пользователя.',
+        request=ConfirmEmailMergeSerializer,
+        responses={200: OpenApiTypes.OBJECT, 400: APIErrorSerializer, 401: APIErrorSerializer},
+        tags=['Auth'],
+    )
+    def post(self, request):
+        if not getattr(settings, 'EMAIL_MERGE_WEB_CONFIRM_FALLBACK_ENABLED', False):
+            return api_error_response(
+                code='merge_web_fallback_disabled',
+                message='Web merge confirmation is disabled. Use Telegram/MAX callbacks.',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = ConfirmEmailMergeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        result = EmailMergeService.confirm_merge_request(
+            requester_user=request.user,
+            confirmation_token=serializer.validated_data['confirmation_token'],
+        )
+
+        if result.status != 'confirmed':
+            return api_error_response(
+                code=result.code or 'merge_request_failed',
+                message='Merge request confirmation failed',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        merge_request = result.merge_request
+        return Response(
+            {
+                'status': 'confirmed',
+                'target_user_id': merge_request.target_user_id,
+                'next_step': 'identity_merge_review',
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class GenerateLinkView(APIView):
@@ -1688,4 +1765,43 @@ class FeedbackView(APIView):
             {'id': feedback.id, 'message': 'Обратная связь принята. Спасибо!'},
             status=status.HTTP_201_CREATED,
         )
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class MaxWebhookView(APIView):
+    """Webhook endpoint для входящих событий VK MAX."""
+
+    permission_classes = []
+    authentication_classes = []
+
+    def _is_secret_valid(self, request) -> bool:
+        expected_secret = (settings.MAX_WEBHOOK_SECRET or '').strip()
+        if not expected_secret:
+            return True
+
+        provided_secret = (
+            request.headers.get('X-Max-Webhook-Secret')
+            or request.headers.get('X-Webhook-Secret')
+            or ''
+        ).strip()
+        if not provided_secret:
+            return False
+        return constant_time_compare(expected_secret, provided_secret)
+
+    def get(self, request):
+        return Response(
+            {
+                'ok': True,
+                'transport_enabled': bool(settings.MAX_TRANSPORT_ENABLED),
+                'transport_mode': settings.MAX_TRANSPORT_MODE,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def post(self, request):
+        if not self._is_secret_valid(request):
+            return Response({'ok': False, 'error': 'invalid_webhook_secret'}, status=status.HTTP_403_FORBIDDEN)
+
+        result = process_merge_target_callback(request.data)
+        return Response(result, status=status.HTTP_200_OK)
 

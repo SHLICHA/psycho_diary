@@ -8,6 +8,21 @@ from decouple import config
 from dotenv import load_dotenv
 from celery.schedules import crontab
 
+
+def _parse_int_csv(value: str) -> list[int]:
+    """Parse comma-separated integers from env var into a clean list."""
+    items: list[int] = []
+    for raw in (value or '').split(','):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            items.append(int(raw))
+        except ValueError:
+            continue
+    return items
+
+
 load_dotenv()
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -315,3 +330,34 @@ USE_LITE_V2 = False                 # Использовать v2 промпты
 # Monitoring Access Controls
 # ============================================================
 MONITORING_REQUIRE_PRIVILEGED = config('MONITORING_REQUIRE_PRIVILEGED', default=False, cast=bool)
+MONITORING_PRIVILEGED_USER_IDS = _parse_int_csv(config('MONITORING_PRIVILEGED_USER_IDS', default=''))
+MONITORING_ALLOW_LEGACY_TELEGRAM_ID = config('MONITORING_ALLOW_LEGACY_TELEGRAM_ID', default=True, cast=bool)
+
+# ============================================================
+# Identity merge / conflict flow
+# ============================================================
+EMAIL_MERGE_CONFIRMATION_ENABLED = config('EMAIL_MERGE_CONFIRMATION_ENABLED', default=False, cast=bool)
+EMAIL_MERGE_WEB_CONFIRM_FALLBACK_ENABLED = config(
+    'EMAIL_MERGE_WEB_CONFIRM_FALLBACK_ENABLED',
+    default=False,
+    cast=bool,
+)
+
+# ============================================================
+# MAX transport (поэтапное включение)
+# ============================================================
+MAX_TRANSPORT_ENABLED = config('MAX_TRANSPORT_ENABLED', default=False, cast=bool)
+MAX_TRANSPORT_MODE = config('MAX_TRANSPORT_MODE', default='polling').strip().lower()
+if MAX_TRANSPORT_MODE not in {'polling', 'webhook'}:
+    MAX_TRANSPORT_MODE = 'polling'
+MAX_BOT_TOKEN = config('MAX_BOT_TOKEN', default='')
+MAX_API_BASE_URL = config('MAX_API_BASE_URL', default='https://platform-api2.max.ru')
+MAX_API_TIMEOUT_SECONDS = config('MAX_API_TIMEOUT_SECONDS', default=10, cast=int)
+MAX_WEBHOOK_SECRET = config('MAX_WEBHOOK_SECRET', default='')
+MAX_WEBHOOK_URL = config('MAX_WEBHOOK_URL', default='')
+MAX_POLLING_TIMEOUT_SECONDS = config('MAX_POLLING_TIMEOUT_SECONDS', default=30, cast=int)
+MAX_POLLING_IDLE_SLEEP_SECONDS = config('MAX_POLLING_IDLE_SLEEP_SECONDS', default=1.5, cast=float)
+MAX_RATE_LIMIT_RPS = config('MAX_RATE_LIMIT_RPS', default=10, cast=float)
+MAX_RATE_LIMIT_BURST = config('MAX_RATE_LIMIT_BURST', default=50, cast=int)
+MAX_MESSAGE_MAX_LENGTH = config('MAX_MESSAGE_MAX_LENGTH', default=3500, cast=int)
+MAX_STATE_TTL_SECONDS = config('MAX_STATE_TTL_SECONDS', default=3600, cast=int)

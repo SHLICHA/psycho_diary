@@ -124,7 +124,7 @@ class TestTaskDisplayServiceFormatTaskAnalysisNotification:
         ) as mock_format:
             mock_format.return_value = TaskAnalysisNotification(
                 text="Отличный анализ!",
-                keyboard=MagicMock(spec=InlineKeyboardMarkup)
+                keyboard=MagicMock()
             )
             notification = await task_display_service.format_task_analysis_notification(
                 mock_analysis, test_user, test_completion

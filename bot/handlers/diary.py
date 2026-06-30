@@ -13,7 +13,7 @@ from datetime import date, timedelta
 from django.utils import timezone
 
 from messages import get_message, get_button_text
-from diary.models import CombinedDiaryEntry, DiaryEntry, DailyAnalysis, PsychoAnalysis
+from diary.models import DiaryEntry
 from diary.services import smart_prompt_manager, daily_state_service
 from diary.services.diary_display_service import diary_display_service
 from bot.decorators.token_decorator import requires_tokens
@@ -198,9 +198,8 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
             await message.answer(get_message('error_generic', language))
             await state_manager.clear_state(state)
             return
-        try:
-            diary_entry = await DiaryEntry.objects.aget(id=entry_id, user=user)
-        except DiaryEntry.DoesNotExist:
+        diary_entry = await diary_service.get_user_entry_by_id(user, entry_id)
+        if not diary_entry:
             await message.answer(get_message('error_generic', language))
             await state_manager.clear_state(state)
             return
@@ -285,9 +284,8 @@ async def request_add_comment(callback: CallbackQuery, state: FSMContext, user, 
     """
     try:
         entry_id = int(callback.data.split(":")[1])
-        try:
-            diary_entry = await DiaryEntry.objects.aget(id=entry_id, user=user)
-        except DiaryEntry.DoesNotExist:
+        diary_entry = await diary_service.get_user_entry_by_id(user, entry_id)
+        if not diary_entry:
             logger.warning(f"Пользователь {user.telegram_id} пытается добавить комментарий к несуществующей записи {entry_id}")
             await safe_answer_callback(callback, get_message('entry_not_found', language), show_alert=True)
             return
@@ -323,9 +321,8 @@ async def process_user_comment(message: Message, state: FSMContext, user, langua
             await message.answer(get_message('error_generic', language))
             await state_manager.clear_state(state)
             return
-        try:
-            diary_entry = await DiaryEntry.objects.aget(id=entry_id, user=user)
-        except DiaryEntry.DoesNotExist:
+        diary_entry = await diary_service.get_user_entry_by_id(user, entry_id)
+        if not diary_entry:
             logger.error(f"[process_user_comment] Запись {entry_id} не найдена для пользователя {user.telegram_id}")
             await message.answer(get_message('error_generic', language))
             await state_manager.clear_state(state)
@@ -495,37 +492,10 @@ async def view_full_day_analysis(callback: CallbackQuery, user, language: str):
         year, month, day = int(parts[1]), int(parts[2]), int(parts[3])
         target_date = date(year, month, day)
 
-        try:
-            combined_entry = await CombinedDiaryEntry.objects.select_related('daily_analysis').aget(user=user, date=target_date)
-        except CombinedDiaryEntry.DoesNotExist:
-            await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
-            return
-
-        if not hasattr(combined_entry, 'daily_analysis'):
-            no_analysis_msg = get_message('no_full_analysis_yet', language)
-            reanalyze_button = [
-                [
-                    InlineKeyboardButton(
-                        text=get_button_text('btn_reanalyze_entry', language),
-                        callback_data=f"reanalyze_day:{year}:{month}:{day}"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text=get_button_text('btn_back', language),
-                        callback_data=f"calendar_select_day:{year}:{month}:{day}"
-                    )
-                ]
-            ]
-            back_keyboard = InlineKeyboardMarkup(inline_keyboard=reanalyze_button)
-            await safe_edit_message_text(message=callback.message, text=no_analysis_msg, reply_markup=back_keyboard)
-            await safe_answer_callback(callback, "")
-            return
-
-        daily_analysis = combined_entry.daily_analysis
-
-        result = await diary_display_service.format_full_day_analysis(
-            combined_entry, daily_analysis, year, month, day, language
+        result = await diary_display_service.build_full_day_analysis_view(
+            user=user,
+            target_date=target_date,
+            language=language,
         )
 
         if result['success']:
@@ -548,7 +518,10 @@ async def entry_edit(callback: CallbackQuery, state: FSMContext, user, language:
     """Редактирование конкретной записи"""
     try:
         entry_id = int(callback.data.split(":")[1])
-        entry = await DiaryEntry.objects.aget(id=entry_id, user=user)
+        entry = await diary_service.get_user_entry_by_id(user, entry_id)
+        if not entry:
+            await safe_answer_callback(callback, get_message('entry_not_found', language), show_alert=True)
+            return
         await state_manager.set_state(state, DiaryStates.waiting_for_entry_edit)
         await state_manager.update_state_data(state, editing_entry_id=entry_id)
         formatted_text = format_entry_text_for_editing(entry.text)
@@ -567,27 +540,31 @@ async def entry_delete_confirm(callback: CallbackQuery, user, language: str):
         if len(parts) < 2:
             raise ValueError("Некорректный формат callback_data для entry_delete_confirm")
         entry_id = int(parts[1])
-        entry = await DiaryEntry.objects.select_related('user').aget(id=entry_id, user=user)
-        target_date = await entry.aentry_date()
+        view = await diary_display_service.build_entry_delete_confirmation_view(
+            user=user,
+            entry_id=entry_id,
+            language=language,
+        )
+        if not view.get('success'):
+            await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
+            return
+        if view.get('mode') == 'not_found':
+            logger.warning(f"Пользователь {user.telegram_id} попытался подтвердить удаление несуществующей записи {entry_id}.")
+            await safe_answer_callback(callback, get_message('entry_not_found', language), show_alert=True)
+            try:
+                await callback.message.edit_text(
+                    text=view['text'],
+                    reply_markup=view['keyboard']
+                )
+            except Exception as edit_error:
+                logger.debug(f"Не удалось отредактировать сообщение в entry_delete_confirm (запись не найдена): {edit_error}")
+            return
 
-        confirm_msg = get_message('confirm_delete_entry_prompt', language)
-        keyboard = get_delete_entry_confirmation_keyboard(language, entry_id, target_date)
-        await safe_edit_message_text(callback.message, confirm_msg, reply_markup=keyboard)
+        await safe_edit_message_text(callback.message, view['text'], reply_markup=view['keyboard'])
         await safe_answer_callback(callback, "")
     except ValueError as ve:
         logger.error(f"Ошибка парсинга callback_data в entry_delete_confirm: {callback.data} - {ve}")
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
-    except DiaryEntry.DoesNotExist:
-        logger.warning(f"Пользователь {user.telegram_id} попытался подтвердить удаление несуществующей записи {entry_id}.")
-        await safe_answer_callback(callback, get_message('entry_not_found', language), show_alert=True)
-        try:
-            await callback.message.edit_text(
-                text=get_message('entry_not_found', language),
-                reply_markup=get_back_keyboard(language)
-            )
-        except Exception as edit_error:
-            logger.debug(f"Не удалось отредактировать сообщение в entry_delete_confirm (запись не найдена): {edit_error}")
-
     except Exception as e:
         logger.error(f"Неожиданная ошибка при подтверждении удаления записи {entry_id}: {e}", exc_info=True)
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
@@ -710,29 +687,35 @@ async def process_entry_edit(message: Message, state: FSMContext, user, language
             await message.answer(get_message('error_generic', language))
             await state_manager.clear_state(state)
             return
-        success = await diary_service.update_entry_text(entry_id, user, new_text)
-        if not success:
-            logger.error(f"Сервис не смог обновить запись {entry_id}")
-            await message.answer(get_message('error_processing', language))
-            await state_manager.clear_state(state)
-            return
-        try:
-            entry = await DiaryEntry.objects.aget(id=entry_id, user=user)
-        except DiaryEntry.DoesNotExist:
-            logger.warning(f"Запись {entry_id} не найдена при попытке получить дату для навигации.")
         state_data = await state_manager.get_state_data(state)
         target_date_iso = state_data.get('editing_entry_target_date')
-        target_date = date.fromisoformat(target_date_iso) if target_date_iso else await entry.aentry_date()
-        entries = await diary_service.get_user_entries_for_date(user, target_date)
-        if entries:
-            sorted_entries = sorted(entries, key=lambda e: e.created_at)
-            await _show_entry_page(message, user, entry, sorted_entries, target_date, language)
+        response = await diary_service.process_entry_edit_use_case(
+            user=user,
+            entry_id=entry_id,
+            new_text=new_text,
+            language=language,
+            target_date_iso=target_date_iso,
+        )
+        if not response.success:
+            await message.answer(response.message or get_message('error_processing', language))
+            await state_manager.clear_state(state)
+            return
+        day_view = (response.data or {}).get('day_view', {})
+        if day_view.get('mode') == 'entries':
+            await _show_entry_page(
+                message,
+                user,
+                day_view['entry'],
+                day_view['entries'],
+                day_view['target_date'],
+                language,
+            )
         else:
             no_entries_msg = get_message('archive_empty', language)
             await safe_edit_message_text(
                 message=message,
                 text=no_entries_msg,
-                reply_markup=get_calendar_back_keyboard(language, target_date.year, target_date.month)
+                reply_markup=day_view['keyboard']
             )
         await state_manager.clear_state(state)
     except Exception as e:
@@ -748,15 +731,18 @@ async def request_delete_specific_entry(callback: CallbackQuery, user, language:
     """Запрос подтверждения удаления конкретной записи."""
     try:
         entry_id = int(callback.data.split(":")[1])
-        try:
-            entry = await DiaryEntry.objects.select_related('user').aget(id=entry_id, user=user)
-            target_date = await entry.aentry_date()
-        except DiaryEntry.DoesNotExist:
+        view = await diary_display_service.build_entry_delete_confirmation_view(
+            user=user,
+            entry_id=entry_id,
+            language=language,
+        )
+        if not view.get('success'):
+            await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
+            return
+        if view.get('mode') == 'not_found':
             await safe_answer_callback(callback, get_message('entry_not_found', language), show_alert=True)
             return
-        confirm_msg = get_message('confirm_delete_entry_prompt', language)
-        confirm_keyboard = get_delete_entry_confirmation_keyboard(entry_id, target_date, language)
-        await safe_edit_message_text(message=callback.message, text=confirm_msg, reply_markup=confirm_keyboard)
+        await safe_edit_message_text(message=callback.message, text=view['text'], reply_markup=view['keyboard'])
         await safe_answer_callback(callback, "")
     except Exception as e:
         logger.error(f"Ошибка при запросе подтверждения удаления записи {entry_id}: {e}", exc_info=True)
@@ -808,40 +794,33 @@ async def confirm_delete_specific_entry(callback: CallbackQuery, user, language:
         if len(parts) < 3:
             raise ValueError("Некорректный формат callback_data: отсутствует дата")
         target_date_iso = parts[2] 
-        try:
-            target_date = date.fromisoformat(target_date_iso) 
-        except ValueError as ve:
-            logger.error(f"Некорректный формат даты ISO в callback_data '{target_date_iso}': {ve}")
-            raise ValueError(f"Некорректный формат даты: {target_date_iso}")
-        success = await diary_service.delete_entry_and_update_combined(entry_id, user)
-        if success:
-            alert_msg = get_message('entry_deleted_success', language)
-            await safe_answer_callback(callback, text=alert_msg, show_alert=True)
-            entries = await diary_service.get_user_entries_for_date(user, target_date) 
-            if entries:
-                sorted_entries = sorted(entries, key=lambda e: e.created_at)
-                await _show_entry_page(callback.message, user, sorted_entries[0], sorted_entries, target_date, language) 
-            else:
-                no_entries_msg = get_message('archive_empty', language)
-                await safe_edit_message_text(
-                    message=callback.message,
-                    text=no_entries_msg,
-                    reply_markup=get_calendar_back_keyboard(language, target_date.year, target_date.month) 
-                )
+        response = await diary_service.process_delete_specific_entry_use_case(
+            user=user,
+            entry_id=entry_id,
+            language=language,
+            target_date_iso=target_date_iso,
+        )
+        if not response.success:
+            await safe_answer_callback(callback, response.message or get_message('error_generic', language), show_alert=True)
+            return
+        payload = response.data or {}
+        await safe_answer_callback(callback, text=payload.get('alert_message', get_message('error_processing', language)), show_alert=True)
+        day_view = payload.get('day_view', {})
+        if day_view.get('mode') == 'entries':
+            await _show_entry_page(
+                callback.message,
+                user,
+                day_view['entry'],
+                day_view['entries'],
+                day_view['target_date'],
+                language,
+            )
         else:
-             error_alert_msg = get_message('error_processing', language)
-             await safe_answer_callback(callback, text=error_alert_msg, show_alert=True)
-             entries = await diary_service.get_user_entries_for_date(user, target_date) 
-             if entries:
-                 sorted_entries = sorted(entries, key=lambda e: e.created_at)
-                 await _show_entry_page(callback.message, user, sorted_entries[0], sorted_entries, target_date, language) 
-             else:
-                 no_entries_msg = get_message('archive_empty', language)
-                 await safe_edit_message_text(
-                     message=callback.message,
-                     text=no_entries_msg,
-                     reply_markup=get_calendar_back_keyboard(language, target_date.year, target_date.month) 
-                 )
+            await safe_edit_message_text(
+                message=callback.message,
+                text=day_view['text'],
+                reply_markup=day_view['keyboard']
+            )
     except (ValueError, IndexError) as e:
         logger.error(f"Некорректный формат даты в callback_data для удаления записи: {callback.data} - {e}")
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
@@ -893,31 +872,39 @@ async def cancel_delete_specific_entry(callback: CallbackQuery, user, language: 
     """Отмена удаления конкретной записи."""
     try:
         parts = callback.data.split(":")
-        entry_id = int(parts[1])
+        _entry_id = int(parts[1])
         if len(parts) < 3:
             raise ValueError("Некорректный формат callback_data: отсутствует дата")
         target_date_iso = parts[2] 
-        try:
-            target_date = date.fromisoformat(target_date_iso) 
-        except ValueError as ve:
-            logger.error(f"Некорректный формат даты ISO в callback_data '{target_date_iso}': {ve}")
-            raise ValueError(f"Некорректный формат даты: {target_date_iso}")
-        entries = await diary_service.get_user_entries_for_date(user, target_date) 
-        if entries:
-            sorted_entries = sorted(entries, key=lambda e: e.created_at)
-            await _show_entry_page(callback.message, user, sorted_entries[0], sorted_entries, target_date, language) 
+        response = await diary_service.process_cancel_delete_specific_entry_use_case(
+            user=user,
+            language=language,
+            target_date_iso=target_date_iso,
+        )
+        if not response.success:
+            await safe_answer_callback(callback, response.message or get_message('error_generic', language), show_alert=True)
+            return
+        day_view = (response.data or {}).get('day_view', {})
+        if day_view.get('mode') == 'entries':
+            await _show_entry_page(
+                callback.message,
+                user,
+                day_view['entry'],
+                day_view['entries'],
+                day_view['target_date'],
+                language,
+            )
         else:
-             no_entries_msg = get_message('archive_empty', language)
-             await safe_edit_message_text(
-                 message=callback.message,
-                 text=no_entries_msg,
-                 reply_markup=get_calendar_back_keyboard(language, target_date.year, target_date.month) 
-             )
+            await safe_edit_message_text(
+                message=callback.message,
+                text=day_view['text'],
+                reply_markup=day_view['keyboard']
+            )
     except (ValueError, IndexError) as e:
         logger.error(f"Некорректный формат даты в callback_data для отмены удаления записи: {callback.data} - {e}")
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
     except Exception as e:
-         logger.error(f"Ошибка при отмене удаления записи {entry_id}: {e}", exc_info=True)
+         logger.error(f"Ошибка при отмене удаления записи: {e}", exc_info=True)
          await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
@@ -972,10 +959,10 @@ async def _process_analysis_result(
 
         final_text = get_message('entry_saved', language, score=mood_score, mood=get_message(f'mood_{mood_score}', language), comment=comment, recommendation=recommendation)
 
-        try:
-            current_analysis = await PsychoAnalysis.objects.aget(entry=entry)
+        current_analysis = await diary_service.get_analysis_for_entry(entry)
+        if current_analysis:
             reply_markup = await diary_display_service.build_entry_result_keyboard(entry, current_analysis, user, language)
-        except PsychoAnalysis.DoesNotExist:
+        else:
             logger.warning(f"PsychoAnalysis для записи {entry.id} не найден при создании клавиатуры в _process_analysis_result")
             reply_markup = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=get_button_text('btn_back', language), callback_data="main_menu")]

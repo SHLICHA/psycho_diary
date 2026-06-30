@@ -32,6 +32,9 @@ async def create_yookassa_payment(
     Configuration.account_id = settings.YOOKASSA_SHOP_ID
     Configuration.secret_key = settings.YOOKASSA_SECRET_KEY
 
+    legacy_user_id = str(user.telegram_id) if user.telegram_id is not None else str(user.id)
+    source_user_id = str(user.telegram_id) if user.telegram_id is not None else ''
+
     payment_data = {
         "amount": {"value": f"{amount:.2f}", "currency": "RUB"},
         "confirmation": {
@@ -45,7 +48,12 @@ async def create_yookassa_payment(
             "items": receipt_items
         },
         "metadata": {
-            "user_id": str(user.telegram_id),
+            # internal_user_id — основной идентификатор домена.
+            "internal_user_id": str(user.id),
+            # user_id оставляем как legacy-ключ для обратной совместимости.
+            "user_id": legacy_user_id,
+            "source_platform": "telegram",
+            "source_user_id": source_user_id,
             **metadata
         }
     }
@@ -57,9 +65,9 @@ async def create_yookassa_payment(
         raise ValueError("Не удалось создать платёж в ЮKassa")
     return payment
 
-async def track_payment_status(yookassa_payment_id: str, payment_id: int, user_id: int):
-    logger.info(f"Отслеживание платежа {yookassa_payment_id} для {user_id}")
-    # user = await User.objects.aget(telegram_id=user_id) # <-- ЗАГРУЖАЕМ НАЧАЛЬНЫЙ ОБЪЕКТ, МОЖЕТ БЫТЬ НЕАКТУАЛЬНО ПОЗЖЕ
+async def track_payment_status(yookassa_payment_id: str, payment_id: int, internal_user_id: int):
+    logger.info(f"Отслеживание платежа {yookassa_payment_id} для user_id={internal_user_id}")
+    # user = await User.objects.aget(id=internal_user_id) # <-- ЗАГРУЖАЕМ НАЧАЛЬНЫЙ ОБЪЕКТ, МОЖЕТ БЫТЬ НЕАКТУАЛЬНО ПОЗЖЕ
 
     # --- ПОЛУЧАЕМ bot через state_manager ---
     bot = state_manager._bot_instance
@@ -84,14 +92,14 @@ async def track_payment_status(yookassa_payment_id: str, payment_id: int, user_i
 
             if yoo_payment.status == "succeeded":
                 # Перед обработкой получаем свежий объект пользователя
-                user_before_processing = await User.objects.aget(telegram_id=user_id)
+                user_before_processing = await User.objects.aget(id=internal_user_id)
                 auto_analysis_was_enabled_before = user_before_processing.auto_analysis_enabled
 
                 # Обрабатываем оплату
                 await user_before_processing.process_payment(db_payment)
 
                 # После обработки получаем обновлённый объект пользователя
-                user_after_processing = await User.objects.aget(telegram_id=user_id)
+                user_after_processing = await User.objects.aget(id=internal_user_id)
                 auto_analysis_is_now_enabled = user_after_processing.auto_analysis_enabled
                 user_language = user_after_processing.language or 'ru'
 
@@ -112,7 +120,7 @@ async def track_payment_status(yookassa_payment_id: str, payment_id: int, user_i
                 return
             elif yoo_payment.status in ("canceled", "failed"):
                 # Получаем пользователя для отправки сообщения
-                user_on_failure = await User.objects.aget(telegram_id=user_id)
+                user_on_failure = await User.objects.aget(id=internal_user_id)
                 user_language = user_on_failure.language or 'ru'
                 # --- ОТПРАВЛЯЕМ НОВОЕ СООБЩЕНИЕ ---
                 await send_message_to_user(bot, user_on_failure, get_message('payment_failed', user_language), language=user_language) # Предполагаем, что 'payment_failed' есть
@@ -122,7 +130,7 @@ async def track_payment_status(yookassa_payment_id: str, payment_id: int, user_i
 
     # --- ОТПРАВЛЯЕМ НОВОЕ СООБЩЕНИЕ по таймауту ---
     # Получаем пользователя для отправки сообщения
-    user_on_timeout = await User.objects.aget(telegram_id=user_id)
+    user_on_timeout = await User.objects.aget(id=internal_user_id)
     user_language = user_on_timeout.language or 'ru'
     await send_message_to_user(
         bot,

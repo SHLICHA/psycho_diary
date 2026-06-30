@@ -14,7 +14,6 @@ from typing import Dict, Any, List, Tuple, Optional
 from datetime import timedelta
 from collections import Counter
 
-from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.utils import timezone
 from django.db.models import Count
@@ -29,8 +28,8 @@ class AdminService:
     """Сервис для административных операций."""
 
     @staticmethod
-    def _get_users_for_broadcast_sync(is_important: bool = False) -> List[Tuple[int, str]]:
-        """Синхронная выборка пользователей для thread-sensitive вызова из async-кода."""
+    async def _get_users_for_broadcast_async(is_important: bool = False) -> List[Tuple[int, str]]:
+        """Асинхронная выборка пользователей для рассылки."""
         base_filter = {
             'is_blocked': False,
             'deletion_status': 'active',
@@ -40,13 +39,14 @@ class AdminService:
         if not is_important:
             base_filter['notifications_enabled'] = True
 
-        return list(
-            User.objects.filter(**base_filter).values_list('telegram_id', 'language')
-        )
+        users: List[Tuple[int, str]] = []
+        async for telegram_id, language in User.objects.filter(**base_filter).values_list('telegram_id', 'language'):
+            users.append((telegram_id, language))
+        return users
 
     @staticmethod
-    def _get_admin_stats_sync() -> Dict[str, Any]:
-        """Собирает статистику синхронно, чтобы использовать один DB connection в тестах и async-вызовах."""
+    async def _get_admin_stats_async() -> Dict[str, Any]:
+        """Собирает статистику асинхронно, чтобы не уходить в отдельный thread/connection."""
         now = timezone.now()
         seven_days_ago = now - timedelta(days=7)
         stats: Dict[str, Any] = {}
@@ -54,50 +54,51 @@ class AdminService:
         active_in_system_users = User.objects.filter(deletion_status='active', is_superuser=False)
         active_users_query = active_in_system_users.filter(is_blocked=False)
 
-        stats['total_users'] = active_in_system_users.count()
-        stats['active_users'] = active_users_query.count()
-        stats['active_users_last_7_days'] = active_users_query.filter(last_activity__gte=seven_days_ago).count()
-        stats['blocked_users'] = active_in_system_users.filter(is_blocked=True).count()
+        stats['total_users'] = await active_in_system_users.acount()
+        stats['active_users'] = await active_users_query.acount()
+        stats['active_users_last_7_days'] = await active_users_query.filter(last_activity__gte=seven_days_ago).acount()
+        stats['blocked_users'] = await active_in_system_users.filter(is_blocked=True).acount()
 
         premium_users = 0
-        for user in active_users_query.iterator():
+        async for user in active_users_query:
             if user.is_premium_active():
                 premium_users += 1
 
         stats['premium_users'] = premium_users
-        stats['users_with_tokens'] = active_users_query.filter(token_balance__gt=0).count()
-        stats['users_with_auto_analysis_enabled'] = active_users_query.filter(auto_analysis_enabled=True).count()
-        stats['users_completed_onboarding'] = active_users_query.filter(is_onboarding_completed=True).count()
+        stats['users_with_tokens'] = await active_users_query.filter(token_balance__gt=0).acount()
+        stats['users_with_auto_analysis_enabled'] = await active_users_query.filter(auto_analysis_enabled=True).acount()
+        stats['users_completed_onboarding'] = await active_users_query.filter(is_onboarding_completed=True).acount()
 
-        active_user_ids = list(active_users_query.values_list('id', flat=True))
+        active_user_ids = [user_id async for user_id in active_users_query.values_list('id', flat=True)]
         entry_query = DiaryEntry.objects.filter(user_id__in=active_user_ids)
-        stats['users_with_entries'] = entry_query.values('user_id').distinct().count()
+        stats['users_with_entries'] = len({user_id async for user_id in entry_query.values_list('user_id', flat=True)})
 
-        timezone_counts = Counter(active_users_query.values_list('timezone', flat=True))
+        timezone_values = [user_timezone async for user_timezone in active_users_query.values_list('timezone', flat=True)]
+        timezone_counts = Counter(timezone_values)
         stats['top_timezones'] = timezone_counts.most_common(10)
 
         all_ratings = AnalysisRating.objects.all()
-        stats['total_ratings'] = all_ratings.count()
+        stats['total_ratings'] = await all_ratings.acount()
 
-        rating_counts = all_ratings.values('rating').annotate(count=Count('rating')).order_by('rating')
         distribution = {i: 0 for i in range(1, 6)}
-        for item in rating_counts:
+        rating_counts = all_ratings.values('rating').annotate(count=Count('rating')).order_by('rating')
+        async for item in rating_counts:
             distribution[item['rating']] = item['count']
         stats['rating_distribution'] = distribution
 
         successful_payments = Payment.objects.filter(status='succeeded')
-        stats['subscriptions_30_count'] = successful_payments.filter(payment_type='subscription_month').count()
-        stats['subscriptions_year_count'] = successful_payments.filter(payment_type='subscription_year').count()
-        stats['tokens_10_count'] = successful_payments.filter(payment_type='tokens_10').count()
-        stats['tokens_50_count'] = successful_payments.filter(payment_type='tokens_50').count()
-        stats['tokens_100_count'] = successful_payments.filter(payment_type='tokens_100').count()
-        stats['tokens_200_count'] = successful_payments.filter(payment_type='tokens_200').count()
-        stats['tokens_500_count'] = successful_payments.filter(payment_type='tokens_500').count()
-        stats['custom_tokens_count'] = successful_payments.filter(payment_type='tokens_custom').count()
+        stats['subscriptions_30_count'] = await successful_payments.filter(payment_type='subscription_month').acount()
+        stats['subscriptions_year_count'] = await successful_payments.filter(payment_type='subscription_year').acount()
+        stats['tokens_10_count'] = await successful_payments.filter(payment_type='tokens_10').acount()
+        stats['tokens_50_count'] = await successful_payments.filter(payment_type='tokens_50').acount()
+        stats['tokens_100_count'] = await successful_payments.filter(payment_type='tokens_100').acount()
+        stats['tokens_200_count'] = await successful_payments.filter(payment_type='tokens_200').acount()
+        stats['tokens_500_count'] = await successful_payments.filter(payment_type='tokens_500').acount()
+        stats['custom_tokens_count'] = await successful_payments.filter(payment_type='tokens_custom').acount()
 
-        stats['total_entries'] = entry_query.count()
-        stats['real_entries'] = entry_query.filter(is_recovered_streak=False).count()
-        stats['recovered_entries'] = entry_query.filter(is_recovered_streak=True).count()
+        stats['total_entries'] = await entry_query.acount()
+        stats['real_entries'] = await entry_query.filter(is_recovered_streak=False).acount()
+        stats['recovered_entries'] = await entry_query.filter(is_recovered_streak=True).acount()
 
         return stats
 
@@ -145,13 +146,7 @@ class AdminService:
         Returns:
             List[Tuple[int, str]]: Список кортежей (telegram_id, language).
         """
-        users = await sync_to_async(
-            self._get_users_for_broadcast_sync,
-            thread_sensitive=True,
-        )(
-            is_important
-        )
-        return users
+        return await self._get_users_for_broadcast_async(is_important)
 
     async def send_broadcast_message(
         self,
@@ -211,7 +206,7 @@ class AdminService:
         Returns:
             Dict[str, Any]: Словарь со статистикой.
         """
-        return await sync_to_async(self._get_admin_stats_sync, thread_sensitive=True)()
+        return await self._get_admin_stats_async()
 
 
 admin_service = AdminService()

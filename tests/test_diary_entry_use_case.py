@@ -269,3 +269,211 @@ async def test_process_user_comment_use_case_wraps_failure(mocker):
     assert response.success is False
     assert response.error == 'comment_failed'
     assert response.message == 'bad comment'
+
+
+@pytest.mark.asyncio
+async def test_process_entry_edit_use_case_wraps_success(mocker):
+    service = DiaryService()
+    user = mocker.Mock(telegram_id=111)
+    entry = mocker.Mock()
+    entry.aentry_date = mocker.AsyncMock(return_value=None)
+    day_view_payload = {'success': True, 'mode': 'empty', 'text': 'ok', 'keyboard': object()}
+
+    mocker.patch.object(service, 'update_entry_text', new=mocker.AsyncMock(return_value=True))
+    mocker.patch.object(service, 'get_user_entry_by_id', new=mocker.AsyncMock(return_value=entry))
+
+    from diary.services.diary_display_service import diary_display_service
+    mocker.patch.object(
+        diary_display_service,
+        'build_day_entries_view',
+        new=mocker.AsyncMock(return_value=day_view_payload),
+    )
+
+    response = await service.process_entry_edit_use_case(
+        user=user,
+        entry_id=7001,
+        new_text='updated text',
+        language='ru',
+        target_date_iso='2026-06-30',
+    )
+
+    assert isinstance(response, ServiceResponse)
+    assert response.success is True
+    assert response.data['day_view'] == day_view_payload
+    assert response.metadata['entry_id'] == 7001
+
+
+@pytest.mark.asyncio
+async def test_process_entry_edit_use_case_wraps_update_failure(mocker):
+    service = DiaryService()
+    user = mocker.Mock(telegram_id=112)
+
+    mocker.patch.object(service, 'update_entry_text', new=mocker.AsyncMock(return_value=False))
+
+    response = await service.process_entry_edit_use_case(
+        user=user,
+        entry_id=7002,
+        new_text='updated text',
+        language='ru',
+    )
+
+    assert isinstance(response, ServiceResponse)
+    assert response.success is False
+    assert response.error == 'entry_update_failed'
+
+
+@pytest.mark.asyncio
+async def test_process_entry_edit_use_case_wraps_invalid_target_date(mocker):
+    service = DiaryService()
+    user = mocker.Mock(telegram_id=113)
+    entry = mocker.Mock()
+
+    mocker.patch.object(service, 'update_entry_text', new=mocker.AsyncMock(return_value=True))
+    mocker.patch.object(service, 'get_user_entry_by_id', new=mocker.AsyncMock(return_value=entry))
+
+    response = await service.process_entry_edit_use_case(
+        user=user,
+        entry_id=7003,
+        new_text='updated text',
+        language='ru',
+        target_date_iso='invalid-date',
+    )
+
+    assert isinstance(response, ServiceResponse)
+    assert response.success is False
+    assert response.error == 'invalid_target_date'
+
+
+@pytest.mark.asyncio
+async def test_process_delete_specific_entry_use_case_wraps_success(mocker):
+    service = DiaryService()
+    user = mocker.Mock(telegram_id=114)
+    day_view_payload = {'success': True, 'mode': 'empty', 'text': 'ok', 'keyboard': object()}
+
+    mocker.patch.object(service, 'delete_entry_and_update_combined', new=mocker.AsyncMock(return_value=True))
+
+    from diary.services.diary_display_service import diary_display_service
+    mocker.patch.object(
+        diary_display_service,
+        'build_day_entries_view',
+        new=mocker.AsyncMock(return_value=day_view_payload),
+    )
+
+    response = await service.process_delete_specific_entry_use_case(
+        user=user,
+        entry_id=8001,
+        language='ru',
+        target_date_iso='2026-06-30',
+    )
+
+    assert isinstance(response, ServiceResponse)
+    assert response.success is True
+    assert response.data['day_view'] == day_view_payload
+    assert response.data['deleted'] is True
+    assert response.metadata['entry_id'] == 8001
+
+
+@pytest.mark.asyncio
+async def test_process_delete_specific_entry_use_case_wraps_invalid_target_date(mocker):
+    service = DiaryService()
+    user = mocker.Mock(telegram_id=115)
+
+    response = await service.process_delete_specific_entry_use_case(
+        user=user,
+        entry_id=8002,
+        language='ru',
+        target_date_iso='invalid-date',
+    )
+
+    assert isinstance(response, ServiceResponse)
+    assert response.success is False
+    assert response.error == 'invalid_target_date'
+
+
+@pytest.mark.asyncio
+async def test_process_delete_specific_entry_use_case_wraps_day_view_failure(mocker):
+    service = DiaryService()
+    user = mocker.Mock(telegram_id=116)
+
+    mocker.patch.object(service, 'delete_entry_and_update_combined', new=mocker.AsyncMock(return_value=False))
+
+    from diary.services.diary_display_service import diary_display_service
+    mocker.patch.object(
+        diary_display_service,
+        'build_day_entries_view',
+        new=mocker.AsyncMock(return_value={'success': False}),
+    )
+
+    response = await service.process_delete_specific_entry_use_case(
+        user=user,
+        entry_id=8003,
+        language='ru',
+        target_date_iso='2026-06-30',
+    )
+
+    assert isinstance(response, ServiceResponse)
+    assert response.success is False
+    assert response.error == 'day_view_build_failed'
+
+
+@pytest.mark.asyncio
+async def test_process_cancel_delete_specific_entry_use_case_wraps_success(mocker):
+    service = DiaryService()
+    user = mocker.Mock(telegram_id=117)
+    day_view_payload = {'success': True, 'mode': 'entries', 'entry': object(), 'entries': [object()], 'total': 1}
+
+    from diary.services.diary_display_service import diary_display_service
+    mocker.patch.object(
+        diary_display_service,
+        'build_day_entries_view',
+        new=mocker.AsyncMock(return_value=day_view_payload),
+    )
+
+    response = await service.process_cancel_delete_specific_entry_use_case(
+        user=user,
+        language='ru',
+        target_date_iso='2026-06-30',
+    )
+
+    assert isinstance(response, ServiceResponse)
+    assert response.success is True
+    assert response.data['day_view'] == day_view_payload
+
+
+@pytest.mark.asyncio
+async def test_process_cancel_delete_specific_entry_use_case_wraps_invalid_target_date(mocker):
+    service = DiaryService()
+    user = mocker.Mock(telegram_id=118)
+
+    response = await service.process_cancel_delete_specific_entry_use_case(
+        user=user,
+        language='ru',
+        target_date_iso='invalid-date',
+    )
+
+    assert isinstance(response, ServiceResponse)
+    assert response.success is False
+    assert response.error == 'invalid_target_date'
+
+
+@pytest.mark.asyncio
+async def test_process_cancel_delete_specific_entry_use_case_wraps_day_view_failure(mocker):
+    service = DiaryService()
+    user = mocker.Mock(telegram_id=119)
+
+    from diary.services.diary_display_service import diary_display_service
+    mocker.patch.object(
+        diary_display_service,
+        'build_day_entries_view',
+        new=mocker.AsyncMock(return_value={'success': False}),
+    )
+
+    response = await service.process_cancel_delete_specific_entry_use_case(
+        user=user,
+        language='ru',
+        target_date_iso='2026-06-30',
+    )
+
+    assert isinstance(response, ServiceResponse)
+    assert response.success is False
+    assert response.error == 'day_view_build_failed'

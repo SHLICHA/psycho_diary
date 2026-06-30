@@ -12,7 +12,7 @@ from asgiref.sync import sync_to_async
 from django.utils import timezone
 from django.db import transaction
 
-from users.models import User, TokenTransaction
+from users.models import User, TokenTransaction, IdentityLinkEvent
 from messages import get_message # Может понадобиться для логов или сообщений об ошибках
 
 logger = logging.getLogger(__name__)
@@ -190,6 +190,188 @@ class UserService:
             return False
 
     @classmethod
+    async def resolve_web_link_target(
+        cls,
+        web_user_id: int,
+        current_telegram_id: Optional[int],
+        source_platform: str = 'telegram',
+        source_context: str = 'start_link',
+    ) -> Tuple[Optional[User], Optional[str]]:
+        """
+        Единая policy проверки привязки Telegram к web-аккаунту.
+
+        Returns:
+            Tuple[Optional[User], Optional[str]]:
+                (web_user, None) при успехе
+                (None, error_code) при ошибке
+
+        error_code:
+            - web_user_not_found
+            - telegram_already_linked
+            - account_already_linked
+        """
+        try:
+            web_user = await User.objects.aget(id=web_user_id)
+        except User.DoesNotExist:
+            await cls._record_identity_link_event(
+                user=None,
+                actor_user=None,
+                actor_telegram_id=current_telegram_id,
+                event_type='link',
+                result='rejected',
+                source_platform=source_platform,
+                source_context=source_context,
+                reason_code='web_user_not_found',
+                metadata={'requested_web_user_id': web_user_id},
+            )
+            return None, 'web_user_not_found'
+
+        if current_telegram_id is None:
+            return web_user, None
+
+        existing_user = None
+        try:
+            existing_user = await User.objects.aget(telegram_id=current_telegram_id)
+        except User.DoesNotExist:
+            existing_user = None
+
+        if existing_user and existing_user.id != web_user.id:
+            await cls._record_identity_link_event(
+                user=web_user,
+                actor_user=existing_user,
+                actor_telegram_id=current_telegram_id,
+                event_type='link',
+                result='rejected',
+                source_platform=source_platform,
+                source_context=source_context,
+                reason_code='telegram_already_linked',
+                metadata={
+                    'existing_user_id': existing_user.id,
+                    'requested_web_user_id': web_user.id,
+                },
+            )
+            return None, 'telegram_already_linked'
+
+        if web_user.telegram_id and web_user.telegram_id != current_telegram_id:
+            await cls._record_identity_link_event(
+                user=web_user,
+                actor_user=None,
+                actor_telegram_id=current_telegram_id,
+                event_type='link',
+                result='rejected',
+                source_platform=source_platform,
+                source_context=source_context,
+                reason_code='account_already_linked',
+                metadata={
+                    'account_telegram_id': web_user.telegram_id,
+                    'requested_web_user_id': web_user.id,
+                },
+            )
+            return None, 'account_already_linked'
+
+        return web_user, None
+
+    @classmethod
+    async def link_telegram_identity(
+        cls,
+        web_user: User,
+        telegram_id: int,
+        source_platform: str = 'telegram',
+        source_context: str = 'start_link',
+        actor_user: Optional[User] = None,
+    ) -> User:
+        """Привязка telegram_id к web-пользователю с idempotent-поведением."""
+        reason_code = 'link_idempotent'
+        if web_user.telegram_id != telegram_id:
+            web_user.telegram_id = telegram_id
+            await web_user.asave(update_fields=['telegram_id'])
+            reason_code = 'link_success'
+
+        await cls._record_identity_link_event(
+            user=web_user,
+            actor_user=actor_user,
+            actor_telegram_id=telegram_id,
+            event_type='link',
+            result='success',
+            source_platform=source_platform,
+            source_context=source_context,
+            reason_code=reason_code,
+            metadata={'linked_telegram_id': telegram_id},
+        )
+
+        return web_user
+
+    @classmethod
+    async def unlink_telegram_identity(
+        cls,
+        web_user: User,
+        source_platform: str = 'telegram',
+        source_context: str = 'manual_unlink',
+        actor_user: Optional[User] = None,
+        actor_telegram_id: Optional[int] = None,
+    ) -> User:
+        """Отвязка telegram_id от web-пользователя с idempotent-поведением."""
+        previous_telegram_id = web_user.telegram_id
+        reason_code = 'unlink_idempotent'
+        if web_user.telegram_id is not None:
+            web_user.telegram_id = None
+            await web_user.asave(update_fields=['telegram_id'])
+            reason_code = 'unlink_success'
+
+        await cls._record_identity_link_event(
+            user=web_user,
+            actor_user=actor_user,
+            actor_telegram_id=actor_telegram_id,
+            event_type='unlink',
+            result='success',
+            source_platform=source_platform,
+            source_context=source_context,
+            reason_code=reason_code,
+            metadata={'previous_telegram_id': previous_telegram_id},
+        )
+
+        return web_user
+
+    @classmethod
+    async def _record_identity_link_event(
+        cls,
+        user: Optional[User],
+        actor_user: Optional[User],
+        actor_telegram_id: Optional[int],
+        event_type: str,
+        result: str,
+        source_platform: str,
+        source_context: str,
+        reason_code: str,
+        metadata: Optional[dict] = None,
+    ) -> None:
+        """Безопасно сохраняет audit trail для identity linking, не ломая основной flow."""
+        try:
+            await IdentityLinkEvent.objects.acreate(
+                user=user,
+                actor_user=actor_user,
+                actor_telegram_id=actor_telegram_id,
+                event_type=event_type,
+                result=result,
+                source_platform=source_platform,
+                source_context=source_context,
+                reason_code=reason_code,
+                metadata=metadata or {},
+            )
+        except Exception:
+            logger.exception(
+                "[UserService] Не удалось сохранить audit trail identity linking",
+                extra={
+                    'event_type': event_type,
+                    'result': result,
+                    'reason_code': reason_code,
+                    'source_platform': source_platform,
+                    'source_context': source_context,
+                    'user_id': getattr(user, 'id', None),
+                },
+            )
+
+    @classmethod
     def _detect_language_from_event(cls, event) -> str:
         """Определение языка пользователя из события Telegram."""
         try:
@@ -242,3 +424,18 @@ async def get_or_create_user_from_event(event, referrer_user: Optional[User] = N
 async def award_referral_bonus(referrer_user: User, referred_user: User) -> bool:
     """Удобная функция для начисления реферального бонуса."""
     return await UserService.award_referral_bonus(referrer_user, referred_user)
+
+
+async def resolve_web_link_target(web_user_id: int, current_telegram_id: Optional[int]) -> Tuple[Optional[User], Optional[str]]:
+    """Удобная функция для policy проверки web-linking."""
+    return await UserService.resolve_web_link_target(web_user_id, current_telegram_id)
+
+
+async def link_telegram_identity(web_user: User, telegram_id: int) -> User:
+    """Удобная функция привязки telegram identity."""
+    return await UserService.link_telegram_identity(web_user, telegram_id)
+
+
+async def unlink_telegram_identity(web_user: User) -> User:
+    """Удобная функция отвязки telegram identity."""
+    return await UserService.unlink_telegram_identity(web_user)

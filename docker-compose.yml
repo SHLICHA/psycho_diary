@@ -57,6 +57,19 @@ services:
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
       - LOG_LEVEL=${LOG_LEVEL}
+      - MAX_TRANSPORT_ENABLED=${MAX_TRANSPORT_ENABLED:-false}
+      - MAX_TRANSPORT_MODE=${MAX_TRANSPORT_MODE:-polling}
+      - MAX_BOT_TOKEN=${MAX_BOT_TOKEN:-}
+      - MAX_API_BASE_URL=${MAX_API_BASE_URL:-https://platform-api2.max.ru}
+      - MAX_API_TIMEOUT_SECONDS=${MAX_API_TIMEOUT_SECONDS:-10}
+      - MAX_WEBHOOK_SECRET=${MAX_WEBHOOK_SECRET:-}
+      - MAX_WEBHOOK_URL=${MAX_WEBHOOK_URL:-}
+      - MAX_POLLING_TIMEOUT_SECONDS=${MAX_POLLING_TIMEOUT_SECONDS:-30}
+      - MAX_POLLING_IDLE_SLEEP_SECONDS=${MAX_POLLING_IDLE_SLEEP_SECONDS:-1.5}
+      - MAX_RATE_LIMIT_RPS=${MAX_RATE_LIMIT_RPS:-10}
+      - MAX_RATE_LIMIT_BURST=${MAX_RATE_LIMIT_BURST:-50}
+      - MAX_MESSAGE_MAX_LENGTH=${MAX_MESSAGE_MAX_LENGTH:-3500}
+      - MAX_STATE_TTL_SECONDS=${MAX_STATE_TTL_SECONDS:-3600}
     depends_on:
       db:
         condition: service_healthy
@@ -113,6 +126,19 @@ services:
       - REDIS_PORT=${REDIS_PORT}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+      - MAX_TRANSPORT_ENABLED=${MAX_TRANSPORT_ENABLED:-false}
+      - MAX_TRANSPORT_MODE=${MAX_TRANSPORT_MODE:-polling}
+      - MAX_BOT_TOKEN=${MAX_BOT_TOKEN:-}
+      - MAX_API_BASE_URL=${MAX_API_BASE_URL:-https://platform-api2.max.ru}
+      - MAX_API_TIMEOUT_SECONDS=${MAX_API_TIMEOUT_SECONDS:-10}
+      - MAX_WEBHOOK_SECRET=${MAX_WEBHOOK_SECRET:-}
+      - MAX_WEBHOOK_URL=${MAX_WEBHOOK_URL:-}
+      - MAX_POLLING_TIMEOUT_SECONDS=${MAX_POLLING_TIMEOUT_SECONDS:-30}
+      - MAX_POLLING_IDLE_SLEEP_SECONDS=${MAX_POLLING_IDLE_SLEEP_SECONDS:-1.5}
+      - MAX_RATE_LIMIT_RPS=${MAX_RATE_LIMIT_RPS:-10}
+      - MAX_RATE_LIMIT_BURST=${MAX_RATE_LIMIT_BURST:-50}
+      - MAX_MESSAGE_MAX_LENGTH=${MAX_MESSAGE_MAX_LENGTH:-3500}
+      - MAX_STATE_TTL_SECONDS=${MAX_STATE_TTL_SECONDS:-3600}
     depends_on:
       db:
         condition: service_healthy
@@ -149,6 +175,44 @@ services:
         condition: service_started
       web:
         condition: service_started # Убедиться, что миграции выполнены
+
+  # MAX Bot runtime (выделенный сервис)
+  max_bot:
+    image: shlicha/dairy_bot:v2
+    env_file:
+      - .env
+    command: python manage.py runmaxbot
+    environment:
+      - DEBUG=${DEBUG}
+      - DATABASE_NAME=${DATABASE_NAME}
+      - DATABASE_USER=${DATABASE_USER}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD}
+      - DATABASE_HOST=${DATABASE_HOST}
+      - DATABASE_PORT=${DATABASE_PORT}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+      - MAX_TRANSPORT_ENABLED=${MAX_TRANSPORT_ENABLED:-false}
+      - MAX_TRANSPORT_MODE=${MAX_TRANSPORT_MODE:-polling}
+      - MAX_BOT_TOKEN=${MAX_BOT_TOKEN:-}
+      - MAX_API_BASE_URL=${MAX_API_BASE_URL:-https://platform-api2.max.ru}
+      - MAX_API_TIMEOUT_SECONDS=${MAX_API_TIMEOUT_SECONDS:-10}
+      - MAX_WEBHOOK_SECRET=${MAX_WEBHOOK_SECRET:-}
+      - MAX_WEBHOOK_URL=${MAX_WEBHOOK_URL:-}
+      - MAX_POLLING_TIMEOUT_SECONDS=${MAX_POLLING_TIMEOUT_SECONDS:-30}
+      - MAX_POLLING_IDLE_SLEEP_SECONDS=${MAX_POLLING_IDLE_SLEEP_SECONDS:-1.5}
+      - MAX_RATE_LIMIT_RPS=${MAX_RATE_LIMIT_RPS:-10}
+      - MAX_RATE_LIMIT_BURST=${MAX_RATE_LIMIT_BURST:-50}
+      - MAX_MESSAGE_MAX_LENGTH=${MAX_MESSAGE_MAX_LENGTH:-3500}
+      - MAX_STATE_TTL_SECONDS=${MAX_STATE_TTL_SECONDS:-3600}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      web:
+        condition: service_started
 
   # Nginx (Reverse Proxy)
   nginx:

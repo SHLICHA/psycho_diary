@@ -20,7 +20,7 @@ baker.generators.add('core.encrypted_fields.EncryptedJSONField', lambda: {})
 baker.generators.add('core.encrypted_fields.EncryptedEmailField', lambda: "test@test.com")
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 class TestAdminService:
     """Тесты для AdminService."""
 

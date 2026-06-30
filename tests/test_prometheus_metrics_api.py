@@ -233,6 +233,32 @@ class TestPrometheusMetricsEndpoint:
         # Check charset in Content-Type
         assert 'charset=utf-8' in response['Content-Type']
 
+    def test_prometheus_endpoint_with_max_runtime_diagnostics(self, api_client, auth_token, db):
+        """Prometheus endpoint should expose MAX runtime diagnostic gauges."""
+        import asyncio
+
+        asyncio.run(monitoring_service.record_transport_event(
+            transport_event='max_runtime_polling_iteration',
+            success=True,
+            duration_ms=123.4,
+            metadata={'mode': 'polling', 'updates_count': 2},
+        ))
+        asyncio.run(monitoring_service.record_transport_event(
+            transport_event='max_runtime_webhook_register',
+            success=False,
+            duration_ms=5.0,
+            metadata={'mode': 'webhook', 'outcome': 'failure'},
+        ))
+
+        url = reverse('monitoring-prometheus')
+        api_client.credentials(HTTP_AUTHORIZATION=f'Bearer {auth_token}')
+        response = api_client.get(url)
+
+        content = response.data
+        assert 'psycho_diary_max_runtime_polling_lag_ms 123.4' in content
+        assert 'psycho_diary_max_runtime_polling_last_updates_count 2.0' in content
+        assert 'psycho_diary_max_runtime_webhook_register_outcome 0.0' in content
+
 
 class TestPrometheusMetricsVsJsonEndpoint:
     """Test that Prometheus and JSON endpoints return consistent data."""

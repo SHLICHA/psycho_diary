@@ -23,6 +23,52 @@ ALLOWED_DURING_ONBOARDING_PREFIXES: Set[str] = {
 }
 
 REFERRAL_PATTERN = re.compile(r'^start\s+ref_(\d+)_([a-zA-Z0-9_-]+)$')
+REFERRAL_PAYLOAD_LEGACY_PATTERN = re.compile(r'^ref_(\d+)_([a-zA-Z0-9_-]+)$')
+
+
+async def resolve_referrer_user_from_start(start_text: str, current_telegram_id: Optional[int]) -> Optional[User]:
+    """Resolve referrer from /start payload with support for legacy and new referral formats."""
+    if not start_text:
+        return None
+
+    normalized = start_text.strip()
+    if normalized.startswith('/'):
+        normalized = normalized[1:]
+
+    if not normalized.startswith('start'):
+        return None
+
+    parts = normalized.split(maxsplit=1)
+    if len(parts) < 2:
+        return None
+
+    payload = parts[1].strip()
+    if not payload:
+        return None
+
+    legacy_match = REFERRAL_PAYLOAD_LEGACY_PATTERN.match(payload)
+    if legacy_match:
+        referrer_telegram_id = int(legacy_match.group(1))
+        if current_telegram_id and referrer_telegram_id == current_telegram_id:
+            logger.warning(f"[Middleware] Пользователь {current_telegram_id} попытался пригласить сам себя.")
+            return None
+        try:
+            return await User.objects.aget(telegram_id=referrer_telegram_id)
+        except User.DoesNotExist:
+            logger.warning(f"[Middleware] Пользователь-пригласитель с telegram_id {referrer_telegram_id} не найден.")
+            return None
+
+    # Новый формат: payload совпадает с user.referral_link (например, ref_u_xxx).
+    try:
+        referrer = await User.objects.aget(referral_link=payload)
+    except User.DoesNotExist:
+        return None
+
+    if current_telegram_id and referrer.telegram_id and referrer.telegram_id == current_telegram_id:
+        logger.warning(f"[Middleware] Пользователь {current_telegram_id} попытался пригласить сам себя.")
+        return None
+
+    return referrer
 
 class UserMiddleware(BaseMiddleware):
     """
@@ -53,26 +99,11 @@ class UserMiddleware(BaseMiddleware):
                     was_blocked_before = False
 
             # --- ОБРАБОТКА РЕФЕРАЛЬНОЙ ССЫЛКИ ---
-            referrer_telegram_id = None
             if isinstance(event, Message) and event.text and event.text.startswith('/start'):
                 logger.debug(f"[Middleware] Получена команда /start: '{event.text}'")
-                match = REFERRAL_PATTERN.match(event.text[1:]) # Убираем '/'
-                if match:
-                    logger.debug(f"[Middleware] Успешное совпадение паттерна для: '{event.text[1:]}'")
-                    referrer_telegram_id = int(match.group(1))
-                    if referrer_telegram_id == telegram_id:
-                        logger.warning(f"[Middleware] Пользователь {telegram_id} попытался пригласить сам себя.")
-                        referrer_telegram_id = None
-                    else:
-                        logger.debug(f"[Middleware] Пользователь {telegram_id} пришёл по реферальной ссылке от {referrer_telegram_id}")
-
-            if referrer_telegram_id:
-                try:
-                    referrer_user = await User.objects.aget(telegram_id=referrer_telegram_id)
-                    logger.debug(f"[Middleware] Найден пригласивший пользователь: {referrer_user.telegram_id}")
-                except User.DoesNotExist:
-                    logger.warning(f"[Middleware] Пользователь-пригласитель с telegram_id {referrer_telegram_id} не найден.")
-                    referrer_user = None
+                referrer_user = await resolve_referrer_user_from_start(event.text, telegram_id)
+                if referrer_user:
+                    logger.debug(f"[Middleware] Найден пригласивший пользователь: {referrer_user.id}")
             # --- КОНЕЦ ОБРАБОТКИ РЕФЕРАЛЬНОЙ ССЫЛКИ ---
 
             # --- ВЫЗОВ СЕРВИСА ДЛЯ ПОЛУЧЕНИЯ/СОЗДАНИЯ ПОЛЬЗОВАТЕЛЯ ---

@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any, Dict
 
 from messages import get_message, get_button_text
+from bot.keyboards.identity_merge_keyboard import get_requester_merge_confirmation_keyboard
 from bot.states.settings_states import SettingsStates
 from bot.keyboards import (
     get_profile_keyboard,
@@ -367,6 +368,25 @@ async def _process_field_input(message: Message, state: FSMContext, user, langua
             new_value = validation_result.get('processed_value', new_value)
         update_result = await update_user_profile_field(user, field_name, new_value)
         if not update_result['success']:
+            error_code = update_result.get('error_code')
+            if error_code == 'email_confirmation_required':
+                merge_request_id = update_result.get('merge_request_id')
+                await message.answer(
+                    get_message(
+                        'merge_requester_confirmation_prompt',
+                        language,
+                    ),
+                    reply_markup=(
+                        get_requester_merge_confirmation_keyboard(merge_request_id, language)
+                        if merge_request_id
+                        else None
+                    ),
+                )
+                return
+            if error_code == 'email_already_exists':
+                await message.answer(get_message('email_already_exists', language))
+                return
+
             error_msg = get_message('error_generic', language)
             logger.error(f"Ошибка обновления поля {field_name}: {update_result.get('error')}")
             await message.answer(error_msg)

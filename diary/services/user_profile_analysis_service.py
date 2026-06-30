@@ -239,17 +239,20 @@ class UserProfileAnalysisService:
             ai_success = True
 
         except Exception as cleanup_error:
-            # no-op: при любой ошибке оставляем поле как было
+            # Локальный fallback: убираем дубли и сохраняем нормализованный список без AI.
             used_fallback = True
             error_text = str(cleanup_error)
-            cleaned_items = prepared_items
+            if error_text == 'response_parse_failed' or 'response_parse_failed' in error_text:
+                cleaned_items = prepared_items
+            else:
+                cleaned_items = self._fallback_cleanup_items(prepared_items)
             logger.warning(
-                f"[UserProfileAnalysisService] Pre-cleanup no-op для '{field_name}': {cleanup_error}"
+                f"[UserProfileAnalysisService] Pre-cleanup fallback для '{field_name}': {cleanup_error}"
             )
 
         return {
             'field_name': field_name,
-            'updated': ai_success and cleaned_items != prepared_items,
+            'updated': cleaned_items != prepared_items,
             'used_fallback': used_fallback,
             'error': error_text,
             'cleaned_items': cleaned_items,

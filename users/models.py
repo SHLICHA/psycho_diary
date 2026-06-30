@@ -24,6 +24,13 @@ class User(AbstractUser):
         verbose_name="Telegram ID",
         help_text="Может быть NULL для web-only пользователей"
     )
+    max_id = models.BigIntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name="MAX ID",
+        help_text="Идентификатор пользователя в VK MAX (nullable на этапе expand)"
+    )
     language = models.CharField(
         max_length=2, 
         choices=[('ru', 'Русский'), ('en', 'English')], 
@@ -144,7 +151,15 @@ class User(AbstractUser):
             self.email_hash = ''
         
         if not self.referral_link:
-            self.referral_link = f"ref_{self.telegram_id}_{secrets.token_urlsafe(8)}"
+            # Гибридная модель: единый transport-agnostic referral code.
+            # Старые ссылки формата ref_<telegram_id>_<token> продолжают поддерживаться.
+            for _ in range(5):
+                candidate = f"ref_u_{secrets.token_urlsafe(8)}"
+                if not User.objects.filter(referral_link=candidate).exists():
+                    self.referral_link = candidate
+                    break
+            if not self.referral_link:
+                self.referral_link = f"ref_u_{secrets.token_urlsafe(12)}"
         super().save(*args, **kwargs)
 
     def is_premium_active(self) -> bool:
@@ -312,6 +327,139 @@ class UserProfileHistory(models.Model):
                  else:
                      setattr(self, field_name, {} if 'traits' in field_name or 'insights' in field_name else [])
         super().save(*args, **kwargs)
+
+
+class IdentityLinkEvent(models.Model):
+    """Аудит-событие привязки/отвязки transport identity к аккаунту пользователя."""
+
+    EVENT_TYPE_CHOICES = [
+        ('link', 'Привязка'),
+        ('unlink', 'Отвязка'),
+    ]
+    RESULT_CHOICES = [
+        ('success', 'Успех'),
+        ('rejected', 'Отклонено'),
+    ]
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='identity_link_events',
+        verbose_name="Пользователь",
+    )
+    actor_user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='initiated_identity_link_events',
+        verbose_name="Инициатор",
+    )
+    actor_telegram_id = models.BigIntegerField(
+        null=True,
+        blank=True,
+        verbose_name="Telegram ID инициатора",
+    )
+    event_type = models.CharField(
+        max_length=16,
+        choices=EVENT_TYPE_CHOICES,
+        verbose_name="Тип события",
+    )
+    result = models.CharField(
+        max_length=16,
+        choices=RESULT_CHOICES,
+        verbose_name="Результат",
+    )
+    source_platform = models.CharField(
+        max_length=32,
+        default='telegram',
+        verbose_name="Платформа-источник",
+    )
+    source_context = models.CharField(
+        max_length=64,
+        default='unknown',
+        verbose_name="Контекст источника",
+    )
+    reason_code = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        verbose_name="Код причины",
+    )
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Метаданные",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
+
+    class Meta:
+        verbose_name = "Событие привязки identity"
+        verbose_name_plural = "События привязки identity"
+        db_table = "users_identity_link_event"
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'created_at']),
+            models.Index(fields=['event_type', 'result']),
+            models.Index(fields=['source_platform', 'source_context']),
+        ]
+
+    def __str__(self):
+        return f"{self.event_type}:{self.result} user={self.user_id} reason={self.reason_code}"
+
+
+class EmailMergeRequest(models.Model):
+    """Запрос подтверждения merge при конфликте email между аккаунтами."""
+
+    STATUS_CHOICES = [
+        ('pending', 'Ожидает подтверждения'),
+        ('confirmed', 'Подтверждено'),
+        ('expired', 'Истекло'),
+        ('cancelled', 'Отменено'),
+    ]
+
+    requester_user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='email_merge_requests',
+        verbose_name='Пользователь-инициатор',
+    )
+    target_user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='email_merge_targets',
+        verbose_name='Целевой пользователь',
+    )
+    email_hash = models.CharField(max_length=64, verbose_name='Email hash')
+    confirmation_token = models.CharField(max_length=128, unique=True, verbose_name='Токен подтверждения')
+    source_platform = models.CharField(max_length=32, default='web', verbose_name='Платформа-источник')
+    source_context = models.CharField(max_length=64, default='complete_registration', verbose_name='Контекст источника')
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='pending', verbose_name='Статус')
+    expires_at = models.DateTimeField(verbose_name='Истекает в')
+    confirmed_at = models.DateTimeField(null=True, blank=True, verbose_name='Подтверждено в')
+    metadata = models.JSONField(default=dict, blank=True, verbose_name='Метаданные')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='Дата создания')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='Дата обновления')
+
+    class Meta:
+        verbose_name = 'Запрос merge по email'
+        verbose_name_plural = 'Запросы merge по email'
+        db_table = 'users_email_merge_request'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['requester_user', 'status']),
+            models.Index(fields=['target_user', 'status']),
+            models.Index(fields=['email_hash', 'status']),
+            models.Index(fields=['expires_at']),
+        ]
+
+    def __str__(self):
+        return (
+            f"merge_request requester={self.requester_user_id} "
+            f"target={self.target_user_id} status={self.status}"
+        )
 
 class CityTimezone(models.Model):
     """

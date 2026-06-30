@@ -19,6 +19,13 @@ class MonitoringAccessPermission(BasePermission):
 		if request.user.is_superuser or request.user.is_staff:
 			return True
 
+		privileged_user_ids = getattr(settings, 'MONITORING_PRIVILEGED_USER_IDS', []) or []
+		if getattr(request.user, 'id', None) in privileged_user_ids:
+			return True
+
+		if not getattr(settings, 'MONITORING_ALLOW_LEGACY_TELEGRAM_ID', True):
+			return False
+
 		developer_chat_id = str(getattr(settings, 'DEVELOPER_CHAT_ID', '') or '').strip()
 		user_telegram_id = str(getattr(request.user, 'telegram_id', '') or '').strip()
 

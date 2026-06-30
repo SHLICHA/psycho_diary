@@ -85,35 +85,23 @@ class TestParseAnalysisResponseFallback:
         self.service = DeepSeekAPIService()
 
     def test_parse_plain_json(self):
-        import asyncio
         text = '{"cleaned_items": []}'
-        result = asyncio.get_event_loop().run_until_complete(
-            self.service._parse_analysis_response(text, 'ru')
-        )
+        result = asyncio.run(self.service._parse_analysis_response(text, 'ru'))
         assert result == {"cleaned_items": []}
 
     def test_parse_fenced_json_block(self):
-        import asyncio
         text = '```json\n{"cleaned_items": [{"value": "тест"}]}\n```'
-        result = asyncio.get_event_loop().run_until_complete(
-            self.service._parse_analysis_response(text, 'ru')
-        )
+        result = asyncio.run(self.service._parse_analysis_response(text, 'ru'))
         assert "cleaned_items" in result
 
     def test_parse_fenced_block_with_trailing_garbage(self):
-        import asyncio
         text = '```json\n{"key": "value"}  trailing text\n```'
         # Блок не парсится напрямую из-за мусора, парсер падает на fallback _extract_json_from_raw_text,
         # который находит первый балансированный JSON-объект — только полные данные, без обрезки.
-        result = asyncio.get_event_loop().run_until_complete(
-            self.service._parse_analysis_response(text, 'ru')
-        )
+        result = asyncio.run(self.service._parse_analysis_response(text, 'ru'))
         assert result == {"key": "value"}
 
     def test_parse_json_embedded_in_text(self):
-        import asyncio
         text = 'Вот результат: {"cleaned_items": []} — готово.'
-        result = asyncio.get_event_loop().run_until_complete(
-            self.service._parse_analysis_response(text, 'ru')
-        )
+        result = asyncio.run(self.service._parse_analysis_response(text, 'ru'))
         assert result == {"cleaned_items": []}

@@ -453,6 +453,256 @@ class DiaryService:
         )
         return response
 
+    async def process_entry_edit_use_case(
+        self,
+        user: User,
+        entry_id: int,
+        new_text: str,
+        language: str,
+        target_date_iso: Optional[str] = None,
+    ) -> ServiceResponse:
+        """Универсальный use-case редактирования записи и подготовки payload отображения дня."""
+        started_at = time.perf_counter()
+        success = False
+
+        try:
+            updated = await self.update_entry_text(entry_id, user, new_text)
+            if not updated:
+                response = ServiceResponse.fail(
+                    error='entry_update_failed',
+                    message=get_message('error_processing', language),
+                )
+                await self._record_use_case_metric(
+                    use_case='diary.process_entry_edit_use_case',
+                    success=success,
+                    started_at=started_at,
+                    metadata={'error': 'entry_update_failed', 'entry_id': entry_id},
+                )
+                return response
+
+            entry = await self.get_user_entry_by_id(user, entry_id)
+            if not entry:
+                response = ServiceResponse.fail(
+                    error='entry_not_found_after_update',
+                    message=get_message('error_generic', language),
+                )
+                await self._record_use_case_metric(
+                    use_case='diary.process_entry_edit_use_case',
+                    success=success,
+                    started_at=started_at,
+                    metadata={'error': 'entry_not_found_after_update', 'entry_id': entry_id},
+                )
+                return response
+
+            if target_date_iso:
+                try:
+                    target_date = date.fromisoformat(target_date_iso)
+                except ValueError:
+                    response = ServiceResponse.fail(
+                        error='invalid_target_date',
+                        message=get_message('error_generic', language),
+                    )
+                    await self._record_use_case_metric(
+                        use_case='diary.process_entry_edit_use_case',
+                        success=success,
+                        started_at=started_at,
+                        metadata={'error': 'invalid_target_date', 'entry_id': entry_id},
+                    )
+                    return response
+            else:
+                target_date = await entry.aentry_date()
+
+            from diary.services.diary_display_service import diary_display_service
+
+            day_view = await diary_display_service.build_day_entries_view(user, target_date, language)
+            if not day_view.get('success'):
+                response = ServiceResponse.fail(
+                    error='day_view_build_failed',
+                    message=get_message('error_generic', language),
+                )
+                await self._record_use_case_metric(
+                    use_case='diary.process_entry_edit_use_case',
+                    success=success,
+                    started_at=started_at,
+                    metadata={'error': 'day_view_build_failed', 'entry_id': entry_id},
+                )
+                return response
+
+            success = True
+            response = ServiceResponse.ok(
+                data={'day_view': day_view, 'target_date': target_date},
+                entry_id=entry_id,
+            )
+            await self._record_use_case_metric(
+                use_case='diary.process_entry_edit_use_case',
+                success=success,
+                started_at=started_at,
+                metadata={'entry_id': entry_id},
+            )
+            return response
+        except Exception as exc:
+            logger.error(
+                f"[process_entry_edit_use_case] Ошибка редактирования записи {entry_id} пользователя {user.telegram_id}: {exc}",
+                exc_info=True,
+            )
+            response = ServiceResponse.fail(
+                error='entry_edit_exception',
+                message=get_message('error_processing', language),
+            )
+            await self._record_use_case_metric(
+                use_case='diary.process_entry_edit_use_case',
+                success=success,
+                started_at=started_at,
+                metadata={'error': 'entry_edit_exception', 'entry_id': entry_id},
+            )
+            return response
+
+    async def process_delete_specific_entry_use_case(
+        self,
+        user: User,
+        entry_id: int,
+        language: str,
+        target_date_iso: str,
+    ) -> ServiceResponse:
+        """Универсальный use-case подтверждения удаления записи и подготовки payload отображения дня."""
+        started_at = time.perf_counter()
+        success = False
+
+        try:
+            try:
+                target_date = date.fromisoformat(target_date_iso)
+            except ValueError:
+                response = ServiceResponse.fail(
+                    error='invalid_target_date',
+                    message=get_message('error_generic', language),
+                )
+                await self._record_use_case_metric(
+                    use_case='diary.process_delete_specific_entry_use_case',
+                    success=success,
+                    started_at=started_at,
+                    metadata={'error': 'invalid_target_date', 'entry_id': entry_id},
+                )
+                return response
+
+            deleted = await self.delete_entry_and_update_combined(entry_id, user)
+            alert_message = (
+                get_message('entry_deleted_success', language)
+                if deleted
+                else get_message('error_processing', language)
+            )
+
+            from diary.services.diary_display_service import diary_display_service
+
+            day_view = await diary_display_service.build_day_entries_view(user, target_date, language)
+            if not day_view.get('success'):
+                response = ServiceResponse.fail(
+                    error='day_view_build_failed',
+                    message=get_message('error_generic', language),
+                )
+                await self._record_use_case_metric(
+                    use_case='diary.process_delete_specific_entry_use_case',
+                    success=success,
+                    started_at=started_at,
+                    metadata={'error': 'day_view_build_failed', 'entry_id': entry_id},
+                )
+                return response
+
+            success = True
+            response = ServiceResponse.ok(
+                data={'day_view': day_view, 'alert_message': alert_message, 'deleted': deleted},
+                entry_id=entry_id,
+            )
+            await self._record_use_case_metric(
+                use_case='diary.process_delete_specific_entry_use_case',
+                success=success,
+                started_at=started_at,
+                metadata={'entry_id': entry_id, 'deleted': deleted},
+            )
+            return response
+        except Exception as exc:
+            logger.error(
+                f"[process_delete_specific_entry_use_case] Ошибка удаления записи {entry_id} пользователя {user.telegram_id}: {exc}",
+                exc_info=True,
+            )
+            response = ServiceResponse.fail(
+                error='delete_entry_exception',
+                message=get_message('error_generic', language),
+            )
+            await self._record_use_case_metric(
+                use_case='diary.process_delete_specific_entry_use_case',
+                success=success,
+                started_at=started_at,
+                metadata={'error': 'delete_entry_exception', 'entry_id': entry_id},
+            )
+            return response
+
+    async def process_cancel_delete_specific_entry_use_case(
+        self,
+        user: User,
+        language: str,
+        target_date_iso: str,
+    ) -> ServiceResponse:
+        """Универсальный use-case отмены удаления записи и подготовки payload отображения дня."""
+        started_at = time.perf_counter()
+        success = False
+
+        try:
+            try:
+                target_date = date.fromisoformat(target_date_iso)
+            except ValueError:
+                response = ServiceResponse.fail(
+                    error='invalid_target_date',
+                    message=get_message('error_generic', language),
+                )
+                await self._record_use_case_metric(
+                    use_case='diary.process_cancel_delete_specific_entry_use_case',
+                    success=success,
+                    started_at=started_at,
+                    metadata={'error': 'invalid_target_date'},
+                )
+                return response
+
+            from diary.services.diary_display_service import diary_display_service
+
+            day_view = await diary_display_service.build_day_entries_view(user, target_date, language)
+            if not day_view.get('success'):
+                response = ServiceResponse.fail(
+                    error='day_view_build_failed',
+                    message=get_message('error_generic', language),
+                )
+                await self._record_use_case_metric(
+                    use_case='diary.process_cancel_delete_specific_entry_use_case',
+                    success=success,
+                    started_at=started_at,
+                    metadata={'error': 'day_view_build_failed'},
+                )
+                return response
+
+            success = True
+            response = ServiceResponse.ok(data={'day_view': day_view})
+            await self._record_use_case_metric(
+                use_case='diary.process_cancel_delete_specific_entry_use_case',
+                success=success,
+                started_at=started_at,
+            )
+            return response
+        except Exception as exc:
+            logger.error(
+                f"[process_cancel_delete_specific_entry_use_case] Ошибка отмены удаления для пользователя {user.telegram_id}: {exc}",
+                exc_info=True,
+            )
+            response = ServiceResponse.fail(
+                error='cancel_delete_exception',
+                message=get_message('error_generic', language),
+            )
+            await self._record_use_case_metric(
+                use_case='diary.process_cancel_delete_specific_entry_use_case',
+                success=success,
+                started_at=started_at,
+                metadata={'error': 'cancel_delete_exception'},
+            )
+            return response
+
     @async_error_handler('diary_service')
     @database_retry(max_retries=3)
     async def create_text_entry(
@@ -701,6 +951,43 @@ class DiaryService:
         except Exception as e:
             logger.error(f"Ошибка при получении записей за дату: {e}")
             return []
+
+    async def get_user_entry_by_id(self, user: User, entry_id: int) -> Optional[DiaryEntry]:
+        """Получение записи пользователя по ID."""
+        try:
+            return await DiaryEntry.objects.select_related('user').aget(id=entry_id, user=user)
+        except DiaryEntry.DoesNotExist:
+            return None
+        except Exception as e:
+            logger.error(f"Ошибка при получении записи {entry_id} пользователя {user.telegram_id}: {e}", exc_info=True)
+            return None
+
+    async def get_combined_entry_with_analysis_for_date(
+        self,
+        user: User,
+        target_date: date,
+    ) -> Optional[CombinedDiaryEntry]:
+        """Получение CombinedDiaryEntry за дату с prefetch daily_analysis."""
+        try:
+            return await CombinedDiaryEntry.objects.select_related('daily_analysis').aget(user=user, date=target_date)
+        except CombinedDiaryEntry.DoesNotExist:
+            return None
+        except Exception as e:
+            logger.error(
+                f"Ошибка при получении CombinedDiaryEntry за {target_date} пользователя {user.telegram_id}: {e}",
+                exc_info=True,
+            )
+            return None
+
+    async def get_analysis_for_entry(self, entry: DiaryEntry) -> Optional[PsychoAnalysis]:
+        """Получение анализа для конкретной записи."""
+        try:
+            return await PsychoAnalysis.objects.aget(entry=entry)
+        except PsychoAnalysis.DoesNotExist:
+            return None
+        except Exception as e:
+            logger.error(f"Ошибка при получении анализа для записи {entry.id}: {e}", exc_info=True)
+            return None
 
     async def get_combined_entry_text(
         self, 
@@ -1848,6 +2135,21 @@ async def get_user_entries_for_date(user: User, target_date: date) -> List[Diary
     """Удобная функция для получения записей за дату"""
     return await diary_service.get_user_entries_for_date(user, target_date)
 
+async def get_user_entry_by_id(user: User, entry_id: int) -> Optional[DiaryEntry]:
+    """Удобная функция для получения записи пользователя по ID."""
+    return await diary_service.get_user_entry_by_id(user, entry_id)
+
+async def get_combined_entry_with_analysis_for_date(
+    user: User,
+    target_date: date,
+) -> Optional[CombinedDiaryEntry]:
+    """Удобная функция для получения CombinedDiaryEntry за дату с daily_analysis."""
+    return await diary_service.get_combined_entry_with_analysis_for_date(user, target_date)
+
+async def get_analysis_for_entry(entry: DiaryEntry) -> Optional[PsychoAnalysis]:
+    """Удобная функция для получения PsychoAnalysis для записи."""
+    return await diary_service.get_analysis_for_entry(entry)
+
 async def get_combined_entry_text(
     user: User, 
     target_date: date, 
@@ -1941,6 +2243,48 @@ async def process_user_comment_use_case(
 ) -> ServiceResponse:
     """Удобная функция для универсального use-case комментария пользователя."""
     return await diary_service.process_user_comment_use_case(user, diary_entry, user_comment_text, language)
+
+async def process_entry_edit_use_case(
+    user: User,
+    entry_id: int,
+    new_text: str,
+    language: str,
+    target_date_iso: Optional[str] = None,
+) -> ServiceResponse:
+    """Удобная функция для универсального use-case редактирования записи."""
+    return await diary_service.process_entry_edit_use_case(
+        user=user,
+        entry_id=entry_id,
+        new_text=new_text,
+        language=language,
+        target_date_iso=target_date_iso,
+    )
+
+async def process_delete_specific_entry_use_case(
+    user: User,
+    entry_id: int,
+    language: str,
+    target_date_iso: str,
+) -> ServiceResponse:
+    """Удобная функция для универсального use-case подтверждения удаления записи."""
+    return await diary_service.process_delete_specific_entry_use_case(
+        user=user,
+        entry_id=entry_id,
+        language=language,
+        target_date_iso=target_date_iso,
+    )
+
+async def process_cancel_delete_specific_entry_use_case(
+    user: User,
+    language: str,
+    target_date_iso: str,
+) -> ServiceResponse:
+    """Удобная функция для универсального use-case отмены удаления записи."""
+    return await diary_service.process_cancel_delete_specific_entry_use_case(
+        user=user,
+        language=language,
+        target_date_iso=target_date_iso,
+    )
 
 async def prepare_combined_entry_for_analysis(user: User, target_date: date) -> Optional[CombinedDiaryEntry]:
     """Удобная функция для подготовки CombinedDiaryEntry для анализа."""

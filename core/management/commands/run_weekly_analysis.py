@@ -23,18 +23,36 @@ class Command(BaseCommand):
     help = 'Запуск еженедельного анализа, анализа профиля и анализа изменений профиля для указанного пользователя'
 
     def add_arguments(self, parser):
-        parser.add_argument('telegram_id', type=int, help='Telegram ID пользователя')
+        parser.add_argument('telegram_id', type=int, nargs='?', default=None, help='Telegram ID пользователя (legacy режим)')
+        parser.add_argument('--user-id', type=int, default=None, help='Внутренний user ID (users.User.id)')
 
     def handle(self, *args, **options):
-        telegram_id = options['telegram_id']
-        self.stdout.write(f'Запуск еженедельного анализа, анализа профиля и анализа изменений для пользователя с Telegram ID: {telegram_id}')
+        telegram_id = options.get('telegram_id')
+        user_id = options.get('user_id')
+
+        if user_id is not None and telegram_id is not None:
+            self.stdout.write(self.style.ERROR('Используйте либо telegram_id, либо --user-id, но не оба параметра одновременно.'))
+            return
+
+        if user_id is None and telegram_id is None:
+            self.stdout.write(self.style.ERROR('Нужно передать telegram_id или --user-id.'))
+            return
+
+        if user_id is not None:
+            self.stdout.write(f'Запуск еженедельного анализа для пользователя с user_id: {user_id}')
+        else:
+            self.stdout.write(f'Запуск еженедельного анализа для пользователя с Telegram ID: {telegram_id}')
 
         try:
-            user = User.objects.get(telegram_id=telegram_id)
+            if user_id is not None:
+                user = User.objects.get(id=user_id)
+            else:
+                user = User.objects.get(telegram_id=telegram_id)
         except User.DoesNotExist:
-            self.stdout.write(
-                self.style.ERROR(f'Пользователь с Telegram ID {telegram_id} не найден')
-            )
+            if user_id is not None:
+                self.stdout.write(self.style.ERROR(f'Пользователь с user_id {user_id} не найден'))
+            else:
+                self.stdout.write(self.style.ERROR(f'Пользователь с Telegram ID {telegram_id} не найден'))
             return
 
         try:
@@ -104,5 +122,5 @@ class Command(BaseCommand):
             self.stdout.write(
                 self.style.ERROR(f'Команда остановлена с ошибкой: {e}')
             )
-            logger.error(f"Критическая ошибка в команде run_weekly_analysis для пользователя {telegram_id}: {e}", exc_info=True)
+            logger.error(f"Критическая ошибка в команде run_weekly_analysis для пользователя {user.id}: {e}", exc_info=True)
             raise  # Возбуждаем исключение дальше, чтобы получить полный трейсбек в случае необходимости

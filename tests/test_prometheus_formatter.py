@@ -245,3 +245,32 @@ class TestPrometheusFormatterSnapshot:
                 has_data_line = True
                 break
         assert has_data_line
+
+    def test_format_snapshot_with_max_runtime_diagnostics(self):
+        """MAX runtime diagnostic gauges should be present and derived from transport metadata."""
+        snapshot = {
+            "use_cases": {},
+            "ai_calls": {},
+            "transport": {
+                "max_runtime_polling_iteration": {
+                    "count": 4,
+                    "success": 4,
+                    "failure": 0,
+                    "last_duration_ms": 321.5,
+                    "last_metadata": {"updates_count": 3},
+                },
+                "max_runtime_webhook_register": {
+                    "count": 1,
+                    "success": 1,
+                    "failure": 0,
+                    "last_duration_ms": 22.0,
+                    "last_metadata": {"outcome": "success"},
+                },
+            },
+            "totals": {"success": 5, "failure": 0},
+        }
+        result = PrometheusFormatter.format_snapshot(snapshot)
+
+        assert 'psycho_diary_max_runtime_polling_lag_ms 321.5' in result
+        assert 'psycho_diary_max_runtime_polling_last_updates_count 3.0' in result
+        assert 'psycho_diary_max_runtime_webhook_register_outcome 1.0' in result

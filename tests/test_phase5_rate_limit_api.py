@@ -150,11 +150,15 @@ def test_refresh_rate_limit_returns_unified_429(api_client, auth_user):
     refresh_token = login.data['refresh']
 
     first = api_client.post('/api/v1/auth/refresh/', {'refresh': refresh_token}, format='json')
-    second = api_client.post('/api/v1/auth/refresh/', {'refresh': refresh_token}, format='json')
-    third = api_client.post('/api/v1/auth/refresh/', {'refresh': refresh_token}, format='json')
-
     assert first.status_code == status.HTTP_200_OK
+
+    second_refresh_token = first.data['refresh']
+    second = api_client.post('/api/v1/auth/refresh/', {'refresh': second_refresh_token}, format='json')
     assert second.status_code == status.HTTP_200_OK
+
+    third_refresh_token = second.data['refresh']
+    third = api_client.post('/api/v1/auth/refresh/', {'refresh': third_refresh_token}, format='json')
+
     assert third.status_code == status.HTTP_429_TOO_MANY_REQUESTS
     assert third.data['error']['code'] == 'rate_limit_exceeded'
 
@@ -178,6 +182,50 @@ def test_monitoring_stats_allowed_for_superuser_when_strict_mode(api_client):
     )
     from rest_framework_simplejwt.tokens import RefreshToken
     token = str(RefreshToken.for_user(admin).access_token)
+    api_client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+    response = api_client.get('/api/v1/auth/monitoring/stats/')
+
+    assert response.status_code == status.HTTP_200_OK
+
+
+def test_monitoring_stats_allowed_for_privileged_internal_user_id(api_client):
+    user = User.objects.create_user(
+        username='phase5_internal_privileged',
+        email='phase5-internal@example.com',
+        password='testpass123',
+    )
+
+    from rest_framework_simplejwt.tokens import RefreshToken
+    token = str(RefreshToken.for_user(user).access_token)
+    api_client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+    with override_settings(
+        MONITORING_REQUIRE_PRIVILEGED=True,
+        MONITORING_PRIVILEGED_USER_IDS=[user.id],
+        MONITORING_ALLOW_LEGACY_TELEGRAM_ID=False,
+    ):
+        response = api_client.get('/api/v1/auth/monitoring/stats/')
+
+    assert response.status_code == status.HTTP_200_OK
+
+
+@override_settings(
+    MONITORING_REQUIRE_PRIVILEGED=True,
+    MONITORING_PRIVILEGED_USER_IDS=[],
+    MONITORING_ALLOW_LEGACY_TELEGRAM_ID=True,
+    DEVELOPER_CHAT_ID='777001',
+)
+def test_monitoring_stats_allowed_for_legacy_developer_chat_match(api_client):
+    user = User.objects.create_user(
+        username='phase5_legacy_privileged',
+        email='phase5-legacy@example.com',
+        password='testpass123',
+        telegram_id=777001,
+    )
+
+    from rest_framework_simplejwt.tokens import RefreshToken
+    token = str(RefreshToken.for_user(user).access_token)
     api_client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
 
     response = api_client.get('/api/v1/auth/monitoring/stats/')

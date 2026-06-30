@@ -34,11 +34,20 @@ SECRET_KEY = 'test-secret-key-for-pytest-django-abcdefghijklmnopqrstuvwxyz123456
 # БАЗА ДАННЫХ
 # ======================
 
-# Используем in-memory SQLite для быстрых тестов
+# Используем PostgreSQL для тестов, чтобы окружение соответствовало production.
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': ':memory:',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv('TEST_DATABASE_NAME', os.getenv('DATABASE_NAME', 'psycho_diary_test')),
+        'USER': os.getenv('TEST_DATABASE_USER', os.getenv('DATABASE_USER', 'postgres')),
+        'PASSWORD': os.getenv('TEST_DATABASE_PASSWORD', os.getenv('DATABASE_PASSWORD', 'postgres')),
+        'HOST': os.getenv('TEST_DATABASE_HOST', os.getenv('DATABASE_HOST', 'localhost')),
+        'PORT': os.getenv('TEST_DATABASE_PORT', os.getenv('DATABASE_PORT', '5432')),
+        'CONN_MAX_AGE': 0,
+        'OPTIONS': {
+            # Для локального test Postgres SSL обычно не используется.
+            'sslmode': os.getenv('TEST_DATABASE_SSLMODE', 'disable'),
+        },
     }
 }
 
@@ -84,6 +93,9 @@ LOGGING = {
 # ======================
 # ПРОЧИЕ НАСТРОЙКИ
 # ======================
+
+# Нужен для APIClient в тестах (request host = testserver)
+ALLOWED_HOSTS = ['testserver', 'localhost', '127.0.0.1']
 
 # Отключаем миграции для ускорения создания тестовой БД
 class DisableMigrations:
