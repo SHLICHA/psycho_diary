@@ -86,8 +86,39 @@
 - **aiogram** (библиотека для Telegram Bot API)
 - **Django** (веб-фреймворк)
 - **DeepSeek API** (для ИИ-анализа)
+- **sentence-transformers** (локальная семантическая кластеризация list-полей в precleanup)
 - **PostgreSQL** (или другая СУБД, используемая с Django)
 - **Redis** (для кэширования и рейт-лимитов)
+
+## Конфигурация локальной кластеризации (precleanup)
+
+Перед полным профильным анализом list-поля (`life_facts`, `core_values`, `triggers` и др.) проходят локальную семантическую кластеризацию. Для запуска используются переменные окружения:
+
+- `SENTENCE_TRANSFORMERS_MODEL_NAME` (по умолчанию `ai-forever/sbert_large_nlu_ru`)
+- `SENTENCE_TRANSFORMERS_DEVICE` (`cpu`/`cuda`)
+- `SENTENCE_TRANSFORMERS_HOME`
+- `HF_HOME`
+- `TRANSFORMERS_CACHE`
+- `PROFILE_CLUSTER_SIMILARITY_THRESHOLD` (глобальный fallback-порог)
+
+Дополнительно можно задавать пороги по полям:
+
+- `PROFILE_CLUSTER_SIMILARITY_THRESHOLD_LIFE_FACTS`
+- `PROFILE_CLUSTER_SIMILARITY_THRESHOLD_HOBBIES`
+- `PROFILE_CLUSTER_SIMILARITY_THRESHOLD_CORE_VALUES`
+- `PROFILE_CLUSTER_SIMILARITY_THRESHOLD_TRIGGERS`
+- `PROFILE_CLUSTER_SIMILARITY_THRESHOLD_STRENGTHS`
+- `PROFILE_CLUSTER_SIMILARITY_THRESHOLD_AREAS_FOR_GROWTH`
+- `PROFILE_CLUSTER_SIMILARITY_THRESHOLD_PRACTICAL_PATTERNS`
+- `PROFILE_CLUSTER_SIMILARITY_THRESHOLD_ASPIRATIONS`
+
+Правила агрегации метаданных в precleanup:
+
+- `weight`: максимум в кластере
+- `frequency`: сумма в кластере
+- `added_at`: самая ранняя дата (`min`)
+- `last_seen`: самая поздняя дата (`max`)
+- `is_stale`: `true` только если stale все элементы кластера
 
 ## REST API: единый формат ошибок
 

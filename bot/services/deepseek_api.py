@@ -47,7 +47,7 @@ class DeepSeekAPIService:
                     return {'success': False, 'error': 'api_key_missing', 'result': {}, 'raw_response': ''}
                 url = "https://api.deepseek.com/v1/chat/completions"
                 payload = {
-                    "model": "deepseek-chat",
+                    "model": "deepseek-v4-flash",
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.3,
                     "max_tokens": 8100
@@ -328,7 +328,7 @@ class DeepSeekAPIService:
             try:
                 url = "https://api.deepseek.com/v1/chat/completions"
                 payload = {
-                    "model": "deepseek-chat",
+                    "model": "deepseek-v4-flash",
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.3,
                     "max_tokens": 5000
@@ -428,7 +428,7 @@ class DeepSeekAPIService:
             'raw_response': raw_response,
             'processing_time': usage.get('total_tokens', 0) * 0.01,
             'tokens_used': usage.get('total_tokens', 0),
-            'model_used': api_result.get('model', 'deepseek-chat'),
+            'model_used': api_result.get('model', 'deepseek-v4-flash'),
             'api_response': {
                 'status': 200,
                 'raw_response': raw_response,
@@ -446,7 +446,7 @@ class DeepSeekAPIService:
             'status': 'error',
             'error_text': error_text,
             'raw_response': error_text,
-            'model_used': 'deepseek-chat',
+            'model_used': 'deepseek-v4-flash',
             'usage': {},
             'processing_time': 0,
             'tokens_used': 0
@@ -503,7 +503,7 @@ class DeepSeekAPIService:
             try:
                 url = "https://api.deepseek.com/v1/chat/completions"
                 payload = {
-                    "model": "deepseek-chat",
+                    "model": "deepseek-v4-flash",
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.1,
                     "max_tokens": 1000

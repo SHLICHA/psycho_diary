@@ -150,6 +150,22 @@ class TestProfileAnalysisStressFailures:
         )
 
         mocker.patch(
+            "diary.services.user_profile_analysis_service.local_profile_cluster_service.cluster_items",
+            side_effect=[
+                {
+                    "field_name": "life_facts",
+                    "cleaned_items": [
+                        {"value": "Факт 1", "weight": 0.95, "frequency": 7, "is_stale": False}
+                    ],
+                    "used_fallback": False,
+                    "error": None,
+                    "strategy": "sentence_transformers",
+                },
+                RuntimeError("local model unavailable"),
+            ],
+        )
+
+        mocker.patch(
             "diary.services.user_profile_analysis_service.get_prompt",
             side_effect=lambda key, language, **kwargs: f"{key}:{kwargs.get('field_name', '')}",
         )
@@ -178,7 +194,7 @@ class TestProfileAnalysisStressFailures:
         assert "hobbies" in stats["fallback_fields"]
         assert "life_facts" in stats["updated_fields"]
         assert isinstance(user.hobbies, list)
-        assert len(user.hobbies) == 1
+        assert len(user.hobbies) == 2
 
     def test_gather_change_context_uses_latest_n_snapshots_with_oversized_payload(self):
         user = baker.make(
@@ -372,28 +388,31 @@ class TestProfileAnalysisStressFailures:
         )
         _make_weekly_analysis(user, date.today() - timedelta(days=7))
 
+        mocker.patch(
+            "diary.services.user_profile_analysis_service.local_profile_cluster_service.cluster_items",
+            return_value={
+                "field_name": "life_facts",
+                "cleaned_items": [
+                    {
+                        "value": "Живу в Москве",
+                        "weight": 0.9,
+                        "frequency": 5,
+                        "is_stale": False,
+                    }
+                ],
+                "used_fallback": False,
+                "error": None,
+                "strategy": "sentence_transformers",
+            },
+        )
+
         async_mock = mocker.AsyncMock(
-            side_effect=[
-                {
-                    "success": True,
-                    "result": {
-                        "cleaned_items": [
-                            {
-                                "value": "Живу в Москве",
-                                "weight": 0.9,
-                                "frequency": 5,
-                                "is_stale": False,
-                            }
-                        ]
-                    },
+            return_value={
+                "success": True,
+                "result": {
+                    "personality_description": "after",
                 },
-                {
-                    "success": True,
-                    "result": {
-                        "personality_description": "after",
-                    },
-                },
-            ]
+            }
         )
         mocker.patch(
             "diary.services.user_profile_analysis_service.deepseek_api_service.send_prompt_and_parse",
@@ -404,7 +423,62 @@ class TestProfileAnalysisStressFailures:
 
         user.refresh_from_db()
         assert result["success"] is True
-        assert async_mock.await_count >= 2
+        assert async_mock.await_count == 1
         assert isinstance(user.life_facts, list)
         assert len(user.life_facts) == 1
         assert user.life_facts[0]["value"] == "Живу в Москве"
+
+    def test_precleanup_preserves_frequency_and_history_dates(self, mocker):
+        user = baker.make(
+            User,
+            telegram_id=910008,
+            username="history_preserve_user",
+            language="ru",
+            life_facts=[
+                {
+                    "value": "Живу в Москве",
+                    "weight": 0.6,
+                    "frequency": 2,
+                    "added_at": "2026-03-01T08:00:00+00:00",
+                    "last_seen": "2026-04-10T10:00:00+00:00",
+                    "is_stale": False,
+                },
+                {
+                    "value": "живу в москве",
+                    "weight": 0.8,
+                    "frequency": 3,
+                    "added_at": "2026-03-05T08:00:00+00:00",
+                    "last_seen": "2026-04-20T12:00:00+00:00",
+                    "is_stale": False,
+                },
+            ],
+        )
+
+        mocker.patch(
+            "diary.services.user_profile_analysis_service.local_profile_cluster_service.cluster_items",
+            return_value={
+                "field_name": "life_facts",
+                "cleaned_items": [
+                    {
+                        "value": "Живу в Москве",
+                        "weight": 0.8,
+                        "frequency": 5,
+                        "added_at": "2026-03-01T08:00:00+00:00",
+                        "last_seen": "2026-04-20T12:00:00+00:00",
+                        "is_stale": False,
+                    }
+                ],
+                "used_fallback": False,
+                "error": None,
+                "strategy": "sentence_transformers",
+            },
+        )
+
+        stats = async_to_sync(user_profile_analysis_service._run_profile_field_precleanup)(user)
+        user.refresh_from_db()
+
+        assert "life_facts" in stats["updated_fields"]
+        assert len(user.life_facts) == 1
+        assert user.life_facts[0]["frequency"] == 5
+        assert user.life_facts[0]["added_at"].startswith("2026-03-01T08:00:00")
+        assert user.life_facts[0]["last_seen"].startswith("2026-04-20T12:00:00")

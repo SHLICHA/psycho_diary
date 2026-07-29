@@ -21,6 +21,7 @@ from bot.services.diary_service import diary_service
 from diary.services.full_day_analysis_service import full_day_analysis_service
 from bot.utils.message_utils import send_message_to_user
 from messages import get_message, get_button_text
+from diary.tasks.ai_activity_filter import is_user_active_for_ai_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,11 @@ def schedule_daily_analyses(self):
         for user in users_qs:
             try:
                 logger.debug(f"Обработка пользователя {user.telegram_id} ({user.username})")
+                if not is_user_active_for_ai_tasks(user):
+                    logger.info(
+                        f"Пропуск периодического ИИ-анализа для пользователя {user.telegram_id}: нет активности за последние 30 дней"
+                    )
+                    continue
                 user_local_time = _get_user_local_time(user)
                 yesterday_date_user_tz = (user_local_time - timedelta(days=1)).date()
                 logger.debug(f"  Локальное время пользователя: {user_local_time}")

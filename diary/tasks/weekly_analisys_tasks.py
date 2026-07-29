@@ -14,6 +14,7 @@ from diary.services.profile_cleanup_service import profile_cleanup_service
 from diary.services.weekly_analysis_service import weekly_analysis_service
 from diary.services.user_profile_analysis_service import user_profile_analysis_service
 from diary.services.user_profile_change_analysis_service import perform_profile_change_analysis
+from diary.tasks.ai_activity_filter import is_user_active_for_ai_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,10 @@ def perform_weekly_analysis_for_user_task(self, user_id: int) -> dict:
         if user.is_blocked:
             logger.debug(f"[Celery Task] Пользователь {user_id} заблокирован. Пропуск анализа.")
             return {'status': 'skipped', 'reason': 'user_blocked', 'user_id': user_id}
+
+        if not is_user_active_for_ai_tasks(user):
+            logger.info(f"[Celery Task] Пропуск еженедельного ИИ-анализа для пользователя {user_id}: нет активности за последние 30 дней")
+            return {'status': 'skipped', 'reason': 'inactive_for_30_days', 'user_id': user_id}
 
         logger.debug(f"[Celery Task] -> Выполнение еженедельного анализа для пользователя {user_id}...")
         perform_weekly_sync = async_to_sync(weekly_analysis_service.perform_weekly_analysis)

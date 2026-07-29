@@ -243,6 +243,43 @@
 | `personal_fields_json` | Унифицированные личностные поля в changed-format JSON |
 | `recent_weekly_analyses` | Последние недельные анализы |
 
+Примечание: перед формированием `user_profile_analysis` list-поля профиля проходят локальную семантическую кластеризацию через `sentence-transformers`; для русского профиля используется `ai-forever/sbert_large_nlu_ru`.
+
+### Precleanup (локальная кластеризация)
+
+Локальный precleanup объединяет только семантически близкие элементы внутри одного поля и сохраняет историю метаданных:
+
+- `weight`: максимум внутри кластера.
+- `frequency`: сумма внутри кластера.
+- `added_at`: самая ранняя дата внутри кластера (`min`).
+- `last_seen`: самая поздняя дата внутри кластера (`max`).
+- `is_stale`: `true` только если все элементы кластера stale.
+
+Важно: precleanup не должен принудительно перезаписывать `last_seen` на "сегодня", иначе искажается TTL-логика дальнейшей очистки.
+
+### Переменные окружения для кластеризации
+
+Базовые переменные:
+
+- `SENTENCE_TRANSFORMERS_MODEL_NAME` — имя модели (по умолчанию `ai-forever/sbert_large_nlu_ru`).
+- `SENTENCE_TRANSFORMERS_DEVICE` — устройство инференса (`cpu`, `cuda`).
+- `SENTENCE_TRANSFORMERS_HOME`, `HF_HOME`, `TRANSFORMERS_CACHE` — каталоги кэша модели.
+
+Глобальный порог семантической близости:
+
+- `PROFILE_CLUSTER_SIMILARITY_THRESHOLD` (дефолт `0.78`).
+
+Порог можно задать отдельно по полям (если переменная не задана, используется поле-специфичный дефолт сервиса):
+
+- `PROFILE_CLUSTER_SIMILARITY_THRESHOLD_LIFE_FACTS`
+- `PROFILE_CLUSTER_SIMILARITY_THRESHOLD_HOBBIES`
+- `PROFILE_CLUSTER_SIMILARITY_THRESHOLD_CORE_VALUES`
+- `PROFILE_CLUSTER_SIMILARITY_THRESHOLD_TRIGGERS`
+- `PROFILE_CLUSTER_SIMILARITY_THRESHOLD_STRENGTHS`
+- `PROFILE_CLUSTER_SIMILARITY_THRESHOLD_AREAS_FOR_GROWTH`
+- `PROFILE_CLUSTER_SIMILARITY_THRESHOLD_PRACTICAL_PATTERNS`
+- `PROFILE_CLUSTER_SIMILARITY_THRESHOLD_ASPIRATIONS`
+
 ### Выходные данные (JSON)
 
 | Поле выхода | Описание |

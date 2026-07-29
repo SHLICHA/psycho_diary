@@ -27,6 +27,7 @@ from bot.states.diary_states import DiaryStates
 from bot.keyboards import (
     get_skip_clarification_keyboard,
 )
+from diary.tasks.ai_activity_filter import is_user_active_for_ai_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,9 @@ def check_clarification_reminders():
         logger.debug(f"Найдено {potential_entries_needing_reminder.count()} потенциальных записей для напоминания.")
 
         for entry in potential_entries_needing_reminder:
+            if not is_user_active_for_ai_tasks(entry.user):
+                logger.info(f"Пропуск напоминания по уточнениям для пользователя {entry.user.telegram_id}: нет активности за последние 30 дней")
+                continue
             if entry.clarification_answers == {}: 
                 logger.debug(f"Отправка напоминания для записи {entry.id}, пользователь {entry.user.telegram_id}, clarification_answers пустой.")
                 asyncio.run(_send_reminder_async(entry))
@@ -75,6 +79,9 @@ def force_process_clarifications():
         logger.debug(f"Найдено {potential_entries_to_force_process.count()} потенциальных записей для принудительной обработки.")
 
         for entry in potential_entries_to_force_process:
+            if not is_user_active_for_ai_tasks(entry.user):
+                logger.info(f"Пропуск принудительной обработки уточнений для пользователя {entry.user.telegram_id}: нет активности за последние 30 дней")
+                continue
             if entry.clarification_answers == {}:
                 logger.info(f"Принудительная обработка для записи {entry.id}, пользователь {entry.user.telegram_id}, clarification_answers пустой.")
                 asyncio.run(_force_process_async(entry))

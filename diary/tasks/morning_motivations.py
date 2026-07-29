@@ -23,6 +23,7 @@ from bot.services.deepseek_api import deepseek_api_service
 from bot.utils.diary_utils import get_recoverable_gap_info
 from bot.utils.bot_factory import create_bot_for_task
 from prompts.get_prompt import get_prompt
+from diary.tasks.ai_activity_filter import is_user_active_for_ai_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,9 @@ async def _send_morning_motivation_async():
         utc_now = datetime.now(pytz.utc)
         for user in users:
             try:
+                if not is_user_active_for_ai_tasks(user):
+                    logger.info(f"[MOTIVATION] Пропуск ИИ-мотивации для пользователя {user.telegram_id}: нет активности за последние 30 дней")
+                    continue
                 user_timezone_str = user.timezone if user.timezone else 'UTC'
                 try:
                     user_tz = pytz.timezone(user_timezone_str)
