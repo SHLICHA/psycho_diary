@@ -33,11 +33,21 @@ def is_user_active_for_ai_tasks(user, inactivity_days: int | None = None) -> boo
         return True
 
     last_activity = getattr(user, 'last_activity', None)
-    if not last_activity:
+    last_entry = getattr(user, 'last_entry', None)
+    latest_activity = None
+
+    if last_activity and last_entry:
+        latest_activity = max(last_activity, last_entry)
+    elif last_activity:
+        latest_activity = last_activity
+    elif last_entry:
+        latest_activity = last_entry
+
+    if not latest_activity:
         return False
 
     created_at = getattr(user, 'created_at', None)
-    if created_at and last_activity <= created_at:
+    if created_at and latest_activity <= created_at:
         return False
 
-    return last_activity >= cutoff
+    return latest_activity >= cutoff

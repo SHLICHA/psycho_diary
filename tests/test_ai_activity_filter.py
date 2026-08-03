@@ -26,8 +26,20 @@ def test_is_user_active_for_ai_tasks_uses_recent_user_activity():
 
 
 @pytest.mark.django_db
+def test_is_user_active_for_ai_tasks_uses_recent_last_entry_when_no_user_activity_exists():
+    user = User.objects.create(username='activity_user_last_entry', telegram_id=12346, auto_analysis_enabled=True)
+    user.created_at = timezone.now() - timedelta(days=40)
+    user.save(update_fields=['created_at'])
+
+    user.last_entry = timezone.now() - timedelta(days=10)
+    user.save(update_fields=['last_entry'])
+
+    assert is_user_active_for_ai_tasks(user)
+
+
+@pytest.mark.django_db
 def test_is_user_active_for_ai_tasks_respects_configured_inactivity_days():
-    user = User.objects.create(username='activity_user_config', telegram_id=12346, auto_analysis_enabled=True)
+    user = User.objects.create(username='activity_user_config', telegram_id=12347, auto_analysis_enabled=True)
 
     with override_settings(AI_INACTIVITY_DAYS=7):
         recent_activity = UserActivity.objects.create(user=user, activity_type='entry_created')

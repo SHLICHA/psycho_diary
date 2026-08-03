@@ -719,15 +719,20 @@ class DiaryService:
             @sync_to_async
             def _create_entry():
                 with transaction.atomic():
-                    return DiaryEntry.objects.create(
+                    entry_created_at = entry_datetime or datetime.now()
+                    diary_entry = DiaryEntry.objects.create(
                         user=user,
                         text=text,
                         language=language,
                         word_count=len(text.split()),
                         is_processed=False,
-                        created_at=entry_datetime or datetime.now(),
+                        created_at=entry_created_at,
                         creator_timezone=user.timezone or 'UTC'
                     )
+                    user.last_entry = entry_created_at
+                    user.last_activity = entry_created_at
+                    user.save(update_fields=['last_entry', 'last_activity'])
+                    return diary_entry
             diary_entry = await _create_entry()
             logger.debug(f"Текстовая запись создана: Entry ID {diary_entry.id}")
             entry_date = await diary_entry.aentry_date()
