@@ -23,7 +23,7 @@ from bot.services.deepseek_api import deepseek_api_service
 from bot.utils.diary_utils import get_recoverable_gap_info
 from bot.utils.bot_factory import create_bot_for_task
 from prompts.get_prompt import get_prompt
-from diary.tasks.ai_activity_filter import is_user_active_for_ai_tasks
+from diary.tasks.ai_activity_filter import ais_user_active_for_ai_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -35,14 +35,13 @@ async def aget_users_for_morning_motivation():
     await sync_to_async(close_old_connections)()
     @sync_to_async
     def _get_users_sync():
+        # Без .only(): задаче нужны last_activity/last_entry, профиль и premium-поля;
+        # отложенная подгрузка в async даёт SynchronousOnlyOperation.
         return list(User.objects.filter(
             notifications_enabled=True,
             is_blocked=False,
             deletion_status='active',
             deleted_at__isnull=True
-        ).only(
-            'telegram_id', 'timezone', 'language', 'date_of_birth', 'token_balance', 'auto_analysis_enabled',
-            'first_name', 'username', 'awareness_level', 'is_blocked', 'deletion_status', 'deleted_at'
         ))
     return await _get_users_sync()
 
@@ -67,7 +66,7 @@ async def _send_morning_motivation_async():
         utc_now = datetime.now(pytz.utc)
         for user in users:
             try:
-                if not is_user_active_for_ai_tasks(user):
+                if not await ais_user_active_for_ai_tasks(user):
                     logger.info(f"[MOTIVATION] Пропуск ИИ-мотивации для пользователя {user.telegram_id}: нет активности за последние 30 дней")
                     continue
                 user_timezone_str = user.timezone if user.timezone else 'UTC'

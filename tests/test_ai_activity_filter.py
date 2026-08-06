@@ -1,10 +1,15 @@
+import asyncio
 import pytest
 from datetime import timedelta
+from django.core.exceptions import SynchronousOnlyOperation
 from django.test import override_settings
 from django.utils import timezone
 
 from diary.models import UserActivity
-from diary.tasks.ai_activity_filter import is_user_active_for_ai_tasks
+from diary.tasks.ai_activity_filter import (
+    ais_user_active_for_ai_tasks,
+    is_user_active_for_ai_tasks,
+)
 from users.models import User
 
 
@@ -47,7 +52,33 @@ def test_is_user_active_for_ai_tasks_respects_configured_inactivity_days():
         recent_activity.save(update_fields=['timestamp'])
         assert is_user_active_for_ai_tasks(user)
 
+        UserActivity.objects.filter(user=user).delete()
         old_activity = UserActivity.objects.create(user=user, activity_type='entry_created')
         old_activity.timestamp = timezone.now() - timedelta(days=8)
         old_activity.save(update_fields=['timestamp'])
-        assert is_user_active_for_ai_tasks(user)
+        assert not is_user_active_for_ai_tasks(user)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_ais_user_active_for_ai_tasks_works_inside_asyncio_run():
+    user = User.objects.create(username='activity_user_async', telegram_id=12348, auto_analysis_enabled=True)
+    recent_activity = UserActivity.objects.create(user=user, activity_type='entry_created')
+    recent_activity.timestamp = timezone.now() - timedelta(days=5)
+    recent_activity.save(update_fields=['timestamp'])
+
+    async def _check():
+        with pytest.raises(SynchronousOnlyOperation):
+            is_user_active_for_ai_tasks(user)
+        assert await ais_user_active_for_ai_tasks(user) is True
+
+    asyncio.run(_check())
+
+
+@pytest.mark.django_db(transaction=True)
+def test_ais_user_active_for_ai_tasks_inactive_user():
+    user = User.objects.create(username='activity_user_async_inactive', telegram_id=12349, auto_analysis_enabled=True)
+
+    async def _check():
+        assert await ais_user_active_for_ai_tasks(user) is False
+
+    asyncio.run(_check())

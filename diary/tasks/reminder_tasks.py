@@ -24,7 +24,7 @@ from users.models import User
 from messages import get_message, get_button_text
 from prompts.get_prompt import get_prompt
 from bot.utils.diary_utils import get_user_streaks
-from diary.tasks.ai_activity_filter import is_user_active_for_ai_tasks
+from diary.tasks.ai_activity_filter import ais_user_active_for_ai_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +113,7 @@ async def _send_entry_reminders_async():
         
         for user in users:
             try:
-                if not is_user_active_for_ai_tasks(user):
+                if not await ais_user_active_for_ai_tasks(user):
                     logger.info(f"Пропуск ИИ-напоминания для пользователя {user.telegram_id}: нет активности за последние 30 дней")
                     continue
                 user_timezone_str = user.timezone if user.timezone else 'UTC'

@@ -7,6 +7,10 @@ ARG DEBIAN_FRONTEND=noninteractive
 # Установка переменных окружения
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+# Устойчивость к медленному/нестабильному доступу к PyPI при сборке
+ENV PIP_DEFAULT_TIMEOUT=120
+ENV PIP_RETRIES=10
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 ENV SENTENCE_TRANSFORMERS_MODEL_NAME=ai-forever/sbert_large_nlu_ru
 ENV SENTENCE_TRANSFORMERS_DEVICE=cpu
 ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache/sentence-transformers
@@ -31,20 +35,16 @@ RUN mkdir -p /app/.cache/sentence-transformers /app/.cache/huggingface/transform
 COPY ./requirements.txt /app/requirements.txt
 RUN pip install --upgrade pip
 
-# Устанавливаем aiogram первым
-RUN pip install --no-cache-dir aiogram==3.1.1
+# Удаляем конфликтующие строки до установки
+RUN sed -i '/typing_extensions==4.15.0/d' /app/requirements.txt \
+    && sed -i '/cryptography==46.0.2/d' /app/requirements.txt \
+    && sed -i '/python-docx==1.2.0/d' /app/requirements.txt
 
-# Удаляем конфликтующие строки
-RUN sed -i '/typing_extensions==4.15.0/d' /app/requirements.txt
-RUN sed -i '/cryptography==46.0.2/d' /app/requirements.txt
-RUN sed -i '/python-docx==1.2.0/d' /app/requirements.txt
-
-# Устанавливаем остальное
-RUN pip install --no-cache-dir -r requirements.txt
-
-RUN pip install --no-cache-dir python-docx==1.2.0
-# Принудительно устанавливаем cryptography поверх
-RUN pip install --no-cache-dir --force-reinstall cryptography==46.0.2
+# aiogram первым, затем остальные зависимости (больше таймаут/ретраи — см. ENV выше)
+RUN pip install --no-cache-dir aiogram==3.1.1 \
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir python-docx==1.2.0 \
+    && pip install --no-cache-dir --force-reinstall cryptography==46.0.2
 
 # Копирование всего приложения
 COPY . /app/
