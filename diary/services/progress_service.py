@@ -276,6 +276,181 @@ class ProgressService:
             logger.error(f"[ProgressService] Ошибка при форматировании анализа недели {analysis.week_start_date} для отображения: {e}", exc_info=True)
             return {'success': False, 'formatted_text': get_message('error_generic', language), 'error': str(e)}
 
+    @classmethod
+    async def build_progress_screen_view(cls, user: User, language: str) -> Dict[str, Any]:
+        """Собирает полный payload главного экрана прогресса."""
+        from bot.keyboards import (
+            get_progress_keyboard_with_weekly,
+            get_progress_keyboard_without_weekly,
+        )
+
+        user_stats = await cls.get_user_progress_statistics(user)
+        latest_weekly_analysis = await cls.get_latest_weekly_analysis(user)
+
+        comparison_text = ""
+        if latest_weekly_analysis and latest_weekly_analysis.comparison_with_previous:
+            comparison_data = latest_weekly_analysis.comparison_with_previous
+            progress_comment = comparison_data.get('progress_comment')
+            mood_comparison = comparison_data.get('mood_comparison')
+            parts = []
+            if progress_comment:
+                parts.append(progress_comment)
+            if mood_comparison:
+                if not progress_comment:
+                    parts.insert(0, mood_comparison)
+                else:
+                    parts.append(f"({mood_comparison})")
+            if parts:
+                comparison_text = f"\n\n📊 <b>Динамика:</b> {' '.join(parts)}"
+
+        no_analysis_info = ""
+        if not latest_weekly_analysis:
+            no_analysis_info = get_message('weekly_analysis_not_performed_yet', language)
+
+        progress_msg = get_message(
+            'progress_title',
+            language,
+            awareness_level=user.awareness_level,
+            entries_count=user_stats['entries_count'],
+            tasks_completed=user_stats['tasks_completed'],
+            tasks_assigned=user_stats['tasks_assigned'],
+            tasks_completion_percentage=user_stats['tasks_completion_percentage'],
+            streak_days=user_stats['streak_days'],
+            streak_reset_warning=user_stats['streak_reset_warning'],
+        )
+        progress_msg += no_analysis_info
+        progress_msg += comparison_text
+
+        has_analyses = await cls.get_has_weekly_analyses(user)
+        restore_check_result = await cls.check_restore_streak_availability(user)
+        show_restore_btn = restore_check_result['available']
+        if has_analyses:
+            reply_markup = get_progress_keyboard_with_weekly(
+                language, show_restore_button=show_restore_btn
+            )
+        else:
+            reply_markup = get_progress_keyboard_without_weekly(
+                language, show_restore_button=show_restore_btn
+            )
+
+        return {
+            'success': True,
+            'text': progress_msg,
+            'reply_markup': reply_markup,
+            'has_analyses': has_analyses,
+            'show_restore_button': show_restore_btn,
+            'stats': user_stats,
+        }
+
+    @classmethod
+    async def build_weekly_analysis_page_view(
+        cls,
+        user: User,
+        week_start_date: date,
+        language: str,
+    ) -> Dict[str, Any]:
+        """Payload страницы недельного анализа."""
+        from bot.keyboards import (
+            get_weekly_navigation_keyboard,
+            get_progress_keyboard_without_weekly,
+        )
+
+        analysis = await cls.get_weekly_analysis_for_date(user, week_start_date)
+        if not analysis:
+            return {
+                'success': True,
+                'mode': 'not_found',
+                'text': get_message('weekly_analysis_not_found', language),
+                'reply_markup': get_weekly_navigation_keyboard(language, week_start_date),
+            }
+
+        format_result = await cls.format_weekly_analysis_for_display(analysis, user, language)
+        if not format_result.get('success'):
+            return {
+                'success': False,
+                'mode': 'error',
+                'text': get_message('error_generic', language),
+                'reply_markup': get_progress_keyboard_without_weekly(language),
+                'error': format_result.get('error'),
+            }
+
+        return {
+            'success': True,
+            'mode': 'analysis',
+            'text': format_result['formatted_text'],
+            'reply_markup': get_weekly_navigation_keyboard(language, week_start_date),
+        }
+
+    @classmethod
+    async def build_restore_streak_request_view(
+        cls,
+        user: User,
+        language: str,
+    ) -> Dict[str, Any]:
+        """Payload экрана запроса восстановления streak."""
+        from bot.keyboards import get_restore_date_selection_keyboard, get_back_keyboard
+
+        restore_check_result = await cls.check_restore_streak_availability(user)
+        if not restore_check_result.get('available'):
+            return {
+                'success': True,
+                'mode': 'unavailable',
+                'available': False,
+                'dates': [],
+            }
+
+        recoverable_dates = restore_check_result.get('dates') or []
+        if len(recoverable_dates) not in (1, 2):
+            return {
+                'success': False,
+                'mode': 'error',
+                'text': get_message('error_generic', language),
+                'reply_markup': get_back_keyboard(language),
+                'error': 'unexpected_recoverable_dates_count',
+            }
+
+        return {
+            'success': True,
+            'mode': 'select_date',
+            'available': True,
+            'dates': recoverable_dates,
+            'text': get_message('restore_streak_info', language, tokens_cost=10),
+            'reply_markup': get_restore_date_selection_keyboard(language, recoverable_dates),
+        }
+
+    @classmethod
+    async def confirm_streak_restoration_use_case(
+        cls,
+        user: User,
+        target_date: date,
+        language: str,
+    ) -> Dict[str, Any]:
+        """
+        Use case подтверждения восстановления streak за конкретную дату.
+
+        Returns:
+            ok, alert_text, refresh_progress, notify_mode ('message' | 'alert')
+        """
+        restore_check_result = await cls.check_restore_streak_availability(user)
+        if (
+            not restore_check_result.get('available')
+            or target_date not in (restore_check_result.get('dates') or [])
+        ):
+            return {
+                'ok': False,
+                'alert_text': get_message('restore_streak_unavailable', language),
+                'refresh_progress': True,
+                'notify_mode': 'message',
+            }
+
+        restoration_result = await cls.attempt_streak_restoration(user, target_date, language)
+        return {
+            'ok': restoration_result.get('success', False),
+            'alert_text': restoration_result['message'],
+            'refresh_progress': True,
+            'notify_mode': 'alert',
+        }
+
 # Удобные функции для импорта в хендлеры
 async def get_user_progress_statistics(user: User) -> Dict[str, Any]:
     return await ProgressService.get_user_progress_statistics(user)
@@ -303,3 +478,23 @@ async def attempt_streak_restoration(user: User, target_date: date, language: st
 
 async def format_weekly_analysis_for_display(analysis: WeeklyAnalysis, user: User, language: str) -> Dict[str, Any]:
     return await ProgressService.format_weekly_analysis_for_display(analysis, user, language)
+
+async def build_progress_screen_view(user: User, language: str) -> Dict[str, Any]:
+    return await ProgressService.build_progress_screen_view(user, language)
+
+async def build_weekly_analysis_page_view(
+    user: User,
+    week_start_date: date,
+    language: str,
+) -> Dict[str, Any]:
+    return await ProgressService.build_weekly_analysis_page_view(user, week_start_date, language)
+
+async def build_restore_streak_request_view(user: User, language: str) -> Dict[str, Any]:
+    return await ProgressService.build_restore_streak_request_view(user, language)
+
+async def confirm_streak_restoration_use_case(
+    user: User,
+    target_date: date,
+    language: str,
+) -> Dict[str, Any]:
+    return await ProgressService.confirm_streak_restoration_use_case(user, target_date, language)

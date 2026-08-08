@@ -16,32 +16,18 @@ logger = logging.getLogger(__name__)
 
 async def send_feedback_to_developer(
     bot: Bot,
+    feedback: Feedback,
     user: User,
     message_text: str = None,
     voice_data: bytes = None,
     photo_data: bytes = None,
-    photo_file_id: str = None # <-- Новый аргумент
+    photo_file_id: str = None,
 ):
-    """Отправляет обратную связь разработчику и сохраняет в БД"""
-
-    logger = logging.getLogger(__name__) # <-- Инициализируем логгер внутри функции или используем глобальный
+    """Отправляет уже созданное обращение разработчику (transport-only)."""
 
     try:
         is_voice = voice_data is not None
-        is_photo = photo_data is not None or photo_file_id is not None # Теперь is_photo может быть True и без photo_data
-        feedback_message = message_text or ("Голосовое сообщение" if is_voice else "Фото" if is_photo else "Сообщение")
-
-        # --- Создание Feedback с photo_file_id ---
-        feedback = await sync_to_async(Feedback.objects.create)(
-            user=user,
-            message=feedback_message,
-            is_voice=is_voice,
-            is_photo=is_photo,
-            # Добавляем новое поле, если оно было передано
-            photo_file_id=photo_file_id if photo_file_id else None,
-            status='new'
-        )
-        # --- Конец создания Feedback ---
+        is_photo = photo_data is not None or photo_file_id is not None
 
         username = await sync_to_async(lambda: user.username or f"user_{user.telegram_id}")()
         created_at = await sync_to_async(lambda: feedback.created_at.strftime('%d.%m.%Y %H:%M'))()

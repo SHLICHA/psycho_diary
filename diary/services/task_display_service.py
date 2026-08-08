@@ -408,5 +408,200 @@ class TaskDisplayService:
             'keyboard': keyboard,
         }
 
+    async def build_active_tasks_view(self, user: User, language: str) -> Dict[str, Any]:
+        """Payload экрана активных заданий (active/empty), первая страница."""
+        return await self.build_active_tasks_page_view(user, language, index=0)
+
+    async def build_active_tasks_page_view(
+        self,
+        user: User,
+        language: str,
+        index: int = 0,
+        direction: Optional[str] = None,
+        *,
+        empty_reply_mode: str = 'main_menu',
+    ) -> Dict[str, Any]:
+        """
+        Payload экрана активных заданий с пагинацией (active/empty).
+
+        empty_reply_mode:
+            - main_menu — экран списка заданий (show_tasks, skip)
+            - back_only — только «назад» (paginate_tasks при пустом списке)
+        """
+        from diary.services.task_management_service import (
+            get_user_active_tasks,
+            get_user_completed_tasks,
+            get_user_skipped_tasks,
+        )
+        from bot.keyboards import (
+            get_task_pagination_keyboard,
+            get_task_main_menu_keyboard,
+            get_single_button_keyboard,
+        )
+
+        active_tasks = await get_user_active_tasks(user)
+        completed_tasks_check = await get_user_completed_tasks(user, limit=1)
+        skipped_tasks_check = await get_user_skipped_tasks(user, limit=1)
+        has_history = bool(completed_tasks_check or skipped_tasks_check)
+
+        if not active_tasks:
+            empty_keyboard = (
+                get_single_button_keyboard(language)
+                if empty_reply_mode == 'back_only'
+                else get_task_main_menu_keyboard(
+                    language=language,
+                    show_history_button=has_history,
+                )
+            )
+            return {
+                'success': True,
+                'mode': 'empty',
+                'text': get_message('task_no_active', language),
+                'keyboard': empty_keyboard,
+                'tasks': [],
+                'has_history': has_history,
+                'current_index': 0,
+            }
+
+        current_index = index
+        if direction == 'next':
+            current_index = (index + 1) % len(active_tasks)
+        elif direction == 'prev':
+            current_index = (index - 1) % len(active_tasks)
+
+        task = active_tasks[current_index]
+        return {
+            'success': True,
+            'mode': 'active',
+            'text': get_message(
+                'task_assigned',
+                language,
+                title=task.title,
+                description=task.description,
+            ),
+            'keyboard': get_task_pagination_keyboard(
+                task_id=task.id,
+                current_index=current_index,
+                total_tasks=len(active_tasks),
+                language=language,
+                show_history_button=has_history,
+            ),
+            'tasks': active_tasks,
+            'has_history': has_history,
+            'current_index': current_index,
+            'task': task,
+        }
+
+    async def build_task_detail_view(
+        self,
+        user: User,
+        task_id: int,
+        language: str,
+    ) -> Dict[str, Any]:
+        """Payload просмотра конкретного задания."""
+        from diary.services.task_management_service import get_user_task_by_id
+        from bot.keyboards import get_task_detail_keyboard
+
+        task = await get_user_task_by_id(user, task_id)
+        if not task:
+            return {
+                'success': False,
+                'mode': 'not_found',
+                'alert_text': get_message('task_not_found', language),
+            }
+
+        return {
+            'success': True,
+            'mode': 'detail',
+            'text': get_message(
+                'task_assigned',
+                language,
+                title=task.title,
+                description=task.description,
+            ),
+            'keyboard': get_task_detail_keyboard(task_id, language),
+            'task': task,
+        }
+
+    async def build_start_completion_view(
+        self,
+        user: User,
+        task_id: int,
+        language: str,
+    ) -> Dict[str, Any]:
+        """Payload начала выполнения задания (FSM + текст + клавиатура)."""
+        from diary.services.task_management_service import get_user_task_by_id
+        from bot.keyboards import get_single_button_keyboard
+        from bot.states.task_states import TaskStates
+
+        task = await get_user_task_by_id(user, task_id)
+        if not task:
+            return {
+                'success': False,
+                'mode': 'not_found',
+                'alert_text': get_message('task_not_found', language),
+            }
+
+        completion_msg = get_message('ask_task_completion_with_context', language).format(
+            title=task.title,
+            description=task.description,
+        )
+        return {
+            'success': True,
+            'mode': 'start',
+            'text': completion_msg,
+            'keyboard': get_single_button_keyboard(language, 'tasks', 'btn_back'),
+            'fsm_state': TaskStates.waiting_for_task_completion,
+            'fsm_data': {
+                'completing_task_id': task_id,
+                'task_description': task.description,
+            },
+            'task': task,
+        }
+
+    async def build_task_history_view(
+        self,
+        user: User,
+        language: str,
+        limit: int = 100,
+    ) -> Dict[str, Any]:
+        """Payload экрана истории заданий (list/empty)."""
+        from diary.services.task_management_service import (
+            get_user_completed_tasks,
+            get_user_skipped_tasks,
+        )
+        from bot.keyboards import get_task_history_main_keyboard, get_task_history_list_keyboard
+
+        completed_tasks = await get_user_completed_tasks(user, limit=limit)
+        skipped_tasks = await get_user_skipped_tasks(user, limit=limit)
+        all_history_tasks = completed_tasks + skipped_tasks
+        all_history_tasks.sort(key=lambda t: (t.completed_at or t.assigned_at), reverse=True)
+
+        if not all_history_tasks:
+            return {
+                'success': True,
+                'mode': 'empty',
+                'text': get_message('task_history_empty', language),
+                'keyboard': get_task_history_main_keyboard(language),
+                'task_ids': [],
+            }
+
+        task_ids = [task.id for task in all_history_tasks]
+        first_task = all_history_tasks[0]
+        detail = await self.format_task_history_detail(first_task, language)
+        return {
+            'success': True,
+            'mode': 'list',
+            'text': detail.text,
+            'keyboard': get_task_history_list_keyboard(
+                task_ids=task_ids,
+                current_index=0,
+                current_task_status=first_task.status,
+                language=language,
+            ),
+            'task_ids': task_ids,
+            'current_task': first_task,
+        }
+
 
 task_display_service = TaskDisplayService()

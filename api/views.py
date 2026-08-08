@@ -18,6 +18,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, SAFE_METHODS
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.views import APIView
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -360,19 +361,29 @@ class ProgressViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
 
     def list(self, request):
-        """Сводка прогресса пользователя."""
+        """Сводка прогресса через ProgressService (+ legacy-поля для фронта)."""
+        from diary.services.progress_service import get_user_progress_statistics
+        from api.service_bridge import run_async
+
         user = request.user
+        stats = run_async(get_user_progress_statistics(user))
+
         avg_mood = (
             PsychoAnalysis.objects.filter(entry__user=user).aggregate(avg=Avg('mood_score'))['avg']
             or 0.0
         )
 
         payload = {
-            'total_entries': DiaryEntry.objects.filter(user=user).count(),
+            'total_entries': int(stats.get('entries_count') or 0),
             'total_days_with_entries': CombinedDiaryEntry.objects.filter(user=user).count(),
-            'total_tasks_completed': TaskCompletion.objects.filter(task__user=user).count(),
+            'total_tasks_completed': int(stats.get('tasks_completed') or 0),
             'weekly_analyses_count': WeeklyAnalysis.objects.filter(user=user).count(),
             'avg_mood_score': round(float(avg_mood), 2),
+            'tasks_assigned': int(stats.get('tasks_assigned') or 0),
+            'tasks_completion_percentage': round(float(stats.get('tasks_completion_percentage') or 0.0), 2),
+            'streak_days': int(stats.get('streak_days') or 0),
+            'has_entry_today': bool(stats.get('has_entry_today')),
+            'streak_reset_warning': stats.get('streak_reset_warning') or '',
         }
         return Response(ProgressSummarySerializer(payload).data, status=status.HTTP_200_OK)
 
@@ -539,9 +550,8 @@ class ProgressViewSet(viewsets.ViewSet):
     )
     def restore_streak(self, request):
         """Восстановить серию за указанную дату."""
-        from diary.services.progress_service import attempt_streak_restoration, check_restore_streak_availability
-        import asyncio
-        from datetime import date as date_type
+        from diary.services.progress_service import attempt_streak_restoration
+        from api.service_bridge import run_async, strip_transport
 
         target_date_str = request.data.get('target_date')
         if not target_date_str:
@@ -560,12 +570,36 @@ class ProgressViewSet(viewsets.ViewSet):
             )
 
         language = request.user.language or 'ru'
-        result = asyncio.run(attempt_streak_restoration(request.user, target_date, language))
+        result = strip_transport(
+            run_async(attempt_streak_restoration(request.user, target_date, language))
+        )
         return Response(
             {
                 'success': result.get('success', False),
                 'message': result.get('message'),
                 'updated_date': result.get('updated_date'),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=['get'], url_path='restore-streak/availability')
+    @extend_schema(
+        summary='Доступность восстановления серии',
+        description='Возвращает available и список дат, доступных для restore_streak.',
+        responses={200: OpenApiResponse(description='Доступность restore streak.'), 401: APIErrorSerializer},
+        tags=['Progress'],
+    )
+    def restore_streak_availability(self, request):
+        from diary.services.progress_service import check_restore_streak_availability
+        from api.service_bridge import run_async, strip_transport
+
+        result = run_async(check_restore_streak_availability(request.user))
+        cleaned = strip_transport(result)
+        dates = cleaned.get('dates') or []
+        return Response(
+            {
+                'available': bool(cleaned.get('available')),
+                'dates': [str(d) for d in dates],
             },
             status=status.HTTP_200_OK,
         )
@@ -725,8 +759,11 @@ class DiaryEntryViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     @extend_schema(
-        summary='Добавить комментарий к записи',
-        description='Сохраняет `user_comment` для указанной записи.',
+        summary='Добавить комментарий к записи с AI-переанализом',
+        description=(
+            'Вызывает process_user_comment_use_case: сохраняет комментарий и '
+            'перезапускает AI-анализ записи.'
+        ),
         request={
             'application/json': {
                 'type': 'object',
@@ -740,15 +777,17 @@ class DiaryEntryViewSet(viewsets.ModelViewSet):
             }
         },
         responses={
-            200: OpenApiResponse(description='Комментарий сохранен.'),
-            400: OpenApiResponse(description='Некорректный запрос.'),
+            200: OpenApiResponse(description='Комментарий обработан.'),
+            400: APIErrorSerializer,
         },
         tags=['Entries'],
     )
     def comment(self, request, pk: int | None = None):
-        """Save user comment for a specific entry."""
-        entry = self.get_object()
+        """Save user comment via diary_service use case (AI re-analysis)."""
+        from bot.services.diary_service import diary_service as _diary_service
+        from api.service_bridge import from_service_response, run_async, serialize_entry_analysis
 
+        entry = self.get_object()
         comment_text = (request.data.get('user_comment') or '').strip()
         if not comment_text:
             return api_error_response(
@@ -757,17 +796,360 @@ class DiaryEntryViewSet(viewsets.ModelViewSet):
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
-        entry.user_comment = comment_text
-        entry.save(update_fields=['user_comment', 'updated_at'])
+        language = request.user.language or 'ru'
+        response = run_async(
+            _diary_service.process_user_comment_use_case(
+                user=request.user,
+                diary_entry=entry,
+                user_comment_text=comment_text,
+                language=language,
+            )
+        )
+        if not response.success:
+            return from_service_response(response)
 
-        serializer = self.get_serializer(entry)
+        data = response.data or {}
+        payload = serialize_entry_analysis(data.get('entry') or entry, data.get('analysis'))
+        payload['message'] = response.message or 'Comment processed.'
+        return Response(payload, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='clarifications')
+    @extend_schema(
+        summary='Ответить на уточняющие вопросы',
+        description='Принимает answers (map) или text (построчно) и вызывает process_clarification_answers_use_case.',
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'answers': {'type': 'object', 'additionalProperties': {'type': 'string'}},
+                    'text': {'type': 'string', 'description': 'Ответы построчно, если answers не передан.'},
+                },
+            }
+        },
+        responses={200: OpenApiResponse(description='Уточнения обработаны.'), 400: APIErrorSerializer},
+        tags=['Entries'],
+    )
+    def clarifications(self, request, pk: int | None = None):
+        from bot.services.diary_service import diary_service as _diary_service
+        from api.service_bridge import from_service_response, run_async, serialize_entry_analysis
+
+        entry = self.get_object()
+        language = request.user.language or 'ru'
+        answers = request.data.get('answers')
+        if isinstance(answers, dict) and answers:
+            clarification_answers = {str(k): str(v) for k, v in answers.items()}
+        else:
+            text = request.data.get('text') or ''
+            questions = entry.clarification_questions_asked or []
+            clarification_answers = _diary_service.build_clarification_answers_map(
+                questions,
+                text,
+            )
+            if not clarification_answers and not text.strip():
+                return api_error_response(
+                    code='answers_required',
+                    message='Передайте answers (object) или text.',
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+        response = run_async(
+            _diary_service.process_clarification_answers_use_case(
+                user=request.user,
+                diary_entry=entry,
+                clarification_answers_dict=clarification_answers,
+                language=language,
+            )
+        )
+        if not response.success:
+            return from_service_response(response)
+        data = response.data or {}
+        payload = serialize_entry_analysis(data.get('entry') or entry, data.get('analysis'))
+        payload['message'] = response.message or 'Clarifications processed.'
+        return Response(payload, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='edit-with-analysis')
+    @extend_schema(
+        summary='Редактировать текст записи с переанализом',
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'text': {'type': 'string'},
+                    'target_date': {'type': 'string', 'format': 'date'},
+                },
+                'required': ['text'],
+            }
+        },
+        responses={200: OpenApiResponse(description='Запись обновлена.'), 400: APIErrorSerializer},
+        tags=['Entries'],
+    )
+    def edit_with_analysis(self, request, pk: int | None = None):
+        from bot.services.diary_service import diary_service as _diary_service
+        from api.service_bridge import from_service_response, run_async, strip_transport
+
+        entry = self.get_object()
+        new_text = (request.data.get('text') or '').strip()
+        if not new_text:
+            return api_error_response(
+                code='text_required',
+                message='Поле text обязательно.',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        language = request.user.language or 'ru'
+        target_date_iso = request.data.get('target_date')
+        response = run_async(
+            _diary_service.process_entry_edit_use_case(
+                user=request.user,
+                entry_id=entry.id,
+                new_text=new_text,
+                language=language,
+                target_date_iso=target_date_iso,
+            )
+        )
+        if not response.success:
+            return from_service_response(response)
+        data = strip_transport(response.data or {})
+        day_view = data.get('day_view') or {}
+        day_view_clean = strip_transport(day_view)
+        if day_view_clean.get('mode') == 'entries':
+            entries = day_view_clean.get('entries') or []
+            day_view_clean = {
+                'mode': 'entries',
+                'target_date': data.get('target_date'),
+                'entries': self.get_serializer(entries, many=True).data,
+                'entry': self.get_serializer(day_view_clean.get('entry')).data
+                if day_view_clean.get('entry') is not None
+                else None,
+                'total': len(entries),
+            }
         return Response(
             {
-                'message': 'Comment saved.',
-                'entry': serializer.data,
+                'success': True,
+                'entry_id': entry.id,
+                'target_date': data.get('target_date'),
+                'day_view': day_view_clean,
             },
             status=status.HTTP_200_OK,
         )
+
+    @action(detail=True, methods=['post'], url_path='confirm-delete')
+    @extend_schema(
+        summary='Удалить запись (с обновлением day_view)',
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'target_date': {'type': 'string', 'format': 'date'},
+                },
+                'required': ['target_date'],
+            }
+        },
+        responses={200: OpenApiResponse(description='Запись удалена.'), 400: APIErrorSerializer},
+        tags=['Entries'],
+    )
+    def confirm_delete(self, request, pk: int | None = None):
+        from bot.services.diary_service import diary_service as _diary_service
+        from api.service_bridge import from_service_response, run_async, strip_transport
+
+        entry = self.get_object()
+        target_date_iso = request.data.get('target_date')
+        if not target_date_iso:
+            return api_error_response(
+                code='target_date_required',
+                message='Поле target_date обязательно.',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        language = request.user.language or 'ru'
+        response = run_async(
+            _diary_service.process_delete_specific_entry_use_case(
+                user=request.user,
+                entry_id=entry.id,
+                language=language,
+                target_date_iso=target_date_iso,
+            )
+        )
+        if not response.success:
+            return from_service_response(response)
+        data = strip_transport(response.data or {})
+        day_view = strip_transport(data.get('day_view') or {})
+        if day_view.get('mode') == 'entries':
+            entries = day_view.get('entries') or []
+            day_view = {
+                'mode': 'entries',
+                'entries': self.get_serializer(entries, many=True).data,
+                'entry': self.get_serializer(day_view.get('entry')).data
+                if day_view.get('entry') is not None
+                else None,
+                'total': len(entries),
+            }
+        return Response(
+            {
+                'success': True,
+                'deleted': data.get('deleted', True),
+                'message': data.get('alert_message'),
+                'day_view': day_view,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=['post'], url_path='rate')
+    @extend_schema(
+        summary='Оценить AI-анализ записи',
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {'rating': {'type': 'integer', 'minimum': 1, 'maximum': 5}},
+                'required': ['rating'],
+            }
+        },
+        responses={200: OpenApiResponse(description='Оценка сохранена.'), 400: APIErrorSerializer},
+        tags=['Entries'],
+    )
+    def rate(self, request, pk: int | None = None):
+        from diary.services.diary_display_service import diary_display_service
+        from diary.models import PsychoAnalysis
+        from api.service_bridge import from_service_dict, run_async
+
+        entry = self.get_object()
+        rating = request.data.get('rating')
+        try:
+            rating = int(rating)
+        except (TypeError, ValueError):
+            return api_error_response(
+                code='invalid_rating',
+                message='Поле rating должно быть целым числом 1–5.',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            analysis = PsychoAnalysis.objects.get(entry=entry)
+        except PsychoAnalysis.DoesNotExist:
+            return api_error_response(
+                code='analysis_not_found',
+                message='Анализ для записи не найден.',
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        result = run_async(
+            diary_display_service.submit_analysis_rating_use_case(analysis.id, request.user, rating)
+        )
+        return from_service_dict(result, default_error_code='rating_failed')
+
+    @action(
+        detail=False,
+        methods=['post'],
+        url_path='voice',
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    @extend_schema(
+        summary='Создать запись из голосового файла',
+        description=(
+            'Multipart: поле `audio` (ogg/opus предпочтительно), опционально `duration` (сек). '
+            'STT (SpeechKit) + пунктуация (DeepSeek) → process_new_entry_use_case. '
+            'Лимит файла: 10 МБ.'
+        ),
+        request={
+            'multipart/form-data': {
+                'type': 'object',
+                'properties': {
+                    'audio': {'type': 'string', 'format': 'binary'},
+                    'duration': {'type': 'integer', 'description': 'Длительность в секундах'},
+                    'language': {'type': 'string', 'enum': ['ru', 'en']},
+                },
+                'required': ['audio'],
+            }
+        },
+        responses={
+            201: OpenApiResponse(description='Запись создана из голоса.'),
+            400: APIErrorSerializer,
+            401: APIErrorSerializer,
+        },
+        tags=['Entries'],
+    )
+    def voice(self, request):
+        """Upload voice → STT → punctuation → same use case as create_with_analysis."""
+        from bot.services.diary_service import diary_service as _diary_service
+        from bot.utils.audio_utils import (
+            MAX_AUDIO_BYTES,
+            process_voice_bytes,
+            resolve_audio_format,
+        )
+        from api.service_bridge import from_service_response, run_async, serialize_entry_analysis
+
+        audio = request.FILES.get('audio')
+        if audio is None:
+            return api_error_response(
+                code='audio_required',
+                message='Поле audio (файл) обязательно.',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if audio.size and audio.size > MAX_AUDIO_BYTES:
+            return api_error_response(
+                code='audio_too_large',
+                message='Аудиофайл превышает лимит 10 МБ.',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        duration_raw = request.data.get('duration', 0)
+        try:
+            duration = int(duration_raw or 0)
+        except (TypeError, ValueError):
+            return api_error_response(
+                code='invalid_duration',
+                message='Поле duration должно быть целым числом секунд.',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        language = (request.data.get('language') or request.user.language or 'ru').strip()
+        if language not in ('ru', 'en'):
+            language = 'ru'
+
+        voice_bytes = audio.read()
+        audio_format = resolve_audio_format(getattr(audio, 'name', ''), getattr(audio, 'content_type', ''))
+
+        ok, recognized_text, error_msg = run_async(
+            process_voice_bytes(
+                voice_bytes,
+                duration=duration,
+                language=language,
+                context_name='VoiceAPI',
+                audio_format=audio_format,
+                filename_hint=getattr(audio, 'name', None) or 'voice.ogg',
+            )
+        )
+        if not ok:
+            return api_error_response(
+                code='speech_recognition_failed',
+                message=error_msg or 'Не удалось распознать речь.',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        if not (recognized_text or '').strip():
+            return api_error_response(
+                code='recognized_text_empty',
+                message='Распознанный текст пуст.',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        response = run_async(
+            _diary_service.process_new_entry_use_case(
+                user=request.user,
+                entry_text=recognized_text.strip(),
+                language=language,
+                entry_datetime=None,
+            )
+        )
+        if not response.success:
+            return from_service_response(response)
+
+        result = response.data or {}
+        payload = serialize_entry_analysis(result.get('entry'), result.get('analysis'))
+        payload.update(
+            {
+                'recognized_text': recognized_text.strip(),
+                'needs_clarification': result.get('needs_clarification', False),
+                'clarification_questions': result.get('clarification_questions', []),
+            }
+        )
+        return Response(payload, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=['post'], url_path='create_with_analysis')
     @extend_schema(
@@ -1064,8 +1446,9 @@ class TherapyTaskViewSet(viewsets.ModelViewSet):
     @extend_schema(
         summary='Завершить задачу',
         description=(
-            'Переводит задачу в статус completed. '
-            'Принимает опциональные `completion_text` и `feelings_text` для запуска AI-анализа выполнения.'
+            'Завершает задачу через `complete_task_with_feelings_use_case` (parity с ботом). '
+            'Оба поля `completion_text` и `feelings_text` обязательны; затем опционально '
+            'запускается AI-анализ выполнения.'
         ),
         request={
             'application/json': {
@@ -1074,41 +1457,75 @@ class TherapyTaskViewSet(viewsets.ModelViewSet):
                     'completion_text': {'type': 'string', 'description': 'Описание того, что было сделано.'},
                     'feelings_text': {'type': 'string', 'description': 'Описание ощущений после выполнения.'},
                 },
+                'required': ['completion_text', 'feelings_text'],
             }
         },
         tags=['Tasks'],
     )
     def complete(self, request, pk: int | None = None):
-        """Отметить задание как выполненное, опционально с текстом выполнения."""
+        """Отметить задание как выполненное через use case (+ AI-анализ)."""
+        from diary.services.task_management_service import (
+            analyze_completed_task_for_notification_use_case,
+            complete_task_with_feelings_use_case,
+        )
+        from api.service_bridge import (
+            from_service_response,
+            run_async,
+            serialize_task_completion_analysis,
+            strip_transport,
+        )
+
         task = self.get_object()
         completion_text = (request.data.get('completion_text') or '').strip()
         feelings_text = (request.data.get('feelings_text') or '').strip()
+        language = request.user.language or 'ru'
 
-        if completion_text and feelings_text:
-            from diary.services.task_management_service import TaskManagementService
-            import asyncio
-            result = asyncio.run(
-                TaskManagementService.complete_task(
-                    task_id=task.id,
+        if not completion_text or not feelings_text:
+            return api_error_response(
+                code='completion_and_feelings_required',
+                message='Поля completion_text и feelings_text обязательны.',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        completion_response = run_async(
+            complete_task_with_feelings_use_case(
+                user=request.user,
+                task_id=task.id,
+                completion_text=completion_text,
+                feelings_text=feelings_text,
+                language=language,
+            )
+        )
+        if not completion_response.success:
+            return from_service_response(completion_response)
+
+        analysis_payload = None
+        task_completion = (completion_response.data or {}).get('task_completion')
+        if task_completion is not None:
+            analysis_response = run_async(
+                analyze_completed_task_for_notification_use_case(
+                    task_completion=task_completion,
                     user=request.user,
-                    completion_text=completion_text,
-                    feelings_text=feelings_text,
+                    language=language,
                 )
             )
-            if not result or not result.get('success'):
-                return api_error_response(
-                    code='task_complete_error',
-                    message=result.get('error', 'Ошибка при завершении задания') if result else 'Ошибка при завершении задания',
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                )
-        else:
-            task.status = 'completed'
-            task.completed_at = timezone.now()
-            task.save(update_fields=['status', 'completed_at'])
+            if analysis_response.success and analysis_response.data:
+                cleaned = strip_transport(analysis_response.data)
+                analysis_payload = {
+                    'analysis': serialize_task_completion_analysis(cleaned.get('analysis')),
+                    'notification_text': cleaned.get('notification_text'),
+                }
 
         task.refresh_from_db()
         serializer = self.get_serializer(task)
-        return Response({'status': 'completed', 'task': serializer.data})
+        return Response(
+            {
+                'status': 'completed',
+                'task': serializer.data,
+                'analysis': analysis_payload,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @action(detail=True, methods=['post'])
     @extend_schema(
@@ -1126,8 +1543,9 @@ class TherapyTaskViewSet(viewsets.ModelViewSet):
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
         from diary.services.task_management_service import TaskManagementService
-        import asyncio
-        success = asyncio.run(TaskManagementService.skip_task(task_id=task.id, user=request.user))
+        from api.service_bridge import run_async
+
+        success = run_async(TaskManagementService.skip_task(task_id=task.id, user=request.user))
         if not success:
             return api_error_response(
                 code='task_skip_error',
@@ -1154,8 +1572,9 @@ class TherapyTaskViewSet(viewsets.ModelViewSet):
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
         from diary.services.task_management_service import TaskManagementService
-        import asyncio
-        success = asyncio.run(TaskManagementService.restore_task(task_id=task.id, user=request.user))
+        from api.service_bridge import run_async
+
+        success = run_async(TaskManagementService.restore_task(task_id=task.id, user=request.user))
         if not success:
             return api_error_response(
                 code='task_restore_error',
@@ -1587,22 +2006,41 @@ class RemindersView(APIView):
         tags=['Reminders'],
     )
     def patch(self, request):
+        """Обновляет reminders через SettingsService (toggle при смене значения)."""
+        from diary.services.settings_service import (
+            toggle_user_auto_analysis,
+            toggle_user_notifications,
+        )
+        from api.service_bridge import run_async
+
         user = request.user
         allowed_fields = {'notifications_enabled', 'auto_analysis_enabled'}
         updated = {}
         for field in allowed_fields:
-            if field in request.data:
-                value = request.data[field]
-                if not isinstance(value, bool):
+            if field not in request.data:
+                continue
+            value = request.data[field]
+            if not isinstance(value, bool):
+                return api_error_response(
+                    code='invalid_value',
+                    message=f'Поле {field} должно быть булевым.',
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            user.refresh_from_db(fields=[field])
+            current = getattr(user, field)
+            if value != current:
+                if field == 'notifications_enabled':
+                    result = run_async(toggle_user_notifications(user))
+                else:
+                    result = run_async(toggle_user_auto_analysis(user))
+                if not result.get('success'):
                     return api_error_response(
-                        code='invalid_value',
-                        message=f'Поле {field} должно быть булевым.',
+                        code=result.get('error') or 'settings_update_failed',
+                        message='Не удалось обновить настройку.',
                         status_code=status.HTTP_400_BAD_REQUEST,
                     )
-                setattr(user, field, value)
-                updated[field] = value
-        if updated:
-            user.save(update_fields=list(updated.keys()))
+            updated[field] = value
+        user.refresh_from_db()
         return Response(
             {
                 'updated': updated,

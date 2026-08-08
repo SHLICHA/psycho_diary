@@ -11,7 +11,7 @@
 
 import logging
 from datetime import date, datetime
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any
 
 import pytz
 from django.utils import timezone
@@ -144,6 +144,39 @@ class CalendarService:
             bool: True если годы совпадают.
         """
         return date1.year == year
+
+    def resolve_calendar_anchor_day(self, user_local_date: date, year: int) -> int:
+        """
+        Определяет день-якорь для календаря января при выборе года.
+
+        Если выбран текущий год и локальный месяц пользователя — январь,
+        используется текущий день; иначе — 1-е число.
+        """
+        if self.is_same_year(user_local_date, year) and user_local_date.month == 1:
+            return user_local_date.day
+        return 1
+
+    async def build_year_selected_calendar_view(
+        self,
+        user: User,
+        year: int,
+        language: str,
+    ) -> Dict[str, Any]:
+        """Payload экрана календаря после выбора года (январь + навигация)."""
+        from bot.keyboards import get_month_calendar_with_navigation
+        from messages import get_message
+
+        user_local_date = self.get_user_local_date(user)
+        anchor_day = self.resolve_calendar_anchor_day(user_local_date, year)
+        return {
+            'success': True,
+            'text': get_message('archive_menu', language),
+            'reply_markup': await get_month_calendar_with_navigation(
+                user, year, 1, anchor_day, language
+            ),
+            'year': year,
+            'anchor_day': anchor_day,
+        }
 
 
 calendar_service = CalendarService()

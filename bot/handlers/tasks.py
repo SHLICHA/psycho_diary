@@ -1,6 +1,5 @@
-"""
-Handlers для работы с терапевтическими заданиями
-"""
+"""Task handlers (transport-only)."""
+from __future__ import annotations
 
 import logging
 import asyncio
@@ -9,40 +8,36 @@ from aiogram import Bot, Router, F
 from aiogram.types import Message, CallbackQuery, ContentType, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 
-from messages import get_message, get_button_text
+from messages import get_message
 from bot.states.task_states import TaskStates
 from bot.keyboards import (
     get_back_keyboard,
     get_confirm_delete_task_keyboard,
-    get_task_pagination_keyboard,
-    get_task_detail_keyboard,
     get_single_button_keyboard,
     get_task_history_main_keyboard,
     get_task_history_list_keyboard,
-    get_task_main_menu_keyboard
 )
 from bot.decorators.analytics_decorator import log_user_activity
 from bot.decorators.premium_decorator import requires_premium
 from bot.utils.audio_utils import process_voice_message
 from bot.utils.state_manager import state_manager
 from bot.utils.task_impact_chart import generate_task_impact_chart_image
-from bot.utils.message_utils import send_message_to_user
 from bot.utils.message_utils import safe_edit_message_text
 from bot.utils.callback_utils import safe_answer_callback
-from diary.models import TaskCompletion, TaskCompletionAnalysis
 from diary.services.task_management_service import (
-    get_user_active_tasks,
     get_user_task_by_id,
-    get_user_completed_tasks,
-    complete_task,
+    complete_task_with_feelings_use_case,
+    analyze_completed_task_for_notification_use_case,
     skip_task,
     delete_task,
-    get_user_skipped_tasks,
-    restore_task,
-    analyze_task_completion_effect
+    restore_skipped_task_use_case,
 )
 from diary.services.task_display_service import task_display_service
-from users.models import User
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from diary.models import TaskCompletion
+    from users.models import User
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -54,40 +49,11 @@ logger = logging.getLogger(__name__)
 async def show_tasks(callback: CallbackQuery, user, language: str):
     """Показ текущих заданий с пагинацией"""
     try:
-        active_tasks = await get_user_active_tasks(user)
-        if active_tasks:
-            first_task = active_tasks[0]
-            task_msg = get_message(
-                'task_assigned',
-                language,
-                title=first_task.title,
-                description=first_task.description
-            )
-            completed_tasks_check = await get_user_completed_tasks(user, limit=1)
-            skipped_tasks_check = await get_user_skipped_tasks(user, limit=1)
-            has_completed_or_skipped = bool(completed_tasks_check or skipped_tasks_check)
-            await callback.message.edit_text(
-                task_msg,
-                reply_markup=get_task_pagination_keyboard(
-                    task_id=first_task.id,
-                    current_index=0,
-                    total_tasks=len(active_tasks),
-                    language=language,
-                    show_history_button=has_completed_or_skipped
-                )
-            )
-        else:
-            completed_tasks_check = await get_user_completed_tasks(user, limit=1)
-            skipped_tasks_check = await get_user_skipped_tasks(user, limit=1)
-            has_completed_or_skipped = bool(completed_tasks_check or skipped_tasks_check)
-            no_task_msg = get_message('task_no_active', language)
-            await callback.message.edit_text(
-                no_task_msg,
-                reply_markup=get_task_main_menu_keyboard(
-                    language=language,
-                    show_history_button=has_completed_or_skipped
-                )
-            )
+        view = await task_display_service.build_active_tasks_view(user, language)
+        await callback.message.edit_text(
+            view['text'],
+            reply_markup=view['keyboard'],
+        )
         await callback.answer()
     except Exception as e:
         logger.error(f"Ошибка при показе заданий: {e}")
@@ -101,36 +67,16 @@ async def paginate_tasks(callback: CallbackQuery, user, language: str):
         parts = callback.data.split(":")
         direction = parts[1]
         current_index = int(parts[2])
-        active_tasks = await get_user_active_tasks(user)
-        if not active_tasks:
-            no_task_msg = get_message('task_no_active', language)
-            await callback.message.edit_text(
-                no_task_msg,
-                reply_markup=get_single_button_keyboard(language)
-            )
-            await callback.answer()
-            return
-        if direction == "next":
-            new_index = (current_index + 1) % len(active_tasks)
-        elif direction == "prev":
-            new_index = (current_index - 1) % len(active_tasks)
-        else:
-            new_index = current_index
-        task = active_tasks[new_index]
-        task_msg = get_message(
-            'task_assigned',
+        view = await task_display_service.build_active_tasks_page_view(
+            user,
             language,
-            title=task.title,
-            description=task.description
+            index=current_index,
+            direction=direction,
+            empty_reply_mode='back_only',
         )
         await callback.message.edit_text(
-            task_msg,
-            reply_markup=get_task_pagination_keyboard(
-                task_id=task.id,
-                current_index=new_index,
-                total_tasks=len(active_tasks),
-                language=language
-            )
+            view['text'],
+            reply_markup=view['keyboard'],
         )
         await callback.answer()
     except Exception as e:
@@ -143,22 +89,17 @@ async def view_specific_task(callback: CallbackQuery, user, language: str):
     """Просмотр конкретного задания"""
     try:
         task_id = int(callback.data.split(":")[1])
-        task = await get_user_task_by_id(user, task_id)
-        if task:
-            task_msg = get_message(
-                'task_assigned',
-                language,
-                title=task.title,
-                description=task.description
-            )
+        view = await task_display_service.build_task_detail_view(user, task_id, language)
+        if view['success']:
             await callback.message.edit_text(
-                task_msg,
-                reply_markup=get_task_detail_keyboard(task_id, language)
+                view['text'],
+                reply_markup=view['keyboard'],
             )
         else:
-            error_msg = get_message('task_not_found', language)
-            await callback.answer(error_msg)
-            logger.warning(f"Задание {task_id} не найдено или не принадлежит пользователю {user.telegram_id}")
+            await callback.answer(view['alert_text'])
+            logger.warning(
+                f"Задание {task_id} не найдено или не принадлежит пользователю {user.telegram_id}"
+            )
         await callback.answer()
     except Exception as e:
         logger.error(f"Ошибка при просмотре конкретного задания: {e}")
@@ -169,29 +110,23 @@ async def view_specific_task(callback: CallbackQuery, user, language: str):
 @log_user_activity('task_completed')
 async def start_task_completion(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Начало выполнения задания"""
+    task_id = None
     try:
         task_id = int(callback.data.split(":")[1])
-        task = await get_user_task_by_id(user, task_id)
-        if task:
-            await state_manager.set_state(state, TaskStates.waiting_for_task_completion)
-            await state_manager.update_state_data(
-                state,
-                completing_task_id=task_id,
-                task_description=task.description
+        view = await task_display_service.build_start_completion_view(user, task_id, language)
+        if not view['success']:
+            await safe_answer_callback(callback, view['alert_text'], show_alert=True)
+            logger.warning(
+                f"Задание {task_id} не найдено или не принадлежит пользователю {user.telegram_id}"
             )
-            completion_msg = get_message('ask_task_completion_with_context', language).format(
-                title=task.title,
-                description=task.description
-            )
-            await callback.message.edit_text(
-                completion_msg,
-                reply_markup=get_single_button_keyboard(language, 'tasks', 'btn_back')
-            )
-        else:
-            error_msg = get_message('task_not_found', language)
-            await safe_answer_callback(callback, error_msg, show_alert=True)
-            logger.warning(f"Задание {task_id} не найдено или не принадлежит пользователю {user.telegram_id}")
             return
+
+        await state_manager.set_state(state, view['fsm_state'])
+        await state_manager.update_state_data(state, **view['fsm_data'])
+        await callback.message.edit_text(
+            view['text'],
+            reply_markup=view['keyboard'],
+        )
     except Exception as e:
         logger.error(f"Ошибка при начале выполнения задания {task_id}: {e}")
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
@@ -285,19 +220,25 @@ async def process_feelings_description(message: Message, state: FSMContext, user
             logger.error("Не найден ID задания в состоянии")
             await status_message.edit_text(get_message('error_generic', language))
             return
-        completion_result = await complete_task(
-            task_id=task_id,
+        completion_response = await complete_task_with_feelings_use_case(
             user=user,
+            task_id=task_id,
             completion_text=completion_text,
             feelings_text=feelings_text,
+            language=language,
         )
         await state_manager.clear_state(state)
 
-        if not completion_result or not completion_result.get('success'):
-            logger.error(f"Сервис вернул ошибку при выполнении задания {task_id}: {completion_result.get('error')}")
-            await status_message.edit_text(get_message('error_processing', language))
+        if not completion_response.success:
+            logger.error(
+                f"Сервис вернул ошибку при выполнении задания {task_id}: "
+                f"{completion_response.error}"
+            )
+            await status_message.edit_text(
+                completion_response.message or get_message('error_processing', language)
+            )
             return
-        task_completion_obj = completion_result.get('task_completion')
+        task_completion_obj = (completion_response.data or {}).get('task_completion')
         if task_completion_obj:
             bot_instance = state_manager.get_bot()
             if bot_instance:
@@ -316,28 +257,30 @@ async def process_feelings_description(message: Message, state: FSMContext, user
         logger.error(f"Ошибка при обработке описания ощущений: {e}", exc_info=True)
         try:
             await message.answer(get_message('error_processing', language))
-        except:
+        except Exception as send_error:
+            logger.debug(f"[process_feelings_description] answer failed: {send_error}")
             try:
                 if status_message:
                     await status_message.edit_text(get_message('error_processing', language))
-            except:
-                pass
+            except Exception as edit_error:
+                logger.debug(f"[process_feelings_description] status edit failed: {edit_error}")
 
 
 async def _notify_user_of_analysis_result(task_completion: TaskCompletion, user: User, status_message: Message, bot_instance: Bot):
     """
-    Асинхронная задача для уведомления пользователя о результате анализа выполнения задания.
-    Использует task_display_service для форматирования результата.
+    Transport-обёртка: use case анализа → send/edit уведомления.
     """
+    language = getattr(user, 'language', None) or 'ru'
     try:
-        analysis_result = await analyze_task_completion_effect(task_completion, user)
-
-        # Форматируем результат через сервис
-        notification = await task_display_service.format_task_analysis_notification(
-            analysis_result, user, task_completion
+        response = await analyze_completed_task_for_notification_use_case(
+            task_completion=task_completion,
+            user=user,
+            language=language,
         )
+        payload = response.data or {}
+        text = payload.get('notification_text') or get_message('task_analysis_error_formatted', language)
+        keyboard = payload.get('notification_keyboard') or get_back_keyboard(language)
 
-        # Отправляем/редактируем сообщение
         target_chat_id = user.telegram_id
         use_edit = False
         message_to_edit = None
@@ -350,55 +293,61 @@ async def _notify_user_of_analysis_result(task_completion: TaskCompletion, user:
             try:
                 await safe_edit_message_text(
                     message=message_to_edit,
-                    text=notification.text,
-                    reply_markup=notification.keyboard
+                    text=text,
+                    reply_markup=keyboard
                 )
-                logger.debug(f"Сообщение отредактировано для задания {task_completion.task.id}")
             except Exception as edit_error:
-                logger.warning(f"Не удалось отредактировать сообщение: {edit_error}. Отправляем новое.")
+                logger.warning(
+                    f"[tasks.notify_analysis] edit failed task_id={task_completion.task.id}: "
+                    f"{edit_error}; sending new"
+                )
                 await bot_instance.send_message(
                     chat_id=target_chat_id,
-                    text=notification.text,
-                    reply_markup=notification.keyboard
+                    text=text,
+                    reply_markup=keyboard
                 )
         else:
             await bot_instance.send_message(
                 chat_id=target_chat_id,
-                text=notification.text,
-                reply_markup=notification.keyboard
+                text=text,
+                reply_markup=keyboard
             )
-            logger.debug(f"Новое сообщение отправлено для задания {task_completion.task.id}")
 
     except Exception as task_error:
-        logger.error(f"Критическая ошибка в _notify_user_of_analysis_result: {task_error}", exc_info=True)
+        logger.error(
+            f"[tasks.notify_analysis] failed user_id={user.id}: {task_error}",
+            exc_info=True,
+        )
         try:
-            language = user.language if 'user' in locals() else 'ru'
             error_text = get_message('task_analysis_error_formatted', language)
             error_keyboard = get_back_keyboard(language)
-            if status_message and 'bot_instance' in locals():
+            if status_message:
                 try:
                     await safe_edit_message_text(
                         message=status_message,
                         text=error_text,
                         reply_markup=error_keyboard
                     )
-                except:
+                except Exception as edit_error:
+                    logger.debug(f"[_notify_user_of_analysis_result] edit failed: {edit_error}")
                     try:
                         await bot_instance.send_message(
                             chat_id=status_message.chat.id,
                             text=error_text,
                             reply_markup=error_keyboard
                         )
-                    except:
-                        pass
-            elif 'bot_instance' in locals() and 'user' in locals():
+                    except Exception as send_error:
+                        logger.debug(
+                            f"[_notify_user_of_analysis_result] fallback send failed: {send_error}"
+                        )
+            else:
                 await bot_instance.send_message(
                     chat_id=user.telegram_id,
                     text=error_text,
                     reply_markup=error_keyboard
                 )
-        except:
-            pass
+        except Exception as notify_error:
+            logger.debug(f"[_notify_user_of_analysis_result] error notify failed: {notify_error}")
 
 
 @router.callback_query(F.data.startswith("skip_task:"))
@@ -411,32 +360,12 @@ async def skip_task_handler(callback: CallbackQuery, state: FSMContext, user, la
         if success:
             task_skipped_msg = get_message('task_skipped', language)
             await safe_answer_callback(callback, task_skipped_msg, show_alert=True)
-            active_tasks = await get_user_active_tasks(user)
-            if not active_tasks:
-                no_task_msg = get_message('task_no_active', language)
-                await safe_edit_message_text(
-                    message=callback.message,
-                    text=no_task_msg,
-                    reply_markup=get_task_main_menu_keyboard(language)
-                )
-            else:
-                first_task = active_tasks[0]
-                task_msg = get_message(
-                    'task_assigned',
-                    language,
-                    title=first_task.title,
-                    description=first_task.description
-                )
-                await safe_edit_message_text(
-                    message=callback.message,
-                    text=task_msg,
-                    reply_markup=get_task_pagination_keyboard(
-                        task_id=first_task.id,
-                        current_index=0,
-                        total_tasks=len(active_tasks),
-                        language=language
-                    )
-                )
+            view = await task_display_service.build_active_tasks_view(user, language)
+            await safe_edit_message_text(
+                message=callback.message,
+                text=view['text'],
+                reply_markup=view['keyboard'],
+            )
         else:
             error_msg = get_message('task_not_found', language)
             await safe_answer_callback(callback, error_msg, show_alert=True)
@@ -506,35 +435,17 @@ async def cancel_delete_task(callback: CallbackQuery, language: str):
 async def show_task_history_main(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Показывает историю заданий с пагинацией."""
     try:
-        completed_tasks = await get_user_completed_tasks(user, limit=100)
-        skipped_tasks = await get_user_skipped_tasks(user, limit=100)
-        all_history_tasks = completed_tasks + skipped_tasks
-        all_history_tasks.sort(key=lambda t: (t.completed_at or t.assigned_at), reverse=True)
-        if not all_history_tasks:
-            no_history_msg = get_message('task_history_empty', language)
-            await safe_edit_message_text(
-                message=callback.message,
-                text=no_history_msg,
-                reply_markup=get_task_history_main_keyboard(language)
-            )
-        else:
-            task_ids_for_pagination = [task.id for task in all_history_tasks]
+        view = await task_display_service.build_task_history_view(user, language)
+        if view['mode'] == 'list':
             await state_manager.update_state_data(
                 state,
-                task_history_ids=task_ids_for_pagination
+                task_history_ids=view.get('task_ids', []),
             )
-            first_task = all_history_tasks[0]
-            detail = await task_display_service.format_task_history_detail(first_task, language)
-            await safe_edit_message_text(
-                message=callback.message,
-                text=detail.text,
-                reply_markup=get_task_history_list_keyboard(
-                    task_ids=task_ids_for_pagination,
-                    current_index=0,
-                    current_task_status=first_task.status,
-                    language=language
-                )
-            )
+        await safe_edit_message_text(
+            message=callback.message,
+            text=view['text'],
+            reply_markup=view['keyboard'],
+        )
         await safe_answer_callback(callback, "")
     except Exception as e:
         logger.error(f"Ошибка при показе истории заданий для пользователя {user.telegram_id}: {e}", exc_info=True)
@@ -594,22 +505,31 @@ async def restore_skipped_task(callback: CallbackQuery, state: FSMContext, user,
         if len(parts) < 2:
             raise ValueError("Некорректный формат callback_data для восстановления задания")
         task_id = int(parts[1])
-        success = await restore_task(task_id, user)
-        if success:
-            success_msg = get_message('task_restored', language)
+        state_data = await state_manager.get_state_data(state)
+        task_history_ids = state_data.get('task_history_ids', [])
+        use_case_result = await restore_skipped_task_use_case(
+            user,
+            task_id,
+            task_history_ids=task_history_ids,
+        )
+        if use_case_result['success']:
+            success_msg = get_message(use_case_result['alert_text_key'], language)
             await safe_answer_callback(callback, success_msg, show_alert=True)
-            state_data = await state_manager.get_state_data(state)
-            task_history_ids = state_data.get('task_history_ids', [])
-            if task_id in task_history_ids:
-                task_history_ids.remove(task_id)
-                await state_manager.update_state_data(state, task_history_ids=task_history_ids)
-            else:
-                logger.warning(f"ID задания {task_id} не найден в списке истории FSM при восстановлении.")
+            if task_id not in task_history_ids:
+                logger.warning(
+                    f"ID задания {task_id} не найден в списке истории FSM при восстановлении."
+                )
+            await state_manager.update_state_data(
+                state,
+                task_history_ids=use_case_result['updated_task_history_ids'],
+            )
             await show_tasks(callback, user, language)
         else:
-            error_msg = get_message('task_not_found_or_not_skipped', language)
+            error_msg = get_message(use_case_result['alert_text_key'], language)
             await safe_answer_callback(callback, error_msg, show_alert=True)
-            logger.warning(f"Не удалось восстановить задание {task_id} для пользователя {user.telegram_id}")
+            logger.warning(
+                f"Не удалось восстановить задание {task_id} для пользователя {user.telegram_id}"
+            )
     except (ValueError, IndexError) as e:
         logger.error(f"Ошибка обработки callback_data для восстановления задания: {callback.data} - {e}")
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
@@ -670,14 +590,16 @@ async def send_task_impact_chart(callback: CallbackQuery, user, language: str, b
             reply_markup=dismiss_kb
         )
         await processing_msg.delete()
-        logger.debug(f"[send_task_impact_chart] График отправлен в сообщении ID {sent_message.message_id} пользователю {user.telegram_id}")
+        logger.debug(
+            f"[tasks.impact_chart] sent message_id={sent_message.message_id} user_id={user.id}"
+        )
     except Exception as e:
-        logger.error(f"[send_task_impact_chart] Ошибка генерации/отправки графика: {e}", exc_info=True)
+        logger.error(f"[tasks.impact_chart] failed user_id={user.id}: {e}", exc_info=True)
         try:
             await callback.message.answer(get_message('error_processing', language))
         except Exception as send_error:
-            logger.error(f"[send_task_impact_chart] Ошибка при отправке сообщения об ошибке пользователю: {send_error}")
+            logger.error(f"[tasks.impact_chart] error reply failed: {send_error}")
         try:
             await processing_msg.delete()
-        except:
-            pass
+        except Exception as delete_error:
+            logger.debug(f"[tasks.impact_chart] processing_msg delete failed: {delete_error}")

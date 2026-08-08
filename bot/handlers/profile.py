@@ -1,40 +1,33 @@
-"""
-Handlers для работы с профилем
-"""
-import re
+"""Profile handlers (transport-only)."""
 import os
 import asyncio
 import logging
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.fsm.context import FSMContext
-from datetime import datetime
-from typing import Any, Dict
 
 from messages import get_message, get_button_text
 from bot.keyboards.identity_merge_keyboard import get_requester_merge_confirmation_keyboard
 from bot.states.settings_states import SettingsStates
 from bot.keyboards import (
-    get_profile_keyboard,
     get_single_button_keyboard,
-    get_edit_profile_keyboard,
     get_account_deletion_confirmation_keyboard,
-    get_account_deletion_menu_keyboard,
-    get_main_menu_keyboard
 )
 from bot.utils.state_manager import state_manager
 from bot.decorators.analytics_decorator import log_user_activity
 from bot.decorators.premium_decorator import requires_premium
 from diary.services.user_profile_service import (
-    get_user_profile_data,
-    get_user_psychology_profile_data,
     get_user_profile_field,
     get_user_transaction_history,
-    update_user_profile_field,
+    process_profile_field_update,
     anonymize_user_account,
     export_user_data,
-    get_referral_link_info,
-    UserProfileService
+    build_profile_screen_view,
+    build_psychology_profile_view,
+    build_edit_profile_menu_view,
+    build_list_field_edit_prompt,
+    build_account_deletion_menu_view,
+    build_referral_link_view,
 )
 from diary.services.main_menu_service import build_main_menu_data
 from bot.utils.message_utils import safe_edit_message_text
@@ -45,40 +38,22 @@ logger = logging.getLogger(__name__)
 
 MAX_INLINE_FIELD_LENGTH = 3000
 
+PROFILE_FIELD_ASK_MESSAGE_KEYS = {
+    'first_name': 'ask_new_name',
+    'email': 'ask_new_email',
+    'date_of_birth': 'ask_new_dob',
+    'hobbies': 'ask_new_hobbies',
+    'life_facts': 'ask_new_life_facts',
+}
+
 
 @router.callback_query(F.data == "user_profile")
 @log_user_activity('show_profile')
 async def show_user_profile(callback: CallbackQuery, user, language: str):
     """Показ основного профиля пользователя."""
     try:
-        profile_data = await get_user_profile_data(user)
-
-        profile_msg = get_message(
-            key='profile_title',
-            language=user.language,
-            user_telegram_id=profile_data['user_telegram_id'],
-            username=profile_data['username'],
-            first_name=profile_data['first_name'],
-            last_name=profile_data['last_name'],
-            notifications_status=profile_data['notifications_status'],
-            auto_analysis_status=profile_data['auto_analysis_status'],
-            premium_status=profile_data['premium_status'],
-            awareness_level=profile_data['awareness_level'],
-            token_balance=profile_data['token_balance'],
-            registration_date=profile_data['registration_date'],
-            last_entry=profile_data['last_entry']
-        )
-        if profile_data['last_analysis_date']:
-            profile_msg += get_message(
-                key='last_analysis',
-                language=user.language,
-                last_analysis_date=profile_data['last_analysis_date']
-            )
-
-        await callback.message.edit_text(
-            profile_msg,
-            reply_markup=get_profile_keyboard(language, show_psychology_button=profile_data['has_psychological_data'])
-        )
+        view = await build_profile_screen_view(user, user.language or language)
+        await callback.message.edit_text(view['text'], reply_markup=view['reply_markup'])
         await callback.answer()
     except Exception as e:
         logger.error(f"Ошибка при показе профиля: {e}", exc_info=True)
@@ -90,33 +65,11 @@ async def show_user_profile(callback: CallbackQuery, user, language: str):
 async def show_psychology_profile(callback: CallbackQuery, user, language: str):
     """Показ психологического профиля пользователя (только текстовое описание)."""
     try:
-        psych_data = await get_user_psychology_profile_data(user, language)
-
-        psychology_msg = psych_data['title']
-        psychology_msg += psych_data['description']
-
-        profile_detail_buttons = []
-        for field_info in psych_data['available_fields']:
-            profile_detail_buttons.append([
-                InlineKeyboardButton(
-                    text=field_info['btn_text'],
-                    callback_data=f"view_profile_field:{field_info['key']}"
-                )
-            ])
-
-        profile_detail_buttons.append([
-            InlineKeyboardButton(
-                text=get_button_text('btn_back', language),
-                callback_data="user_profile"
-            )
-        ])
-
-        keyboard = InlineKeyboardMarkup(inline_keyboard=profile_detail_buttons)
-
+        view = await build_psychology_profile_view(user, language)
         await callback.message.edit_text(
-            psychology_msg,
-            reply_markup=keyboard,
-            parse_mode="HTML"
+            view['text'],
+            reply_markup=view['reply_markup'],
+            parse_mode=view.get('parse_mode') or 'HTML',
         )
         await callback.answer()
     except Exception as e:
@@ -208,20 +161,8 @@ async def show_profile_field(callback: CallbackQuery, user, language: str):
 async def show_edit_profile_menu(callback: CallbackQuery, user, language: str):
     """Показ меню редактирования профиля"""
     try:
-        profile_data_from_service = await get_user_profile_data(user)
-        profile_data = {
-            'first_name': user.first_name or get_message('not_specified', language),
-            'email': user.email or get_message('not_specified', language),
-            'date_of_birth': user.date_of_birth.strftime('%d.%m.%Y') if user.date_of_birth else get_message('not_specified', language),
-            'hobbies': profile_data_from_service.get('hobbies_for_display', get_message('not_specified', language)),
-            'life_facts': profile_data_from_service.get('life_facts_for_display', get_message('not_specified', language))
-        }
-        profile_msg = get_message('profile_menu', language, **profile_data)
-        reply_markup = get_edit_profile_keyboard(language)
-        await callback.message.edit_text(
-            profile_msg,
-            reply_markup=reply_markup
-        )
+        view = await build_edit_profile_menu_view(user, language)
+        await callback.message.edit_text(view['text'], reply_markup=view['reply_markup'])
         await callback.answer()
     except Exception as e:
         logger.error(f"Ошибка при показе меню редактирования профиля: {e}")
@@ -281,28 +222,17 @@ async def edit_profile_dob(callback: CallbackQuery, state: FSMContext, user, lan
 async def edit_profile_hobbies(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование увлечений"""
     try:
-        current_hobbies_list = UserProfileService._filter_remove_items(user.hobbies)
-        if len(current_hobbies_list) != len(user.hobbies or []):
-            user.hobbies = current_hobbies_list
-            await user.asave(update_fields=['hobbies'])
-            logger.debug(f"Очищены 'remove' элементы из hobbies пользователя {user.telegram_id}")
-        current_hobbies = UserProfileService._format_list_for_display(
-            current_hobbies_list,
-            user.language or 'ru',
+        view = await build_list_field_edit_prompt(
+            user=user,
+            field_name='hobbies',
+            language=user.language or language,
             max_length=MAX_INLINE_FIELD_LENGTH,
         )
+        if not view.get('success'):
+            await callback.answer(get_message('error_generic', language=language))
+            return
         await state_manager.set_state(state, SettingsStates.waiting_for_hobbies_input)
-        ask_msg = get_message('ask_new_hobbies', language)
-        if current_hobbies:
-            ask_msg += get_message(
-                key='current_hobbies',
-                language=language,
-                current_hobbies=current_hobbies)
-        reply_markup = get_single_button_keyboard(language, 'edit_profile', 'btn_back')
-        await callback.message.edit_text(
-            ask_msg,
-            reply_markup=reply_markup
-        )
+        await callback.message.edit_text(view['text'], reply_markup=view['reply_markup'])
         await callback.answer()
     except Exception as e:
         logger.error(f"Ошибка при запросе новых увлечений: {e}")
@@ -314,37 +244,25 @@ async def edit_profile_hobbies(callback: CallbackQuery, state: FSMContext, user,
 async def edit_profile_life_facts(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование фактов о жизни"""
     try:
-        current_facts_list = UserProfileService._filter_remove_items(user.life_facts)
-        if len(current_facts_list) != len(user.life_facts or []):
-            user.life_facts = current_facts_list
-            await user.asave(update_fields=['life_facts'])
-            logger.debug(f"Очищены 'remove' элементы из life_facts пользователя {user.telegram_id}")
-        current_facts = UserProfileService._format_list_for_display(
-            current_facts_list,
-            user.language or 'ru',
+        view = await build_list_field_edit_prompt(
+            user=user,
+            field_name='life_facts',
+            language=user.language or language,
             max_length=MAX_INLINE_FIELD_LENGTH,
         )
+        if not view.get('success'):
+            await callback.answer(get_message('error_generic', language=language))
+            return
         await state_manager.set_state(state, SettingsStates.waiting_for_life_facts_input)
-        ask_msg = get_message('ask_new_life_facts', language)
-        if current_facts:
-            ask_msg += get_message(
-                key='current_facts',
-                language=language,
-                current_facts=current_facts
-            )
-        reply_markup = get_single_button_keyboard(language, 'edit_profile', 'btn_back')
-        await callback.message.edit_text(
-            ask_msg,
-            reply_markup=reply_markup
-        )
+        await callback.message.edit_text(view['text'], reply_markup=view['reply_markup'])
         await callback.answer()
     except Exception as e:
         logger.error(f"Ошибка при запросе новых фактов о жизни: {e}")
         await callback.answer(get_message('error_generic', language=language))
 
 
-async def _process_field_input(message: Message, state: FSMContext, user, language: str, field_name: str, back_callback_data: str, validator_func=None):
-    """Вспомогательная функция для обработки ввода значения поля."""
+async def _process_field_input(message: Message, state: FSMContext, user, language: str, field_name: str, back_callback_data: str):
+    """Transport-обёртка: parse input → use case → render/FSM."""
     try:
         new_value = message.text.strip()
         if new_value.lower() in ['назад', 'back', '/start', '/menu']:
@@ -356,19 +274,10 @@ async def _process_field_input(message: Message, state: FSMContext, user, langua
             error_msg = get_message('invalid_input', language)
             await message.answer(error_msg)
             return
-        if validator_func:
-            validation_result = validator_func(new_value)
-            if not validation_result['success']:
-                error_msg = get_message(validation_result['error_key'], language)
-                await message.answer(error_msg)
-                ask_msg = get_message(f'ask_new_{field_name}', language)
-                reply_markup = get_single_button_keyboard(language, back_callback_data, 'btn_back')
-                await message.answer(ask_msg, reply_markup=reply_markup)
-                return
-            new_value = validation_result.get('processed_value', new_value)
-        update_result = await update_user_profile_field(user, field_name, new_value)
+
+        update_result = await process_profile_field_update(user, field_name, new_value)
         if not update_result['success']:
-            error_code = update_result.get('error_code')
+            error_code = update_result.get('error_code') or update_result.get('error')
             if error_code == 'email_confirmation_required':
                 merge_request_id = update_result.get('merge_request_id')
                 await message.answer(
@@ -385,6 +294,24 @@ async def _process_field_input(message: Message, state: FSMContext, user, langua
                 return
             if error_code == 'email_already_exists':
                 await message.answer(get_message('email_already_exists', language))
+                return
+            if error_code in {
+                'invalid_email_format',
+                'invalid_date_format',
+                'invalid_date_future',
+                'invalid_input',
+                'invalid_format',
+            }:
+                message_key = (
+                    'invalid_date_format'
+                    if error_code == 'invalid_format'
+                    else error_code
+                )
+                await message.answer(get_message(message_key, language))
+                ask_key = PROFILE_FIELD_ASK_MESSAGE_KEYS.get(field_name, f'ask_new_{field_name}')
+                ask_msg = get_message(ask_key, language)
+                reply_markup = get_single_button_keyboard(language, back_callback_data, 'btn_back')
+                await message.answer(ask_msg, reply_markup=reply_markup)
                 return
 
             error_msg = get_message('error_generic', language)
@@ -403,25 +330,6 @@ async def _process_field_input(message: Message, state: FSMContext, user, langua
         await state_manager.clear_state(state)
 
 
-def _validate_email(email: str) -> Dict[str, Any]:
-    """Валидатор email."""
-    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    if re.match(email_pattern, email):
-        return {'success': True, 'processed_value': email}
-    return {'success': False, 'error_key': 'invalid_email_format'}
-
-
-def _validate_date_of_birth(date_str: str) -> Dict[str, Any]:
-    """Валидатор даты рождения."""
-    try:
-        new_dob = datetime.strptime(date_str, '%d.%m.%Y').date()
-        if new_dob > datetime.now().date():
-            return {'success': False, 'error_key': 'invalid_date_future'}
-        return {'success': True, 'processed_value': new_dob}
-    except ValueError:
-        return {'success': False, 'error_key': 'invalid_date_format'}
-
-
 @router.message(SettingsStates.waiting_for_name_input)
 async def process_name_input(message: Message, state: FSMContext, user, language: str):
     """Обработка ввода нового имени"""
@@ -431,13 +339,13 @@ async def process_name_input(message: Message, state: FSMContext, user, language
 @router.message(SettingsStates.waiting_for_email_input)
 async def process_email_input(message: Message, state: FSMContext, user, language: str):
     """Обработка ввода нового email"""
-    await _process_field_input(message, state, user, language, 'email', 'edit_profile', validator_func=_validate_email)
+    await _process_field_input(message, state, user, language, 'email', 'edit_profile')
 
 
 @router.message(SettingsStates.waiting_for_date_of_birth_input)
 async def process_dob_input(message: Message, state: FSMContext, user, language: str):
     """Обработка ввода новой даты рождения"""
-    await _process_field_input(message, state, user, language, 'date_of_birth', 'edit_profile', validator_func=_validate_date_of_birth)
+    await _process_field_input(message, state, user, language, 'date_of_birth', 'edit_profile')
 
 
 @router.message(SettingsStates.waiting_for_hobbies_input)
@@ -455,25 +363,12 @@ async def process_life_facts_input(message: Message, state: FSMContext, user, la
 async def show_edit_profile_menu_callback(message_or_callback, user, language: str):
     """Показ меню редактирования профиля (callback)"""
     try:
-        profile_data_from_service = await get_user_profile_data(user)
-        profile_data = {
-            'first_name': user.first_name or get_message('not_specified', language),
-            'email': user.email or get_message('not_specified', language),
-            'date_of_birth': user.date_of_birth.strftime('%d.%m.%Y') if user.date_of_birth else get_message('not_specified', language),
-            'hobbies': profile_data_from_service.get('hobbies_for_display', get_message('not_specified', language)),
-            'life_facts': profile_data_from_service.get('life_facts_for_display', get_message('not_specified', language))
-        }
-        profile_msg = get_message('profile_menu', language, **profile_data)
-        reply_markup = get_edit_profile_keyboard(language)
+        view = await build_edit_profile_menu_view(user, language)
         if isinstance(message_or_callback, Message):
-            await message_or_callback.answer(
-                profile_msg,
-                reply_markup=reply_markup
-            )
+            await message_or_callback.answer(view['text'], reply_markup=view['reply_markup'])
         elif isinstance(message_or_callback, CallbackQuery):
             await message_or_callback.message.edit_text(
-                profile_msg,
-                reply_markup=reply_markup
+                view['text'], reply_markup=view['reply_markup']
             )
             await message_or_callback.answer()
     except Exception as e:
@@ -492,24 +387,10 @@ async def show_edit_profile_menu_callback(message_or_callback, user, language: s
 async def show_account_deletion_menu(callback: CallbackQuery, user, language: str, state: FSMContext):
     """Показ меню удаления аккаунта"""
     try:
-        balance = user.token_balance
-        if balance > 0:
-            balance_info = get_message('account_balance_info_positive', language, balance=balance)
-            balance_warning = get_message('balance_warning_positive', language, balance=balance)
-        elif balance == 0:
-            balance_info = get_message('account_balance_info_zero', language)
-            balance_warning = get_message('balance_warning_zero_or_negative', language)
-        else:
-            balance_info = get_message('account_balance_info_negative', language, balance=abs(balance))
-            balance_warning = get_message('balance_warning_zero_or_negative', language)
-
-        menu_msg = get_message('account_deletion_menu', language, balance_info=balance_info)
+        view = build_account_deletion_menu_view(user, language)
         await state_manager.set_state(state, SettingsStates.in_account_deletion_menu)
-        await state_manager.update_state_data(state, balance_warning=balance_warning)
-        await callback.message.edit_text(
-            menu_msg,
-            reply_markup=get_account_deletion_menu_keyboard(language, balance_info)
-        )
+        await state_manager.update_state_data(state, balance_warning=view.get('balance_warning'))
+        await callback.message.edit_text(view['text'], reply_markup=view['reply_markup'])
         await callback.answer()
     except Exception as e:
         logger.error(f"Ошибка при показе меню удаления аккаунта: {e}")
@@ -643,8 +524,8 @@ async def handle_export_user_data(callback: CallbackQuery, user, language: str):
         file_path = export_result['file_path']
         try:
             await status_msg.delete()
-        except Exception:
-            pass
+        except Exception as delete_error:
+            logger.debug(f"[export_user_data_handler] status_msg delete failed: {delete_error}")
         with open(file_path, 'rb') as f:
             file_data = f.read()
         input_file = BufferedInputFile(file_data, filename='export.docx')
@@ -654,8 +535,8 @@ async def handle_export_user_data(callback: CallbackQuery, user, language: str):
         )
         try:
             os.remove(file_path)
-        except Exception:
-            pass
+        except Exception as remove_error:
+            logger.debug(f"[export_user_data_handler] temp file remove failed: {remove_error}")
         await callback.answer()
     except Exception as e:
         logger.error(f"Ошибка при экспорте данных пользователя {user.telegram_id}: {e}", exc_info=True)
@@ -668,25 +549,17 @@ async def handle_export_user_data(callback: CallbackQuery, user, language: str):
 async def show_referral_link(callback: CallbackQuery, user, language: str):
     """Показывает реферальную ссылку пользователя."""
     try:
-        link_info = await get_referral_link_info(user, language)
-        if not link_info['success']:
-            error_msg = link_info.get('message', get_message('error_generic', language))
-            await callback.answer(error_msg, show_alert=True)
+        view = await build_referral_link_view(user, language)
+        if not view.get('success'):
+            await callback.answer(
+                view.get('text') or get_message('error_generic', language),
+                show_alert=True,
+            )
             return
-        share_button = InlineKeyboardButton(
-            text=get_button_text('btn_share_referral_link', language),
-            url=link_info['share_url']
-        )
-        back_button = InlineKeyboardButton(
-            text=get_button_text('btn_back', language),
-            callback_data="user_profile"
-        )
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[[share_button], [back_button]])
-        info_msg = link_info['display_message']
         await callback.message.edit_text(
-            info_msg,
-            reply_markup=keyboard,
-            parse_mode="HTML"
+            view['text'],
+            reply_markup=view['reply_markup'],
+            parse_mode="HTML",
         )
         await callback.answer()
     except Exception as e:

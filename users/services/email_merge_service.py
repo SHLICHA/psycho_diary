@@ -345,3 +345,90 @@ class EmailMergeService:
             merge_request_id,
             approve,
         )
+
+
+def build_requester_merge_result_view(
+    result: EmailMergeConfirmationResult,
+    delivery_result: Optional[dict],
+    language: str,
+) -> dict:
+    """Transport payload для результата подтверждения merge инициатором."""
+    from messages import get_message
+
+    if result.status == 'cancelled':
+        return {
+            'success': True,
+            'mode': 'cancelled',
+            'text': get_message('merge_request_cancelled', language=language),
+        }
+
+    if result.status == 'confirmed':
+        return {
+            'success': True,
+            'mode': 'confirmed',
+            'text': get_message('merge_request_confirmed', language=language),
+        }
+
+    if result.status == 'pending_target_confirmation' and result.merge_request is not None:
+        if delivery_result and delivery_result.get('success'):
+            return {
+                'success': True,
+                'mode': 'target_sent',
+                'text': get_message('merge_target_confirmation_sent', language=language),
+            }
+        if delivery_result and delivery_result.get('delivery') == 'max_deferred':
+            return {
+                'success': True,
+                'mode': 'max_deferred',
+                'text': get_message('merge_target_confirmation_deferred_max', language=language),
+            }
+
+    return {
+        'success': False,
+        'mode': 'error',
+        'alert_text': get_message('error_generic', language=language),
+        'show_alert': True,
+    }
+
+
+def build_target_merge_result_view(
+    result: EmailMergeConfirmationResult,
+    language: str,
+) -> dict:
+    """Transport payload для результата подтверждения merge целевым пользователем."""
+    from messages import get_message
+
+    if result.status == 'rejected':
+        return {
+            'success': True,
+            'mode': 'rejected',
+            'text': get_message('merge_target_rejected', language=language),
+        }
+
+    if result.status == 'pending_requester_confirmation':
+        return {
+            'success': True,
+            'mode': 'pending_requester',
+            'text': get_message('merge_target_approved_wait_requester', language=language),
+        }
+
+    if result.status == 'confirmed':
+        return {
+            'success': True,
+            'mode': 'confirmed',
+            'text': get_message('merge_request_confirmed', language=language),
+        }
+
+    if result.code == 'target_confirmation_expired':
+        return {
+            'success': True,
+            'mode': 'expired',
+            'text': get_message('merge_request_expired', language=language),
+        }
+
+    return {
+        'success': False,
+        'mode': 'error',
+        'alert_text': get_message('error_generic', language=language),
+        'show_alert': True,
+    }

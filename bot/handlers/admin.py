@@ -1,7 +1,5 @@
-# /home/shlicha/psycho_diary/bot/handlers/broadcast_handlers.py
-"""
-Хендлеры для рассылки сообщений администратором
-"""
+# /home/shlicha/psycho_diary/bot/handlers/admin.py
+"""Admin broadcast/stats handlers (transport-only)."""
 
 import logging
 from aiogram import Router, F
@@ -9,25 +7,12 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-# --- НОВОЕ: Импортируем BufferedInputFile ---
-from aiogram.types import BufferedInputFile
-# --- КОНЕЦ НОВОГО ---
-from datetime import timedelta
-from django.conf import settings
-from django.utils import timezone
-from asgiref.sync import sync_to_async
-from collections import Counter # Добавляем импорт Counter для подсчёта часовых поясов
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 
 from messages import get_message, get_button_text
-from diary.models import DiaryEntry, AnalysisRating
-from users.models import User, Payment
 from core.services.admin_service import admin_service
 from core.services.base_service import BaseService
-
-# --- НОВОЕ: Импортируем функции для генерации графиков ---
 from bot.utils.activity_chart import generate_activity_chart_image, generate_hourly_activity_chart_image
-# --- КОНЕЦ НОВОГО ---
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -133,93 +118,41 @@ async def cancel_broadcast(callback: CallbackQuery, state: FSMContext):
 
 @router.message(Command("stats"))
 async def cmd_admin_stats(message: Message):
-    """
-    Отправляет администратору сводную статистику.
-    """
-    if not admin_service.is_admin(message.from_user.id):
-        await message.answer("❌ У вас нет прав для просмотра статистики.")
-        return
+    """Transport: stats bundle → send report + charts."""
     try:
-        stats = await admin_service.get_admin_stats()
-        response = f"""
-📊 <b>Статистика приложения</b> (на {timezone.now().strftime('%d.%m.%Y %H:%M')})
+        bundle = await admin_service.get_admin_stats_bundle(message.from_user.id)
+        if not bundle.get('success'):
+            await message.answer(bundle.get('text') or "❌ У вас нет прав для просмотра статистики.")
+            return
 
-<b>👥Пользователи:</b>
-• Всего (активных в системе): {stats['total_users']}
-• 🟢Активных (незаблокированных): {stats['active_users']}
-• 🟢Активных за последние 7 дней: {stats['active_users_last_7_days']}
-• 🔴Заблокировано: {stats['blocked_users']}
-• 💳С активной подпиской: {stats['premium_users']}
-• 💎С токенами: {stats['users_with_tokens']}
-• 📈С включённым автоанализом: {stats['users_with_auto_analysis_enabled']}
-• 🎓Завершили онбординг: {stats['users_completed_onboarding']}
-• ✍️Сделали хотя бы одну запись: {stats['users_with_entries']}
+        await message.answer(bundle['text'], parse_mode='HTML')
 
-<b>Платежи (успешные):</b>
-• 💎Подписки (30 дней): {stats['subscriptions_30_count']} шт.
-• 💎Подписки (год): {stats['subscriptions_year_count']} шт.
-• 💰Токены (10 шт.): {stats['tokens_10_count']} шт.
-• 💰Токены (50 шт.): {stats['tokens_50_count']} шт.
-• 💰Токены (100 шт.): {stats['tokens_100_count']} шт.
-• 💰Токены (200 шт.): {stats['tokens_200_count']} шт.
-• 💰Токены (500 шт.): {stats['tokens_500_count']} шт.
-• 💰Токены (кастом): {stats['custom_tokens_count']} шт.
-
-<b>Записи:</b>
-• Всего (от незаблокированных пользователей): {stats['total_entries']}
-• "Настоящие": {stats['real_entries']}
-• Восстановленные: {stats['recovered_entries']}
-
-"""
-
-        # --- НОВОЕ: Добавляем статистику по оценкам анализов ---
-        response += f"<b>Оценки анализов:</b>\n"
-        response += f"• Всего оценок: {stats['total_ratings']}\n"
-        for i in range(1, 6):
-            star_emoji = "⭐" * i
-            count = stats['rating_distribution'].get(i, 0)
-            response += f"• {star_emoji}: {count} шт.\n"
-        # --- КОНЕЦ НОВОГО ---
-
-        # --- НОВОЕ: Добавляем статистику по часовым поясам ---
-        if stats['top_timezones']:
-            response += "\n<b>Топ 10 часовых поясов:</b>\n"
-            for tz, count in stats['top_timezones']:
-                # Экранируем символы, которые могут мешать HTML-парсингу, если tz содержит их
-                # Однако, обычно идентификаторы часовых поясов (например, Europe/Moscow) не требуют экранирования в HTML
-                # Если есть сомнения, можно использовать html.escape(tz), импортировав html
-                response += f"• {tz}: {count} пользоват.\n"
-        else:
-            response += "\n<b>Часовые пояса:</b>\nНет данных или все пользователи используют UTC.\n"
-        # --- КОНЕЦ НОВОГО ---
-
-        await message.answer(response, parse_mode='HTML')
-
-        # --- НОВОЕ: Отправляем графики активности ---
-        # Получаем администратора для передачи его часового пояса
         admin_user = await BaseService.get_user_by_telegram_id(message.from_user.id)
         if not admin_user:
             await message.answer("❌ Администратор не найден в базе данных.")
             return
-        try:
-            activity_chart_img = await generate_activity_chart_image(admin_user, days=30) # График за 30 дней
-            # --- ОБЕРТЫВАЕМ BytesIO в BufferedInputFile ---
-            input_file = BufferedInputFile(activity_chart_img.getvalue(), filename="activity_chart.png")
-            await message.answer_photo(photo=input_file, caption="📈 Активность пользователей по дням (по времени администратора)")
-        except Exception as chart_error:
-            logger.error(f"Ошибка генерации графика активности по дням: {chart_error}")
-            await message.answer("❌ Ошибка при генерации графика активности по дням.")
 
-        try:
-            hourly_activity_chart_img = await generate_hourly_activity_chart_image(admin_user, days=30) # График по часам за 30 дней
-            # --- ОБЕРТЫВАЕМ BytesIO в BufferedInputFile ---
-            input_file_hourly = BufferedInputFile(hourly_activity_chart_img.getvalue(), filename="hourly_activity_chart.png")
-            await message.answer_photo(photo=input_file_hourly, caption="⏰ Активность пользователей по часам (по времени администратора)")
-        except Exception as hourly_chart_error:
-            logger.error(f"Ошибка генерации почасового графика активности: {hourly_chart_error}")
-            await message.answer("❌ Ошибка при генерации почасового графика активности.")
-        # --- КОНЕЦ НОВОГО ---
-
+        chart_days = bundle.get('chart_days', 30)
+        for chart in bundle.get('charts') or []:
+            kind = chart.get('kind')
+            try:
+                if kind == 'activity_daily':
+                    chart_img = await generate_activity_chart_image(admin_user, days=chart_days)
+                elif kind == 'activity_hourly':
+                    chart_img = await generate_hourly_activity_chart_image(
+                        admin_user, days=chart_days
+                    )
+                else:
+                    continue
+                input_file = BufferedInputFile(
+                    chart_img.getvalue(), filename=chart.get('filename') or 'chart.png'
+                )
+                await message.answer_photo(
+                    photo=input_file, caption=chart.get('caption') or ''
+                )
+            except Exception as chart_error:
+                logger.error(f"Ошибка генерации графика {kind}: {chart_error}")
+                await message.answer(f"❌ Ошибка при генерации графика ({kind}).")
     except Exception as e:
         logger.error(f"Ошибка при сборе статистики администратора: {e}", exc_info=True)
         await message.answer("❌ Ошибка при сборе статистики.")

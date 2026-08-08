@@ -50,7 +50,8 @@ class DeepSeekAPIService:
                     "model": "deepseek-v4-flash",
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.3,
-                    "max_tokens": 8100
+                    "max_tokens": 8100,
+                    "thinking": {"type": "disabled"},
                 }
                 headers = {
                     "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
@@ -331,7 +332,8 @@ class DeepSeekAPIService:
                     "model": "deepseek-v4-flash",
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.3,
-                    "max_tokens": 5000
+                    "max_tokens": 5000,
+                    "thinking": {"type": "disabled"},
                 }
                 headers = {
                     "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
@@ -506,7 +508,8 @@ class DeepSeekAPIService:
                     "model": "deepseek-v4-flash",
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.1,
-                    "max_tokens": 1000
+                    "max_tokens": 1000,
+                    "thinking": {"type": "disabled"},
                 }
                 headers = {
                     "Authorization": f"Bearer {DEEPSEEK_API_KEY}",

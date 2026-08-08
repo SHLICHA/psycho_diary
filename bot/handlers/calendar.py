@@ -11,7 +11,6 @@ from aiogram.fsm.context import FSMContext
 from bot.decorators.analytics_decorator import log_user_activity
 from bot.utils.calendar_utils import update_calendar_display
 from bot.keyboards import (
-    get_month_calendar_with_navigation,
     get_smart_calendar_keyboard,
     get_year_selection_keyboard,
     get_month_selection_keyboard
@@ -119,12 +118,10 @@ async def select_year(callback: CallbackQuery, user, language: str):
     """Выбор года - показываем календарь выбранного года"""
     try:
         year = int(callback.data.split(":")[1])
-        user_local_date = calendar_service.get_user_local_date(user)
-        current_day = user_local_date.day if calendar_service.is_same_year(user_local_date, year) and user_local_date.month == 1 else 1
-        calendar_msg = get_message('archive_menu', language)
+        view = await calendar_service.build_year_selected_calendar_view(user, year, language)
         await callback.message.edit_text(
-            calendar_msg,
-            reply_markup=await get_month_calendar_with_navigation(user, year, 1, current_day, language)
+            view['text'],
+            reply_markup=view['reply_markup'],
         )
         await callback.answer()
     except Exception as e:

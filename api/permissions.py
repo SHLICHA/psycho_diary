@@ -5,28 +5,58 @@ from rest_framework.permissions import BasePermission
 
 
 class MonitoringAccessPermission(BasePermission):
-	"""Restrict monitoring endpoints to privileged users when strict mode is enabled."""
+    """Restrict monitoring endpoints to privileged users when strict mode is enabled."""
 
-	message = 'Monitoring endpoint requires privileged access.'
+    message = 'Monitoring endpoint requires privileged access.'
 
-	def has_permission(self, request, view):
-		if not getattr(request.user, 'is_authenticated', False):
-			return False
+    def has_permission(self, request, view):
+        if not getattr(request.user, 'is_authenticated', False):
+            return False
 
-		if not getattr(settings, 'MONITORING_REQUIRE_PRIVILEGED', False):
-			return True
+        if not getattr(settings, 'MONITORING_REQUIRE_PRIVILEGED', False):
+            return True
 
-		if request.user.is_superuser or request.user.is_staff:
-			return True
+        if request.user.is_superuser or request.user.is_staff:
+            return True
 
-		privileged_user_ids = getattr(settings, 'MONITORING_PRIVILEGED_USER_IDS', []) or []
-		if getattr(request.user, 'id', None) in privileged_user_ids:
-			return True
+        privileged_user_ids = getattr(settings, 'MONITORING_PRIVILEGED_USER_IDS', []) or []
+        if getattr(request.user, 'id', None) in privileged_user_ids:
+            return True
 
-		if not getattr(settings, 'MONITORING_ALLOW_LEGACY_TELEGRAM_ID', True):
-			return False
+        if not getattr(settings, 'MONITORING_ALLOW_LEGACY_TELEGRAM_ID', True):
+            return False
 
-		developer_chat_id = str(getattr(settings, 'DEVELOPER_CHAT_ID', '') or '').strip()
-		user_telegram_id = str(getattr(request.user, 'telegram_id', '') or '').strip()
+        developer_chat_id = str(getattr(settings, 'DEVELOPER_CHAT_ID', '') or '').strip()
+        user_telegram_id = str(getattr(request.user, 'telegram_id', '') or '').strip()
 
-		return bool(developer_chat_id and user_telegram_id and developer_chat_id == user_telegram_id)
+        return bool(developer_chat_id and user_telegram_id and developer_chat_id == user_telegram_id)
+
+
+class AdminDeveloperPermission(BasePermission):
+    """
+    Строгий доступ к /admin/* (parity с ботом).
+    Всегда привилегированный режим: staff/superuser, privileged IDs, или DEVELOPER_CHAT_ID.
+    """
+
+    message = 'Admin endpoint requires developer access.'
+
+    def has_permission(self, request, view):
+        if not getattr(request.user, 'is_authenticated', False):
+            return False
+
+        if request.user.is_superuser or request.user.is_staff:
+            return True
+
+        privileged_user_ids = getattr(settings, 'MONITORING_PRIVILEGED_USER_IDS', []) or []
+        if getattr(request.user, 'id', None) in privileged_user_ids:
+            return True
+
+        from core.services.admin_service import admin_service
+
+        telegram_id = getattr(request.user, 'telegram_id', None)
+        if telegram_id is None:
+            return False
+        try:
+            return admin_service.is_developer(int(telegram_id))
+        except (TypeError, ValueError):
+            return False

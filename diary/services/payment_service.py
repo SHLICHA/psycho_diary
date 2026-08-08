@@ -19,6 +19,7 @@ from users.services.identity_policy_service import IdentityPolicyService
 from users.services.email_merge_service import EmailMergeService
 from bot.utils.payment_utils import create_yookassa_payment, track_payment_status
 from bot.utils.message_utils import send_message_to_user # <-- ИМПОРТИРУЕМ ДЛЯ track_payment_status
+from messages import get_message
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,11 @@ def is_valid_email(email: str) -> bool:
     """Проверяет валидность email."""
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return re.match(pattern, email) is not None
+
+
+def is_payment_cancel_command(text: str) -> bool:
+    """Проверяет, является ли текст командой отмены ввода email для оплаты."""
+    return text.lower() in ['назад', 'back', '/start', '/menu', 'отмена', 'cancel']
 
 class PaymentService:
     """Сервис для работы с платежами."""
@@ -350,6 +356,8 @@ class PaymentService:
                 "success": True,
                 "requires_email": False,
                 "confirmation_url": yoo_payment.confirmation.confirmation_url,
+                "payment_id": db_payment.id,
+                "yookassa_payment_id": yoo_payment.id,
                 "error": None
             }
 
@@ -359,8 +367,301 @@ class PaymentService:
                 "success": False,
                 "requires_email": False,
                 "confirmation_url": None,
+                "payment_id": None,
+                "yookassa_payment_id": None,
                 "error": str(e)
             }
+
+    @classmethod
+    def list_products(cls) -> Dict[str, Any]:
+        """Каталог продуктов и цен из settings (единый источник для bot keyboards и API)."""
+        return {
+            "success": True,
+            "currency": "RUB",
+            "subscriptions": [
+                {
+                    "sku": "subscription_month",
+                    "plan": "month",
+                    "days": 30,
+                    "price": int(settings.PREMIUM_PRICE_MONTH),
+                },
+                {
+                    "sku": "subscription_year",
+                    "plan": "year",
+                    "days": 365,
+                    "price": int(settings.PREMIUM_PRICE_YEAR),
+                },
+            ],
+            "token_packs": [
+                {"sku": "tokens_10", "tokens": 10, "price": int(settings.TOKEN_PACK_10)},
+                {"sku": "tokens_50", "tokens": 50, "price": int(settings.TOKEN_PACK_50)},
+                {"sku": "tokens_100", "tokens": 100, "price": int(settings.TOKEN_PACK_100)},
+                {"sku": "tokens_200", "tokens": 200, "price": int(settings.TOKEN_PACK_200)},
+                {"sku": "tokens_500", "tokens": 500, "price": int(settings.TOKEN_PACK_500)},
+            ],
+        }
+
+    @classmethod
+    async def get_user_payment(cls, user: User, payment_id: int) -> Dict[str, Any]:
+        """Возвращает платёж пользователя по внутреннему id."""
+        try:
+            payment = await Payment.objects.aget(id=payment_id, user=user)
+            return {"success": True, "payment": payment, "error": None}
+        except Payment.DoesNotExist:
+            return {"success": False, "payment": None, "error": "payment_not_found"}
+
+    @classmethod
+    async def sync_payment_status(cls, user: User, payment_id: int) -> Dict[str, Any]:
+        """
+        Однократная синхронизация статуса с ЮKassa (для web-клиента).
+        Идемпотентно начисляет premium/токены при succeeded.
+        """
+        lookup = await cls.get_user_payment(user, payment_id)
+        if not lookup["success"]:
+            return lookup
+        payment = lookup["payment"]
+        return await cls.confirm_payment_by_yookassa_id(payment.yookassa_payment_id)
+
+    @classmethod
+    async def confirm_payment_by_yookassa_id(
+        cls,
+        yookassa_payment_id: str,
+        *,
+        provider_status: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Идемпотентное подтверждение платежа по ID ЮKassa.
+        Без Telegram-уведомлений (для webhook / API sync).
+        """
+        from bot.utils.payment_utils import check_yookassa_config
+        from yookassa import Configuration, Payment as YooPayment
+
+        try:
+            check_yookassa_config()
+            Configuration.account_id = settings.YOOKASSA_SHOP_ID
+            Configuration.secret_key = settings.YOOKASSA_SECRET_KEY
+
+            if provider_status is None:
+                yoo_payment = await sync_to_async(YooPayment.find_one)(yookassa_payment_id)
+                if not yoo_payment:
+                    return {
+                        "success": False,
+                        "payment": None,
+                        "error": "yookassa_payment_not_found",
+                        "status": None,
+                    }
+                provider_status = yoo_payment.status
+
+            try:
+                db_payment = await Payment.objects.select_related("user").aget(
+                    yookassa_payment_id=yookassa_payment_id
+                )
+            except Payment.DoesNotExist:
+                return {
+                    "success": False,
+                    "payment": None,
+                    "error": "payment_not_found",
+                    "status": provider_status,
+                }
+
+            previous_status = db_payment.status
+            if provider_status and provider_status != db_payment.status:
+                db_payment.status = provider_status
+                await db_payment.asave(update_fields=["status", "updated_at"])
+
+            granted = False
+            if provider_status == "succeeded" and previous_status != "succeeded":
+                user = db_payment.user
+                await user.process_payment(db_payment)
+                granted = True
+                logger.info(
+                    "[PaymentService] Платёж %s подтверждён (granted=%s) для user_id=%s",
+                    yookassa_payment_id,
+                    granted,
+                    user.id,
+                )
+            elif provider_status == "succeeded" and previous_status == "succeeded":
+                logger.debug(
+                    "[PaymentService] Платёж %s уже был succeeded — skip grant",
+                    yookassa_payment_id,
+                )
+
+            await db_payment.arefresh_from_db()
+            return {
+                "success": True,
+                "payment": db_payment,
+                "status": db_payment.status,
+                "granted": granted,
+                "error": None,
+            }
+        except Exception as e:
+            logger.error(
+                "[PaymentService] Ошибка confirm_payment_by_yookassa_id(%s): %s",
+                yookassa_payment_id,
+                e,
+                exc_info=True,
+            )
+            return {
+                "success": False,
+                "payment": None,
+                "error": str(e),
+                "status": provider_status,
+            }
+
+    @classmethod
+    def build_premium_menu_view(cls, user: User, language: str) -> Dict[str, Any]:
+        """Собирает text/keyboard для экрана премиум/покупки."""
+        from bot.keyboards import get_manage_premium_keyboard, get_purchase_options_keyboard
+
+        if user.is_premium_active():
+            premium_msg = get_message('settings_premium', language=language).format(
+                status=get_message('status_enabled', language=language)
+            )
+            expires_at = (
+                user.premium_expires_at.strftime('%d.%m.%Y %H:%M')
+                if user.premium_expires_at
+                else 'Неизвестно'
+            )
+            premium_msg += f"\n\nДата окончания подписки: {expires_at}"
+            return {
+                'success': True,
+                'mode': 'active',
+                'text': premium_msg,
+                'reply_markup': get_manage_premium_keyboard(language),
+            }
+
+        return {
+            'success': True,
+            'mode': 'purchase',
+            'text': get_message('premium_benefits', language=language),
+            'reply_markup': get_purchase_options_keyboard(language),
+        }
+
+    @classmethod
+    def build_payment_link_message(
+        cls,
+        confirmation_url: str,
+        payment_kind: str = 'subscription',
+    ) -> str:
+        """Текст со ссылкой на оплату (subscription/tokens)."""
+        if payment_kind == 'tokens':
+            return (
+                f"💳 Перейдите по ссылке для оплаты токенов:\n{confirmation_url}\n\n"
+                f"После оплаты вернитесь к боту."
+            )
+        return (
+            f"💳 Перейдите по ссылке для оплаты подписки:\n{confirmation_url}\n\n"
+            f"После оплаты вернитесь к боту."
+        )
+
+    @classmethod
+    def build_payment_initiation_view(
+        cls,
+        result: Dict[str, Any],
+        language: str,
+        payment_kind: str = 'subscription',
+    ) -> Dict[str, Any]:
+        """
+        Нормализует результат initiate_* в transport-friendly payload.
+        modes: requires_email | payment_link | error
+        """
+        if not result.get('success'):
+            return {
+                'success': False,
+                'mode': 'error',
+                'error': result.get('error') or 'payment_init_failed',
+                'text': get_message('error_generic', language),
+            }
+
+        if result.get('requires_email'):
+            return {
+                'success': True,
+                'mode': 'requires_email',
+                'pending_payment_data': result.get('pending_payment_data'),
+                'text': get_message('ask_email_for_receipt', language),
+            }
+
+        confirmation_url = result.get('confirmation_url')
+        if not confirmation_url:
+            return {
+                'success': False,
+                'mode': 'error',
+                'error': 'confirmation_url_missing',
+                'text': get_message('error_generic', language),
+            }
+
+        return {
+            'success': True,
+            'mode': 'payment_link',
+            'confirmation_url': confirmation_url,
+            'text': cls.build_payment_link_message(confirmation_url, payment_kind=payment_kind),
+        }
+
+    @classmethod
+    def build_token_purchase_options_view(cls, language: str) -> Dict[str, Any]:
+        """Текст и клавиатура экрана выбора пакета токенов."""
+        from bot.keyboards import get_token_purchase_options_keyboard
+
+        return {
+            'success': True,
+            'text': "💎 <b>Выберите пакет токенов:</b>",
+            'reply_markup': get_token_purchase_options_keyboard(language),
+        }
+
+    @classmethod
+    def build_email_payment_result_view(
+        cls,
+        result: Dict[str, Any],
+        payment_kind: str,
+        language: str,
+    ) -> Dict[str, Any]:
+        """
+        Нормализует результат process_user_email_for_pending_payment для transport-слоя.
+        modes: payment_ready | merge_confirmation | email_exists | error
+        """
+        if result.get('success'):
+            confirmation_url = result.get('confirmation_url')
+            if confirmation_url:
+                return {
+                    'success': True,
+                    'mode': 'payment_ready',
+                    'clear_state': True,
+                    'messages': [
+                        cls.build_payment_link_message(confirmation_url, payment_kind=payment_kind),
+                        get_message('payment_email_saved', language),
+                    ],
+                }
+            return {
+                'success': False,
+                'mode': 'error',
+                'clear_state': True,
+                'text': get_message('error_generic', language),
+            }
+
+        error_code = result.get('error_code')
+        if error_code == 'email_confirmation_required':
+            return {
+                'success': False,
+                'mode': 'merge_confirmation',
+                'clear_state': False,
+                'text': get_message('merge_requester_confirmation_prompt', language),
+                'merge_request_id': result.get('merge_request_id'),
+            }
+        if error_code == 'email_already_exists':
+            return {
+                'success': False,
+                'mode': 'email_exists',
+                'clear_state': False,
+                'text': get_message('email_already_exists', language),
+            }
+
+        return {
+            'success': False,
+            'mode': 'error',
+            'clear_state': False,
+            'text': result.get('error', 'Неизвестная ошибка'),
+        }
+
 
 # Удобные функции для импорта в хендлеры
 async def initiate_subscription_payment(user: User, plan: str) -> Dict[str, Any]:
@@ -376,3 +677,49 @@ async def process_user_email_for_pending_payment(
 ) -> Dict[str, Any]:
     """Удобная функция для обработки email и создания платежа."""
     return await PaymentService.process_user_email_for_pending_payment(user, email, pending_payment_data)
+
+def build_premium_menu_view(user: User, language: str) -> Dict[str, Any]:
+    return PaymentService.build_premium_menu_view(user, language)
+
+def build_payment_initiation_view(
+    result: Dict[str, Any],
+    language: str,
+    payment_kind: str = 'subscription',
+) -> Dict[str, Any]:
+    return PaymentService.build_payment_initiation_view(result, language, payment_kind=payment_kind)
+
+def build_payment_link_message(confirmation_url: str, payment_kind: str = 'subscription') -> str:
+    return PaymentService.build_payment_link_message(confirmation_url, payment_kind=payment_kind)
+
+def build_token_purchase_options_view(language: str) -> Dict[str, Any]:
+    return PaymentService.build_token_purchase_options_view(language)
+
+def build_email_payment_result_view(
+    result: Dict[str, Any],
+    payment_kind: str,
+    language: str,
+) -> Dict[str, Any]:
+    return PaymentService.build_email_payment_result_view(result, payment_kind, language)
+
+
+def list_products() -> Dict[str, Any]:
+    return PaymentService.list_products()
+
+
+async def get_user_payment(user: User, payment_id: int) -> Dict[str, Any]:
+    return await PaymentService.get_user_payment(user, payment_id)
+
+
+async def sync_payment_status(user: User, payment_id: int) -> Dict[str, Any]:
+    return await PaymentService.sync_payment_status(user, payment_id)
+
+
+async def confirm_payment_by_yookassa_id(
+    yookassa_payment_id: str,
+    *,
+    provider_status: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await PaymentService.confirm_payment_by_yookassa_id(
+        yookassa_payment_id,
+        provider_status=provider_status,
+    )

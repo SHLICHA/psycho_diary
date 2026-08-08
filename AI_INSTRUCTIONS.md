@@ -97,6 +97,14 @@ class Migration(migrations.Migration):
 2. **Лимитировать max_tokens** - не более нужного
 3. **Кэшировать ответы** - если возможно
 4. **Логировать использование** - токены, стоимость, ошибки
+5. **Отключать thinking** - в payload всегда `"thinking": {"type": "disabled"}` (у V4 thinking включён по умолчанию и тратит токены на `reasoning_content`)
+
+### REST API (thin views)
+
+1. Бизнес-логика только в use case / сервисах; views валидируют вход и мапят `ServiceResponse`.
+2. Эталон: `create_with_analysis` → `process_new_entry_use_case`; helper — `api/service_bridge.py`.
+3. Не отдавать transport-поля (`reply_markup`, `keyboard`, FSM). Roadmap: `API_LAYER_PLAN.md`.
+4. Ошибки только через `api_error_response`.
 
 **Мониторинг:**
 ```python

@@ -63,3 +63,15 @@ class TaskMutationRateThrottle(ScopedIdentityRateThrottle):
 
 class RefreshRateThrottle(ScopedIdentityRateThrottle):
     scope = 'refresh'
+
+
+class SettingsMutationRateThrottle(ScopedIdentityRateThrottle):
+    scope = 'settings_mutation'
+
+
+class PaymentMutationRateThrottle(ScopedIdentityRateThrottle):
+    scope = 'payment_mutation'
+
+
+class AdminMutationRateThrottle(ScopedIdentityRateThrottle):
+    scope = 'admin_mutation'

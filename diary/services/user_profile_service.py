@@ -503,6 +503,101 @@ class UserProfileService:
             return {'success': False, 'error': str(e)}
 
     @classmethod
+    def validate_profile_field_input(cls, field_name: str, raw_value: str) -> Dict[str, Any]:
+        """
+        Валидирует сырой ввод поля профиля до сохранения.
+        Возвращает processed_value или error_key для message catalog.
+        """
+        value = (raw_value or '').strip()
+        if not value:
+            return {'success': False, 'error_key': 'invalid_input'}
+
+        if field_name == 'email':
+            email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            import re
+            if re.match(email_pattern, value):
+                return {'success': True, 'processed_value': value}
+            return {'success': False, 'error_key': 'invalid_email_format'}
+
+        if field_name == 'date_of_birth':
+            try:
+                new_dob = datetime.strptime(value, '%d.%m.%Y').date()
+            except ValueError:
+                return {'success': False, 'error_key': 'invalid_date_format'}
+            if new_dob > datetime.now().date():
+                return {'success': False, 'error_key': 'invalid_date_future'}
+            return {'success': True, 'processed_value': new_dob}
+
+        return {'success': True, 'processed_value': value}
+
+    @classmethod
+    async def process_profile_field_update(
+        cls,
+        user: User,
+        field_name: str,
+        raw_value: str,
+    ) -> Dict[str, Any]:
+        """Use-case: валидация ввода + обновление поля профиля."""
+        validation = cls.validate_profile_field_input(field_name, raw_value)
+        if not validation.get('success'):
+            error_key = validation.get('error_key') or 'invalid_input'
+            return {
+                'success': False,
+                'error': error_key,
+                'error_code': error_key,
+            }
+        return await cls.update_user_profile_field(
+            user,
+            field_name,
+            validation.get('processed_value'),
+        )
+
+    @classmethod
+    async def prepare_list_field_for_edit(
+        cls,
+        user: User,
+        field_name: str,
+        language: str = 'ru',
+        max_length: int = 3000,
+    ) -> Dict[str, Any]:
+        """
+        Готовит list-поле (hobbies/life_facts) к редактированию:
+        очищает remove-элементы, сохраняет при необходимости, возвращает display text.
+        """
+        if field_name not in ('hobbies', 'life_facts'):
+            return {'success': False, 'error': 'invalid_field'}
+
+        try:
+            current_list = getattr(user, field_name) or []
+            cleaned_list = cls._filter_remove_items(current_list)
+            was_cleaned = len(cleaned_list) != len(current_list or [])
+            if was_cleaned:
+                setattr(user, field_name, cleaned_list)
+                await user.asave(update_fields=[field_name])
+                logger.debug(
+                    f"[UserProfileService] Очищены 'remove' элементы из {field_name} "
+                    f"пользователя {user.telegram_id}"
+                )
+            display_text = cls._format_list_for_display(
+                cleaned_list,
+                language or 'ru',
+                max_length=max_length,
+            )
+            return {
+                'success': True,
+                'cleaned_list': cleaned_list,
+                'display_text': display_text,
+                'was_cleaned': was_cleaned,
+            }
+        except Exception as e:
+            logger.error(
+                f"[UserProfileService] Ошибка prepare_list_field_for_edit({field_name}) "
+                f"для {user.telegram_id}: {e}",
+                exc_info=True,
+            )
+            return {'success': False, 'error': str(e)}
+
+    @classmethod
     def _filter_remove_items(cls, items_list):
         """
         Фильтрует список, удаляя элементы вида {"remove": ...}.
@@ -631,6 +726,223 @@ class UserProfileService:
             'referral_link_url': referral_link_url
         }
 
+    @classmethod
+    async def build_profile_screen_view(cls, user: User, language: str) -> Dict[str, Any]:
+        """Главный экран профиля."""
+        from bot.keyboards import get_profile_keyboard
+
+        profile_data = await cls.get_user_profile_data(user)
+        profile_msg = get_message(
+            key='profile_title',
+            language=language,
+            user_telegram_id=profile_data['user_telegram_id'],
+            username=profile_data['username'],
+            first_name=profile_data['first_name'],
+            last_name=profile_data['last_name'],
+            notifications_status=profile_data['notifications_status'],
+            auto_analysis_status=profile_data['auto_analysis_status'],
+            premium_status=profile_data['premium_status'],
+            awareness_level=profile_data['awareness_level'],
+            token_balance=profile_data['token_balance'],
+            registration_date=profile_data['registration_date'],
+            last_entry=profile_data['last_entry'],
+        )
+        if profile_data.get('last_analysis_date'):
+            profile_msg += get_message(
+                key='last_analysis',
+                language=language,
+                last_analysis_date=profile_data['last_analysis_date'],
+            )
+        return {
+            'success': True,
+            'mode': 'profile',
+            'text': profile_msg,
+            'reply_markup': get_profile_keyboard(
+                language,
+                show_psychology_button=profile_data['has_psychological_data'],
+            ),
+        }
+
+    @classmethod
+    async def build_psychology_profile_view(cls, user: User, language: str) -> Dict[str, Any]:
+        """Экран психологического профиля + кнопки полей."""
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        from messages import get_button_text
+
+        psych_data = await cls.get_user_psychology_profile_data(user, language)
+        psychology_msg = psych_data['title'] + psych_data['description']
+        profile_detail_buttons = []
+        for field_info in psych_data['available_fields']:
+            profile_detail_buttons.append([
+                InlineKeyboardButton(
+                    text=field_info['btn_text'],
+                    callback_data=f"view_profile_field:{field_info['key']}",
+                )
+            ])
+        profile_detail_buttons.append([
+            InlineKeyboardButton(
+                text=get_button_text('btn_back', language),
+                callback_data='user_profile',
+            )
+        ])
+        return {
+            'success': True,
+            'mode': 'psychology',
+            'text': psychology_msg,
+            'reply_markup': InlineKeyboardMarkup(inline_keyboard=profile_detail_buttons),
+            'parse_mode': 'HTML',
+        }
+
+    @classmethod
+    async def build_edit_profile_menu_view(cls, user: User, language: str) -> Dict[str, Any]:
+        """Меню редактирования профиля."""
+        from bot.keyboards import get_edit_profile_keyboard
+
+        profile_data_from_service = await cls.get_user_profile_data(user)
+        not_specified = get_message('not_specified', language)
+        profile_data = {
+            'first_name': user.first_name or not_specified,
+            'email': user.email or not_specified,
+            'date_of_birth': (
+                user.date_of_birth.strftime('%d.%m.%Y')
+                if user.date_of_birth
+                else not_specified
+            ),
+            'hobbies': profile_data_from_service.get('hobbies_for_display', not_specified),
+            'life_facts': profile_data_from_service.get('life_facts_for_display', not_specified),
+        }
+        return {
+            'success': True,
+            'mode': 'edit_menu',
+            'text': get_message('profile_menu', language, **profile_data),
+            'reply_markup': get_edit_profile_keyboard(language),
+        }
+
+    @classmethod
+    async def build_list_field_edit_prompt(
+        cls,
+        user: User,
+        field_name: str,
+        language: str,
+        max_length: int = 3000,
+    ) -> Dict[str, Any]:
+        """Промпт редактирования list-поля (hobbies/life_facts)."""
+        from bot.keyboards import get_single_button_keyboard
+
+        prepare_result = await cls.prepare_list_field_for_edit(
+            user=user,
+            field_name=field_name,
+            language=language,
+            max_length=max_length,
+        )
+        if not prepare_result.get('success'):
+            return {
+                'success': False,
+                'mode': 'error',
+                'error': prepare_result.get('error'),
+                'text': get_message('error_generic', language),
+            }
+
+        current_value = prepare_result.get('display_text') or ''
+        if field_name == 'hobbies':
+            ask_msg = get_message('ask_new_hobbies', language)
+            if current_value:
+                ask_msg += get_message(
+                    key='current_hobbies',
+                    language=language,
+                    current_hobbies=current_value,
+                )
+            set_state = 'waiting_for_hobbies_input'
+        else:
+            ask_msg = get_message('ask_new_life_facts', language)
+            if current_value:
+                ask_msg += get_message(
+                    key='current_facts',
+                    language=language,
+                    current_facts=current_value,
+                )
+            set_state = 'waiting_for_life_facts_input'
+
+        return {
+            'success': True,
+            'mode': 'edit_prompt',
+            'text': ask_msg,
+            'reply_markup': get_single_button_keyboard(language, 'edit_profile', 'btn_back'),
+            'set_state': set_state,
+        }
+
+    @classmethod
+    def build_account_deletion_menu_view(cls, user: User, language: str) -> Dict[str, Any]:
+        """Экран удаления аккаунта с правилами по балансу токенов."""
+        from bot.keyboards import get_account_deletion_menu_keyboard
+
+        balance = user.token_balance
+        if balance > 0:
+            balance_info = get_message(
+                'account_balance_info_positive', language, balance=balance
+            )
+            balance_warning = get_message(
+                'balance_warning_positive', language, balance=balance
+            )
+        elif balance == 0:
+            balance_info = get_message('account_balance_info_zero', language)
+            balance_warning = get_message('balance_warning_zero_or_negative', language)
+        else:
+            balance_info = get_message(
+                'account_balance_info_negative', language, balance=abs(balance)
+            )
+            balance_warning = get_message('balance_warning_zero_or_negative', language)
+
+        return {
+            'success': True,
+            'mode': 'deletion_menu',
+            'text': get_message('account_deletion_menu', language, balance_info=balance_info),
+            'reply_markup': get_account_deletion_menu_keyboard(language, balance_info),
+            'balance_warning': balance_warning,
+            'set_state': 'in_account_deletion_menu',
+        }
+
+    @classmethod
+    async def build_referral_link_view(cls, user: User, language: str) -> Dict[str, Any]:
+        """Экран реферальной ссылки + share keyboard."""
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        from messages import get_button_text
+        from bot.keyboards import get_single_button_keyboard
+
+        link_info = await cls.get_referral_link_info(user, language)
+        if not link_info.get('success'):
+            return {
+                'success': False,
+                'mode': 'error',
+                'error': link_info.get('error'),
+                'text': link_info.get('message') or get_message('error_generic', language),
+                'reply_markup': get_single_button_keyboard(language, 'user_profile', 'btn_back'),
+            }
+
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text=get_button_text('btn_share_referral_link', language),
+                        url=link_info['share_url'],
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text=get_button_text('btn_back', language),
+                        callback_data='user_profile',
+                    )
+                ],
+            ]
+        )
+        return {
+            'success': True,
+            'mode': 'referral',
+            'text': link_info['display_message'],
+            'reply_markup': keyboard,
+        }
+
+
 async def get_user_profile_data(user: User) -> Dict[str, Any]:
     return await UserProfileService.get_user_profile_data(user)
 
@@ -646,6 +958,25 @@ async def get_user_transaction_history(user: User, language: str, limit: int = 1
 async def update_user_profile_field(user: User, field_name: str, new_value: Any) -> Dict[str, Any]:
     return await UserProfileService.update_user_profile_field(user, field_name, new_value)
 
+async def process_profile_field_update(user: User, field_name: str, raw_value: str) -> Dict[str, Any]:
+    return await UserProfileService.process_profile_field_update(user, field_name, raw_value)
+
+async def prepare_list_field_for_edit(
+    user: User,
+    field_name: str,
+    language: str = 'ru',
+    max_length: int = 3000,
+) -> Dict[str, Any]:
+    return await UserProfileService.prepare_list_field_for_edit(
+        user=user,
+        field_name=field_name,
+        language=language,
+        max_length=max_length,
+    )
+
+def validate_profile_field_input(field_name: str, raw_value: str) -> Dict[str, Any]:
+    return UserProfileService.validate_profile_field_input(field_name, raw_value)
+
 async def anonymize_user_account(user: User) -> Dict[str, Any]:
     return await UserProfileService.anonymize_user_account(user)
 
@@ -654,3 +985,25 @@ async def export_user_data(user: User) -> Dict[str, Any]:
 
 async def get_referral_link_info(user: User, language: str) -> Dict[str, Any]:
     return await UserProfileService.get_referral_link_info(user, language)
+
+async def build_profile_screen_view(user: User, language: str) -> Dict[str, Any]:
+    return await UserProfileService.build_profile_screen_view(user, language)
+
+async def build_psychology_profile_view(user: User, language: str) -> Dict[str, Any]:
+    return await UserProfileService.build_psychology_profile_view(user, language)
+
+async def build_edit_profile_menu_view(user: User, language: str) -> Dict[str, Any]:
+    return await UserProfileService.build_edit_profile_menu_view(user, language)
+
+async def build_list_field_edit_prompt(
+    user: User, field_name: str, language: str, max_length: int = 3000
+) -> Dict[str, Any]:
+    return await UserProfileService.build_list_field_edit_prompt(
+        user, field_name, language, max_length=max_length
+    )
+
+def build_account_deletion_menu_view(user: User, language: str) -> Dict[str, Any]:
+    return UserProfileService.build_account_deletion_menu_view(user, language)
+
+async def build_referral_link_view(user: User, language: str) -> Dict[str, Any]:
+    return await UserProfileService.build_referral_link_view(user, language)

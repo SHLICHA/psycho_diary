@@ -1,10 +1,18 @@
 """Unit tests for DeepSeek API service failure payloads."""
 
 import asyncio
+import inspect
 
 import aiohttp
 
+from bot.services import deepseek_api
 from bot.services.deepseek_api import DeepSeekAPIService
+
+
+class TestDeepSeekThinkingDisabled:
+    def test_all_request_payloads_disable_thinking(self):
+        source = inspect.getsource(deepseek_api)
+        assert source.count('"thinking": {"type": "disabled"}') == 3
 
 
 class TestDeepSeekAPIServiceFailurePayloads:

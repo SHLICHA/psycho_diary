@@ -208,5 +208,95 @@ class AdminService:
         """
         return await self._get_admin_stats_async()
 
+    def build_admin_stats_report(
+        self,
+        stats: Dict[str, Any],
+        generated_at=None,
+    ) -> str:
+        """Собирает HTML-отчёт статистики администратора."""
+        from django.utils import timezone as dj_timezone
+
+        stamp = generated_at or dj_timezone.now()
+        stamp_str = stamp.strftime('%d.%m.%Y %H:%M')
+
+        response = f"""
+📊 <b>Статистика приложения</b> (на {stamp_str})
+
+<b>👥Пользователи:</b>
+• Всего (активных в системе): {stats['total_users']}
+• 🟢Активных (незаблокированных): {stats['active_users']}
+• 🟢Активных за последние 7 дней: {stats['active_users_last_7_days']}
+• 🔴Заблокировано: {stats['blocked_users']}
+• 💳С активной подпиской: {stats['premium_users']}
+• 💎С токенами: {stats['users_with_tokens']}
+• 📈С включённым автоанализом: {stats['users_with_auto_analysis_enabled']}
+• 🎓Завершили онбординг: {stats['users_completed_onboarding']}
+• ✍️Сделали хотя бы одну запись: {stats['users_with_entries']}
+
+<b>Платежи (успешные):</b>
+• 💎Подписки (30 дней): {stats['subscriptions_30_count']} шт.
+• 💎Подписки (год): {stats['subscriptions_year_count']} шт.
+• 💰Токены (10 шт.): {stats['tokens_10_count']} шт.
+• 💰Токены (50 шт.): {stats['tokens_50_count']} шт.
+• 💰Токены (100 шт.): {stats['tokens_100_count']} шт.
+• 💰Токены (200 шт.): {stats['tokens_200_count']} шт.
+• 💰Токены (500 шт.): {stats['tokens_500_count']} шт.
+• 💰Токены (кастом): {stats['custom_tokens_count']} шт.
+
+<b>Записи:</b>
+• Всего (от незаблокированных пользователей): {stats['total_entries']}
+• "Настоящие": {stats['real_entries']}
+• Восстановленные: {stats['recovered_entries']}
+
+"""
+        response += "<b>Оценки анализов:</b>\n"
+        response += f"• Всего оценок: {stats['total_ratings']}\n"
+        for i in range(1, 6):
+            star_emoji = "⭐" * i
+            count = stats['rating_distribution'].get(i, 0)
+            response += f"• {star_emoji}: {count} шт.\n"
+
+        if stats.get('top_timezones'):
+            response += "\n<b>Топ 10 часовых поясов:</b>\n"
+            for tz, count in stats['top_timezones']:
+                response += f"• {tz}: {count} пользоват.\n"
+        else:
+            response += (
+                "\n<b>Часовые пояса:</b>\n"
+                "Нет данных или все пользователи используют UTC.\n"
+            )
+        return response
+
+    async def get_admin_stats_bundle(self, admin_telegram_id: int) -> Dict[str, Any]:
+        """
+        Use-case payload: доступ + HTML-отчёт + метаданные графиков.
+        Генерация изображений остаётся в transport (I/O).
+        """
+        if not self.is_admin(admin_telegram_id):
+            return {
+                'success': False,
+                'mode': 'forbidden',
+                'text': '❌ У вас нет прав для просмотра статистики.',
+            }
+        stats = await self.get_admin_stats()
+        return {
+            'success': True,
+            'mode': 'stats',
+            'text': self.build_admin_stats_report(stats),
+            'chart_days': 30,
+            'charts': [
+                {
+                    'kind': 'activity_daily',
+                    'caption': '📈 Активность пользователей по дням (по времени администратора)',
+                    'filename': 'activity_chart.png',
+                },
+                {
+                    'kind': 'activity_hourly',
+                    'caption': '⏰ Активность пользователей по часам (по времени администратора)',
+                    'filename': 'hourly_activity_chart.png',
+                },
+            ],
+        }
+
 
 admin_service = AdminService()

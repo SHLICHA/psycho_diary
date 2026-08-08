@@ -8,12 +8,16 @@ import json
 
 from asgiref.sync import sync_to_async
 from typing import List, Dict, Any, Optional
-from datetime import datetime, date, time as dtime
+from datetime import datetime, date, timedelta, time as dtime
 from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 from django.core.cache import cache
 from typing import Dict, Any, List
+
+CLARIFICATION_MISSING_ANSWER = "[Ответ не получен]"
+CLARIFICATION_REMINDER_DELAY_MINUTES = 10
+CLARIFICATION_FORCE_PROCESS_DELAY_MINUTES = 20
 
 from bot.utils.decorators import async_error_handler, database_retry
 from bot.utils.api_utils import format_api_error_for_analysis
@@ -229,10 +233,26 @@ class DiaryService:
 
         if result.get('success'):
             success = True
+            clarification_scheduled = False
+            needs_clarification = bool(result.get('needs_clarification'))
+            clarification_questions = result.get('clarification_questions') or []
+            if needs_clarification and clarification_questions and result.get('entry') is not None:
+                schedule_response = await self.schedule_clarification_for_entry(
+                    entry=result['entry'],
+                    clarification_questions=clarification_questions,
+                )
+                clarification_scheduled = schedule_response.success
+                if not schedule_response.success:
+                    logger.error(
+                        "[process_new_entry_use_case] Не удалось запланировать уточнения "
+                        f"для записи {getattr(result.get('entry'), 'id', None)}: "
+                        f"{schedule_response.error} — {schedule_response.message}"
+                    )
             response = ServiceResponse.ok(
                 data=result,
-                needs_clarification=bool(result.get('needs_clarification')),
+                needs_clarification=needs_clarification,
                 has_suggested_task=bool(result.get('suggested_task')),
+                clarification_scheduled=clarification_scheduled,
             )
             await self._record_use_case_metric(
                 use_case='diary.process_new_entry_use_case',
@@ -257,6 +277,85 @@ class DiaryService:
             metadata={'error': error_code},
         )
         return response
+
+    @staticmethod
+    def build_clarification_answers_map(
+        clarification_questions: Optional[List[Any]],
+        clarification_text: str,
+        missing_answer_placeholder: str = CLARIFICATION_MISSING_ANSWER,
+    ) -> Dict[str, str]:
+        """Сопоставляет вопросы уточнения с ответами (по строкам текста)."""
+        answers_list = [
+            answer.strip()
+            for answer in (clarification_text or "").split("\n")
+            if answer.strip()
+        ]
+        return {
+            question: (
+                answers_list[index]
+                if index < len(answers_list)
+                else missing_answer_placeholder
+            )
+            for index, question in enumerate(clarification_questions or [])
+        }
+
+    async def schedule_clarification_for_entry(
+        self,
+        entry: DiaryEntry,
+        clarification_questions: List[Any],
+        reminder_delay_minutes: int = CLARIFICATION_REMINDER_DELAY_MINUTES,
+        force_process_delay_minutes: int = CLARIFICATION_FORCE_PROCESS_DELAY_MINUTES,
+    ) -> ServiceResponse:
+        """Сохраняет вопросы уточнения и расписание reminder/force-process для записи."""
+        started_at = time.perf_counter()
+        success = False
+        try:
+            now_utc = timezone.now()
+            entry.clarification_questions_asked = clarification_questions
+            entry.clarification_asked_at = now_utc
+            entry.clarification_reminder_due_at = now_utc + timedelta(minutes=reminder_delay_minutes)
+            entry.clarification_force_process_at = now_utc + timedelta(minutes=force_process_delay_minutes)
+            await entry.asave(
+                update_fields=[
+                    'clarification_questions_asked',
+                    'clarification_asked_at',
+                    'clarification_reminder_due_at',
+                    'clarification_force_process_at',
+                ]
+            )
+            success = True
+            response = ServiceResponse.ok(
+                data={
+                    'entry': entry,
+                    'clarification_questions': clarification_questions,
+                    'clarification_asked_at': entry.clarification_asked_at,
+                    'clarification_reminder_due_at': entry.clarification_reminder_due_at,
+                    'clarification_force_process_at': entry.clarification_force_process_at,
+                },
+                entry_id=getattr(entry, 'id', None),
+            )
+            await self._record_use_case_metric(
+                use_case='diary.schedule_clarification_for_entry',
+                success=success,
+                started_at=started_at,
+            )
+            return response
+        except Exception as exc:
+            logger.error(
+                f"[schedule_clarification_for_entry] Ошибка для записи {getattr(entry, 'id', None)}: {exc}",
+                exc_info=True,
+            )
+            response = ServiceResponse.fail(
+                error='clarification_schedule_failed',
+                message=str(exc),
+            )
+            await self._record_use_case_metric(
+                use_case='diary.schedule_clarification_for_entry',
+                success=success,
+                started_at=started_at,
+                metadata={'error': 'clarification_schedule_failed'},
+            )
+            return response
 
     async def process_first_onboarding_entry_use_case(
         self,
@@ -300,9 +399,19 @@ class DiaryService:
 
         if result.get('success'):
             success = True
+            onboarding_just_completed = False
+            if not getattr(user, 'is_onboarding_completed', False):
+                user.is_onboarding_completed = True
+                await user.asave(update_fields=['is_onboarding_completed'])
+                onboarding_just_completed = True
+                logger.info(
+                    "[process_first_onboarding_entry_use_case] Онбординг отмечен как завершён "
+                    f"для пользователя {user.telegram_id}."
+                )
             response = ServiceResponse.ok(
                 data=result,
-                onboarding_completed=False,
+                onboarding_completed=True,
+                onboarding_just_completed=onboarding_just_completed,
             )
             await self._record_use_case_metric(
                 use_case='diary.process_first_onboarding_entry_use_case',
@@ -1196,6 +1305,81 @@ class DiaryService:
             logger.error(f"[Сервис] Ошибка при удалении записей за {target_date}: {e}")
             return False
 
+    async def start_add_comment_use_case(self, user: User, entry_id: int) -> Dict[str, Any]:
+        """Check whether user can start adding a comment to an entry."""
+        diary_entry = await self.get_user_entry_by_id(user, entry_id)
+        if not diary_entry:
+            logger.warning(
+                f"Пользователь {user.telegram_id} пытается добавить комментарий "
+                f"к несуществующей записи {entry_id}"
+            )
+            return {'mode': 'not_found', 'entry_id': entry_id}
+        if diary_entry.user_comment:
+            logger.warning(
+                f"Пользователь {user.telegram_id} пытается добавить комментарий "
+                f"к записи {entry_id}, но комментарий уже существует."
+            )
+            return {'mode': 'already_added', 'entry_id': entry_id}
+        return {'mode': 'allow', 'entry_id': entry_id}
+
+    async def delete_entire_day_use_case(
+        self,
+        user: User,
+        target_date: date,
+        language: str,
+    ) -> Dict[str, Any]:
+        """Delete all entries for a day and build archive calendar view payload."""
+        from bot.keyboards import get_smart_calendar_keyboard
+
+        success = await self.delete_all_entries_for_day(user, target_date)
+        if not success:
+            logger.warning(f"Не удалось удалить записи за {target_date}.")
+            return {
+                'success': False,
+                'alert_message': get_message('error_processing', language),
+            }
+
+        calendar_keyboard = await get_smart_calendar_keyboard(user, language)
+        return {
+            'success': True,
+            'alert_message': get_message('day_deleted_success', language),
+            'archive_view': {
+                'text': get_message('archive_menu', language),
+                'keyboard': calendar_keyboard,
+            },
+        }
+
+    async def start_full_day_reanalysis_use_case(
+        self,
+        user: User,
+        target_date: date,
+        language: str,
+    ) -> Dict[str, Any]:
+        """Prepare full-day reanalysis or return no_entries outcome."""
+        confirm_alert = get_message('day_analysis_confirmed', language)
+        combined_entry = await self.prepare_combined_entry_for_analysis(user, target_date)
+        if not combined_entry:
+            logger.warning(
+                f"[start_full_day_reanalysis_use_case] Нет записей для {user.telegram_id} "
+                f"за {target_date}, анализ невозможен."
+            )
+            return {
+                'mode': 'no_entries',
+                'text': get_message('no_entries_for_analysis', language),
+                'confirm_alert': confirm_alert,
+            }
+
+        status_text = (
+            get_message('processing', language)
+            + " "
+            + get_message('task_effect_analysis_started', language)
+        )
+        return {
+            'mode': 'ready',
+            'status_text': status_text,
+            'confirm_alert': confirm_alert,
+        }
+
     async def process_new_entry_logic(
         self,
         user: User,
@@ -1956,7 +2140,19 @@ class DiaryService:
             finalize_processing=True
         )
 
-        # 7. Возврат результата
+        # 7. Обновление CombinedDiaryEntry (бывший side-effect handler `_process_analysis_result`)
+        if combined_entry_for_day:
+            await daily_state_service.update_daily_state(
+                combined_entry=combined_entry_for_day,
+                new_ai_state_data=analysis_text,
+                latest_mood_score=mood_score,
+            )
+            logger.debug(
+                "[process_user_comment_logic] Обновлен CombinedDiaryEntry "
+                f"ID {combined_entry_for_day.id} после анализа комментария."
+            )
+
+        # 8. Возврат результата
         return {
             'success': True, # В данном случае, если ИИ не вернул ошибку, считаем успехом
             'entry': diary_entry,
@@ -2212,6 +2408,32 @@ async def process_new_entry_use_case(
 ) -> ServiceResponse:
     """Удобная функция для универсального use-case обработки новой записи."""
     return await diary_service.process_new_entry_use_case(user, entry_text, language, entry_datetime)
+
+def build_clarification_answers_map(
+    clarification_questions: Optional[List[Any]],
+    clarification_text: str,
+    missing_answer_placeholder: str = CLARIFICATION_MISSING_ANSWER,
+) -> Dict[str, str]:
+    """Удобная функция для сопоставления вопросов и ответов уточнения."""
+    return DiaryService.build_clarification_answers_map(
+        clarification_questions=clarification_questions,
+        clarification_text=clarification_text,
+        missing_answer_placeholder=missing_answer_placeholder,
+    )
+
+async def schedule_clarification_for_entry(
+    entry: DiaryEntry,
+    clarification_questions: List[Any],
+    reminder_delay_minutes: int = CLARIFICATION_REMINDER_DELAY_MINUTES,
+    force_process_delay_minutes: int = CLARIFICATION_FORCE_PROCESS_DELAY_MINUTES,
+) -> ServiceResponse:
+    """Удобная функция для планирования уточнений по записи."""
+    return await diary_service.schedule_clarification_for_entry(
+        entry=entry,
+        clarification_questions=clarification_questions,
+        reminder_delay_minutes=reminder_delay_minutes,
+        force_process_delay_minutes=force_process_delay_minutes,
+    )
 
 async def process_clarification_answers_logic(
     user: User,

@@ -1,6 +1,6 @@
 """
 Обработчики для чата с психологом ИИ.
-Теперь содержат только логику взаимодействия с Telegram.
+Transport-only: parse → service/view → send/FSM.
 """
 
 import logging
@@ -11,7 +11,6 @@ from aiogram.fsm.context import FSMContext
 from bot.decorators.token_decorator import requires_tokens
 from bot.decorators.analytics_decorator import log_user_activity
 from bot.keyboards.common_keyboards import get_single_button_keyboard
-from bot.keyboards.main_menu import get_main_menu_keyboard
 from bot.states.therapy_chat_states import TherapyChatStates
 from bot.utils.message_utils import (
     safe_edit_message_text,
@@ -21,9 +20,13 @@ from bot.utils.message_utils import (
 from bot.utils.callback_utils import safe_answer_callback
 from bot.utils.state_manager import state_manager
 from bot.utils.audio_utils import process_voice_message
-from bot.utils.diary_utils import get_user_streaks
 from messages import get_message
-from diary.services.therapy_chat_service import start_therapy_chat, process_user_message_in_chat, end_therapy_chat
+from diary.services.therapy_chat_service import (
+    start_therapy_chat,
+    process_user_message_in_chat,
+    build_therapy_chat_welcome_view,
+    build_therapy_chat_error_recovery_view,
+)
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -31,9 +34,7 @@ router = Router()
 @router.callback_query(F.data == "start_therapy_chat")
 @log_user_activity('chat')
 async def start_therapy_chat_callback(callback: CallbackQuery, state: FSMContext, user, language: str):
-    """
-    Обработчик нажатия кнопки "Поговорить с психологом".
-    """
+    """Обработчик нажатия кнопки "Поговорить с психологом"."""
     try:
         init_result = await start_therapy_chat(user)
         if not init_result['success']:
@@ -41,19 +42,16 @@ async def start_therapy_chat_callback(callback: CallbackQuery, state: FSMContext
             await callback.message.answer(get_message('error_generic', language))
             await safe_answer_callback(callback)
             return
-        if user.is_premium:
-            welcome_message = get_message('therapy_chat_welcome_premium', language)
-        else:
-            welcome_message = get_message('therapy_chat_welcome_paid', language)
 
-        await callback.message.answer(
-            welcome_message,
-            reply_markup=get_single_button_keyboard(language, button_callback_data="main_menu", button_text='btn_end_chat')
-        )
+        view = build_therapy_chat_welcome_view(user, language)
+        await callback.message.answer(view['text'], reply_markup=view['reply_markup'])
         await state_manager.set_state(state, TherapyChatStates.in_therapy_chat)
         initial_history = init_result.get('initial_history', [])
         await state_manager.update_state_data(state, therapy_history=initial_history)
-        logger.debug(f"Состояние in_therapy_chat установлено для пользователя {user.telegram_id}. История инициализирована.")
+        logger.debug(
+            f"Состояние in_therapy_chat установлено для пользователя {user.telegram_id}. "
+            f"История инициализирована."
+        )
         await safe_answer_callback(callback)
     except Exception as e:
         logger.error(f"Ошибка при запуске чата с психологом: {e}", exc_info=True)
@@ -64,9 +62,7 @@ async def start_therapy_chat_callback(callback: CallbackQuery, state: FSMContext
 @requires_tokens(cost=1)
 @log_user_activity('chat', metadata_extra={'context': 'Обработка сообщения'})
 async def handle_therapy_message(message: Message, user, language: str, bot, state: FSMContext):
-    """
-    Обработчик текстовых и голосовых сообщений в состоянии in_therapy_chat.
-    """
+    """Обработчик текстовых и голосовых сообщений в состоянии in_therapy_chat."""
     processing_msg = None
     ai_response_msg = None
     user_message_text = ""
@@ -112,12 +108,22 @@ async def handle_therapy_message(message: Message, user, language: str, bot, sta
         await state_manager.update_state_data(state, therapy_history=updated_history)
         edit_success = await safe_edit_message_text(processing_msg, ai_response_text)
         if not edit_success:
-            logger.warning(f"[Therapy Chat] Не удалось отредактировать сообщение с ответом ИИ для user {user.telegram_id}")
+            logger.warning(
+                f"[Therapy Chat] Не удалось отредактировать сообщение с ответом ИИ "
+                f"для user {user.telegram_id}"
+            )
         ai_response_msg = processing_msg
-        back_to_menu_keyboard = get_single_button_keyboard(language, button_callback_data="main_menu", button_text='btn_end_chat')
-        keyboard_update_success = await safe_edit_message_reply_markup(ai_response_msg, reply_markup=back_to_menu_keyboard)
+        back_to_menu_keyboard = get_single_button_keyboard(
+            language, button_callback_data="main_menu", button_text='btn_end_chat'
+        )
+        keyboard_update_success = await safe_edit_message_reply_markup(
+            ai_response_msg, reply_markup=back_to_menu_keyboard
+        )
         if not keyboard_update_success:
-            logger.warning(f"[Therapy Chat] Не удалось прикрепить клавиатуру к сообщению с ответом ИИ для user {user.telegram_id}")
+            logger.warning(
+                f"[Therapy Chat] Не удалось прикрепить клавиатуру к сообщению с ответом ИИ "
+                f"для user {user.telegram_id}"
+            )
     except Exception as e:
         logger.error(f"Критическая ошибка в хендлере чата с психологом: {e}", exc_info=True)
         if processing_msg:
@@ -130,39 +136,16 @@ async def handle_therapy_message(message: Message, user, language: str, bot, sta
                 try:
                     await message.answer(get_message('error_processing', language))
                 except Exception as send_error:
-                    logger.error(f"Ошибка при отправке сообщения об ошибке пользователю {user.telegram_id}: {send_error}")
+                    logger.error(
+                        f"Ошибка при отправке сообщения об ошибке пользователю "
+                        f"{user.telegram_id}: {send_error}"
+                    )
         try:
-            profile_data = await user.aget_profile_data()
-            first_name = profile_data.get('first_name', get_message('user_default_name', language))
-            awareness_level = profile_data.get('awareness_level', 1)
-            entries_count = profile_data.get('entries_count', 0)
-            token_balance = user.token_balance
-            current_streak, max_streak, has_entry_today = await get_user_streaks(user)
-            streak_info = ""
-            if current_streak > 0:
-                streak_info = get_message('current_streak_info', language, current_streak=current_streak)
-                if current_streak == 1:
-                     streak_info += " " + get_message('keep_going_1_day', language)
-                elif 2 <= current_streak <= 4:
-                     streak_info += " " + get_message('keep_going_few_days', language)
-                elif current_streak >= 5:
-                     streak_info += " " + get_message('keep_going_streak', language)
-            else:
-                streak_info = get_message('no_current_streak', language)
-            max_streak_info = ""
-            if max_streak > 0:
-                max_streak_info = get_message('max_streak_info', language, max_streak=max_streak)
-            main_menu_msg = get_message('main_menu_welcome_back', language,
-                                       first_name=first_name,
-                                       awareness_level=awareness_level,
-                                       entries_count=entries_count,
-                                       token_balance=token_balance,
-                                       streak_info=streak_info,
-                                       max_streak_info=max_streak_info)
-            await message.answer(
-                main_menu_msg,
-                reply_markup=await get_main_menu_keyboard(language, user)
-            )
-            await state_manager.clear_state(state)
+            recovery = await build_therapy_chat_error_recovery_view(user, language)
+            await message.answer(recovery['text'], reply_markup=recovery['reply_markup'])
+            if recovery.get('clear_state'):
+                await state_manager.clear_state(state)
         except Exception as reset_error:
-            logger.error(f"Ошибка при попытке вернуть пользователя в главное меню после ошибки: {reset_error}")
+            logger.error(
+                f"Ошибка при попытке вернуть пользователя в главное меню после ошибки: {reset_error}"
+            )

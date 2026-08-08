@@ -404,6 +404,81 @@
 - [x] `tests/test_diary_entry_use_case.py`: добавлены unit-тесты success / invalid_target_date / day_view_build_failed для новых delete/cancel use-cases.
 - [x] Финальная anti-regression проверка Phase 3 подтверждена тестами.
 
+#### 3.12 Дочистка diary domain leftovers (2026-08-08)
+
+- [x] `bot/services/diary_service.py`: добавлены `schedule_clarification_for_entry(...)` и `build_clarification_answers_map(...)`; schedule clarification встроен в `process_new_entry_use_case`.
+- [x] `process_user_comment_logic`: перенесён side-effect обновления `CombinedDiaryEntry` из handler.
+- [x] `bot/presenters/diary_presenter.py`: добавлен `build_entry_saved_view(...)` для render уже сохранённого анализа.
+- [x] `bot/handlers/diary.py`: убраны ORM-мутации clarification timers и `_process_analysis_result` (двойная доменная запись); clarification/comment handlers оставлены transport + render/FSM.
+- [x] Добавлены/обновлены unit-тесты use-case и presenter; anti-regression bootstrap подтверждена.
+
+#### 3.13 Onboarding + profile domain extraction (2026-08-08)
+
+- [x] `process_first_onboarding_entry_use_case`: завершение онбординга (`is_onboarding_completed`) перенесено из handler в use case.
+- [x] `bot/handlers/onboarding.py`: убраны ORM-мутации пользователя; handler оставлен transport + render/FSM.
+- [x] `UserProfileService`: добавлены `validate_profile_field_input`, `process_profile_field_update`, `prepare_list_field_for_edit`.
+- [x] `bot/handlers/profile.py`: убраны `asave`, приватные `_filter_*`/`_format_*` и локальные валидаторы; edit-flow через сервисные use-case методы.
+- [x] Добавлены unit-тесты `tests/test_user_profile_field_use_case.py` и обновлены onboarding use-case тесты.
+
+#### 3.14 Tasks completion orchestration extraction (2026-08-08)
+
+- [x] `TaskManagementService`: добавлены `complete_task_with_feelings_use_case` и `analyze_completed_task_for_notification_use_case`.
+- [x] `TaskDisplayService`: добавлены `build_active_tasks_view` и `build_task_history_view`.
+- [x] `bot/handlers/tasks.py`: completion/notify/show/skip/history переведены на use-case/view payload; transport оставлен для voice/FSM/send.
+- [x] Добавлены unit-тесты `tests/test_task_completion_use_case.py`.
+
+#### 3.15 Payments / progress / feedback / full-day reanalysis extraction (2026-08-08)
+
+- [x] `full_day_analysis_service`: добавлен `build_full_day_reanalysis_notification(...)`; diary handler `_run_full_analysis_and_notify` оставлен transport-only.
+- [x] `PaymentService`: добавлены `build_premium_menu_view`, `build_payment_link_message`, `build_payment_initiation_view`; `bot/handlers/payments.py` переведён на view payload.
+- [x] `ProgressService`: добавлены `build_progress_screen_view`, `build_weekly_analysis_page_view`, `build_restore_streak_request_view`; `bot/handlers/progress.py` переведён на view builders.
+- [x] `FeedbackService`: добавлены `build_admin_feedback_list_keyboard`, `build_admin_feedback_item_view`, `build_admin_reply_prompt_view`; admin/list/reply handlers упрощены до transport.
+- [x] Добавлены unit-тесты `tests/test_phase315_view_builders.py`.
+
+#### 3.16 Critical domain out of transport (2026-08-08)
+
+- [x] `TherapyChatService`: `build_therapy_chat_welcome_view`, `build_therapy_chat_error_recovery_view` (error-path через `build_main_menu_data`).
+- [x] `SettingsService`: `build_task_settings_view`, `build_task_limit_update_view`, `build_city_timezone_lookup_view`, `set_timezone_and_resolve_next_step`.
+- [x] `OnboardingService`: `resolve_start_routing_use_case`, `build_onboarding_timezone_prompt_view`, `build_first_onboarding_entry_result_view`.
+- [x] Handlers `therapy_chat` / `settings` / `start` / `onboarding` переведены на use-case/view payload.
+- [x] Тесты: `tests/test_phase316_view_builders.py`.
+
+#### 3.17 Admin + profile screen builders (2026-08-08)
+
+- [x] `AdminService`: `build_admin_stats_report`, `get_admin_stats_bundle`; cleanup model imports в `admin.py`.
+- [x] `UserProfileService`: `build_profile_screen_view`, `build_psychology_profile_view`, `build_edit_profile_menu_view`, `build_list_field_edit_prompt`, `build_account_deletion_menu_view`, `build_referral_link_view`.
+- [x] Тесты: `tests/test_phase317_view_builders.py`.
+
+#### 3.18 Diary leftovers + feedback use cases (2026-08-08)
+
+- [x] Diary: `build_new_entry_outcome_view`, `start_add_comment_use_case`, `build_day_first_entry_view`, `submit_analysis_rating_use_case`, delete-day / reanalysis use cases.
+- [x] Feedback: `submit_user_feedback_use_case`, `process_admin_feedback_reply_use_case` (persist после send), `compute_admin_feedback_nav_index`.
+- [x] Тесты: `tests/test_phase318_diary_view_builders.py`, `tests/test_phase318_feedback_use_cases.py`.
+
+#### 3.19 Remaining P2 polish (2026-08-08)
+
+- [x] Tasks: page/detail/start-completion views + `restore_skipped_task_use_case`.
+- [x] Payments: email result / token options views + `is_payment_cancel_command`.
+- [x] Progress: `confirm_streak_restoration_use_case`.
+- [x] Calendar: `resolve_calendar_anchor_day` / `build_year_selected_calendar_view`.
+- [x] Identity merge: requester/target merge result views.
+- [x] Тесты: `tests/test_phase319_view_builders.py`.
+
+#### 3.20 Quality gate «ноль бизнес-логики» (2026-08-08)
+
+- [x] Grep-гейт: нет `.objects.` / `.asave` / `.save` в `bot/handlers`; нет runtime-веток по `is_premium` / `token_balance` / `awareness_level` / `is_onboarding_completed`.
+- [x] Model imports в handlers только под `TYPE_CHECKING` (type hints).
+- [x] Anti-regression: `pytest -q tests/test_phase315_view_builders.py … tests/test_phase319_view_builders.py tests/test_bot_main.py` → **79 passed**.
+- [x] Phase 3 Done: Telegram handlers = transport-only (parse → use case/view → FSM/send).
+
+#### 3.21 Hygiene sprint перед Phase 7 / MAX (2026-08-08)
+
+- [x] Dead noise: устаревшие маркеры (`СТАРАЯ`/`КОНЕЦ`), unused imports, выровнены module docstrings handlers.
+- [x] Exception hygiene: убраны bare `except:` и silent `except Exception: pass` в `diary`/`tasks`/`profile` (cleanup → `logger.debug`).
+- [x] Logging convention: prefix `[module.action]`, identity через `user.id`, снижен шум hot-path в diary/tasks/feedback/settings.
+- [x] Checklist hygiene: нет bare `except:` / stale markers / `.objects.` в `bot/handlers`.
+- [x] Anti-regression: `pytest -q tests/test_phase315…319 + test_bot_main` → **79 passed**.
+
 Результат фазы: Telegram становится transport-адаптером.
 
 ### Phase 4. Единые контракты для двух transport-слоев
@@ -785,6 +860,21 @@
 | 2026-06-30 | Phase 3 final extraction slice (delete/cancel use-cases) | Финализирован вынос бизнес-ветвлений удаления: добавлены `process_delete_specific_entry_use_case(...)` и `process_cancel_delete_specific_entry_use_case(...)`; handlers `confirm_delete_specific_entry` и `cancel_delete_specific_entry` переведены на сервисный orchestration-контракт; добавлены unit-тесты на новые use-cases | bot/services/diary_service.py, bot/handlers/diary.py, tests/test_diary_entry_use_case.py, IMPLEMENTATION_PLAN.md | Низкий риск: user-facing сообщения/клавиатуры сохранены, изменена точка принятия решений и централизован orchestration | `/home/shlicha/psycho_diary/venv/bin/python -m pytest -q tests/test_diary_entry_use_case.py tests/test_diary_display_service.py tests/test_diary_presenter.py tests/test_bot_main.py tests/test_calendar.py` (75 passed) | Выполнено |
 | 2026-06-30 | Phase 4 first contract slice (normalized I/O + send port) | Запущена Фаза 4: добавлены normalized transport-контракты и единый send port, реализован `UnifiedSendPort` (Telegram/MAX), `identity_merge_dispatcher` переведен на новый контрактный слой; тесты dispatcher/client/bootstrap адаптированы и зелены | bot/transports/contracts.py, bot/transports/send_port.py, bot/transports/unified_send_port.py, bot/transports/identity_merge_dispatcher.py, tests/test_max_transport_dispatcher.py, IMPLEMENTATION_PLAN.md | Низкий риск: сохранено существующее поведение доставки merge-confirm, изменен только transport orchestration слой | `/home/shlicha/psycho_diary/venv/bin/python -m pytest -q tests/test_max_transport_dispatcher.py tests/test_max_client_phase5.py tests/test_bot_main.py` (14 passed) | Выполнено |
 | 2026-06-30 | Phase 4 second contract slice (Telegram integration path) | Завершено подключение Telegram к unified контрактам: `send_message_to_user(...)` переведен на `UnifiedSendPort` с normalized output и безопасным legacy fallback; добавлены reason-коды Telegram-ошибок в send port; добавлены unit-тесты нового send-path | bot/utils/message_utils.py, bot/transports/unified_send_port.py, tests/test_message_utils_transport_port.py, IMPLEMENTATION_PLAN.md | Низкий риск: сохранен fallback на legacy send для неподдержанных клавиатур/режимов, block/unblock логика сохранена | `/home/shlicha/psycho_diary/venv/bin/python -m pytest -q tests/test_message_utils_transport_port.py tests/test_max_transport_dispatcher.py tests/test_bot_main.py` (14 passed) | Выполнено |
+| 2026-08-08 | Phase 3.12 diary domain leftovers cleanup | Вынесены schedule clarification и mapping ответов в diary_service; удалён `_process_analysis_result` с дублирующей доменной записью; comment daily-state update перенесён в сервис; handler clarification/comment переведены на presenter `build_entry_saved_view` | bot/services/diary_service.py, bot/handlers/diary.py, bot/presenters/diary_presenter.py, bot/presenters/__init__.py, tests/test_diary_entry_use_case.py, tests/test_diary_presenter.py, bot/handlers/docs/diary_handlers.md, IMPLEMENTATION_PLAN.md | Низкий риск: убрана повторная запись анализа после clarification (исправляет overwrite structured AI state); comment daily-state side-effect сохранён в сервисе | `pytest -q tests/test_diary_entry_use_case.py tests/test_diary_presenter.py tests/test_bot_main.py` (41 passed) | Выполнено |
+| 2026-08-08 | Phase 3.13 onboarding + profile extraction | Завершение онбординга перенесено в `process_first_onboarding_entry_use_case`; profile edit/validate/cleanup list-полей вынесены в `UserProfileService` (`process_profile_field_update`, `prepare_list_field_for_edit`); handlers очищены от ORM/валидаторов | bot/services/diary_service.py, bot/handlers/onboarding.py, diary/services/user_profile_service.py, bot/handlers/profile.py, tests/test_diary_entry_use_case.py, tests/test_user_profile_field_use_case.py, IMPLEMENTATION_PLAN.md | Низкий риск: UX сохранён; исправлены ask-message keys для retry валидации (`ask_new_name`/`ask_new_dob`) | `pytest -q tests/test_diary_entry_use_case.py tests/test_user_profile_field_use_case.py tests/test_bot_main.py` (43 passed) | Выполнено |
+| 2026-08-08 | Phase 3.14 tasks completion orchestration | Вынесены use-cases завершения задания и анализа/notification payload; экраны active/history задач переведены на view-builders; handlers tasks оставлены transport-first | diary/services/task_management_service.py, diary/services/task_display_service.py, bot/handlers/tasks.py, tests/test_task_completion_use_case.py, IMPLEMENTATION_PLAN.md | Низкий риск: поведение completion/skip/history сохранено, изменена точка orchestration | `pytest -q tests/test_task_completion_use_case.py tests/test_task_handlers.py tests/test_bot_main.py` (24 passed) | Выполнено |
+| 2026-08-08 | Phase 3.15 payments/progress/feedback/full-day extraction | Вынесены view/use-case builders для payments, progress, admin-feedback list/reply и full-day reanalysis notification; handlers оставлены transport-first | diary/services/payment_service.py, diary/services/progress_service.py, diary/services/full_day_analysis_service.py, core/services/feedback_service.py, bot/handlers/payments.py, bot/handlers/progress.py, bot/handlers/feedback.py, bot/handlers/diary.py, tests/test_phase315_view_builders.py, IMPLEMENTATION_PLAN.md | Низкий риск: UX-сообщения/кнопки сохранены, изменена точка orchestration | `pytest -q tests/test_phase315_view_builders.py tests/test_bot_main.py` (25 passed) | Выполнено |
+| 2026-08-08 | Phase 3.16 therapy/settings/start/onboarding | Вынесены welcome/recovery therapy views, settings task-limit/TZ views, onboarding start routing + first-entry result view | diary/services/therapy_chat_service.py, diary/services/settings_service.py, diary/services/onboarding_service.py, bot/handlers/therapy_chat_handlers.py, bot/handlers/settings.py, bot/handlers/start.py, bot/handlers/onboarding.py, tests/test_phase316_view_builders.py, IMPLEMENTATION_PLAN.md | Низкий риск: UX сохранён | `pytest -q tests/test_phase316_view_builders.py tests/test_bot_main.py` (17 passed) | Выполнено |
+| 2026-08-08 | Phase 3.17 admin/profile builders | Admin stats report/bundle; profile/psychology/edit/deletion/referral view builders | core/services/admin_service.py, diary/services/user_profile_service.py, bot/handlers/admin.py, bot/handlers/profile.py, tests/test_phase317_view_builders.py, IMPLEMENTATION_PLAN.md | Низкий риск | `pytest -q tests/test_phase317_view_builders.py tests/test_bot_main.py` (15+ unit passed) | Выполнено |
+| 2026-08-08 | Phase 3.18 diary/feedback leftovers | Diary outcome/comment/rating/delete-day/reanalysis use cases; feedback submit/reply/nav use cases | bot/presenters/diary_presenter.py, bot/services/diary_service.py, diary/services/diary_display_service.py, core/services/feedback_service.py, bot/handlers/diary.py, bot/handlers/feedback.py, tests/test_phase318_*.py, IMPLEMENTATION_PLAN.md | Низкий риск; reply persist после send | diary 53 passed; feedback suite 35 passed | Выполнено |
+| 2026-08-08 | Phase 3.19 P2 polish | Tasks/payments/progress/calendar/identity_merge view builders | task_*/payment/progress/calendar/email_merge services + handlers, tests/test_phase319_view_builders.py, IMPLEMENTATION_PLAN.md | Низкий риск | `pytest … phase319 + 315 + task_completion + bot_main` (52 passed) | Выполнено |
+| 2026-08-08 | Phase 3.20 quality gate transport-only | Подтверждён grep-гейт и полный unit-прогон волн 3.15–3.19; model imports только TYPE_CHECKING; Phase 3 Done | bot/handlers/*, IMPLEMENTATION_PLAN.md | Низкий риск: документация + cleanup imports | `pytest -q tests/test_phase315…319 + test_bot_main` (**79 passed**) | Выполнено |
+| 2026-08-08 | Phase 3.21 hygiene sprint | Вычищены stale comments/unused imports; bare except → явный Exception+debug; нормализованы log prefixes в handlers | bot/handlers/diary.py, tasks.py, feedback.py, settings.py, profile.py, admin.py, diary/services/therapy_chat_service.py, IMPLEMENTATION_PLAN.md | Низкий риск: UX/поведение не менялись | `pytest -q tests/test_phase315…319 + test_bot_main` (**79 passed**); grep bare except/stale/objects → OK | Выполнено |
+| 2026-08-08 | API Layer Phase A (user parity) | Создан `API_LAYER_PLAN.md` (фазы A–E); thin views поверх use cases: settings/onboarding/therapy/day-by-date; diary comment→use case + clarifications/edit/delete/rate; progress restore-streak availability; `api/service_bridge.py`; `/reminders/` через SettingsService | API_LAYER_PLAN.md, api/service_bridge.py, api/views_phase_a.py, api/views.py, api/urls.py, api/throttling.py, tests/test_phase_a_api.py, FRONTEND_API_REFERENCE.md, AI_INSTRUCTIONS.md | Низкий/средний: comment endpoint теперь с AI (parity с ботом) | `pytest -q tests/test_phase_a_api.py` (**10 passed**) | Выполнено |
+| 2026-08-08 | API Layer Phase B (payments) | REST payments: products/create/email/list/detail/sync/webhook; PaymentService.list_products + confirm_payment_by_yookassa_id + payment_id в create; alias `/api/payments/webhook/` | diary/services/payment_service.py, api/views_payments.py, api/urls.py, core/urls.py, api/throttling.py, tests/test_phase_b_payments_api.py, API_LAYER_PLAN.md, FRONTEND_API_REFERENCE.md | Средний: webhook без JWT; sync/webhook идемпотентны; bot poller сохранён | `pytest -q tests/test_phase_b_payments_api.py` (**5 passed**) | Выполнено |
+| 2026-08-08 | API Layer Phase C (voice) | Общий `process_voice_bytes` + `POST /api/v1/entries/voice/` (multipart) → SpeechKit/DeepSeek → `process_new_entry_use_case`; Telegram `process_voice_message` переведён на общий helper | bot/utils/audio_utils.py, api/views.py, tests/test_phase_c_voice_api.py, API_LAYER_PLAN.md, FRONTEND_API_REFERENCE.md | Низкий: bot path через тот же STT helper; AI через существующий use case | `pytest -q tests/test_phase_c_voice_api.py` (**5 passed**) | Выполнено |
+| 2026-08-08 | API Layer Phase D (admin) | Admin REST: feedback list/detail/reply, Excel export, stats; `AdminDeveloperPermission` + throttle `admin_mutation` | api/views_admin.py, api/permissions.py, api/urls.py, api/throttling.py, tests/test_phase_d_admin_api.py, API_LAYER_PLAN.md, FRONTEND_API_REFERENCE.md | Средний: строгий admin gate; reply persist даже при fail notify | `pytest -q tests/test_phase_d_admin_api.py` (**4 passed**) | Выполнено |
+| 2026-08-08 | API Layer Phase E (legacy align) | Tasks complete через use case + AI analysis; progress list через ProgressService; serialize_task_completion_analysis | api/views.py, api/serializers.py, api/service_bridge.py, tests/test_phase_e_api.py, FRONTEND_API_REFERENCE.md, API_LAYER_PLAN.md | Средний: breaking — complete без текстов → 400 | `pytest -q tests/test_phase_e_api.py` + smoke/progress (**5 passed**) | Выполнено |
 
 ---
 

@@ -7,7 +7,11 @@ from aiogram.types import CallbackQuery
 
 from bot.transports.identity_merge_dispatcher import dispatch_target_merge_confirmation
 from messages import get_message
-from users.services.email_merge_service import EmailMergeService
+from users.services.email_merge_service import (
+    EmailMergeService,
+    build_requester_merge_result_view,
+    build_target_merge_result_view,
+)
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -35,11 +39,12 @@ async def handle_requester_merge_confirmation(callback: CallbackQuery, user, lan
 
     if action == 'no':
         result = await EmailMergeService.acancel_merge_request_by_id(user, merge_request_id)
-        if result.status == 'cancelled':
-            await callback.message.edit_text(get_message('merge_request_cancelled', language=language))
+        view = build_requester_merge_result_view(result, delivery_result=None, language=language)
+        if view['success']:
+            await callback.message.edit_text(view['text'])
             await callback.answer()
             return
-        await callback.answer(get_message('error_generic', language=language), show_alert=True)
+        await callback.answer(view['alert_text'], show_alert=True)
         return
 
     if action != 'yes':
@@ -47,25 +52,17 @@ async def handle_requester_merge_confirmation(callback: CallbackQuery, user, lan
         return
 
     result = await EmailMergeService.aconfirm_merge_request_by_id(user, merge_request_id)
+    delivery_result = None
+    if result.status == 'pending_target_confirmation' and result.merge_request is not None:
+        delivery_result = await dispatch_target_merge_confirmation(result.merge_request)
 
-    if result.status == 'confirmed':
-        await callback.message.edit_text(get_message('merge_request_confirmed', language=language))
+    view = build_requester_merge_result_view(result, delivery_result, language)
+    if view['success']:
+        await callback.message.edit_text(view['text'])
         await callback.answer()
         return
 
-    if result.status == 'pending_target_confirmation' and result.merge_request is not None:
-        delivery_result = await dispatch_target_merge_confirmation(result.merge_request)
-        if delivery_result.get('success'):
-            await callback.message.edit_text(get_message('merge_target_confirmation_sent', language=language))
-            await callback.answer()
-            return
-
-        if delivery_result.get('delivery') == 'max_deferred':
-            await callback.message.edit_text(get_message('merge_target_confirmation_deferred_max', language=language))
-            await callback.answer()
-            return
-
-    await callback.answer(get_message('error_generic', language=language), show_alert=True)
+    await callback.answer(view['alert_text'], show_alert=view.get('show_alert', True))
 
 
 @router.callback_query(F.data.startswith('merge_target:'))
@@ -85,24 +82,10 @@ async def handle_target_merge_confirmation(callback: CallbackQuery, user, langua
         approve=approve,
     )
 
-    if result.status == 'rejected':
-        await callback.message.edit_text(get_message('merge_target_rejected', language=language))
+    view = build_target_merge_result_view(result, language)
+    if view['success']:
+        await callback.message.edit_text(view['text'])
         await callback.answer()
         return
 
-    if result.status == 'pending_requester_confirmation':
-        await callback.message.edit_text(get_message('merge_target_approved_wait_requester', language=language))
-        await callback.answer()
-        return
-
-    if result.status == 'confirmed':
-        await callback.message.edit_text(get_message('merge_request_confirmed', language=language))
-        await callback.answer()
-        return
-
-    if result.code == 'target_confirmation_expired':
-        await callback.message.edit_text(get_message('merge_request_expired', language=language))
-        await callback.answer()
-        return
-
-    await callback.answer(get_message('error_generic', language=language), show_alert=True)
+    await callback.answer(view['alert_text'], show_alert=view.get('show_alert', True))

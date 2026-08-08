@@ -32,15 +32,15 @@
 ## 📝 `process_any_entry` (обновленный)
 
 > Обработка записей с улучшенной обработкой ошибок и rate limiting.  
-> **Важно:** Основная бизнес-логика (создание, анализ, валидация, уточнения) вынесена в `diary_service.process_new_entry_logic`.
+> **Важно:** Основная бизнес-логика (создание, анализ, валидация, schedule clarification) вынесена в `diary_service.process_new_entry_use_case`.
 
 - **Функционал**:
   - Валидация входящих сообщений и проверка rate limits.
   - Обработка голосовых сообщений через `process_voice_message`.
-  - Вызов `diary_service.process_new_entry_logic` для основной обработки.
-  - Форматирование итогового сообщения и клавиатуры на основе результата сервиса.
-  - Обработка случая `is_valid=False` (удаление записи, уведомление пользователя).
-  - Обработка `needs_clarification` (установка FSM, отправка вопросов).
+  - Вызов `diary_service.process_new_entry_use_case` для основной обработки (включая `schedule_clarification_for_entry` при необходимости).
+  - Форматирование итогового сообщения и клавиатуры через presenter/`diary_display_service`.
+  - Обработка случая `is_valid=False` (уведомление пользователя).
+  - При `needs_clarification`: только FSM + отправка вопросов (доменный schedule уже в сервисе).
   - Интеграция с `SmartPromptManager` для генерации подсказки после сохранения.
 
 - **Вход**:
@@ -62,13 +62,13 @@
 ## ❓ `process_clarification_answers` (обновленный)
 
 > Обработка ответов на уточняющие вопросы с улучшенной логикой.  
-> **Важно:** Основная бизнес-логика (обработка ответов, анализ, обновление состояния) вынесена в `diary_service.process_clarification_answers_logic`.
+> **Важно:** Основная бизнес-логика (маппинг ответов, анализ, обновление состояния) вынесена в `diary_service`; render — в `build_entry_saved_view`.
 
 - **Функционал**:
   - Обработка текстовых и голосовых ответов.
-  - Формирование словаря ответов.
-  - Вызов `diary_service.process_clarification_answers_logic` для основной обработки.
-  - Форматирование итогового сообщения и клавиатуры на основе результата сервиса.
+  - Формирование словаря ответов через `diary_service.build_clarification_answers_map`.
+  - Вызов `diary_service.process_clarification_answers_use_case` для основной обработки.
+  - Render через `build_entry_saved_view` (без повторной доменной записи анализа).
   - Очистка состояния FSM после обработки.
 
 - **Вход**:
@@ -86,13 +86,13 @@
 ## 💬 `process_user_comment` (обновленный)
 
 > Обработка комментария пользователя к записи.  
-> **Важно:** Основная бизнес-логика (сохранение комментария, сброс флага дня, анализ) вынесена в `diary_service.process_user_comment_logic`.
+> **Важно:** Основная бизнес-логика (сохранение комментария, сброс флага дня, анализ, обновление daily state) вынесена в `diary_service.process_user_comment_logic` / use-case.
 
 - **Функционал**:
   - Проверка, существует ли уже комментарий.
   - Обработка текстовых и голосовых комментариев.
-  - Вызов `diary_service.process_user_comment_logic` для основной обработки.
-  - Форматирование итогового сообщения и клавиатуры на основе результата сервиса.
+  - Вызов `diary_service.process_user_comment_use_case` для основной обработки.
+  - Render через `build_entry_saved_view`.
   - Очистка состояния FSM после обработки.
 
 - **Вход**:
@@ -466,25 +466,21 @@
 
 ---
 
-## 📋 `_process_analysis_result` (обновленная вспомогательная)
+## 🎨 `build_entry_saved_view` (presenter)
 
-> Универсальная функция для обработки результатов анализа от сервисов.  
-> **Важно:** Форматирование ответа и клавиатуры остается в хендлере, но логика зависит от `context`.
+> Формирует текст и клавиатуру для уже сохранённого анализа записи.  
+> **Важно:** Не пишет в БД — только presentation layer.
 
 - **Функционал**:
-  - Обработка результата анализа (успех/ошибка).
-  - Обновление `PsychoAnalysis` (если нужно, хотя основное обновление в сервисе).
-  - Обновление `CombinedDiaryEntry` (если нужно, хотя основное обновление в сервисе).
-  - Формирование итогового сообщения и клавиатуры (оценка, комментарий, назад).
-  - Редактирование `status_msg`.
-  - Очистка состояния FSM (если `context` в `['clarification', 'comment_analysis']`).
+  - Сборка текста `entry_saved` из `PsychoAnalysis`.
+  - Клавиатура через `diary_display_service.build_entry_result_keyboard`.
+  - Fallback-клавиатура при отсутствии анализа.
 
 - **Вход**:
-  - Аргументы: `entry`, `analysis_result`, `status_msg`, `language`, `state`, `user`, `processing_time`, `context`.
+  - `entry`, `analysis`, `user`, `language`, опционально `task`.
 
 - **Выход**:
-  - Редактирование `status_msg` с результатом.
-  - Очистка состояния FSM (если применимо).
+  - `{'text', 'reply_markup', 'should_clear_state'}`.
 
 ---
 
@@ -492,7 +488,8 @@
 
 | Сценарий | Проверка |
 |--------|--------|
-| Вынос бизнес-логики | `process_new_entry` вызывает `diary_service.process_new_entry_logic` |
+| Вынос бизнес-логики | `process_new_entry` вызывает `diary_service.process_new_entry_use_case` |
+| Schedule clarification | `process_new_entry_use_case` вызывает `schedule_clarification_for_entry` |
 | Вынос подготовки данных | `reanalyze_day` вызывает `diary_service.prepare_combined_entry_for_analysis` |
 | Обработка ошибок | Корректная обработка через декораторы и в `try...except` |
 | Rate limiting | Ограничение частоты создания записей |

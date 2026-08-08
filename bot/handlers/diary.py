@@ -1,20 +1,16 @@
-"""
-Handlers для работы с дневником
-"""
+"""Diary handlers (transport-only)."""
+from __future__ import annotations
 
 import asyncio
 import logging
 
-from asgiref.sync import sync_to_async
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, ContentType, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, ContentType
 from aiogram.fsm.context import FSMContext
-from datetime import date, timedelta
-from django.utils import timezone
+from datetime import date
 
-from messages import get_message, get_button_text
-from diary.models import DiaryEntry
-from diary.services import smart_prompt_manager, daily_state_service
+from messages import get_message
+from diary.services import smart_prompt_manager
 from diary.services.diary_display_service import diary_display_service
 from bot.decorators.token_decorator import requires_tokens
 from bot.decorators.analytics_decorator import log_user_activity
@@ -22,13 +18,7 @@ from bot.states.diary_states import DiaryStates
 from bot.keyboards import (
     get_single_button_keyboard,
     format_entry_text_for_editing,
-    get_back_keyboard,
-    get_smart_calendar_keyboard,
-    get_delete_entry_confirmation_keyboard,
-    get_calendar_back_keyboard,
-    get_entry_page_keyboard
-    )
-from bot.utils.api_utils import format_api_error_for_analysis
+)
 from bot.utils.audio_utils import process_voice_message
 from bot.utils.validation_utils import validate_incoming_message, validate_text_entry
 from bot.utils.state_manager import state_manager
@@ -36,20 +26,18 @@ from bot.utils.message_utils import safe_edit_message_text, edit_or_send_message
 from bot.utils.callback_utils import safe_answer_callback
 from bot.utils.decorators import async_error_handler
 from bot.presenters.diary_presenter import (
-    build_analysis_result_payload,
-    build_analysis_error_payload,
-    build_new_entry_validation_failure_view,
-    build_new_entry_success_text,
-    build_clarification_questions_view,
+    build_new_entry_outcome_view,
+    build_entry_saved_view,
+    build_delete_entire_day_confirm_view,
 )
 from bot.services.diary_service import diary_service
-from bot.services.psycho_analysis_service import psycho_analysis_service
-from users.models import User
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from users.models import User
 
 router = Router()
 logger = logging.getLogger(__name__)
-
-# ==================== ОСНОВНЫЕ HANDLERS ДНЕВНИКА ====================
 
 @router.callback_query(F.data == "new_entry")
 @log_user_activity('entry_created', metadata_extra={'context': 'Создание записи'})
@@ -117,65 +105,27 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
             language=language,
             entry_datetime=entry_datetime
         )
-        if not response.success:
-            result = response.data or {}
-            failure_view = build_new_entry_validation_failure_view(result, language)
-            await status_msg.edit_text(
-                failure_view['text'],
-                reply_markup=failure_view['reply_markup']
-            )
-            await state_manager.clear_state(state)
-            return
-        result = response.data or {}
-        diary_entry = result['entry']
-        analysis_obj = result['analysis']
-        needs_clarification = result['needs_clarification']
-        clarification_questions = result['clarification_questions']
-        suggested_task_obj = result['suggested_task']
-        streak_bonus_info = result['streak_bonus_info']
-        final_text = build_new_entry_success_text(
-            analysis_obj=analysis_obj,
-            suggested_task_obj=suggested_task_obj,
-            streak_bonus_info=streak_bonus_info,
-            language=language,
+        outcome_view = await build_new_entry_outcome_view(response, user, language)
+        await status_msg.edit_text(
+            outcome_view['text'],
+            reply_markup=outcome_view['reply_markup'],
         )
-
-        reply_markup = await diary_display_service.build_entry_result_keyboard(
-            diary_entry, analysis_obj, user, language, task=suggested_task_obj
-        )
-
-        await status_msg.edit_text(final_text, reply_markup=reply_markup)
-        if needs_clarification and clarification_questions:
-            now_utc = timezone.now()
-            diary_entry.clarification_questions_asked = clarification_questions
-            diary_entry.clarification_asked_at = now_utc
-            diary_entry.clarification_reminder_due_at = now_utc + timedelta(minutes=10)
-            diary_entry.clarification_force_process_at = now_utc + timedelta(minutes=20)
-            await sync_to_async(diary_entry.save)(
-                update_fields=[
-                    'clarification_questions_asked',
-                    'clarification_asked_at',
-                    'clarification_reminder_due_at',
-                    'clarification_force_process_at'
-                ]
-            )
+        if outcome_view['fsm_action'] == 'clarification':
             await state_manager.update_state_data(
                 state,
-                clarifying_entry_id=diary_entry.id,
-                clarification_questions=clarification_questions
+                clarifying_entry_id=outcome_view['clarifying_entry_id'],
+                clarification_questions=outcome_view['clarification_questions'],
             )
             await state_manager.set_state(state, DiaryStates.asking_clarifying_questions)
-            clarification_view = build_clarification_questions_view(clarification_questions, language)
-            await status_msg.edit_text(
-                clarification_view['text'],
-                reply_markup=clarification_view['reply_markup']
-            )
-            return 
+            return
         await state_manager.clear_state(state)
-        try:
-            asyncio.create_task(smart_prompt_manager.on_entry_saved(user, diary_entry, language))
-        except Exception as prompt_error:
-            logger.error(f"[process_any_entry] Ошибка запуска генерации подсказки: {prompt_error}")
+        if outcome_view.get('should_trigger_prompt'):
+            try:
+                asyncio.create_task(
+                    smart_prompt_manager.on_entry_saved(user, outcome_view['entry'], language)
+                )
+            except Exception as prompt_error:
+                logger.error(f"[process_any_entry] Ошибка запуска генерации подсказки: {prompt_error}")
     except Exception as e:
         logger.error(f"Ошибка обработки записи: {e}")
         if status_msg:
@@ -228,43 +178,32 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
             return
         if status_message is None:
             status_message = await message.answer(get_message('processing', language))
-        answers_list = [ans.strip() for ans in clarification_text.split("\n") if ans.strip()]
-        clarification_answers_dict = {}
-        for i, q in enumerate(clarification_questions):
-            clarification_answers_dict[q] = answers_list[i] if i < len(answers_list) else "[Ответ не получен]"
+        clarification_answers_dict = diary_service.build_clarification_answers_map(
+            clarification_questions=clarification_questions,
+            clarification_text=clarification_text,
+        )
         response = await diary_service.process_clarification_answers_use_case(
             user=user,
             diary_entry=diary_entry,
             clarification_answers_dict=clarification_answers_dict,
             language=language
         )
+        if not response.success:
+            await status_message.edit_text(
+                response.message or get_message('error_processing', language)
+            )
+            await state_manager.clear_state(state)
+            return
         result = response.data or {}
-        if response.success:
-            analysis_result_for_handler = build_analysis_result_payload(result)
-            await _process_analysis_result(
-                entry=result['entry'],
-                analysis_result=analysis_result_for_handler,
-                status_msg=status_message,
-                language=language,
-                state=state,
-                user=user,
-                processing_time=0.0,
-                context='clarification'
-            )
-        else:
-            analysis_result_for_handler = build_analysis_error_payload(
-                message=response.message or 'Ошибка обработки уточнений'
-            )
-            await _process_analysis_result(
-                entry=diary_entry,
-                analysis_result=analysis_result_for_handler,
-                status_msg=status_message,
-                language=language,
-                state=state,
-                user=user,
-                processing_time=0.0,
-                context='clarification'
-            )
+        view = await build_entry_saved_view(
+            entry=result['entry'],
+            analysis=result.get('analysis'),
+            user=user,
+            language=language,
+        )
+        await status_message.edit_text(view['text'], reply_markup=view['reply_markup'])
+        if view.get('should_clear_state', True):
+            await state_manager.clear_state(state)
     except Exception as e:
         logger.error(f"Ошибка при обработке уточнений: {e}", exc_info=True)
         if status_message:
@@ -284,14 +223,12 @@ async def request_add_comment(callback: CallbackQuery, state: FSMContext, user, 
     """
     try:
         entry_id = int(callback.data.split(":")[1])
-        diary_entry = await diary_service.get_user_entry_by_id(user, entry_id)
-        if not diary_entry:
-            logger.warning(f"Пользователь {user.telegram_id} пытается добавить комментарий к несуществующей записи {entry_id}")
+        use_case_result = await diary_service.start_add_comment_use_case(user, entry_id)
+        if use_case_result['mode'] == 'not_found':
             await safe_answer_callback(callback, get_message('entry_not_found', language), show_alert=True)
             return
-        if diary_entry.user_comment:
-            logger.warning(f"Пользователь {user.telegram_id} пытается добавить комментарий к записи {entry_id}, но комментарий уже существует.")
-            await safe_answer_callback(callback, get_message('comment_already_added', language), show_alert=True) 
+        if use_case_result['mode'] == 'already_added':
+            await safe_answer_callback(callback, get_message('comment_already_added', language), show_alert=True)
             return
         await state_manager.set_state(state, DiaryStates.waiting_for_user_comment)
         await state_manager.update_state_data(state, comment_entry_id=entry_id)
@@ -368,16 +305,15 @@ async def process_user_comment(message: Message, state: FSMContext, user, langua
         if not response.success:
             raise RuntimeError(response.message or 'Ошибка обработки комментария')
         result = response.data or {}
-        analysis_result_for_handler = build_analysis_result_payload(result)
-        await _process_analysis_result(
+        view = await build_entry_saved_view(
             entry=result['entry'],
-            analysis_result=analysis_result_for_handler,
-            status_msg=status_message,
-            language=language,
-            state=state, 
+            analysis=result.get('analysis'),
             user=user,
-            context='comment_analysis'
+            language=language,
         )
+        await status_message.edit_text(view['text'], reply_markup=view['reply_markup'])
+        if view.get('should_clear_state', True):
+            await state_manager.clear_state(state)
     except Exception as e:
         logger.error(f"[process_user_comment] Ошибка при обработке комментария пользователя {user.telegram_id}: {e}", exc_info=True)
         if status_message:
@@ -403,15 +339,13 @@ async def rate_analysis(callback: CallbackQuery, user, language: str):
             return
         analysis_id = int(parts[1])
         rating = int(parts[2])
-        if not (1 <= rating <= 5):
-            logger.warning(f"Некорректная оценка: {rating}")
-            await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
-            return
 
-        result = await diary_display_service.submit_rating(analysis_id, user, rating)
+        result = await diary_display_service.submit_analysis_rating_use_case(analysis_id, user, rating)
 
         if result['success']:
-            logger.debug(f"Пользователь {user.telegram_id} поставил оценку {rating} анализу {analysis_id}")
+            logger.debug(
+                f"[diary.rate_analysis] user_id={user.id} analysis_id={analysis_id} rating={rating}"
+            )
             updated_keyboard = await diary_display_service.remove_rating_buttons_from_keyboard(
                 callback.message.reply_markup
             )
@@ -451,7 +385,6 @@ async def handle_invalid_entry_type(message: Message, state: FSMContext, languag
             message_to_edit=None
         )
 
-# ==================== HANDLERS ДЛЯ РЕДАКТИРОВАНИЯ И УДАЛЕНИЯ ИСТОРИИ ЗАПИСЕЙ ==================== 
 
 @router.callback_query(F.data.startswith("calendar_select_day:"))
 @log_user_activity('entry_viewed', metadata_extra={'context': 'Просмотр первой записи за день'})
@@ -461,19 +394,26 @@ async def select_day(callback: CallbackQuery, user, language: str):
         parts = callback.data.split(":")
         year, month, day = int(parts[1]), int(parts[2]), int(parts[3])
         target_date = date(year, month, day)
-        entries = await diary_service.get_user_entries_for_date(user, target_date)
-        if not entries:
-            no_entries_msg = get_message('archive_empty', language)
+        day_view = await diary_display_service.build_day_first_entry_view(user, target_date, language)
+        if not day_view.get('success'):
+            await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
+            return
+        if day_view['mode'] == 'empty':
             await safe_edit_message_text(
                 message=callback.message,
-                text=no_entries_msg,
-                reply_markup=get_calendar_back_keyboard(language, year, month)
+                text=day_view['text'],
+                reply_markup=day_view['keyboard']
             )
             await safe_answer_callback(callback, "")
             return
-        sorted_entries = sorted(entries, key=lambda e: e.created_at)
-        first_entry = sorted_entries[0]
-        await _show_entry_page(callback.message, user, first_entry, sorted_entries, target_date, language)
+        await _show_entry_page(
+            callback.message,
+            user,
+            day_view['entry'],
+            day_view['entries'],
+            day_view['target_date'],
+            language,
+        )
         await safe_answer_callback(callback, "")
     except Exception as e:
         logger.error(f"Ошибка при открытии дня: {e}", exc_info=True)
@@ -612,34 +552,31 @@ async def entry_next(callback: CallbackQuery, user, language: str):
 async def reanalyze_day(callback: CallbackQuery, user, language: str):
     """Запускает пересчёт (полный анализ) дня."""
     try:
-        await callback.answer(get_message('day_analysis_confirmed', language), show_alert=False)
-        logger.debug(f"[reanalyze_day] Callback подтвержден для пользователя {user.telegram_id}")
         parts = callback.data.split(":")
         year, month, day = int(parts[1]), int(parts[2]), int(parts[3])
         target_date = date(year, month, day)
-        combined_entry = await diary_service.prepare_combined_entry_for_analysis(user, target_date)
-        if not combined_entry:
-            logger.warning(f"[reanalyze_day] Нет записей для {user.telegram_id} за {target_date}, анализ невозможен.")
-            await callback.message.answer(get_message('no_entries_for_analysis', language))
+        use_case_result = await diary_service.start_full_day_reanalysis_use_case(
+            user, target_date, language
+        )
+        await callback.answer(use_case_result.get('confirm_alert', ''), show_alert=False)
+        if use_case_result['mode'] == 'no_entries':
+            await callback.message.answer(use_case_result['text'])
             return
-        processing_msg = get_message('processing', language) + " " + get_message('task_effect_analysis_started', language)
-        status_message = await callback.message.answer(processing_msg)
-        logger.debug(f"[reanalyze_day] Сообщение о начале обработки отправлено пользователю {user.telegram_id}")
+        status_message = await callback.message.answer(use_case_result['status_text'])
         asyncio.create_task(_run_full_analysis_and_notify(
             user=user,
             target_date=target_date,
             chat_id=callback.message.chat.id,
             status_message_id=status_message.message_id,
             language=language,
-            year=year,
-            month=month,
-            day=day,
             bot_instance=callback.bot
         ))
-        logger.debug(f"[reanalyze_day] Фоновая задача анализа запущена для пользователя {user.telegram_id}")
+        logger.debug(
+            f"[diary.reanalyze_day] started user_id={user.id} date={target_date}"
+        )
 
     except ValueError as ve:
-        logger.error(f"[reanalyze_day] Ошибка парсинга даты из callback_ {callback.data} - {ve}")
+        logger.error(f"[diary.reanalyze_day] bad callback date {callback.data}: {ve}")
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
     except Exception as e:
         logger.error(f"[reanalyze_day] Критическая ошибка при запуске пересчёта анализа дня: {e}", exc_info=True)
@@ -723,8 +660,8 @@ async def process_entry_edit(message: Message, state: FSMContext, user, language
         await message.answer(get_message('error_processing', language))
         try:
             await state_manager.clear_state(state)
-        except:
-            pass
+        except Exception as clear_error:
+            logger.debug(f"[process_entry_edit] clear_state failed: {clear_error}")
 
 @router.callback_query(F.data.startswith("request_delete_specific_entry:"))
 async def request_delete_specific_entry(callback: CallbackQuery, user, language: str):
@@ -758,24 +695,11 @@ async def request_delete_entire_day(callback: CallbackQuery, user, language: str
             raise ValueError("Некорректный формат даты")
         year, month, day = int(parts[0]), int(parts[1]), int(parts[2])
         target_date = date(year, month, day)
-        confirm_msg = get_message('confirm_delete_entire_day_prompt', language).format(date=target_date.strftime('%d.%m.%Y'))
-        confirm_buttons = [
-            [
-                InlineKeyboardButton(
-                    text=get_button_text('btn_confirm_delete_day', language),
-                    callback_data=f"confirm_delete_entire_day:{target_date.isoformat()}"
-                ),
-                InlineKeyboardButton(
-                    text=get_button_text('btn_cancel', language),
-                    callback_data="archive"
-                )
-            ]
-        ]
-        confirm_keyboard = InlineKeyboardMarkup(inline_keyboard=confirm_buttons)
+        confirm_view = build_delete_entire_day_confirm_view(target_date, language)
         await safe_edit_message_text(
             message=callback.message,
-            text=confirm_msg,
-            reply_markup=confirm_keyboard
+            text=confirm_view['text'],
+            reply_markup=confirm_view['keyboard']
         )
         await safe_answer_callback(callback, "")
     except (ValueError, IndexError) as e:
@@ -834,32 +758,33 @@ async def confirm_delete_entire_day(callback: CallbackQuery, user, language: str
     try:
         date_str = callback.data.split(":", 1)[1]
         target_date = date.fromisoformat(date_str)
-        success = await diary_service.delete_all_entries_for_day(user, target_date)
-        if success:
-            success_msg = get_message('day_deleted_success', language)
-            await safe_answer_callback(callback, success_msg, show_alert=True)
+        delete_result = await diary_service.delete_entire_day_use_case(user, target_date, language)
+        if delete_result['success']:
+            await safe_answer_callback(callback, delete_result['alert_message'], show_alert=True)
+            archive_view = delete_result['archive_view']
             try:
-                calendar_keyboard = await get_smart_calendar_keyboard(user, language)
-                calendar_msg = get_message('archive_menu', language)
                 await edit_or_send_message(
                     bot=callback.bot,
                     chat_id=callback.message.chat.id,
-                    text=calendar_msg,
-                    reply_markup=calendar_keyboard,
+                    text=archive_view['text'],
+                    reply_markup=archive_view['keyboard'],
                     message_to_edit=callback.message
                 )
             except Exception as nav_error:
                 logger.error(f"Ошибка при возврате в календарь: {nav_error}", exc_info=True)
                 try:
-                    calendar_keyboard = await get_smart_calendar_keyboard(user, language)
-                    await callback.message.answer(text=calendar_msg, reply_markup=calendar_keyboard)
+                    await callback.message.answer(
+                        text=archive_view['text'],
+                        reply_markup=archive_view['keyboard'],
+                    )
                 except Exception as fallback_error:
                     logger.error(f"Фолбэк ошибка при отправке календаря: {fallback_error}")
-                    await callback.message.answer(get_message('archive_menu', language), reply_markup=await get_smart_calendar_keyboard(user, language))
+                    await callback.message.answer(
+                        archive_view['text'],
+                        reply_markup=archive_view['keyboard'],
+                    )
         else:
-            error_msg = get_message('error_processing', language)
-            await safe_answer_callback(callback, error_msg, show_alert=True)
-            logger.warning(f"Не удалось удалить записи за {target_date}.")
+            await safe_answer_callback(callback, delete_result['alert_message'], show_alert=True)
     except (ValueError, IndexError) as e:
         logger.error(f"Некорректный формат даты в callback_data: {callback.data} - {e}")
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
@@ -907,85 +832,6 @@ async def cancel_delete_specific_entry(callback: CallbackQuery, user, language: 
          logger.error(f"Ошибка при отмене удаления записи: {e}", exc_info=True)
          await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
-# ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
-
-async def _process_analysis_result(
-    entry: DiaryEntry,
-    analysis_result: dict,
-    status_msg,
-    language: str,
-    state: FSMContext,
-    user: User,
-    processing_time: float = 0.0,
-    context: str = 'new_entry'
-):
-    """Обрабатывает результат анализа для уточнений и комментариев."""
-    try:
-        result_data = {}
-        if not analysis_result or not analysis_result.get('success'):
-            comment, recommendation, analysis_text, _ = format_api_error_for_analysis(analysis_result, language, context in ['clarification', 'comment_analysis'])
-            mood_score = 5
-        else:
-            result_data = analysis_result.get('result', {})
-            mood_score = result_data.get('mood_score', 5)
-            comment = result_data.get('comment', 'Анализ записан')
-            recommendation = result_data.get('recommendation', 'Продолжайте вести дневник')
-            analysis_text = result_data.get('analysis', 'Текст проанализирован.')
-
-        finalize_now = (context in ['clarification', 'comment_analysis'])
-        await psycho_analysis_service.create_or_update_analysis(
-            entry=entry,
-            mood_score=mood_score,
-            comment=comment,
-            recommendation=recommendation,
-            analysis_text=analysis_text,
-            api_response=analysis_result.get('api_response', {}),
-            processing_time=processing_time,
-            finalize_processing=finalize_now
-        )
-
-        if context in ['clarification', 'comment_analysis']:
-            combined_entry = await daily_state_service.get_daily_state(user, await entry.aentry_date())
-            if combined_entry and 'updated_ai_state_data' in result_data:
-                new_state = result_data['updated_ai_state_data']
-            else:
-                new_state = analysis_text
-            await daily_state_service.update_daily_state(
-                combined_entry=combined_entry,
-                new_ai_state_data=new_state,
-                latest_mood_score=mood_score
-            )
-            logger.debug(f"[_process_analysis_result] Обновлен CombinedDiaryEntry для {context} записи {entry.id}")
-
-        final_text = get_message('entry_saved', language, score=mood_score, mood=get_message(f'mood_{mood_score}', language), comment=comment, recommendation=recommendation)
-
-        current_analysis = await diary_service.get_analysis_for_entry(entry)
-        if current_analysis:
-            reply_markup = await diary_display_service.build_entry_result_keyboard(entry, current_analysis, user, language)
-        else:
-            logger.warning(f"PsychoAnalysis для записи {entry.id} не найден при создании клавиатуры в _process_analysis_result")
-            reply_markup = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text=get_button_text('btn_back', language), callback_data="main_menu")]
-            ])
-
-        await status_msg.edit_text(final_text, reply_markup=reply_markup)
-
-        if context in ['clarification', 'comment_analysis']:
-            await state_manager.clear_state(state)
-
-    except Exception as e:
-        logger.error(f"Ошибка в _process_analysis_result: {e}", exc_info=True)
-        if status_msg:
-            try:
-                await safe_edit_message_text(status_msg, get_message('error_processing', language))
-            except Exception as edit_error:
-                logger.warning(f"Не удалось отредактировать сообщение об ошибке в _process_analysis_result: {edit_error}")
-        if context in ['clarification', 'comment_analysis']:
-            try:
-                await state_manager.clear_state(state)
-            except Exception as state_error:
-                logger.error(f"Не удалось очистить состояние в _process_analysis_result после ошибки: {state_error}")
-
 async def _show_entry_page(message, user, entry, entries, target_date, language):
     """
     Отображает текущую запись с клавиатурой пагинации.
@@ -1007,15 +853,15 @@ async def _show_entry_page(message, user, entry, entries, target_date, language)
             logger.error(f"Ошибка при форматировании записи: {result.get('error')}")
             try:
                 await message.answer(get_message('error_generic', language))
-            except:
-                pass
+            except Exception as send_error:
+                logger.debug(f"[_show_entry_page] failed to send format error: {send_error}")
 
     except Exception as e:
         logger.error(f"Ошибка при отображении страницы записи: {e}", exc_info=True)
         try:
             await message.answer(get_message('error_generic', language))
-        except:
-            pass
+        except Exception as send_error:
+            logger.debug(f"[_show_entry_page] failed to send generic error: {send_error}")
 
 async def _run_full_analysis_and_notify(
     user: User,
@@ -1023,66 +869,39 @@ async def _run_full_analysis_and_notify(
     chat_id: int,
     status_message_id: int,
     language: str,
-    year: int,
-    month: int,
-    day: int,
     bot_instance
 ):
-    """Фоновая задача для выполнения полного анализа и уведомления пользователя."""
-    from diary.services.full_day_analysis_service import perform_full_day_analysis
+    """Transport: use-case анализа дня → edit/send уведомления."""
+    from diary.services.full_day_analysis_service import build_full_day_reanalysis_notification
     try:
-        logger.debug(f"[_run_full_analysis_and_notify] Начало фоновой задачи анализа дня {target_date} для пользователя {user.telegram_id}")
-        analysis_result = await perform_full_day_analysis(user, target_date)
-        if analysis_result["success"]:
-            success_msg = analysis_result["message"]
-            logger.debug(f"[_run_full_analysis_and_notify] Анализ дня {target_date} для {user.telegram_id} успешен: {success_msg}")
-            daily_analysis = analysis_result.get("daily_analysis")
-            analysis_summary_text = get_message('analysis_recalculated', language)
-            if daily_analysis and daily_analysis.overall_analysis_text:
-                 analysis_summary_text += f"\n\n{daily_analysis.overall_analysis_text[:200]}..."
-            try:
-                await bot_instance.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=status_message_id,
-                    text=analysis_summary_text,
-                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(
-                            text="🔬 Просмотреть анализ",
-                            callback_data=f"view_full_day_analysis:{year}:{month}:{day}"
-                        )]
-                    ])
-                )
-                logger.debug(f"[_run_full_analysis_and_notify] Сообщение обработки отредактировано для пользователя {user.telegram_id}")
-            except Exception as edit_error:
-                logger.warning(f"[_run_full_analysis_and_notify] Не удалось отредактировать сообщение обработки: {edit_error}. Отправляем новое.")
-                await bot_instance.send_message(
-                    chat_id=chat_id,
-                    text=analysis_summary_text,
-                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(
-                            text="🔬 Просмотреть анализ",
-                            callback_data=f"view_full_day_analysis:{year}:{month}:{day}"
-                        )]
-                    ])
-                )
-        else:
-            error_msg = analysis_result["message"]
-            logger.error(f"[_run_full_analysis_and_notify] Ошибка анализа дня {target_date} для {user.telegram_id}: {error_msg}")
-            try:
-                await bot_instance.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=status_message_id,
-                    text=f"{get_message('error_processing', language)}: {error_msg}"
-                )
-                logger.debug(f"[_run_full_analysis_and_notify] Сообщение об ошибке отправлено пользователю {user.telegram_id}")
-            except Exception as edit_error:
-                logger.warning(f"[_run_full_analysis_and_notify] Не удалось отредактировать сообщение об ошибке: {edit_error}. Отправляем новое.")
-                await bot_instance.send_message(
-                    chat_id=chat_id,
-                    text=f"{get_message('error_processing', language)}: {error_msg}"
-                )
+        notification = await build_full_day_reanalysis_notification(
+            user=user,
+            target_date=target_date,
+            language=language,
+        )
+        text = notification.get("text") or get_message("error_processing", language)
+        reply_markup = notification.get("reply_markup")
+        try:
+            await bot_instance.edit_message_text(
+                chat_id=chat_id,
+                message_id=status_message_id,
+                text=text,
+                reply_markup=reply_markup,
+            )
+        except Exception as edit_error:
+            logger.warning(
+                f"[diary.full_day_notify] edit failed user_id={user.id}: {edit_error}; sending new"
+            )
+            await bot_instance.send_message(
+                chat_id=chat_id,
+                text=text,
+                reply_markup=reply_markup,
+            )
     except Exception as e:
-        logger.error(f"[_run_full_analysis_and_notify] Критическая ошибка при анализе/уведомлении: {e}", exc_info=True)
+        logger.error(
+            f"[diary.full_day_notify] failed user_id={user.id} date={target_date}: {e}",
+            exc_info=True,
+        )
         try:
             await bot_instance.edit_message_text(
                 chat_id=chat_id,
@@ -1090,7 +909,9 @@ async def _run_full_analysis_and_notify(
                 text=get_message('error_processing', language)
             )
         except Exception as edit_error:
-            logger.error(f"[_run_full_analysis_and_notify] Критическая ошибка при отправке сообщения об ошибке: {edit_error}")
+            logger.error(
+                f"[_run_full_analysis_and_notify] Критическая ошибка при отправке сообщения об ошибке: {edit_error}"
+            )
             await bot_instance.send_message(
                 chat_id=chat_id,
                 text=get_message('error_processing', language)

@@ -980,7 +980,7 @@ POST /api/v1/tasks/<id>/complete/
 Authorization: Bearer <access>
 ```
 
-**Тело (опционально):**
+**Тело (обязательно оба поля):**
 ```json
 {
   "completion_text": "Я провёл медитацию утром, это заняло 10 минут.",
@@ -988,15 +988,21 @@ Authorization: Bearer <access>
 }
 ```
 
-Если переданы оба текстовых поля — запускается AI-анализ выполнения (с начислением токенов). Без текстов — просто меняется статус.
+Идёт через `complete_task_with_feelings_use_case` (как в боте), затем AI-анализ выполнения. Без текстов — `400 completion_and_feelings_required`.
 
 **Ответ `200`:**
 ```json
 {
   "status": "completed",
-  "task": { ...полное задание... }
+  "task": { "...": "TherapyTaskSerializer" },
+  "analysis": {
+    "analysis": { "...": "результат AI" },
+    "notification_text": "..."
+  }
 }
 ```
+
+`analysis` может быть `null`, если анализ не удался (задача всё равно completed).
 
 ---
 
@@ -1058,9 +1064,16 @@ Authorization: Bearer <access>
   "total_days_with_entries": 42,
   "total_tasks_completed": 23,
   "weekly_analyses_count": 6,
-  "avg_mood_score": 6.4
+  "avg_mood_score": 6.4,
+  "tasks_assigned": 40,
+  "tasks_completion_percentage": 57.5,
+  "streak_days": 7,
+  "has_entry_today": true,
+  "streak_reset_warning": ""
 }
 ```
+
+Сводка строится через `ProgressService.get_user_progress_statistics` (entries/tasks/streak); legacy-поля `total_days_with_entries`, `weekly_analyses_count`, `avg_mood_score` сохраняются для совместимости.
 
 ---
 
@@ -1258,7 +1271,176 @@ Content-Type: application/json
 **Ошибки:**
 - `400 invalid_value` — переданное значение не булево
 
-> Те же поля (`notifications_enabled`, `auto_analysis_enabled`) доступны через `PATCH /api/v1/profile/<id>/`. Эндпоинт `/reminders/` удобнее для страниц настроек.
+> Те же поля (`notifications_enabled`, `auto_analysis_enabled`) доступны через `PATCH /api/v1/profile/<id>/` и расширенный `PATCH /api/v1/settings/`. Эндпоинт `/reminders/` оставлен как совместимый alias (логика через SettingsService).
+
+---
+
+## Эндпоинты — Settings (Phase A)
+
+```
+GET  /api/v1/settings/
+PATCH /api/v1/settings/
+POST /api/v1/settings/task-limit/
+POST /api/v1/settings/timezone/lookup/
+POST /api/v1/settings/timezone/confirm/
+Authorization: Bearer <access>
+```
+
+**GET** возвращает `language`, `timezone`, `notifications_enabled`, `auto_analysis_enabled`, `task_limit{current_limit,max_allowed,awareness_level}`.
+
+**PATCH** принимает опционально: `language`, `timezone`, `notifications_enabled`, `auto_analysis_enabled` (через SettingsService).
+
+**task-limit:** `{ "increment": 1 | -1 }`
+
+**timezone/lookup:** `{ "city_name": "Berlin" }` → `timezone_data` или `multiple_options`
+
+**timezone/confirm:** `{ "timezone": "Europe/Berlin", "city": "...", "country": "..." }`
+
+---
+
+## Эндпоинты — Onboarding (Phase A)
+
+```
+GET  /api/v1/onboarding/status/
+POST /api/v1/onboarding/accept-agreement/   { "step": 1|2 }
+POST /api/v1/onboarding/timezone/           { "timezone": "Europe/Moscow" }
+POST /api/v1/onboarding/first-entry/        { "text": "..." }
+Authorization: Bearer <access>
+```
+
+Ответы содержат `mode` / `next` / `text` без Telegram keyboard/FSM. `first-entry` → `201` с `entry`, `analysis`, `mood_score`.
+
+---
+
+## Эндпоинты — Diary parity (Phase A)
+
+| Метод | URL | Use case |
+|-------|-----|----------|
+| POST | `/api/v1/entries/<id>/comment/` | `process_user_comment_use_case` (AI re-analysis) |
+| POST | `/api/v1/entries/<id>/clarifications/` | `answers` map или `text` построчно |
+| POST | `/api/v1/entries/<id>/edit-with-analysis/` | `{text, target_date?}` |
+| POST | `/api/v1/entries/<id>/confirm-delete/` | `{target_date}` |
+| POST | `/api/v1/entries/<id>/rate/` | `{rating: 1..5}` |
+| GET/DELETE | `/api/v1/days/date/<YYYY-MM-DD>/` | day view / delete entire day |
+| POST | `/api/v1/days/date/<YYYY-MM-DD>/reanalyze/` | full day analysis (1 token if not premium) |
+| POST | `/api/v1/days/date/<YYYY-MM-DD>/rating/` | `{analysis_id, rating}` |
+
+---
+
+## Эндпоинты — Therapy chat (Phase A)
+
+Stateless: клиент хранит `history` и передаёт его в `message`.
+
+```
+GET  /api/v1/therapy-chat/welcome/
+POST /api/v1/therapy-chat/start/
+POST /api/v1/therapy-chat/message/   { "text": "...", "history": [] }
+POST /api/v1/therapy-chat/end/
+```
+
+`message` списывает 1 токен у non-premium (как бот `@requires_tokens`).
+
+---
+
+## Progress — restore streak availability
+
+```
+GET /api/v1/progress/restore-streak/availability/
+```
+
+```json
+{ "available": true, "dates": ["2026-04-18"] }
+```
+
+---
+
+## Эндпоинты — Payments (Phase B)
+
+Каталог и создание платежей через `PaymentService` (та же логика, что у бота).
+
+```
+GET  /api/v1/payments/products/
+POST /api/v1/payments/create/     { "product": "subscription_month" | "tokens_10" | ... }
+POST /api/v1/payments/email/      { "email": "...", "pending_payment_data": {...} }
+GET  /api/v1/payments/
+GET  /api/v1/payments/<id>/
+POST /api/v1/payments/<id>/sync/  # опрос ЮKassa + идемпотентный grant
+POST /api/v1/payments/webhook/    # уведомление ЮKassa (без JWT)
+POST /api/payments/webhook/       # alias
+Authorization: Bearer <access>   # кроме webhook
+```
+
+**create** ответы:
+- `{ success, confirmation_url, payment_id, yookassa_payment_id }` — оплата
+- `{ success, requires_email: true, pending_payment_data }` — сначала email для чека
+
+**detail** дополнительно отдаёт `user.is_premium`, `premium_expires_at`, `token_balance`.
+
+---
+
+## Эндпоинты — Voice entry (Phase C)
+
+```
+POST /api/v1/entries/voice/
+Authorization: Bearer <access>
+Content-Type: multipart/form-data
+```
+
+| Поле | Тип | Обязательно | Описание |
+|------|-----|-------------|----------|
+| `audio` | file | да | `.ogg` (opus) предпочтительно; также mp3; ≤ 10 МБ |
+| `duration` | int | нет | секунды; `> 25` → long recognition через Object Storage |
+| `language` | string | нет | `ru` / `en` (default: язык пользователя) |
+
+Пайплайн: SpeechKit STT → DeepSeek punctuation → `process_new_entry_use_case` (как `create_with_analysis`).
+
+**Ответ `201`:**
+```json
+{
+  "recognized_text": "Сегодня был хороший день.",
+  "entry": { "...": "DiaryEntrySerializer" },
+  "analysis": null,
+  "needs_clarification": false,
+  "clarification_questions": []
+}
+```
+
+**Ошибки:** `audio_required`, `audio_too_large`, `speech_recognition_failed`, `recognized_text_empty`, `entry_invalid`.
+
+---
+
+## Эндпоинты — Admin (Phase D)
+
+Только для developer/admin (`AdminDeveloperPermission`: staff/superuser, `MONITORING_PRIVILEGED_USER_IDS`, или `DEVELOPER_CHAT_ID` == `telegram_id`).
+
+```
+GET  /api/v1/admin/feedback/?page=1&page_size=20
+GET  /api/v1/admin/feedback/<id>/
+POST /api/v1/admin/feedback/<id>/reply/   { "reply_text": "..." }
+POST /api/v1/admin/export/                # xlsx attachment
+GET  /api/v1/admin/stats/
+```
+
+| Метод | URL | Описание |
+|-------|-----|----------|
+| GET | `/api/v1/admin/feedback/` | Необработанные обращения (пагинация) |
+| GET | `/api/v1/admin/feedback/<id>/` | Детали обращения |
+| POST | `/api/v1/admin/feedback/<id>/reply/` | Ответ → use case + persist (+ опциональный Telegram notify) |
+| POST | `/api/v1/admin/export/` | Excel-бэкап БД |
+| GET | `/api/v1/admin/stats/` | Агрегированная админ-статистика |
+
+**Ответ reply `200`:**
+```json
+{
+  "success": true,
+  "feedback_id": 12,
+  "message": "✅ Ответ на обращение #12 отправлен пользователю ...",
+  "notify_sent": true,
+  "notify_error": null
+}
+```
+
+Ответ сохраняется в БД даже если Telegram notify не удался (`notify_sent: false`).
 
 ---
 
@@ -1401,8 +1583,13 @@ Content-Type: application/json
 | DELETE | `/api/v1/entries/<id>/` | Удалить запись |
 | GET | `/api/v1/entries/date/<YYYY-MM-DD>/` | Записи за дату |
 | GET | `/api/v1/entries/<id>/analysis/` | AI-анализ записи |
-| POST | `/api/v1/entries/<id>/comment/` | Добавить комментарий |
+| POST | `/api/v1/entries/<id>/comment/` | Комментарий + AI-переанализ |
+| POST | `/api/v1/entries/<id>/clarifications/` | Ответы на уточнения |
+| POST | `/api/v1/entries/<id>/edit-with-analysis/` | Редактирование + day_view |
+| POST | `/api/v1/entries/<id>/confirm-delete/` | Удаление записи + day_view |
+| POST | `/api/v1/entries/<id>/rate/` | Оценка анализа 1–5 |
 | POST | `/api/v1/entries/create_with_analysis/` | Создать + получить анализ синхронно |
+| POST | `/api/v1/entries/voice/` | Голос → STT → запись + анализ |
 | GET | `/api/v1/entries/next-prompt/` | Подсказка для следующей записи |
 | POST | `/api/v1/entries/next-prompt/mark-used/` | Отметить подсказку использованной |
 
@@ -1412,6 +1599,27 @@ Content-Type: application/json
 |-------|-----|----------|
 | GET | `/api/v1/days/` | Список дней |
 | GET | `/api/v1/days/<id>/` | Детали дня |
+| GET | `/api/v1/days/date/<YYYY-MM-DD>/` | Записи дня по дате |
+| DELETE | `/api/v1/days/date/<YYYY-MM-DD>/` | Удалить все записи дня |
+| POST | `/api/v1/days/date/<YYYY-MM-DD>/reanalyze/` | Полный переанализ дня |
+| POST | `/api/v1/days/date/<YYYY-MM-DD>/rating/` | Оценить PsychoAnalysis |
+
+### Settings / Onboarding / Therapy
+
+| Метод | URL | Описание |
+|-------|-----|----------|
+| GET/PATCH | `/api/v1/settings/` | Настройки пользователя |
+| POST | `/api/v1/settings/task-limit/` | Лимит заданий ±1 |
+| POST | `/api/v1/settings/timezone/lookup/` | Поиск TZ по городу |
+| POST | `/api/v1/settings/timezone/confirm/` | Подтвердить TZ |
+| GET | `/api/v1/onboarding/status/` | Текущий шаг онбординга |
+| POST | `/api/v1/onboarding/accept-agreement/` | step 1\|2 |
+| POST | `/api/v1/onboarding/timezone/` | TZ в онбординге |
+| POST | `/api/v1/onboarding/first-entry/` | Первая запись |
+| GET | `/api/v1/therapy-chat/welcome/` | Welcome |
+| POST | `/api/v1/therapy-chat/start/` | Старт (пустая history) |
+| POST | `/api/v1/therapy-chat/message/` | Сообщение + history |
+| POST | `/api/v1/therapy-chat/end/` | Завершить чат |
 
 ### Еженедельные анализы
 
@@ -1441,6 +1649,7 @@ Content-Type: application/json
 | GET | `/api/v1/progress/` | Сводка |
 | GET | `/api/v1/progress/streak/` | Серия |
 | POST | `/api/v1/progress/restore_streak/` | Восстановить серию |
+| GET | `/api/v1/progress/restore-streak/availability/` | Даты для восстановления |
 | GET | `/api/v1/progress/mood/<period>/` | График настроения |
 | GET | `/api/v1/progress/activity/` | Лента активности |
 | GET | `/api/v1/progress/weekly/` | Недельные анализы |
@@ -1450,6 +1659,18 @@ Content-Type: application/json
 | Метод | URL | Описание |
 |-------|-----|----------|
 | GET/PATCH | `/api/v1/reminders/` | Статус и настройки напоминаний |
+| GET | `/api/v1/payments/products/` | Каталог Premium / токенов |
+| POST | `/api/v1/payments/create/` | Создать платёж |
+| POST | `/api/v1/payments/email/` | Email для чека + создать платёж |
+| GET | `/api/v1/payments/` | История платежей |
+| GET | `/api/v1/payments/<id>/` | Статус платежа |
+| POST | `/api/v1/payments/<id>/sync/` | Sync с ЮKassa |
+| POST | `/api/v1/payments/webhook/` | Webhook ЮKassa |
+| GET | `/api/v1/admin/feedback/` | Admin: список обращений |
+| GET | `/api/v1/admin/feedback/<id>/` | Admin: детали обращения |
+| POST | `/api/v1/admin/feedback/<id>/reply/` | Admin: ответ на обращение |
+| POST | `/api/v1/admin/export/` | Admin: Excel export |
+| GET | `/api/v1/admin/stats/` | Admin: статистика |
 | POST | `/api/v1/feedback/` | Обратная связь |
 | GET | `/api/v1/schema/` | OpenAPI JSON |
 | GET | `/api/v1/docs/` | ReDoc UI |

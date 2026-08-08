@@ -10,12 +10,18 @@ async def test_process_new_entry_use_case_wraps_success(mocker):
     user = mocker.Mock(telegram_id=101)
     monitor_mock = mocker.AsyncMock()
     mocker.patch.object(service, '_record_use_case_metric', new=monitor_mock)
+    mocker.patch.object(
+        service,
+        'schedule_clarification_for_entry',
+        new=mocker.AsyncMock(return_value=ServiceResponse.ok(data={})),
+    )
 
     payload = {
         'success': True,
         'entry': object(),
         'analysis': object(),
         'needs_clarification': True,
+        'clarification_questions': ['q1'],
         'suggested_task': object(),
     }
 
@@ -32,7 +38,89 @@ async def test_process_new_entry_use_case_wraps_success(mocker):
     assert response.data == payload
     assert response.metadata['needs_clarification'] is True
     assert response.metadata['has_suggested_task'] is True
+    assert response.metadata['clarification_scheduled'] is True
+    service.schedule_clarification_for_entry.assert_awaited_once()
     monitor_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_process_new_entry_use_case_skips_schedule_without_clarification(mocker):
+    service = DiaryService()
+    user = mocker.Mock(telegram_id=1011)
+    schedule_mock = mocker.AsyncMock()
+    mocker.patch.object(service, '_record_use_case_metric', new=mocker.AsyncMock())
+    mocker.patch.object(service, 'schedule_clarification_for_entry', new=schedule_mock)
+
+    payload = {
+        'success': True,
+        'entry': object(),
+        'analysis': object(),
+        'needs_clarification': False,
+        'clarification_questions': [],
+        'suggested_task': None,
+    }
+    mocker.patch.object(service, 'process_new_entry_logic', new=mocker.AsyncMock(return_value=payload))
+
+    response = await service.process_new_entry_use_case(
+        user=user,
+        entry_text='test entry',
+        language='ru',
+    )
+
+    assert response.success is True
+    assert response.metadata['clarification_scheduled'] is False
+    schedule_mock.assert_not_awaited()
+
+
+def test_build_clarification_answers_map_fills_missing_answers():
+    result = DiaryService.build_clarification_answers_map(
+        clarification_questions=['q1', 'q2', 'q3'],
+        clarification_text='a1\n\na2',
+    )
+
+    assert result == {
+        'q1': 'a1',
+        'q2': 'a2',
+        'q3': '[Ответ не получен]',
+    }
+
+
+@pytest.mark.asyncio
+async def test_schedule_clarification_for_entry_success(mocker):
+    service = DiaryService()
+    entry = mocker.Mock(id=42)
+    entry.asave = mocker.AsyncMock()
+    mocker.patch.object(service, '_record_use_case_metric', new=mocker.AsyncMock())
+
+    response = await service.schedule_clarification_for_entry(
+        entry=entry,
+        clarification_questions=['q1'],
+        reminder_delay_minutes=10,
+        force_process_delay_minutes=20,
+    )
+
+    assert response.success is True
+    assert entry.clarification_questions_asked == ['q1']
+    assert entry.clarification_asked_at is not None
+    assert entry.clarification_reminder_due_at is not None
+    assert entry.clarification_force_process_at is not None
+    entry.asave.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_schedule_clarification_for_entry_failure(mocker):
+    service = DiaryService()
+    entry = mocker.Mock(id=43)
+    entry.asave = mocker.AsyncMock(side_effect=RuntimeError('db down'))
+    mocker.patch.object(service, '_record_use_case_metric', new=mocker.AsyncMock())
+
+    response = await service.schedule_clarification_for_entry(
+        entry=entry,
+        clarification_questions=['q1'],
+    )
+
+    assert response.success is False
+    assert response.error == 'clarification_schedule_failed'
 
 
 @pytest.mark.asyncio
@@ -90,7 +178,8 @@ async def test_process_new_entry_use_case_wraps_exception(mocker):
 @pytest.mark.asyncio
 async def test_process_first_onboarding_entry_use_case_wraps_success(mocker):
     service = DiaryService()
-    user = mocker.Mock(telegram_id=104)
+    user = mocker.Mock(telegram_id=104, is_onboarding_completed=False)
+    user.asave = mocker.AsyncMock()
 
     payload = {
         'success': True,
@@ -102,6 +191,7 @@ async def test_process_first_onboarding_entry_use_case_wraps_success(mocker):
     }
 
     mocker.patch.object(service, 'process_first_onboarding_entry_logic', new=mocker.AsyncMock(return_value=payload))
+    mocker.patch.object(service, '_record_use_case_metric', new=mocker.AsyncMock())
 
     response = await service.process_first_onboarding_entry_use_case(
         user=user,
@@ -112,7 +202,31 @@ async def test_process_first_onboarding_entry_use_case_wraps_success(mocker):
     assert isinstance(response, ServiceResponse)
     assert response.success is True
     assert response.data == payload
-    assert response.metadata['onboarding_completed'] is False
+    assert response.metadata['onboarding_completed'] is True
+    assert response.metadata['onboarding_just_completed'] is True
+    assert user.is_onboarding_completed is True
+    user.asave.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_process_first_onboarding_entry_use_case_skips_flag_when_already_completed(mocker):
+    service = DiaryService()
+    user = mocker.Mock(telegram_id=1041, is_onboarding_completed=True)
+    user.asave = mocker.AsyncMock()
+    payload = {'success': True, 'entry': object(), 'analysis': object()}
+    mocker.patch.object(service, 'process_first_onboarding_entry_logic', new=mocker.AsyncMock(return_value=payload))
+    mocker.patch.object(service, '_record_use_case_metric', new=mocker.AsyncMock())
+
+    response = await service.process_first_onboarding_entry_use_case(
+        user=user,
+        entry_text='first entry',
+        language='ru',
+    )
+
+    assert response.success is True
+    assert response.metadata['onboarding_completed'] is True
+    assert response.metadata['onboarding_just_completed'] is False
+    user.asave.assert_not_awaited()
 
 
 @pytest.mark.asyncio

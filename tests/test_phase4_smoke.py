@@ -255,7 +255,10 @@ def test_task_lifecycle_workflow_smoke(api_client):
     # Complete task
     complete_response = api_client.post(
         f"/api/v1/tasks/{task_id}/complete/",
-        {},
+        {
+            "completion_text": "Сделал упражнение 10 минут",
+            "feelings_text": "Стало спокойнее",
+        },
         format="json",
     )
     assert complete_response.status_code == status.HTTP_200_OK

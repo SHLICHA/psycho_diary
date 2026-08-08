@@ -22,6 +22,7 @@ from bot.services.deepseek_api import deepseek_api_service
 from prompts.get_prompt import get_prompt
 from messages import get_message
 from core.profile_field_utils import build_personal_fields_payload_for_ai
+from core.service_response import ServiceResponse
 from diary.services.compressed_profile_service import compressed_profile_service
 
 logger = logging.getLogger(__name__)
@@ -473,6 +474,113 @@ class TaskManagementService:
             return None
 
     @classmethod
+    async def complete_task_with_feelings_use_case(
+        cls,
+        user: User,
+        task_id: int,
+        completion_text: str,
+        feelings_text: str,
+        language: str = 'ru',
+    ) -> ServiceResponse:
+        """
+        Use-case завершения задания с описанием выполнения и ощущений.
+        """
+        if not (completion_text or '').strip():
+            return ServiceResponse.fail(
+                error='empty_completion',
+                message=get_message('invalid_input', language),
+            )
+        if not (feelings_text or '').strip():
+            return ServiceResponse.fail(
+                error='empty_feelings',
+                message=get_message('invalid_input', language),
+            )
+
+        try:
+            result = await cls.complete_task(
+                task_id=task_id,
+                user=user,
+                completion_text=completion_text,
+                feelings_text=feelings_text,
+            )
+        except Exception as exc:
+            logger.error(
+                f"[complete_task_with_feelings_use_case] Ошибка для task={task_id}, "
+                f"user={user.telegram_id}: {exc}",
+                exc_info=True,
+            )
+            return ServiceResponse.fail(
+                error='task_completion_exception',
+                message=get_message('error_processing', language),
+            )
+
+        if not result or not result.get('success'):
+            return ServiceResponse.fail(
+                error='task_completion_failed',
+                message=get_message('error_processing', language),
+                data=result or {},
+            )
+
+        task_completion = result.get('task_completion')
+        if not task_completion:
+            return ServiceResponse.fail(
+                error='task_completion_missing',
+                message=get_message('error_processing', language),
+                data=result,
+            )
+
+        return ServiceResponse.ok(
+            data={
+                'task_completion': task_completion,
+                'task_id': task_id,
+            },
+            task_id=task_id,
+        )
+
+    @classmethod
+    async def analyze_completed_task_for_notification_use_case(
+        cls,
+        task_completion: TaskCompletion,
+        user: User,
+        language: Optional[str] = None,
+    ) -> ServiceResponse:
+        """
+        Use-case анализа эффекта выполнения + payload уведомления (без отправки в transport).
+        """
+        lang = language or getattr(user, 'language', None) or 'ru'
+        try:
+            from diary.services.task_display_service import task_display_service
+
+            analysis_result = await cls.analyze_task_completion_effect(task_completion, user)
+            notification = await task_display_service.format_task_analysis_notification(
+                analysis_result, user, task_completion
+            )
+            return ServiceResponse.ok(
+                data={
+                    'analysis': analysis_result,
+                    'notification_text': notification.text,
+                    'notification_keyboard': notification.keyboard,
+                },
+                task_id=getattr(getattr(task_completion, 'task', None), 'id', None),
+            )
+        except Exception as exc:
+            logger.error(
+                "[analyze_completed_task_for_notification_use_case] Ошибка анализа "
+                f"для user={user.telegram_id}: {exc}",
+                exc_info=True,
+            )
+            from bot.keyboards import get_back_keyboard
+
+            return ServiceResponse.fail(
+                error='task_analysis_notification_failed',
+                message=get_message('task_analysis_error_formatted', lang),
+                data={
+                    'notification_text': get_message('task_analysis_error_formatted', lang),
+                    'notification_keyboard': get_back_keyboard(lang),
+                },
+            )
+
+    @classmethod
     async def get_user_skipped_tasks(cls, user: User, limit: int = 10) -> List[TherapyTask]:
         """
         Асинхронное получение пропущенных заданий пользователя.
@@ -499,6 +607,39 @@ class TaskManagementService:
         except Exception as e:
             logger.error(f"[TaskManagementService] Ошибка при получении пропущенных заданий пользователя {user.telegram_id}: {e}")
             return []
+
+    @classmethod
+    async def restore_skipped_task_use_case(
+        cls,
+        user: User,
+        task_id: int,
+        task_history_ids: Optional[List[int]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Use case восстановления пропущенного задания из истории.
+
+        Returns:
+            success, alert_text_key, updated_task_history_ids, refresh_active_tasks
+        """
+        success = await cls.restore_task(task_id, user)
+        if not success:
+            return {
+                'success': False,
+                'alert_text_key': 'task_not_found_or_not_skipped',
+                'updated_task_history_ids': list(task_history_ids or []),
+                'refresh_active_tasks': False,
+            }
+
+        updated_ids = list(task_history_ids or [])
+        if task_id in updated_ids:
+            updated_ids.remove(task_id)
+
+        return {
+            'success': True,
+            'alert_text_key': 'task_restored',
+            'updated_task_history_ids': updated_ids,
+            'refresh_active_tasks': True,
+        }
 
     @classmethod
     async def restore_task(cls, task_id: int, user: User) -> bool:
@@ -589,6 +730,34 @@ async def complete_task(
     """Удобная функция для выполнения задания"""
     return await TaskManagementService.complete_task(task_id, user, completion_text, feelings_text)
 
+async def complete_task_with_feelings_use_case(
+    user: User,
+    task_id: int,
+    completion_text: str,
+    feelings_text: str,
+    language: str = 'ru',
+) -> ServiceResponse:
+    """Удобная функция use-case завершения задания с ощущениями."""
+    return await TaskManagementService.complete_task_with_feelings_use_case(
+        user=user,
+        task_id=task_id,
+        completion_text=completion_text,
+        feelings_text=feelings_text,
+        language=language,
+    )
+
+async def analyze_completed_task_for_notification_use_case(
+    task_completion: TaskCompletion,
+    user: User,
+    language: Optional[str] = None,
+) -> ServiceResponse:
+    """Удобная функция use-case анализа + notification payload."""
+    return await TaskManagementService.analyze_completed_task_for_notification_use_case(
+        task_completion=task_completion,
+        user=user,
+        language=language,
+    )
+
 async def skip_task(task_id: int, user: User) -> bool:
     """Удобная функция для пропуска задания"""
     return await TaskManagementService.skip_task(task_id, user)
@@ -604,6 +773,18 @@ async def get_user_skipped_tasks(user: User, limit: int = 10) -> List[TherapyTas
 async def restore_task(task_id: int, user: User) -> bool:
     """Удобная функция для восстановления пропущенного задания."""
     return await TaskManagementService.restore_task(task_id, user)
+
+async def restore_skipped_task_use_case(
+    user: User,
+    task_id: int,
+    task_history_ids: Optional[List[int]] = None,
+) -> Dict[str, Any]:
+    """Удобная функция use-case восстановления пропущенного задания."""
+    return await TaskManagementService.restore_skipped_task_use_case(
+        user=user,
+        task_id=task_id,
+        task_history_ids=task_history_ids,
+    )
 
 async def analyze_task_completion_effect(
     task_completion: TaskCompletion,

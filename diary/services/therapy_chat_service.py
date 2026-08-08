@@ -39,7 +39,7 @@ class TherapyChatService:
                 - error (Optional[str]): Сообщение об ошибке, если произошла ошибка.
         """
         try:
-            logger.debug(f"[TherapyChatService] Инициализация чата для пользователя {user.telegram_id}")
+            logger.debug(f"[TherapyChatService.start_chat] user_id={user.id}")
             initial_history: List[Dict[str, str]] = []
             return {
                 "success": True,
@@ -47,7 +47,10 @@ class TherapyChatService:
                 "error": None
             }
         except Exception as e:
-            logger.error(f"[TherapyChatService] Ошибка при инициализации чата для {user.telegram_id}: {e}", exc_info=True)
+            logger.error(
+                f"[TherapyChatService.start_chat] failed user_id={user.id}: {e}",
+                exc_info=True,
+            )
             return {
                 "success": False,
                 "initial_history": [],
@@ -167,6 +170,49 @@ class TherapyChatService:
                 "error": str(e)
             }
 
+    @classmethod
+    def build_therapy_chat_welcome_view(cls, user: User, language: str) -> Dict[str, Any]:
+        """Welcome text + end-chat keyboard (premium vs paid)."""
+        from messages import get_message
+        from bot.keyboards.common_keyboards import get_single_button_keyboard
+
+        if user.is_premium:
+            text = get_message('therapy_chat_welcome_premium', language)
+            mode = 'premium'
+        else:
+            text = get_message('therapy_chat_welcome_paid', language)
+            mode = 'paid'
+
+        return {
+            'success': True,
+            'mode': mode,
+            'text': text,
+            'reply_markup': get_single_button_keyboard(
+                language,
+                button_callback_data='main_menu',
+                button_text='btn_end_chat',
+            ),
+        }
+
+    @classmethod
+    async def build_therapy_chat_error_recovery_view(
+        cls,
+        user: User,
+        language: str,
+    ) -> Dict[str, Any]:
+        """Main-menu recovery payload after critical chat failure."""
+        from diary.services.main_menu_service import build_main_menu_data
+
+        menu_data = await build_main_menu_data(user=user, language=language)
+        return {
+            'success': True,
+            'mode': 'main_menu',
+            'text': menu_data['message_text'],
+            'reply_markup': menu_data['keyboard'],
+            'clear_state': True,
+        }
+
+
 async def start_therapy_chat(user: User) -> Dict[str, Any]:
     """Удобная функция для инициализации чата."""
     return await TherapyChatService.start_chat(user)
@@ -182,3 +228,9 @@ async def process_user_message_in_chat(
 async def end_therapy_chat(user: User) -> Dict[str, Any]:
     """Удобная функция для завершения чата."""
     return await TherapyChatService.end_chat(user)
+
+def build_therapy_chat_welcome_view(user: User, language: str) -> Dict[str, Any]:
+    return TherapyChatService.build_therapy_chat_welcome_view(user, language)
+
+async def build_therapy_chat_error_recovery_view(user: User, language: str) -> Dict[str, Any]:
+    return await TherapyChatService.build_therapy_chat_error_recovery_view(user, language)

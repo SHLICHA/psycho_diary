@@ -338,6 +338,240 @@ class SettingsService:
             logger.error(f"[SettingsService] Ошибка при подтверждении часового пояса по городу для {user.telegram_id}: {e}", exc_info=True)
             return {'success': False, 'error': str(e)}
 
+    @classmethod
+    async def build_task_settings_view(cls, user: User, language: str) -> Dict[str, Any]:
+        """Экран настроек лимита заданий."""
+        from bot.keyboards import get_task_settings_keyboard
+
+        info_result = await cls.get_task_limit_info(user)
+        if not info_result.get('success'):
+            return {
+                'success': False,
+                'mode': 'error',
+                'error': info_result.get('error'),
+                'text': get_message('error_generic', language=language),
+            }
+        return {
+            'success': True,
+            'mode': 'task_settings',
+            'text': get_message('task_settings_menu', language=language).format(
+                max_tasks=info_result['current_limit']
+            ),
+            'reply_markup': get_task_settings_keyboard(user, language),
+            'current_limit': info_result['current_limit'],
+        }
+
+    @classmethod
+    async def build_task_limit_update_view(
+        cls,
+        user: User,
+        language: str,
+        increment: int,
+    ) -> Dict[str, Any]:
+        """Обновляет лимит и собирает alert/screen payload."""
+        from bot.keyboards import get_task_settings_keyboard
+
+        result = await cls.update_task_limit(user, increment=increment)
+        if not result.get('success'):
+            if result.get('error') == 'limit_exceeded':
+                alert_message = get_message(
+                    'awareness_level_insufficient_for_tasks_current',
+                    language=language,
+                    current_level=result['current_level'],
+                    current_max_tasks=result['current_max_tasks'],
+                )
+                screen = await cls.build_task_settings_view(user, language)
+                return {
+                    'success': False,
+                    'mode': 'limit_exceeded',
+                    'alert_text': alert_message,
+                    'show_alert': True,
+                    'text': screen.get('text'),
+                    'reply_markup': screen.get('reply_markup'),
+                    'refresh_screen': screen.get('success', False),
+                }
+            return {
+                'success': False,
+                'mode': 'error',
+                'error': result.get('error'),
+                'alert_text': get_message('error_generic', language=language),
+                'show_alert': False,
+                'refresh_screen': False,
+            }
+
+        action = result.get('action')
+        if action == 'increased':
+            alert_text = get_message('tasks_limit_increased', language=language).format(
+                new_limit=result['new_limit']
+            )
+        elif action == 'max_reached':
+            alert_text = get_message('tasks_limit_max_reached', language=language)
+        elif action == 'decreased':
+            alert_text = get_message('tasks_limit_decreased', language=language).format(
+                new_limit=result['new_limit']
+            )
+        elif action == 'min_reached':
+            alert_text = get_message('tasks_limit_min_reached', language=language)
+        else:
+            alert_text = get_message('tasks_limit_increased', language=language).format(
+                new_limit=result['new_limit']
+            )
+
+        return {
+            'success': True,
+            'mode': action or 'updated',
+            'alert_text': alert_text,
+            'show_alert': False,
+            'text': get_message('task_settings_menu', language=language).format(
+                max_tasks=result['new_limit']
+            ),
+            'reply_markup': get_task_settings_keyboard(user, language),
+            'refresh_screen': True,
+            'new_limit': result['new_limit'],
+        }
+
+    @classmethod
+    def build_city_timezone_lookup_view(
+        cls,
+        lookup_result: Dict[str, Any],
+        language: str,
+        city_name: str = '',
+    ) -> Dict[str, Any]:
+        """Нормализует результат поиска города в transport payload."""
+        from bot.keyboards import (
+            get_city_timezone_confirmation_keyboard,
+            get_multiple_city_timezones_keyboard,
+            get_single_button_keyboard,
+        )
+
+        normalized = (city_name or '').strip()
+        if normalized.lower() in {'назад', 'back', '/start', '/menu'}:
+            return {
+                'success': True,
+                'mode': 'cancel',
+                'clear_state': True,
+                'text': get_message('settings_menu', language=language),
+            }
+
+        if not normalized:
+            return {
+                'success': False,
+                'mode': 'empty_city',
+                'text': get_message(key='please_enter_city', language=language),
+                'clear_state': False,
+            }
+
+        if not lookup_result.get('success'):
+            error_msg = lookup_result.get('error') or get_message('timezone_error', language)
+            return {
+                'success': False,
+                'mode': 'lookup_failed',
+                'text': f'❌ {error_msg}',
+                'retry_text': get_message(key='please_enter_city', language=language),
+                'reply_markup': get_single_button_keyboard(language, 'settings', 'btn_back'),
+                'clear_state': False,
+            }
+
+        source = lookup_result.get('source')
+        if source in ('cache', 'api_single'):
+            timezone_data = lookup_result['timezone_data']
+            return {
+                'success': True,
+                'mode': 'confirm_single',
+                'text': get_message(
+                    key='timezone_found',
+                    language=language,
+                    city_name=timezone_data['city'],
+                    country=timezone_data['country'],
+                    timezone=timezone_data['timezone'],
+                ),
+                'reply_markup': get_city_timezone_confirmation_keyboard(language, timezone_data),
+                'fsm_state': 'waiting_for_timezone_confirmation',
+                'fsm_payload': {'timezone_data': timezone_data},
+                'clear_state': False,
+            }
+
+        if source == 'api_multiple':
+            options = lookup_result.get('multiple_options') or []
+            return {
+                'success': True,
+                'mode': 'select_multiple',
+                'text': get_message(key='multiple_cities_found', language=language),
+                'reply_markup': get_multiple_city_timezones_keyboard(language, options),
+                'clear_state': False,
+            }
+
+        return {
+            'success': False,
+            'mode': 'unexpected_source',
+            'text': get_message(key='selection_failed', language=language),
+            'retry_text': get_message(key='enter_city', language=language),
+            'reply_markup': get_single_button_keyboard(language, 'settings', 'btn_back'),
+            'clear_state': False,
+        }
+
+    @classmethod
+    async def set_timezone_and_resolve_next_step(
+        cls,
+        user: User,
+        new_timezone_str: str,
+        language: str,
+        is_onboarding: bool,
+    ) -> Dict[str, Any]:
+        """
+        Валидирует/ставит TZ и решает следующий шаг:
+        onboarding_first_entry | main_menu | error.
+        """
+        result = await cls.update_user_timezone(user, new_timezone_str)
+        if not result.get('success'):
+            error = result.get('error')
+            if error == 'unknown_timezone':
+                return {
+                    'success': False,
+                    'mode': 'unknown_timezone',
+                    'alert_text': get_message('error_unknown_timezone', language),
+                    'show_alert': True,
+                }
+            return {
+                'success': False,
+                'mode': 'error',
+                'alert_text': get_message('error_generic', language),
+                'show_alert': True,
+                'error': error,
+            }
+
+        if is_onboarding:
+            return {
+                'success': True,
+                'mode': 'onboarding_first_entry',
+                'next': 'onboarding_first_entry',
+                'text': get_message('onboarding_prompt_first_entry', language),
+                'reply_markup': None,
+                'set_state': 'waiting_for_first_entry',
+                'clear_state': False,
+                'alert_text': '',
+                'show_alert': False,
+                'new_timezone': result['new_timezone'],
+            }
+
+        from diary.services.main_menu_service import build_main_menu_data
+
+        menu_data = await build_main_menu_data(user=user, language=language)
+        return {
+            'success': True,
+            'mode': 'main_menu',
+            'next': 'main_menu',
+            'text': menu_data['message_text'],
+            'reply_markup': menu_data['keyboard'],
+            'clear_state': True,
+            'alert_text': get_message(
+                'timezone_changed', language, timezone=result['new_timezone']
+            ),
+            'show_alert': False,
+            'new_timezone': result['new_timezone'],
+        }
+
+
 async def update_user_language(user: User, new_language: str) -> Dict[str, Any]:
     return await SettingsService.update_user_language(user, new_language)
 
@@ -364,3 +598,28 @@ async def process_city_timezone_lookup(city_name: str, language: str) -> Dict[st
 
 async def confirm_timezone_by_city(user: User, timezone_data: Dict[str, str]) -> Dict[str, Any]:
     return await SettingsService.confirm_timezone_by_city(user, timezone_data)
+
+async def build_task_settings_view(user: User, language: str) -> Dict[str, Any]:
+    return await SettingsService.build_task_settings_view(user, language)
+
+async def build_task_limit_update_view(
+    user: User, language: str, increment: int
+) -> Dict[str, Any]:
+    return await SettingsService.build_task_limit_update_view(user, language, increment)
+
+def build_city_timezone_lookup_view(
+    lookup_result: Dict[str, Any], language: str, city_name: str = ''
+) -> Dict[str, Any]:
+    return SettingsService.build_city_timezone_lookup_view(
+        lookup_result, language, city_name=city_name
+    )
+
+async def set_timezone_and_resolve_next_step(
+    user: User,
+    new_timezone_str: str,
+    language: str,
+    is_onboarding: bool,
+) -> Dict[str, Any]:
+    return await SettingsService.set_timezone_and_resolve_next_step(
+        user, new_timezone_str, language, is_onboarding
+    )

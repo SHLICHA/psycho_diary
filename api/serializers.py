@@ -215,6 +215,12 @@ class ProgressSummarySerializer(serializers.Serializer):
     total_tasks_completed = serializers.IntegerField()
     weekly_analyses_count = serializers.IntegerField()
     avg_mood_score = serializers.FloatField()
+    # Phase E: поля ProgressService.get_user_progress_statistics
+    tasks_assigned = serializers.IntegerField(required=False)
+    tasks_completion_percentage = serializers.FloatField(required=False)
+    streak_days = serializers.IntegerField(required=False)
+    has_entry_today = serializers.BooleanField(required=False)
+    streak_reset_warning = serializers.CharField(required=False, allow_blank=True)
 
 
 class ProgressStreakSerializer(serializers.Serializer):

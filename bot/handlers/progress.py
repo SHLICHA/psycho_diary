@@ -10,83 +10,35 @@ from aiogram.types import CallbackQuery, BufferedInputFile
 from messages import get_message
 from bot.keyboards import (
     get_back_keyboard,
-    get_weekly_navigation_keyboard,
     get_progress_keyboard_without_weekly,
-    get_progress_keyboard_with_weekly,
     get_single_button_keyboard,
-    get_restore_date_selection_keyboard
 )
 from bot.utils.message_utils import safe_edit_message_text
 from bot.utils.mood_chart import generate_mood_chart_image
 from bot.decorators.premium_decorator import requires_premium
 from diary.services.progress_service import (
-    get_user_progress_statistics,
     get_latest_weekly_analysis,
-    get_has_weekly_analyses,
-    get_weekly_analysis_for_date,
     get_detailed_weekly_changes,
-    check_restore_streak_availability,
-    attempt_streak_restoration,
-    format_weekly_analysis_for_display
+    build_progress_screen_view,
+    build_weekly_analysis_page_view,
+    build_restore_streak_request_view,
+    confirm_streak_restoration_use_case,
 )
 
 logger = logging.getLogger(__name__)
 router = Router()
+
 
 @router.callback_query(F.data == "progress")
 async def show_progress(callback: CallbackQuery, user, language: str):
     """Показ прогресса."""
     logger.debug(f"[show_progress] Запрос от пользователя {user.id}")
     try:
-        awareness_level_current = user.awareness_level
-        user_stats = await get_user_progress_statistics(user)
-        total_entries = user_stats['entries_count']
-        tasks_completed = user_stats['tasks_completed']
-        tasks_assigned = user_stats['tasks_assigned']
-        tasks_completion_percentage = user_stats['tasks_completion_percentage']
-        streak_days = user_stats['streak_days']
-        streak_reset_warning = user_stats['streak_reset_warning']
-        latest_weekly_analysis = await get_latest_weekly_analysis(user)
-        comparison_text = ""
-        if latest_weekly_analysis and latest_weekly_analysis.comparison_with_previous:
-            comparison_data = latest_weekly_analysis.comparison_with_previous
-            progress_comment = comparison_data.get('progress_comment')
-            mood_comparison = comparison_data.get('mood_comparison')
-            parts = []
-            if progress_comment:
-                parts.append(progress_comment)
-            if mood_comparison:
-                if not progress_comment:
-                     parts.insert(0, mood_comparison)
-                else:
-                     parts.append(f"({mood_comparison})")
-            if parts:
-                comparison_text = f"\n\n📊 <b>Динамика:</b> {' '.join(parts)}"
-        no_analysis_info = ""
-        if not latest_weekly_analysis:
-             no_analysis_info = get_message('weekly_analysis_not_performed_yet', language)
-
-        progress_msg = get_message('progress_title', language,
-                                   awareness_level=awareness_level_current,
-                                   entries_count=total_entries,
-                                   tasks_completed=tasks_completed,
-                                   tasks_assigned=tasks_assigned,
-                                   tasks_completion_percentage=tasks_completion_percentage,
-                                   streak_days=streak_days,
-                                   streak_reset_warning=streak_reset_warning)
-        progress_msg += no_analysis_info
-        progress_msg += comparison_text
-        has_analyses = await get_has_weekly_analyses(user)
-        restore_check_result = await check_restore_streak_availability(user)
-        show_restore_btn = restore_check_result['available']
-        if has_analyses:
-             reply_markup = get_progress_keyboard_with_weekly(language, show_restore_button=show_restore_btn)
-        else:
-             reply_markup = get_progress_keyboard_without_weekly(language, show_restore_button=show_restore_btn)
+        view = await build_progress_screen_view(user, language)
         success = await safe_edit_message_text(
             message=callback.message,
-            text=progress_msg,
-            reply_markup=reply_markup
+            text=view['text'],
+            reply_markup=view['reply_markup'],
         )
         if success:
             logger.debug(f"[show_progress] Сообщение успешно обновлено для пользователя {user.id}")
@@ -103,6 +55,7 @@ async def show_progress(callback: CallbackQuery, user, language: str):
         )
         await callback.answer()
 
+
 @router.callback_query(F.data == "weekly_progress_list")
 async def show_weekly_progress_list(callback: CallbackQuery, user, language: str):
     """Показывает последний недельный анализ."""
@@ -111,13 +64,11 @@ async def show_weekly_progress_list(callback: CallbackQuery, user, language: str
         latest = await get_latest_weekly_analysis(user)
         if not latest:
             no_analysis_msg = get_message('weekly_analysis_not_found', language)
-            success = await safe_edit_message_text(
+            await safe_edit_message_text(
                 message=callback.message,
                 text=no_analysis_msg,
                 reply_markup=get_progress_keyboard_without_weekly(language)
             )
-            if success:
-                logger.debug(f"[show_weekly_progress_list] Сообщение 'нет анализа' отправлено.")
             await callback.answer()
             return
         await _show_weekly_analysis_page(callback.message, user, latest.week_start_date, language)
@@ -131,6 +82,7 @@ async def show_weekly_progress_list(callback: CallbackQuery, user, language: str
             reply_markup=get_progress_keyboard_without_weekly(language)
         )
         await callback.answer()
+
 
 @router.callback_query(F.data.startswith("weekly_nav:"))
 async def navigate_weekly_analysis(callback: CallbackQuery, user, language: str):
@@ -154,6 +106,7 @@ async def navigate_weekly_analysis(callback: CallbackQuery, user, language: str)
         )
         await callback.answer()
 
+
 @router.callback_query(F.data == "show_mood_chart_week")
 @requires_premium(alert_message_key='feature_requires_premium')
 async def send_mood_chart_week(callback: CallbackQuery, user, language: str, bot: Bot):
@@ -172,7 +125,10 @@ async def send_mood_chart_week(callback: CallbackQuery, user, language: str, bot
             reply_markup=dismiss_kb
         )
         await callback.answer()
-        logger.debug(f"[send_mood_chart_week] График отправлен в сообщении ID {sent_message.message_id} пользователю {user.telegram_id}")
+        logger.debug(
+            f"[send_mood_chart_week] График отправлен в сообщении ID {sent_message.message_id} "
+            f"пользователю {user.telegram_id}"
+        )
     except Exception as e:
         logger.error(f"[send_mood_chart_week] Ошибка генерации/отправки графика: {e}", exc_info=True)
         await callback.answer(get_message('error_generic', language), show_alert=True)
@@ -188,36 +144,30 @@ async def delete_chart_message(callback: CallbackQuery, bot: Bot):
     except Exception as e:
         logger.error(f"[delete_chart_message] Ошибка при удалении сообщения: {e}", exc_info=True)
 
+
 @router.callback_query(F.data == "restore_streak")
 async def handle_restore_streak_request(callback: CallbackQuery, user, language: str):
     """Обрабатывает запрос на восстановление серии."""
     logger.debug(f"[handle_restore_streak_request] Запрос от пользователя {user.id}")
     try:
-        restore_check_result = await check_restore_streak_availability(user)
-        if not restore_check_result['available']:
-             await show_progress(callback, user, language)
-             await callback.answer()
-             return
-        recoverable_dates = restore_check_result['dates']
-        if len(recoverable_dates) == 1:
-            message_text = get_message('restore_streak_info', language, tokens_cost=10)
-        elif len(recoverable_dates) == 2:
-            message_text = get_message('restore_streak_info', language, tokens_cost=10) 
-        else:
-            logger.error(f"[handle_restore_streak_request] check_restore_streak_availability вернула более 2 дат: {recoverable_dates}")
-            error_msg = get_message('error_generic', language)
+        view = await build_restore_streak_request_view(user, language)
+        if view.get('mode') == 'unavailable' or not view.get('available'):
+            await show_progress(callback, user, language)
+            await callback.answer()
+            return
+        if not view.get('success'):
             await safe_edit_message_text(
                 message=callback.message,
-                text=error_msg,
-                reply_markup=get_back_keyboard(language)
+                text=view.get('text') or get_message('error_generic', language),
+                reply_markup=view.get('reply_markup') or get_back_keyboard(language),
             )
             await callback.answer()
             return
-        keyboard = get_restore_date_selection_keyboard(language, recoverable_dates)
+
         await safe_edit_message_text(
             message=callback.message,
-            text=message_text,
-            reply_markup=keyboard
+            text=view['text'],
+            reply_markup=view['reply_markup'],
         )
         await callback.answer()
     except Exception as e:
@@ -229,6 +179,7 @@ async def handle_restore_streak_request(callback: CallbackQuery, user, language:
             reply_markup=get_back_keyboard(language)
         )
         await callback.answer()
+
 
 @router.callback_query(F.data.startswith("restore_streak_confirm:"))
 async def handle_restore_streak_confirm(callback: CallbackQuery, user, language: str):
@@ -243,18 +194,14 @@ async def handle_restore_streak_confirm(callback: CallbackQuery, user, language:
             target_date = date.fromisoformat(date_str)
         except ValueError:
             raise ValueError(f"Некорректный формат даты в callback_data: {date_str}")
-        restore_check_result = await check_restore_streak_availability(user)
-        if not restore_check_result['available'] or target_date not in restore_check_result['dates']:
-            message_text = get_message('restore_streak_unavailable', language)
+        use_case = await confirm_streak_restoration_use_case(user, target_date, language)
+        if use_case['refresh_progress']:
             await show_progress(callback, user, language)
-            await callback.message.answer(text=message_text)
+        if use_case.get('notify_mode') == 'message':
+            await callback.message.answer(text=use_case['alert_text'])
             await callback.answer()
             return
-        restoration_result = await attempt_streak_restoration(user, target_date, language)
-        message_text = restoration_result['message']
-        await show_progress(callback, user, language)
-        await callback.answer(text=message_text, show_alert=True)
-        await callback.answer()
+        await callback.answer(text=use_case['alert_text'], show_alert=True)
     except (ValueError, Exception) as e:
         logger.error(f"[handle_restore_streak_confirm] Ошибка: {e}", exc_info=True)
         error_msg = get_message('error_generic', language)
@@ -262,40 +209,20 @@ async def handle_restore_streak_confirm(callback: CallbackQuery, user, language:
         await callback.message.answer(text=error_msg)
         await callback.answer()
 
+
 async def _show_weekly_analysis_page(message, user, week_start_date: date, language: str):
-    """Вспомогательная функция для отображения анализа конкретной недели."""
-    logger.debug(f"[_show_weekly_analysis_page] Попытка показа анализа для недели {week_start_date} пользователя {user.id}")
+    """Transport: service payload → edit message."""
+    logger.debug(
+        f"[_show_weekly_analysis_page] Попытка показа анализа для недели "
+        f"{week_start_date} пользователя {user.id}"
+    )
     try:
-        analysis = await get_weekly_analysis_for_date(user, week_start_date)
-        if not analysis:
-            no_data_msg = get_message('weekly_analysis_not_found', language)
-            logger.debug(f"[_show_weekly_analysis_page] Анализ для недели {week_start_date} не найден.")
-            await safe_edit_message_text(
-                message=message,
-                text=no_data_msg,
-                reply_markup=get_weekly_navigation_keyboard(language, week_start_date)
-            )
-            return
-        format_result = await format_weekly_analysis_for_display(analysis, user, language)
-        if not format_result['success']:
-            logger.error(f"[_show_weekly_analysis_page] Ошибка форматирования анализа: {format_result.get('error')}")
-            error_msg = get_message('error_generic', language)
-            await safe_edit_message_text(
-                message=message,
-                text=error_msg,
-                reply_markup=get_progress_keyboard_without_weekly(language)
-            )
-            return
-        final_msg = format_result['formatted_text']
-        success = await safe_edit_message_text(
+        view = await build_weekly_analysis_page_view(user, week_start_date, language)
+        await safe_edit_message_text(
             message=message,
-            text=final_msg,
-            reply_markup=get_weekly_navigation_keyboard(language, week_start_date)
+            text=view['text'],
+            reply_markup=view['reply_markup'],
         )
-        if success:
-            logger.debug(f"[_show_weekly_analysis_page] Сообщение анализа успешно обновлено.")
-        else:
-            logger.warning(f"[_show_weekly_analysis_page] Не удалось обновить сообщение анализа.")
     except Exception as e:
         logger.error(f"[_show_weekly_analysis_page] Критическая ошибка: {e}", exc_info=True)
         error_msg = get_message('error_generic', language)
@@ -304,6 +231,7 @@ async def _show_weekly_analysis_page(message, user, week_start_date: date, langu
             text=error_msg,
             reply_markup=get_progress_keyboard_without_weekly(language)
         )
+
 
 @router.callback_query(F.data == "weekly_details")
 async def show_detailed_progress(callback: CallbackQuery, user, language: str):
@@ -322,7 +250,6 @@ async def show_detailed_progress(callback: CallbackQuery, user, language: str):
             return
 
         details_msg = details_result['message']
-
         await safe_edit_message_text(
             message=callback.message,
             text=details_msg,

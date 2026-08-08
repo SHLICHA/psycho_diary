@@ -562,8 +562,75 @@ class FullDayAnalysisService:
 
 full_day_analysis_service = FullDayAnalysisService()
 
+
 async def perform_full_day_analysis(user: User, target_date: date) -> Dict[str, Any]:
     """
     Удобная асинхронная функция для выполнения полного анализа дня.
     """
     return await full_day_analysis_service.perform_full_day_analysis(user, target_date)
+
+
+async def build_full_day_reanalysis_notification(
+    user: User,
+    target_date: date,
+    language: str,
+) -> Dict[str, Any]:
+    """
+    Use-case: выполнить полный анализ дня и собрать payload уведомления (без send).
+
+    Returns:
+        {
+          success: bool,
+          text: str,
+          reply_markup: Optional[InlineKeyboardMarkup],
+          error: Optional[str],
+        }
+    """
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from messages import get_message
+
+    try:
+        analysis_result = await perform_full_day_analysis(user, target_date)
+        year, month, day = target_date.year, target_date.month, target_date.day
+
+        if analysis_result.get("success"):
+            daily_analysis = analysis_result.get("daily_analysis")
+            text = get_message("analysis_recalculated", language)
+            if daily_analysis and getattr(daily_analysis, "overall_analysis_text", None):
+                text += f"\n\n{daily_analysis.overall_analysis_text[:200]}..."
+            reply_markup = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="🔬 Просмотреть анализ",
+                            callback_data=f"view_full_day_analysis:{year}:{month}:{day}",
+                        )
+                    ]
+                ]
+            )
+            return {
+                "success": True,
+                "text": text,
+                "reply_markup": reply_markup,
+                "error": None,
+            }
+
+        error_msg = analysis_result.get("message") or ""
+        return {
+            "success": False,
+            "text": f"{get_message('error_processing', language)}: {error_msg}",
+            "reply_markup": None,
+            "error": error_msg or "full_day_analysis_failed",
+        }
+    except Exception as exc:
+        logger.error(
+            f"[build_full_day_reanalysis_notification] Ошибка для {user.telegram_id}, "
+            f"{target_date}: {exc}",
+            exc_info=True,
+        )
+        return {
+            "success": False,
+            "text": get_message("error_processing", language),
+            "reply_markup": None,
+            "error": str(exc),
+        }

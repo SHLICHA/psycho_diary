@@ -1,11 +1,14 @@
 from types import SimpleNamespace
 
+import pytest
+
 from bot.presenters.diary_presenter import (
     build_analysis_result_payload,
     build_analysis_error_payload,
     build_new_entry_validation_failure_view,
     build_new_entry_success_text,
     build_clarification_questions_view,
+    build_entry_saved_view,
 )
 
 
@@ -100,3 +103,42 @@ def test_build_clarification_questions_view_contains_numbered_questions():
     assert '1. Q1?' in view['text']
     assert '2. Q2?' in view['text']
     assert view['reply_markup'].inline_keyboard[0][0].callback_data == 'main_menu'
+
+
+@pytest.mark.asyncio
+async def test_build_entry_saved_view_with_analysis(mocker):
+    analysis = SimpleNamespace(mood_score=8, comment='ok', recommendation='keep going')
+    entry = object()
+    user = object()
+    keyboard = object()
+
+    mocker.patch(
+        'diary.services.diary_display_service.diary_display_service.build_entry_result_keyboard',
+        new=mocker.AsyncMock(return_value=keyboard),
+    )
+
+    view = await build_entry_saved_view(
+        entry=entry,
+        analysis=analysis,
+        user=user,
+        language='ru',
+    )
+
+    assert view['reply_markup'] is keyboard
+    assert view['should_clear_state'] is True
+    assert isinstance(view['text'], str)
+    assert len(view['text']) > 0
+
+
+@pytest.mark.asyncio
+async def test_build_entry_saved_view_without_analysis():
+    view = await build_entry_saved_view(
+        entry=object(),
+        analysis=None,
+        user=object(),
+        language='ru',
+    )
+
+    assert view['should_clear_state'] is True
+    assert view['reply_markup'].inline_keyboard[0][0].callback_data == 'main_menu'
+    assert isinstance(view['text'], str)

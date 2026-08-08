@@ -115,6 +115,28 @@ class DiaryDisplayService:
             )
             return {'success': False, 'error': 'unexpected'}
 
+    async def build_day_first_entry_view(
+        self,
+        user: User,
+        target_date: date,
+        language: str,
+    ) -> Dict[str, Any]:
+        """Alias for day-first entry selection (sorted by created_at, first or empty)."""
+        return await self.build_day_entries_view(user, target_date, language)
+
+    async def submit_analysis_rating_use_case(
+        self,
+        analysis_id: int,
+        user: User,
+        rating: int,
+    ) -> Dict[str, Any]:
+        """Validate rating bounds and submit analysis rating."""
+        if not (1 <= rating <= 5):
+            logger.warning(f"Некорректная оценка: {rating}")
+            return {'success': False, 'error': 'invalid_rating'}
+
+        return await self.submit_rating(analysis_id, user, rating)
+
     async def build_entry_delete_confirmation_view(
         self,
         user: User,
