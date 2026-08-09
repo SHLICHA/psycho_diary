@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 
@@ -16,9 +17,19 @@ def normalize_transport_mode(mode: str | None) -> str:
     return value
 
 
+def _resolve_ca_path(app_settings: Any, ca_path: str) -> Path:
+    path = Path(ca_path)
+    if path.is_absolute():
+        return path
+    base_dir = Path(getattr(app_settings, 'BASE_DIR', Path.cwd()))
+    return base_dir / path
+
+
 def collect_preflight_errors(app_settings: Any, mode: str | None = None) -> list[str]:
     """Return list of MAX runtime config errors, empty list means config is valid."""
-    selected_mode = normalize_transport_mode(mode or getattr(app_settings, 'MAX_TRANSPORT_MODE', 'polling'))
+    selected_mode = normalize_transport_mode(
+        mode or getattr(app_settings, 'MAX_TRANSPORT_MODE', 'polling')
+    )
     errors: list[str] = []
 
     if not (getattr(app_settings, 'MAX_BOT_TOKEN', '') or '').strip():
@@ -45,12 +56,31 @@ def collect_preflight_errors(app_settings: Any, mode: str | None = None) -> list
     if state_ttl <= 0:
         errors.append('MAX_STATE_TTL_SECONDS must be > 0')
 
+    ca_paths = [
+        str(path).strip()
+        for path in (getattr(app_settings, 'MAX_API_CA_CERT_PATHS', []) or [])
+        if str(path).strip()
+    ]
+    if ca_paths:
+        missing = [
+            str(_resolve_ca_path(app_settings, p))
+            for p in ca_paths
+            if not _resolve_ca_path(app_settings, p).is_file()
+        ]
+        if missing:
+            errors.append(
+                'MAX_API_CA_CERT_PATHS: missing CA certificate file(s): '
+                + ', '.join(missing)
+            )
+
     if selected_mode == 'webhook':
         if not (getattr(app_settings, 'MAX_WEBHOOK_URL', '') or '').strip():
             errors.append('MAX_WEBHOOK_URL is empty for webhook mode')
     else:
         polling_timeout = int(getattr(app_settings, 'MAX_POLLING_TIMEOUT_SECONDS', 30))
-        polling_idle_sleep = float(getattr(app_settings, 'MAX_POLLING_IDLE_SLEEP_SECONDS', 1.5))
+        polling_idle_sleep = float(
+            getattr(app_settings, 'MAX_POLLING_IDLE_SLEEP_SECONDS', 1.5)
+        )
         if polling_timeout <= 0:
             errors.append('MAX_POLLING_TIMEOUT_SECONDS must be > 0')
         if polling_idle_sleep < 0:

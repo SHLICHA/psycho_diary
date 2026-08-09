@@ -25,6 +25,7 @@ RUN apt-get update \
         libpq-dev \
         ffmpeg \
         netcat-traditional \
+        ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Создание рабочей директории
@@ -48,6 +49,23 @@ RUN pip install --no-cache-dir aiogram==3.1.1 \
 
 # Копирование всего приложения
 COPY . /app/
+
+# CA Минцифры → system trust store (нужно для TLS к platform-api2.max.ru)
+RUN certs_installed=0; \
+    for cert in \
+        /app/russian_trusted_sub_ca_2024_pem.crt \
+        /app/russian_trusted_root_ca_pem.crt \
+        /app/russian_trusted_sub_ca_pem.crt \
+        /app/russian_trusted_sub_ca_gost_2025_pem.crt \
+        /app/russian_trusted_root_ca_gost_2025_pem.crt; do \
+        if [ -f "$cert" ]; then \
+            cp "$cert" "/usr/local/share/ca-certificates/$(basename "$cert")"; \
+            certs_installed=1; \
+        fi; \
+    done; \
+    if [ "$certs_installed" = "1" ]; then \
+        update-ca-certificates; \
+    fi
 
 # Создание каталогов для статики и медиа (для Nginx, если понадобится)
 RUN mkdir -p /app/staticfiles && mkdir -p /app/media

@@ -195,6 +195,8 @@ DEEPSEEK_API_KEY = config('DEEPSEEK_API_KEY')
 TELEGRAM_BOT_TOKEN = config('TELEGRAM_BOT_TOKEN')
 AI_INACTIVITY_DAYS = config('AI_INACTIVITY_DAYS', default=30, cast=int)
 DEVELOPER_CHAT_ID = os.getenv('DEVELOPER_CHAT_ID')
+# MAX user id разработчика (для admin-команд без связанного telegram_id)
+DEVELOPER_MAX_USER_ID = os.getenv('DEVELOPER_MAX_USER_ID', '')
 CRYPTOGRAPHY_KEY = os.getenv('CRYPTOGRAPHY_KEY')
 
 YOOKASSA_SHOP_ID = os.getenv('YOOKASSA_SHOP_ID')
@@ -348,20 +350,62 @@ EMAIL_MERGE_WEB_CONFIRM_FALLBACK_ENABLED = config(
 )
 
 # ============================================================
+# Публичный домен (единый источник webhook URL для MAX и оплаты)
+# ============================================================
+# Пусто → локальная разработка (MAX polling, payment webhook выключен).
+# Пример prod: https://www.psychodiary.ru
+from core.public_domain import (
+    MAX_WEBHOOK_PATH,
+    PAYMENT_WEBHOOK_PATH,
+    normalize_public_domain,
+    resolve_max_transport_mode,
+    resolve_max_webhook_url,
+    resolve_payment_webhook_url,
+)
+
+BOT_PUBLIC_DOMAIN = normalize_public_domain(config('BOT_PUBLIC_DOMAIN', default=''))
+PAYMENT_WEBHOOK_URL = resolve_payment_webhook_url(
+    public_domain=BOT_PUBLIC_DOMAIN,
+    explicit_webhook_url=config('PAYMENT_WEBHOOK_URL', default=''),
+)
+PAYMENT_WEBHOOK_ENABLED = bool(PAYMENT_WEBHOOK_URL)
+
+# ============================================================
 # MAX transport (поэтапное включение)
 # ============================================================
 MAX_TRANSPORT_ENABLED = config('MAX_TRANSPORT_ENABLED', default=False, cast=bool)
-MAX_TRANSPORT_MODE = config('MAX_TRANSPORT_MODE', default='polling').strip().lower()
-if MAX_TRANSPORT_MODE not in {'polling', 'webhook'}:
-    MAX_TRANSPORT_MODE = 'polling'
+# Пустой MAX_TRANSPORT_MODE → auto: webhook при BOT_PUBLIC_DOMAIN / MAX_WEBHOOK_URL, иначе polling.
+_MAX_TRANSPORT_MODE_RAW = config('MAX_TRANSPORT_MODE', default='').strip()
+_MAX_WEBHOOK_URL_RAW = config('MAX_WEBHOOK_URL', default='')
+MAX_WEBHOOK_URL = resolve_max_webhook_url(
+    public_domain=BOT_PUBLIC_DOMAIN,
+    explicit_webhook_url=_MAX_WEBHOOK_URL_RAW,
+)
+MAX_TRANSPORT_MODE = resolve_max_transport_mode(
+    explicit_mode=_MAX_TRANSPORT_MODE_RAW,
+    public_domain=BOT_PUBLIC_DOMAIN,
+    explicit_webhook_url=_MAX_WEBHOOK_URL_RAW,
+)
 MAX_BOT_TOKEN = config('MAX_BOT_TOKEN', default='')
 MAX_API_BASE_URL = config('MAX_API_BASE_URL', default='https://platform-api2.max.ru')
 MAX_API_TIMEOUT_SECONDS = config('MAX_API_TIMEOUT_SECONDS', default=10, cast=int)
 MAX_WEBHOOK_SECRET = config('MAX_WEBHOOK_SECRET', default='')
-MAX_WEBHOOK_URL = config('MAX_WEBHOOK_URL', default='')
 MAX_POLLING_TIMEOUT_SECONDS = config('MAX_POLLING_TIMEOUT_SECONDS', default=30, cast=int)
 MAX_POLLING_IDLE_SLEEP_SECONDS = config('MAX_POLLING_IDLE_SLEEP_SECONDS', default=1.5, cast=float)
 MAX_RATE_LIMIT_RPS = config('MAX_RATE_LIMIT_RPS', default=10, cast=float)
 MAX_RATE_LIMIT_BURST = config('MAX_RATE_LIMIT_BURST', default=50, cast=int)
 MAX_MESSAGE_MAX_LENGTH = config('MAX_MESSAGE_MAX_LENGTH', default=3500, cast=int)
 MAX_STATE_TTL_SECONDS = config('MAX_STATE_TTL_SECONDS', default=3600, cast=int)
+# CA Минцифры для TLS к platform-api2.max.ru (через запятую).
+# По умолчанию: intermediate + root из корня репозитория.
+_default_max_api_ca_paths = ','.join(
+    [
+        str(BASE_DIR / 'russian_trusted_sub_ca_2024_pem.crt'),
+        str(BASE_DIR / 'russian_trusted_root_ca_pem.crt'),
+    ]
+)
+MAX_API_CA_CERT_PATHS = [
+    path.strip()
+    for path in config('MAX_API_CA_CERT_PATHS', default=_default_max_api_ca_paths).split(',')
+    if path.strip()
+]

@@ -46,6 +46,22 @@ class TestAdminService:
         """Тест: некорректное значение DEVELOPER_CHAT_ID."""
         assert admin_service.is_admin(12345) is False
 
+    # === is_developer_user ===
+
+    def test_is_developer_user_staff(self):
+        user = baker.make(User, is_staff=True, telegram_id=None, max_id=1)
+        assert admin_service.is_developer_user(user) is True
+
+    @override_settings(DEVELOPER_MAX_USER_ID='777', DEVELOPER_CHAT_ID='')
+    def test_is_developer_user_by_max_id(self):
+        user = baker.make(User, is_staff=False, is_superuser=False, telegram_id=None, max_id=777)
+        assert admin_service.is_developer_user(user) is True
+
+    @override_settings(DEVELOPER_MAX_USER_ID='777', DEVELOPER_CHAT_ID='')
+    def test_is_developer_user_wrong_max_id(self):
+        user = baker.make(User, is_staff=False, is_superuser=False, telegram_id=None, max_id=1)
+        assert admin_service.is_developer_user(user) is False
+
     # === get_users_for_broadcast ===
 
     @pytest.fixture

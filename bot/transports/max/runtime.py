@@ -53,7 +53,7 @@ class MaxTransportCoordinator:
             try:
                 registered = await self.client.register_webhook(
                     webhook_url=webhook_url,
-                    update_types=['message_callback'],
+                    update_types=['message_created', 'bot_started', 'message_callback'],
                 )
                 duration_ms = (time.perf_counter() - started_at) * 1000
                 await self._record_runtime_metric(

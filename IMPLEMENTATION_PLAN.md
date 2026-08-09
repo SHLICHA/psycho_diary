@@ -518,7 +518,7 @@
 ##### API и транспорт
 
 - [x] Учтена взаимоисключаемость webhook и polling (одновременно не использовать).
-- [ ] Реализован webhook-first режим для production.
+- [x] Реализован webhook-first режим для production.
 - [x] Реализован polling режим только для dev.
 - [x] Авторизация только через заголовок Authorization.
 - [x] Отправка сообщений учитывает, что chat_id/user_id передаются как query-параметры.
@@ -573,142 +573,139 @@
 
 ##### Telegram handlers (Wave 1)
 
-- [ ] /start (cmd_start)
-- [ ] onboarding (согласия, timezone, first entry)
-- [ ] /help и help callbacks
-- [ ] /settings и изменение email
-- [ ] fallback handler (текст/голос вне контекста)
-- [ ] Изменение email в settings/profile переведено на единый identity policy + explicit confirm flow.
+- [x] /start (cmd_start)
+- [x] onboarding (согласия, timezone, first entry)
+- [x] /help и help callbacks
+- [x] /settings и изменение email
+- [x] fallback handler (текст/голос вне контекста)
+- [x] Изменение email в settings/profile переведено на единый identity policy + explicit confirm flow.
 
 ##### MAX handlers (Wave 1)
 
-- [ ] /start
-- [ ] onboarding flow (email/skip)
-- [ ] /help
-- [ ] /settings
-- [ ] fallback на неизвестные команды/сообщения
-- [ ] Изменение email в settings переведено на единый identity policy + explicit confirm flow.
+- [x] /start
+- [x] onboarding flow (agreement → timezone → first entry)
+- [x] /help
+- [x] /settings
+- [x] fallback на неизвестные команды/сообщения
+- [x] Изменение email в settings переведено на единый identity policy + explicit confirm flow. (profile Wave later)
 
 ##### Общие проверки parity (Wave 1)
 
-- [ ] Одинаковые тексты и кнопки по сценарию старт/онбординг.
-- [ ] Одинаковые состояния завершения onboarding.
-- [ ] Одинаковая логика email-linking и conflict prompt.
-- [ ] Одинаковая логика конфликтов email (confirm required) в web/profile/settings.
+- [x] Одинаковые тексты и кнопки по сценарию старт/онбординг (те же use cases + keyboards).
+- [x] Одинаковые состояния завершения onboarding.
+- [x] Одинаковая логика email-linking и conflict prompt (MAX profile email + merge_requester).
+- [x] Одинаковая логика конфликтов email (confirm required) в profile (settings email = profile path).
 
 #### Wave 2: пользовательские сценарии
 
 ##### Telegram handlers (Wave 2)
 
-- [ ] создание дневниковой записи (текст)
-- [ ] создание дневниковой записи (голос)
-- [ ] редактирование/удаление/комментарий к записи
-- [ ] календарь и навигация
-- [ ] /history и пагинация истории
-- [ ] /progress (серии, агрегаты, графики)
+- [x] создание дневниковой записи (текст)
+- [x] создание дневниковой записи (голос)
+- [x] редактирование/удаление/комментарий к записи
+- [x] календарь и навигация
+- [x] /history и пагинация истории (в psycho_diary = archive/calendar)
+- [x] /progress (серии, агрегаты, графики)
 
 ##### MAX handlers (Wave 2)
 
-- [ ] обработка входящего текста как дневниковой записи
-- [ ] поддержка ключевых callback-переходов по дневнику
-- [ ] /history и пагинация (history_page)
-- [ ] /progress
+- [x] обработка входящего текста как дневниковой записи (после `new_entry` FSM)
+- [x] поддержка ключевых callback-переходов по дневнику (edit/delete/comment/prev/next)
+- [x] archive/calendar + пагинация дня (аналог history)
+- [x] /progress
+- [x] голос в MAX (inbound audio → STT → diary/tasks/therapy FSM)
 
 ##### Общие проверки parity (Wave 2)
 
-- [ ] Одинаковый расчет и отображение истории.
-- [ ] Одинаковые правила доступа к history/progress (onboarding gate).
-- [ ] Одинаковая доменная обработка записей и аналитики.
+- [x] Одинаковый расчет и отображение истории/архива (общие display/calendar services).
+- [x] Одинаковые правила доступа к progress (тот же `build_progress_screen_view`).
+- [x] Одинаковая доменная обработка записей и аналитики (`process_new_entry_use_case` и др.).
 
 #### Wave 3: коммерческий контур
 
 ##### Telegram handlers (Wave 3)
 
-- [ ] /premium
-- [ ] выбор пакета токенов
-- [ ] ввод email для чека (если требуется)
-- [ ] обработка статуса оплаты
-- [ ] Ввод email для чека использует единый identity policy + explicit confirm flow при конфликте.
+- [x] /premium (`/pay`, `settings_premium`)
+- [x] выбор пакета токенов
+- [x] ввод email для чека (если требуется)
+- [x] обработка статуса оплаты (webhook/sync через PaymentService; transport показывает confirmation_url)
+- [x] Ввод email для чека использует единый identity policy + explicit confirm flow при конфликте.
 
 ##### MAX handlers (Wave 3)
 
-- [ ] /premium
-- [ ] callback premium:token_amount
-- [ ] callback premium_receipt:yes|no:token_amount
-- [ ] ввод email для чека и подтверждение оплаты
-- [ ] Ввод email для чека использует единый identity policy + explicit confirm flow при конфликте.
+- [x] /premium (`/pay`, `/premium`, `settings_premium`)
+- [x] callback `purchase_subscription:*` / `purchase_tokens:*` (TG parity; не wb `premium:`)
+- [x] ввод email для чека и confirmation_url
+- [x] email conflict → merge_confirmation keyboard (тот же PaymentService view)
+- [x] `cancel_payment`
 
 ##### Общие проверки parity (Wave 3)
 
-- [ ] Одинаковые бизнес-правила premium/token purchase.
-- [ ] Одинаковая идемпотентность webhook-обновлений оплаты.
-- [ ] Одинаковые пост-эффекты (баланс/статус/уведомления).
-- [ ] Одинаковая обработка конфликтов email в платёжном флоу (confirm required).
+- [x] Одинаковые бизнес-правила premium/token purchase (shared PaymentService).
+- [x] Одинаковая идемпотентность webhook-обновлений оплаты (общий webhook, не MAX-specific).
+- [x] Одинаковые пост-эффекты (баланс/статус через PaymentService).
+- [x] Одинаковая обработка конфликтов email в платёжном флоу (confirm required).
 
 #### Wave 4: коммуникации
 
 ##### Telegram handlers (Wave 4)
 
-- [ ] /feedback
-- [ ] отправка текстового feedback
-- [ ] отправка голосового feedback
-- [ ] отправка feedback с фото
-- [ ] /support и создание тикета
+- [x] /feedback
+- [x] отправка текстового feedback
+- [x] отправка голосового feedback
+- [x] отправка feedback с фото
+- [x] /support и создание тикета (в psycho_diary = /feedback)
 
 ##### MAX handlers (Wave 4)
 
-- [ ] feedback flow
-- [ ] support flow
-- [ ] reply flow для пользовательских ответов
+- [x] feedback flow (`/feedback`, text → skip_photo → submit_user_feedback_use_case)
+- [x] support flow (`/support` alias → тот же feedback)
+- [x] reply flow для пользовательских ответов (через submit; admin reply → Wave 5)
+- [x] голос/фото feedback в MAX (inbound media + STT blob / photo submit)
 
 ##### Общие проверки parity (Wave 4)
 
-- [ ] Одинаковая логика создания/маршрутизации тикетов.
-- [ ] Source-aware корректность (platform, source_user_id, source_chat_id).
-- [ ] Одинаковые статусы и жизненный цикл обращений.
+- [x] Одинаковая логика создания обращений (`submit_user_feedback_use_case`).
+- [x] Persist независимо от transport notify.
+- [x] Source-aware MAX media attachments (audio/image extract + download).
+- [x] Одинаковые статусы обращения в БД.
 
 #### Wave 5: админ-контур
 
 ##### Telegram handlers (Wave 5)
 
-- [ ] /admin
-- [ ] /stats
-- [ ] /status
-- [ ] /health
-- [ ] /open_tickets
-- [ ] /broadcast + состояние ожидания сообщения
-- [ ] /reply
+- [x] /stats
+- [x] /feedbacks (open tickets)
+- [x] /broadcast + состояние ожидания сообщения
+- [x] reply на feedback (admin)
+- [ ] /admin (в TG нет отдельной команды — через /stats|/broadcast|/feedbacks)
+- [ ] /status (нет в psycho_diary TG)
+- [ ] /health (нет в psycho_diary TG)
 
 ##### MAX handlers (Wave 5)
 
-- [ ] /admin
-- [ ] /stats
-- [ ] /status
-- [ ] /health
-- [ ] /open_tickets
-- [ ] /broadcast + STATE_WAITING_FOR_BROADCAST_MESSAGE
-- [ ] /reply
+- [x] /admin (меню команд)
+- [x] /stats (текстовый отчёт + графики через MaxClient.send_image)
+- [x] /feedbacks (список + nav + refresh/close)
+- [x] /broadcast + FSM type → message → `send_max_broadcast_message`
+- [x] reply_feedback_* + admin reply FSM + notify MAX/TG best-effort
+- [ ] /status /health (не в TG psycho_diary — deferred)
 
 ##### MAX callback handlers (обязательный перечень)
 
-- [ ] skip_email_registration
-- [ ] cancel_settings_email
-- [ ] reenter_email
-- [ ] link_by_email:{email}
-- [ ] feedback:up:{nm_id}
-- [ ] feedback:down:{nm_id}
-- [ ] premium:{token_amount}
-- [ ] premium_receipt:{yes|no}:{token_amount}
-- [ ] history_page:{N}
-- [ ] broadcast_cancel
+- [x] broadcast_important / broadcast_regular / cancel_broadcast
+- [x] feedback_next / feedback_prev / refresh_feedbacks_list / close_feedback_list
+- [x] reply_feedback_{id} / cancel_reply
+- [x] Wave 1–4 callbacks уже покрыты (settings/premium/history/email/diary)
+- [ ] wb_analyzer-only (`premium:{n}`, `feedback:up/down`, `skip_email_registration`) — N/A для psycho_diary
 
 ##### Общие проверки parity
 
-- [ ] Одинаковые права доступа admin-only.
-- [ ] Одинаковая статистика платформ и health-диагностика.
-- [ ] Одинаковая логика рассылок и отмены broadcast-состояния.
+- [x] Одинаковые права admin-only (`is_developer_user`: staff / privileged / DEVELOPER_CHAT_ID / DEVELOPER_MAX_USER_ID).
+- [x] Одинаковая статистика (текст); health-диагностика deferred.
+- [x] Одинаковая логика рассылок и отмены broadcast-состояния (канал MAX → max_id).
 
-Результат фазы: функциональная идентичность MAX и Telegram.
+Результат фазы: функциональная идентичность MAX и Telegram (по контуру psycho_diary).
 
 #### 7.1 Глобальный чек-лист покрытия хендлеров (ничего не пропустить)
 
@@ -731,19 +728,42 @@
 
 ##### MAX
 
-- [ ] start
-- [ ] onboarding
-- [ ] help
-- [ ] settings
-- [ ] diary/messages
-- [ ] history
-- [ ] progress
-- [ ] payments/premium
-- [ ] feedback
-- [ ] support
-- [ ] admin
-- [ ] callbacks
-- [ ] fallback
+- [x] start
+- [x] onboarding
+- [x] help
+- [x] settings
+- [x] diary/messages
+- [x] history
+- [x] progress
+- [x] payments/premium
+- [x] feedback
+- [x] support
+- [x] admin
+- [x] tasks
+- [x] profile
+- [x] therapy chat
+- [x] callbacks
+- [x] fallback
+
+### Phase 7.1+ Wave 6: tasks / profile / therapy (2026-08-08)
+
+##### MAX handlers (Wave 6)
+
+- [x] tasks: list/paginate/complete FSM/skip/delete/history/restore/analysis (`bot/handlers/max/tasks.py`)
+- [x] therapy chat: `start_therapy_chat` + FSM turns + tokens (`bot/handlers/max/therapy.py`)
+- [x] profile: screen/edit fields/email/delete/referral; export deferred (`bot/handlers/max/profile.py`)
+- [x] `merge_requester:yes|no:{id}` в MAX
+- [x] `process_profile_field_update(..., source_platform='max')`
+- [x] task impact chart via MaxClient.send_image; profile export file still deferred; voice inbound done in Wave 7
+
+### Phase 7.2 Wave 7: MAX media inbound/outbound (2026-08-08)
+
+- [x] `MaxMediaInfo` + extract attachments в `normalize_update`
+- [x] `MaxClient.download_file` / `upload_bytes` / `send_image`
+- [x] Voice STT для diary/tasks/therapy/onboarding FSM
+- [x] Feedback voice + photo
+- [x] Admin stats charts + task impact chart
+- [ ] profile export .docx file send (deferred)
 
 ### Phase 8. Тестирование и quality gates
 
@@ -875,6 +895,14 @@
 | 2026-08-08 | API Layer Phase C (voice) | Общий `process_voice_bytes` + `POST /api/v1/entries/voice/` (multipart) → SpeechKit/DeepSeek → `process_new_entry_use_case`; Telegram `process_voice_message` переведён на общий helper | bot/utils/audio_utils.py, api/views.py, tests/test_phase_c_voice_api.py, API_LAYER_PLAN.md, FRONTEND_API_REFERENCE.md | Низкий: bot path через тот же STT helper; AI через существующий use case | `pytest -q tests/test_phase_c_voice_api.py` (**5 passed**) | Выполнено |
 | 2026-08-08 | API Layer Phase D (admin) | Admin REST: feedback list/detail/reply, Excel export, stats; `AdminDeveloperPermission` + throttle `admin_mutation` | api/views_admin.py, api/permissions.py, api/urls.py, api/throttling.py, tests/test_phase_d_admin_api.py, API_LAYER_PLAN.md, FRONTEND_API_REFERENCE.md | Средний: строгий admin gate; reply persist даже при fail notify | `pytest -q tests/test_phase_d_admin_api.py` (**4 passed**) | Выполнено |
 | 2026-08-08 | API Layer Phase E (legacy align) | Tasks complete через use case + AI analysis; progress list через ProgressService; serialize_task_completion_analysis | api/views.py, api/serializers.py, api/service_bridge.py, tests/test_phase_e_api.py, FRONTEND_API_REFERENCE.md, API_LAYER_PLAN.md | Средний: breaking — complete без текстов → 400 | `pytest -q tests/test_phase_e_api.py` + smoke/progress (**5 passed**) | Выполнено |
+| 2026-08-08 | Phase 7 Wave 1 MAX parity | MAX product router: start/onboarding/help/settings/fallback поверх тех же use cases; get_or_create_by_max_id; webhook update_types расширены; merge сохранён | bot/handlers/max/*, bot/transports/max/inbound.py, runtime.py, diary/services/user_service.py, api/views.py, tests/test_max_wave1_handlers.py, IMPLEMENTATION_PLAN.md | Средний: MAX_TRANSPORT_ENABLED включает полный dispatch | `pytest -q tests/test_max_wave1_handlers.py` (**6 passed**) + inbound/webhook | Выполнено |
+| 2026-08-08 | Phase 7 Wave 2 MAX parity | Diary/archive/progress: new_entry FSM, clarification/edit/comment, calendar nav, entry pagination, progress screen; voice deferred | bot/handlers/max/diary.py, callbacks.py, messages.py, tests/test_max_wave2_handlers.py, IMPLEMENTATION_PLAN.md | Средний: те же use cases что TG | `pytest -q tests/test_max_wave2_handlers.py tests/test_max_wave1_handlers.py` (**11 passed**) | Выполнено |
+| 2026-08-08 | Phase 7 Wave 3 MAX parity | Premium/tokens: menu, subscription/token purchase, email FSM, merge confirm; `/pay` `/premium` | bot/handlers/max/payments.py, callbacks.py, messages.py, tests/test_max_wave3_handlers.py, IMPLEMENTATION_PLAN.md | Средний: shared PaymentService | `pytest -q tests/test_max_wave3_handlers.py` + w1/w2 (**17 passed**) | Выполнено |
+| 2026-08-08 | Phase 7 Wave 4 MAX parity | Feedback/support: `/feedback` `/support`, text→skip_photo→use case; photo/voice deferred | bot/handlers/max/feedback.py, callbacks.py, messages.py, tests/test_max_wave4_handlers.py, IMPLEMENTATION_PLAN.md | Низкий/средний: notify best-effort | `pytest -q tests/test_max_wave4_handlers.py` (**4 passed**) | Выполнено |
+| 2026-08-08 | Phase 7 Wave 5 MAX parity | Admin: `/admin` `/stats` `/feedbacks` `/broadcast` + reply; `is_developer_user` + `DEVELOPER_MAX_USER_ID`; MAX broadcast | bot/handlers/max/admin.py, admin_service.py, settings, tests/test_max_wave5_handlers.py, IMPLEMENTATION_PLAN.md | Средний: admin gate + broadcast to max_id | `pytest -q tests/test_max_wave5_handlers.py` (**7 passed**) | Выполнено |
+| 2026-08-08 | Phase 7 Wave 6 MAX parity | Tasks + therapy chat + profile/email + merge_requester; source_platform=max | bot/handlers/max/{tasks,therapy,profile}.py, user_profile_service.py, tests/test_max_wave6_handlers.py, IMPLEMENTATION_PLAN.md | Средний: tokens/therapy + merge | `pytest -q tests/test_max_wave6_handlers.py` (**7 passed**) | Выполнено |
+| 2026-08-08 | Phase 7 Wave 7 MAX media | Inbound audio/image + STT; feedback voice/photo; upload/send_image for charts | inbound.py, max/client.py, max/media.py, messages/feedback/tasks/admin, tests/test_max_wave7_handlers.py | Средний: download/STT/upload | `pytest -q tests/test_max_wave7_handlers.py` (**5 passed**) | Выполнено |
+| 2026-08-08 | MAX Минцифра CA TLS | `MAX_API_CA_CERT_PATHS` + SSL context в MaxClient; Docker update-ca-certificates; preflight check | settings, client.py, preflight.py, Dockerfile, docker-compose.yml, .env.example, tests | Средний: без CA TLS к MAX падает | unit CA + docker build | Выполнено |
 
 ---
 

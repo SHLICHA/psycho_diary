@@ -57,8 +57,10 @@ services:
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
       - LOG_LEVEL=${LOG_LEVEL}
+      - BOT_PUBLIC_DOMAIN=${BOT_PUBLIC_DOMAIN:-}
+      - PAYMENT_WEBHOOK_URL=${PAYMENT_WEBHOOK_URL:-}
       - MAX_TRANSPORT_ENABLED=${MAX_TRANSPORT_ENABLED:-false}
-      - MAX_TRANSPORT_MODE=${MAX_TRANSPORT_MODE:-polling}
+      - MAX_TRANSPORT_MODE=${MAX_TRANSPORT_MODE:-}
       - MAX_BOT_TOKEN=${MAX_BOT_TOKEN:-}
       - MAX_API_BASE_URL=${MAX_API_BASE_URL:-https://platform-api2.max.ru}
       - MAX_API_TIMEOUT_SECONDS=${MAX_API_TIMEOUT_SECONDS:-10}
@@ -126,8 +128,10 @@ services:
       - REDIS_PORT=${REDIS_PORT}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+      - BOT_PUBLIC_DOMAIN=${BOT_PUBLIC_DOMAIN:-}
+      - PAYMENT_WEBHOOK_URL=${PAYMENT_WEBHOOK_URL:-}
       - MAX_TRANSPORT_ENABLED=${MAX_TRANSPORT_ENABLED:-false}
-      - MAX_TRANSPORT_MODE=${MAX_TRANSPORT_MODE:-polling}
+      - MAX_TRANSPORT_MODE=${MAX_TRANSPORT_MODE:-}
       - MAX_BOT_TOKEN=${MAX_BOT_TOKEN:-}
       - MAX_API_BASE_URL=${MAX_API_BASE_URL:-https://platform-api2.max.ru}
       - MAX_API_TIMEOUT_SECONDS=${MAX_API_TIMEOUT_SECONDS:-10}
@@ -168,6 +172,13 @@ services:
       - REDIS_PORT=${REDIS_PORT}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+      - BOT_PUBLIC_DOMAIN=${BOT_PUBLIC_DOMAIN:-}
+      - PAYMENT_WEBHOOK_URL=${PAYMENT_WEBHOOK_URL:-}
+      - MAX_TRANSPORT_ENABLED=${MAX_TRANSPORT_ENABLED:-false}
+      - MAX_TRANSPORT_MODE=${MAX_TRANSPORT_MODE:-}
+      - MAX_BOT_TOKEN=${MAX_BOT_TOKEN:-}
+      - MAX_WEBHOOK_URL=${MAX_WEBHOOK_URL:-}
+      - MAX_WEBHOOK_SECRET=${MAX_WEBHOOK_SECRET:-}
     depends_on:
       db:
         condition: service_healthy
@@ -176,8 +187,10 @@ services:
       web:
         condition: service_started # Убедиться, что миграции выполнены
 
-  # MAX Bot runtime (выделенный сервис)
+  # MAX Bot runtime (выделенный сервис, только polling).
+  # В webhook-режиме события принимает web → /api/max/webhook/; max_bot не запускайте.
   max_bot:
+    build: .
     image: shlicha/dairy_bot:v2
     env_file:
       - .env
@@ -193,10 +206,13 @@ services:
       - REDIS_PORT=${REDIS_PORT}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+      - BOT_PUBLIC_DOMAIN=${BOT_PUBLIC_DOMAIN:-}
+      - PAYMENT_WEBHOOK_URL=${PAYMENT_WEBHOOK_URL:-}
       - MAX_TRANSPORT_ENABLED=${MAX_TRANSPORT_ENABLED:-false}
-      - MAX_TRANSPORT_MODE=${MAX_TRANSPORT_MODE:-polling}
+      - MAX_TRANSPORT_MODE=${MAX_TRANSPORT_MODE:-}
       - MAX_BOT_TOKEN=${MAX_BOT_TOKEN:-}
       - MAX_API_BASE_URL=${MAX_API_BASE_URL:-https://platform-api2.max.ru}
+      - MAX_API_CA_CERT_PATHS=${MAX_API_CA_CERT_PATHS:-russian_trusted_sub_ca_2024_pem.crt,russian_trusted_root_ca_pem.crt}
       - MAX_API_TIMEOUT_SECONDS=${MAX_API_TIMEOUT_SECONDS:-10}
       - MAX_WEBHOOK_SECRET=${MAX_WEBHOOK_SECRET:-}
       - MAX_WEBHOOK_URL=${MAX_WEBHOOK_URL:-}
@@ -206,6 +222,7 @@ services:
       - MAX_RATE_LIMIT_BURST=${MAX_RATE_LIMIT_BURST:-50}
       - MAX_MESSAGE_MAX_LENGTH=${MAX_MESSAGE_MAX_LENGTH:-3500}
       - MAX_STATE_TTL_SECONDS=${MAX_STATE_TTL_SECONDS:-3600}
+      - DEVELOPER_MAX_USER_ID=${DEVELOPER_MAX_USER_ID:-}
     depends_on:
       db:
         condition: service_healthy

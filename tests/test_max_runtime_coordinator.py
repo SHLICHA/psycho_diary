@@ -92,7 +92,7 @@ async def test_max_runtime_webhook_mode_registers_when_url_present(monkeypatch, 
     await coordinator.run(stop_event)
 
     assert fake_client.register_calls == [
-        ('https://example.com/api/max/webhook/', ['message_callback'])
+        ('https://example.com/api/max/webhook/', ['message_created', 'bot_started', 'message_callback'])
     ]
     assert mock_metrics.await_count >= 2
     assert fake_client.closed is True

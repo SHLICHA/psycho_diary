@@ -689,14 +689,18 @@ Celery Beat → check_pending_payments_task (периодически)
 
 ```bash
 ./start.sh                  # Запуск всего стека (telegram + max + celery + web)
-./start.sh telegram         # Только Telegram
+./start.sh telegram         # Только Telegram (+ web/celery)
 ./start.sh max              # Только MAX (режим по MAX_TRANSPORT_MODE)
-./start.sh both             # Telegram + MAX + Celery
+./start.sh both             # То же, что без аргументов
+./start.sh docker           # docker compose: оба бота + инфраструктура
 ./start.sh register-webhook # Зарегистрировать webhook у MAX API (один раз)
-./start.sh check-webhook    # Диагностика webhook (DNS, TLS, endpoint)
-./start.sh stop             # Остановка всех процессов
+./start.sh check-webhook    # Диагностика webhook endpoint
+./start.sh stop             # Остановка локальных процессов (runbot/runmaxbot/celery/runserver)
 ./start.sh help             # Справка
 ```
+
+Локально MAX поднимается через `python manage.py runmaxbot`. В режиме `both`
+у процесса `runbot` принудительно `MAX_TRANSPORT_ENABLED=false`, чтобы не дублировать polling.
 
 ### 9.3 Диагностика WB URL и HAR
 
@@ -735,20 +739,18 @@ python -m playwright install chromium
 
 ### 9.4 Единый домен для webhook
 
-Приоритетная настройка — `BOT_PUBLIC_DOMAIN`.
+Приоритетная настройка — `BOT_PUBLIC_DOMAIN` (пример: `https://www.psychodiary.ru`).
 
-- MAX webhook URL: `{BOT_PUBLIC_DOMAIN}/api/max/webhook/`
-- Payment webhook URL: `{BOT_PUBLIC_DOMAIN}/api/webhook/payment/`
+- Пустой домен → MAX `polling`, payment webhook выключен.
+- Заданный домен → MAX `webhook` + payment webhook (если `MAX_TRANSPORT_MODE` не задан явно).
 
-Если `BOT_PUBLIC_DOMAIN` не задан, используются legacy fallback-переменные:
+Авто-URL:
+- MAX: `{BOT_PUBLIC_DOMAIN}/api/max/webhook/`
+- ЮKassa: `{BOT_PUBLIC_DOMAIN}/api/payments/webhook/`
 
-- `MAX_WEBHOOK_DOMAIN`
-- `WEBHOOK_PAYMENT_URL`
+Явные override: `MAX_TRANSPORT_MODE`, `MAX_WEBHOOK_URL`, `PAYMENT_WEBHOOK_URL`.
 
-Подтверждение оплаты работает так:
-
-- при заданном `BOT_PUBLIC_DOMAIN`: webhook-first;
-- без `BOT_PUBLIC_DOMAIN`: polling fallback.
+Флаг `PAYMENT_WEBHOOK_ENABLED` = true, когда итоговый payment URL непустой.
 
 ### 9.5 Docker
 

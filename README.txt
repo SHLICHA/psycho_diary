@@ -152,14 +152,56 @@
 
 (Вам нужно будет предоставить инструкции по установке, если проект предполагает локальный запуск, включая настройку `.env`, установку зависимостей, миграции БД и т.д.)
 
+## Локальный запуск (оба бота)
+
+Один скрипт поднимает web + celery + Telegram + MAX (нужны `.env`, `venv`, PostgreSQL, Redis):
+
+```bash
+./start.sh              # полный стек (логи в терминал, Ctrl+C — стоп)
+./start.sh telegram     # только Telegram (+ web/celery)
+./start.sh max          # только MAX
+./start.sh docker       # docker compose (оба бота и инфраструктура)
+./start.sh stop         # остановить локальные процессы
+./start.sh help
+```
+
+Логи сервисов идут в тот же терминал с префиксами `[web]` / `[celery]` / `[tg]` / `[max]`.
+Остановка стека — **Ctrl+C**.
+
+### Webhook vs polling (auto)
+
+Единый переключатель — `BOT_PUBLIC_DOMAIN`:
+
+| `.env` | MAX | Оплата |
+|--------|-----|--------|
+| `BOT_PUBLIC_DOMAIN=` (пусто) | `polling` (`runmaxbot`) | webhook выключен; sync через API |
+| `BOT_PUBLIC_DOMAIN=https://www.psychodiary.ru` | `webhook`, URL `…/api/max/webhook/` | `…/api/payments/webhook/` |
+
+- Пустой `MAX_TRANSPORT_MODE` = auto по домену; явные `polling`/`webhook` перекрывают auto.
+- Явные `MAX_WEBHOOK_URL` / `PAYMENT_WEBHOOK_URL` перекрывают URL, собранные из домена.
+- После появления HTTPS: пропишите домен, `./start.sh register-webhook`, в кабинете ЮKassa укажите payment URL из `check_max_bot_config`.
+
+В режиме `polling` у `runbot` принудительно `MAX_TRANSPORT_ENABLED=false`, MAX — отдельно через `runmaxbot`.
+В режиме `webhook` отдельный `runmaxbot`/`max_bot` не нужен (events → `web`).
+
 ## Запуск MAX-бота (runtime)
 
 Минимальная подготовка `.env`:
 - `MAX_TRANSPORT_ENABLED=true`
-- `MAX_TRANSPORT_MODE=polling` (для локальной разработки) или `webhook` (production)
+- `BOT_PUBLIC_DOMAIN=` пусто для polling, или `https://www.psychodiary.ru` для webhook
+- `MAX_TRANSPORT_MODE=` пусто (auto) либо явно `polling`/`webhook`
 - `MAX_BOT_TOKEN=<token>`
 - `MAX_API_BASE_URL=https://platform-api2.max.ru`
-- Для `webhook` режима дополнительно: `MAX_WEBHOOK_URL=https://<your-domain>/api/max/webhook/`
+- `MAX_API_TIMEOUT_SECONDS=10` (обычные API-вызовы)
+- `MAX_POLLING_TIMEOUT_SECONDS=30` (long poll; HTTP-таймаут клиента автоматически больше этого значения)
+- CA Минцифры (обязательны для TLS к platform-api2):
+  `MAX_API_CA_CERT_PATHS=russian_trusted_sub_ca_2024_pem.crt,russian_trusted_root_ca_pem.crt`
+- Опционально явные URL: `MAX_WEBHOOK_URL`, `PAYMENT_WEBHOOK_URL`
+- Для admin-команд в MAX без связанного Telegram: `DEVELOPER_MAX_USER_ID=<max_user_id>`
+  (также работают `is_staff` / `MONITORING_PRIVILEGED_USER_IDS` / `DEVELOPER_CHAT_ID` при linked telegram_id)
+
+Admin в MAX (при включённом транспорте): `/admin`, `/stats`, `/feedbacks`, `/broadcast`.
+Также: tasks (`tasks` / `/tasks`), profile (`user_profile` / `/profile`), therapy (`start_therapy_chat`).
 
 Проверка конфига перед запуском:
 
@@ -171,12 +213,14 @@ python manage.py check_max_bot_config
 
 ```bash
 python manage.py runmaxbot
+# или: ./start.sh max
 ```
 
 Запуск в Docker Compose (выделенный сервис):
 
 ```bash
 docker compose up -d max_bot
+# или полный стек: ./start.sh docker
 ```
 
 Health endpoint webhook:

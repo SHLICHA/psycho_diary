@@ -153,6 +153,83 @@ class UserService:
             return None, is_new_user, was_invited_set
 
     @classmethod
+    async def get_or_create_user_by_max_id(
+        cls,
+        max_id: int,
+        *,
+        username: Optional[str] = None,
+        language: str = 'ru',
+    ) -> Tuple[Optional[User], bool]:
+        """
+        Получение или создание пользователя по VK MAX user_id.
+        Не трогает telegram_id (nullable).
+        """
+        if not max_id:
+            return None, False
+
+        try:
+            user = await User.objects.aget(max_id=max_id)
+            if user.is_blocked:
+                user.is_blocked = False
+                await user.asave(update_fields=['is_blocked'])
+            return user, False
+        except User.DoesNotExist:
+            pass
+        except Exception as exc:
+            logger.error(
+                f"[UserService] Ошибка поиска пользователя max_id={max_id}: {exc}",
+                exc_info=True,
+            )
+            return None, False
+
+        safe_username = (username or f'max_{max_id}')[:150]
+        lang = language if language in {'ru', 'en'} else 'ru'
+
+        @sync_to_async
+        def _create_user_atomic():
+            with transaction.atomic():
+                existing = User.objects.filter(max_id=max_id).first()
+                if existing is not None:
+                    return existing, False
+
+                user = User.objects.create(
+                    max_id=max_id,
+                    telegram_id=None,
+                    username=safe_username,
+                    first_name='',
+                    last_name='',
+                    language=lang,
+                    timezone='UTC',
+                )
+                welcome_tokens = 15
+                user.token_balance += welcome_tokens
+                user.save(update_fields=['token_balance'])
+                TokenTransaction.objects.create(
+                    user=user,
+                    amount=welcome_tokens,
+                    transaction_type='bonus',
+                    description='Приветственные токены при регистрации (MAX)',
+                )
+                logger.info(
+                    f"[UserService] Новый MAX-пользователь создан: {user.username} "
+                    f"(max_id={user.max_id}), tokens={welcome_tokens}"
+                )
+                return user, True
+
+        try:
+            return await _create_user_atomic()
+        except Exception as exc:
+            logger.error(
+                f"[UserService] Ошибка создания пользователя max_id={max_id}: {exc}",
+                exc_info=True,
+            )
+            try:
+                user = await User.objects.aget(max_id=max_id)
+                return user, False
+            except User.DoesNotExist:
+                return None, False
+
+    @classmethod
     async def award_referral_bonus(cls, referrer_user: User, referred_user: User) -> bool:
         """
         Начисляет бонусные токены рефереру за приглашение нового пользователя.
@@ -420,6 +497,19 @@ class UserService:
 async def get_or_create_user_from_event(event, referrer_user: Optional[User] = None) -> Tuple[Optional[User], bool, bool]:
     """Удобная функция для получения или создания пользователя."""
     return await UserService.get_or_create_user_from_event(event, referrer_user)
+
+
+async def get_or_create_user_by_max_id(
+    max_id: int,
+    *,
+    username: Optional[str] = None,
+    language: str = 'ru',
+) -> Tuple[Optional[User], bool]:
+    """Удобная функция для получения/создания пользователя по MAX id."""
+    return await UserService.get_or_create_user_by_max_id(
+        max_id, username=username, language=language
+    )
+
 
 async def award_referral_bonus(referrer_user: User, referred_user: User) -> bool:
     """Удобная функция для начисления реферального бонуса."""

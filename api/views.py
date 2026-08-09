@@ -2240,6 +2240,12 @@ class MaxWebhookView(APIView):
         if not self._is_secret_valid(request):
             return Response({'ok': False, 'error': 'invalid_webhook_secret'}, status=status.HTTP_403_FORBIDDEN)
 
-        result = process_merge_target_callback(request.data)
+        if settings.MAX_TRANSPORT_ENABLED:
+            from asgiref.sync import async_to_sync
+            from bot.handlers.max.dispatcher import dispatch_max_update
+
+            result = async_to_sync(dispatch_max_update)(request.data)
+        else:
+            result = process_merge_target_callback(request.data)
         return Response(result, status=status.HTTP_200_OK)
 

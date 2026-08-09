@@ -418,7 +418,14 @@ class UserProfileService:
             }
 
     @classmethod
-    async def update_user_profile_field(cls, user: User, field_name: str, new_value: Any) -> Dict[str, Any]:
+    async def update_user_profile_field(
+        cls,
+        user: User,
+        field_name: str,
+        new_value: Any,
+        *,
+        source_platform: str = 'telegram',
+    ) -> Dict[str, Any]:
         """
         Обновляет конкретное поле профиля с валидацией.
 
@@ -426,6 +433,7 @@ class UserProfileService:
             user: Объект пользователя Django.
             field_name: Имя поля (например, 'first_name', 'email', 'hobbies').
             new_value: Новое значение.
+            source_platform: Transport identity источника ('telegram' | 'max' | …).
 
         Returns:
             Dict[str, Any]: Результат обновления.
@@ -471,7 +479,7 @@ class UserProfileService:
                             merge_request = await EmailMergeService.acreate_merge_request(
                                 requester_user=user,
                                 email=new_value,
-                                source_platform='telegram',
+                                source_platform=source_platform or 'telegram',
                                 source_context='profile_edit',
                             )
                             return {
@@ -536,6 +544,8 @@ class UserProfileService:
         user: User,
         field_name: str,
         raw_value: str,
+        *,
+        source_platform: str = 'telegram',
     ) -> Dict[str, Any]:
         """Use-case: валидация ввода + обновление поля профиля."""
         validation = cls.validate_profile_field_input(field_name, raw_value)
@@ -550,6 +560,7 @@ class UserProfileService:
             user,
             field_name,
             validation.get('processed_value'),
+            source_platform=source_platform,
         )
 
     @classmethod
@@ -955,11 +966,27 @@ async def get_user_profile_field(user: User, field_key: str, language: str) -> D
 async def get_user_transaction_history(user: User, language: str, limit: int = 10) -> Dict[str, Any]:
     return await UserProfileService.get_user_transaction_history(user, language, limit)
 
-async def update_user_profile_field(user: User, field_name: str, new_value: Any) -> Dict[str, Any]:
-    return await UserProfileService.update_user_profile_field(user, field_name, new_value)
+async def update_user_profile_field(
+    user: User,
+    field_name: str,
+    new_value: Any,
+    *,
+    source_platform: str = 'telegram',
+) -> Dict[str, Any]:
+    return await UserProfileService.update_user_profile_field(
+        user, field_name, new_value, source_platform=source_platform
+    )
 
-async def process_profile_field_update(user: User, field_name: str, raw_value: str) -> Dict[str, Any]:
-    return await UserProfileService.process_profile_field_update(user, field_name, raw_value)
+async def process_profile_field_update(
+    user: User,
+    field_name: str,
+    raw_value: str,
+    *,
+    source_platform: str = 'telegram',
+) -> Dict[str, Any]:
+    return await UserProfileService.process_profile_field_update(
+        user, field_name, raw_value, source_platform=source_platform
+    )
 
 async def prepare_list_field_for_edit(
     user: User,

@@ -23,7 +23,7 @@ def test_normalize_transport_mode_fallback_to_polling():
 
 
 def test_collect_preflight_errors_valid_polling_config():
-    settings_obj = _build_settings(MAX_TRANSPORT_MODE='polling')
+    settings_obj = _build_settings(MAX_TRANSPORT_MODE='polling', MAX_API_CA_CERT_PATHS=[])
     assert collect_preflight_errors(settings_obj) == []
 
 

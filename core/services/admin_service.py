@@ -45,6 +45,74 @@ class AdminService:
         return users
 
     @staticmethod
+    async def _get_max_users_for_broadcast_async(
+        is_important: bool = False,
+    ) -> List[Tuple[int, str]]:
+        """Выборка MAX-пользователей (max_id) для рассылки."""
+        base_filter = {
+            'is_blocked': False,
+            'deletion_status': 'active',
+            'deleted_at__isnull': True,
+            'max_id__isnull': False,
+        }
+        if not is_important:
+            base_filter['notifications_enabled'] = True
+
+        users: List[Tuple[int, str]] = []
+        async for max_id, language in User.objects.filter(**base_filter).values_list(
+            'max_id', 'language'
+        ):
+            if max_id is not None:
+                users.append((int(max_id), language or 'ru'))
+        return users
+
+    async def get_max_users_for_broadcast(
+        self, is_important: bool = False
+    ) -> List[Tuple[int, str]]:
+        return await self._get_max_users_for_broadcast_async(is_important)
+
+    async def send_max_broadcast_message(
+        self,
+        max_client,
+        users: List[Tuple[int, str]],
+        message_text: str,
+        is_important: bool = False,
+    ) -> Dict[str, int]:
+        """Рассылка через MAX MaxClient (user_id=max_id)."""
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        from messages import get_message, get_button_text
+
+        success = 0
+        failed = 0
+        for max_id, user_lang in users:
+            try:
+                kb = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [
+                            InlineKeyboardButton(
+                                text=get_button_text('btn_main_menu', user_lang),
+                                callback_data='main_menu',
+                            )
+                        ]
+                    ]
+                )
+                prefix = '🔴 ' if is_important else '🔵 '
+                broadcast_prefix = get_message('broadcast_prefix', user_lang)
+                ok = await max_client.send_message(
+                    user_id=max_id,
+                    text=f'{prefix}{broadcast_prefix}\n\n{message_text}',
+                    reply_markup=kb,
+                )
+                if ok:
+                    success += 1
+                else:
+                    failed += 1
+            except Exception as exc:
+                logger.warning('[admin] MAX broadcast failed max_id=%s: %s', max_id, exc)
+                failed += 1
+        return {'success': success, 'failed': failed}
+
+    @staticmethod
     async def _get_admin_stats_async() -> Dict[str, Any]:
         """Собирает статистику асинхронно, чтобы не уходить в отдельный thread/connection."""
         now = timezone.now()
@@ -122,6 +190,40 @@ class AdminService:
             return telegram_id == dev_chat_id
         except (ValueError, TypeError):
             return False
+
+    @staticmethod
+    def is_developer_user(user: Optional[User]) -> bool:
+        """
+        Проверка прав admin/developer для User (Telegram + MAX + staff).
+
+        Приоритет: staff/superuser → MONITORING_PRIVILEGED_USER_IDS →
+        DEVELOPER_CHAT_ID (telegram_id) → DEVELOPER_MAX_USER_ID (max_id).
+        """
+        if user is None:
+            return False
+        if getattr(user, 'is_superuser', False) or getattr(user, 'is_staff', False):
+            return True
+
+        privileged_ids = getattr(settings, 'MONITORING_PRIVILEGED_USER_IDS', []) or []
+        if getattr(user, 'id', None) in privileged_ids:
+            return True
+
+        telegram_id = getattr(user, 'telegram_id', None)
+        if telegram_id is not None:
+            try:
+                if AdminService.is_developer(int(telegram_id)):
+                    return True
+            except (TypeError, ValueError):
+                pass
+
+        max_dev = str(getattr(settings, 'DEVELOPER_MAX_USER_ID', '') or '').strip()
+        max_id = getattr(user, 'max_id', None)
+        if max_dev and max_id is not None:
+            try:
+                return int(max_dev) == int(max_id)
+            except (TypeError, ValueError):
+                return False
+        return False
 
     def is_admin(self, telegram_id: int) -> bool:
         """
