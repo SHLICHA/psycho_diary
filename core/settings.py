@@ -170,7 +170,11 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'diary.tasks.garbage_collector_task.run_garbage_collection',
         'schedule': crontab(minute=30, hour='*'),  # Каждый час
         #'schedule': 30,
-    },     
+    },
+    'purge-merged-users-daily': {
+        'task': 'diary.tasks.account_merge_tasks.purge_merged_users_task',
+        'schedule': crontab(minute=40, hour=4),
+    },
        # 5 минут, или 600 (10 мин), или 1800 (30 мин) - зависит от того, как часто вы хотите проверять
     #'send-test-morning-motivation-every-minute-during-test': { # Имя задачи
     #     'task': 'diary.tasks.test_morning.send_entry_reminders',
@@ -348,6 +352,8 @@ EMAIL_MERGE_WEB_CONFIRM_FALLBACK_ENABLED = config(
     default=False,
     cast=bool,
 )
+# После dual-confirm выполнять атомарный data-merge (дневник, ids, токены/премиум).
+EMAIL_MERGE_EXECUTE_ENABLED = config('EMAIL_MERGE_EXECUTE_ENABLED', default=False, cast=bool)
 
 # ============================================================
 # Публичный домен (единый источник webhook URL для MAX и оплаты)
@@ -387,6 +393,8 @@ MAX_TRANSPORT_MODE = resolve_max_transport_mode(
     explicit_webhook_url=_MAX_WEBHOOK_URL_RAW,
 )
 MAX_BOT_TOKEN = config('MAX_BOT_TOKEN', default='')
+# Username бота в MAX (без @) для deep links: https://max.ru/<username>?start=...
+MAX_BOT_USERNAME = config('MAX_BOT_USERNAME', default='').strip().lstrip('@')
 MAX_API_BASE_URL = config('MAX_API_BASE_URL', default='https://platform-api2.max.ru')
 MAX_API_TIMEOUT_SECONDS = config('MAX_API_TIMEOUT_SECONDS', default=10, cast=int)
 MAX_WEBHOOK_SECRET = config('MAX_WEBHOOK_SECRET', default='')

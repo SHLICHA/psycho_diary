@@ -26,6 +26,31 @@ class EmailMergeService:
     TARGET_CONFIRMATION_TTL_SECONDS = 600
 
     @classmethod
+    def _maybe_execute_merge(cls, merge_request: EmailMergeRequest) -> EmailMergeConfirmationResult:
+        """После dual-confirm запускает data merge при EMAIL_MERGE_EXECUTE_ENABLED."""
+        from django.conf import settings
+
+        from users.services.account_merge_service import AccountMergeService
+
+        if not getattr(settings, 'EMAIL_MERGE_EXECUTE_ENABLED', False):
+            return EmailMergeConfirmationResult(status='confirmed', merge_request=merge_request)
+
+        merge_result = AccountMergeService.execute_merge(merge_request)
+        if merge_result.status == 'merged':
+            return EmailMergeConfirmationResult(
+                status='merged',
+                code='merged',
+                merge_request=merge_result.merge_request,
+            )
+        if merge_result.status == 'merge_failed':
+            return EmailMergeConfirmationResult(
+                status='merge_failed',
+                code=merge_result.code or 'merge_failed',
+                merge_request=merge_result.merge_request,
+            )
+        return EmailMergeConfirmationResult(status='confirmed', merge_request=merge_request)
+
+    @classmethod
     def _resolve_target_platform(cls, merge_request: EmailMergeRequest) -> Optional[str]:
         """Определяет второй канал для двустороннего подтверждения Telegram/MAX."""
         source_platform = (merge_request.source_platform or '').lower()
@@ -158,12 +183,12 @@ class EmailMergeService:
             merge_request.status = 'confirmed'
             merge_request.confirmed_at = now
             merge_request.save(update_fields=['metadata', 'status', 'confirmed_at', 'updated_at'])
-            return EmailMergeConfirmationResult(status='confirmed', merge_request=merge_request)
+            return cls._maybe_execute_merge(merge_request)
 
         merge_request.status = 'confirmed'
         merge_request.confirmed_at = now
         merge_request.save(update_fields=['status', 'confirmed_at', 'updated_at'])
-        return EmailMergeConfirmationResult(status='confirmed', merge_request=merge_request)
+        return cls._maybe_execute_merge(merge_request)
 
     @classmethod
     def confirm_target_transport(
@@ -218,7 +243,7 @@ class EmailMergeService:
             merge_request.status = 'confirmed'
             merge_request.confirmed_at = now
             merge_request.save(update_fields=['metadata', 'status', 'confirmed_at', 'updated_at'])
-            return EmailMergeConfirmationResult(status='confirmed', merge_request=merge_request)
+            return cls._maybe_execute_merge(merge_request)
 
         merge_request.save(update_fields=['metadata', 'updated_at'])
         return EmailMergeConfirmationResult(
@@ -369,6 +394,25 @@ def build_requester_merge_result_view(
             'text': get_message('merge_request_confirmed', language=language),
         }
 
+    if result.status == 'merged':
+        return {
+            'success': True,
+            'mode': 'merged',
+            'text': get_message('merge_accounts_completed', language=language),
+        }
+
+    if result.status == 'merge_failed':
+        fail_key = 'merge_accounts_failed'
+        if result.code == 'user_not_active':
+            fail_key = 'merge_accounts_failed_user_not_active'
+        return {
+            'success': False,
+            'mode': 'merge_failed',
+            'alert_text': get_message(fail_key, language=language),
+            'show_alert': True,
+            'text': get_message(fail_key, language=language),
+        }
+
     if result.status == 'pending_target_confirmation' and result.merge_request is not None:
         if delivery_result and delivery_result.get('success'):
             return {
@@ -417,6 +461,25 @@ def build_target_merge_result_view(
             'success': True,
             'mode': 'confirmed',
             'text': get_message('merge_request_confirmed', language=language),
+        }
+
+    if result.status == 'merged':
+        return {
+            'success': True,
+            'mode': 'merged',
+            'text': get_message('merge_accounts_completed', language=language),
+        }
+
+    if result.status == 'merge_failed':
+        fail_key = 'merge_accounts_failed'
+        if result.code == 'user_not_active':
+            fail_key = 'merge_accounts_failed_user_not_active'
+        return {
+            'success': False,
+            'mode': 'merge_failed',
+            'alert_text': get_message(fail_key, language=language),
+            'show_alert': True,
+            'text': get_message(fail_key, language=language),
         }
 
     if result.code == 'target_confirmation_expired':

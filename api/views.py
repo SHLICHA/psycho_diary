@@ -1819,7 +1819,7 @@ class ConfirmEmailMergeView(APIView):
             confirmation_token=serializer.validated_data['confirmation_token'],
         )
 
-        if result.status != 'confirmed':
+        if result.status not in {'confirmed', 'merged', 'pending_target_confirmation'}:
             return api_error_response(
                 code=result.code or 'merge_request_failed',
                 message='Merge request confirmation failed',
@@ -1827,11 +1827,19 @@ class ConfirmEmailMergeView(APIView):
             )
 
         merge_request = result.merge_request
+        next_step = {
+            'confirmed': 'identity_merge_review',
+            'merged': 'accounts_merged',
+            'pending_target_confirmation': 'await_target_confirmation',
+        }.get(result.status, 'identity_merge_review')
         return Response(
             {
-                'status': 'confirmed',
-                'target_user_id': merge_request.target_user_id,
-                'next_step': 'identity_merge_review',
+                'status': result.status,
+                'target_user_id': merge_request.target_user_id if merge_request else None,
+                'survivor_user_id': (merge_request.metadata or {}).get('survivor_user_id')
+                if merge_request
+                else None,
+                'next_step': next_step,
             },
             status=status.HTTP_200_OK,
         )

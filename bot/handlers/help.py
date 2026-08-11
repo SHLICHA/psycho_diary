@@ -6,13 +6,15 @@ import logging
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
-
+from aiogram.fsm.context import FSMContext
 
 from messages import get_message
 from bot.keyboards import (
     get_help_keyboard,
-    get_help_section_keyboard
+    get_help_section_keyboard,
+    get_back_keyboard,
 )
+from bot.states.feedback_states import FeedbackStates
 from bot.decorators.analytics_decorator import log_user_activity
 
 router = Router()
@@ -195,6 +197,37 @@ async def show_referral_help(callback: CallbackQuery, language: str = 'ru'):
     except Exception as e:
         logger.error(f"!!! ОШИБКА ПРИ ПОКАЗЕ ПОМОЩИ ПО РЕФЕРАЛЬНОЙ ПРОГРАММЕ: {e}", exc_info=True)
         await callback.answer("Ошибка при показе помощи по реферальной программе")
+
+
+@router.callback_query(F.data == "help_account_merge")
+@log_user_activity('help_open', metadata_extra={'context': 'Объединение аккаунтов'})
+async def show_account_merge_help(callback: CallbackQuery, language: str = 'ru'):
+    """Помощь по объединению аккаунтов Telegram/MAX."""
+    try:
+        merge_help_msg = get_message('help_account_merge_text', language=language)
+        keyboard = get_help_section_keyboard(language)
+        await callback.message.edit_text(merge_help_msg, reply_markup=keyboard)
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка при показе помощи по объединению аккаунтов: {e}", exc_info=True)
+        await callback.answer("Ошибка при показе раздела")
+
+
+@router.callback_query(F.data == "help_support")
+@log_user_activity('help_open', metadata_extra={'context': 'Техподдержка'})
+async def help_support_callback(callback: CallbackQuery, state: FSMContext, language: str = 'ru'):
+    """Кнопка техподдержки — тот же сценарий, что /feedback и /support."""
+    try:
+        await callback.message.answer(
+            get_message('feedback', language),
+            reply_markup=get_back_keyboard(language),
+        )
+        await state.set_state(FeedbackStates.waiting_message)
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка при запуске техподдержки из помощи: {e}", exc_info=True)
+        await callback.answer(get_message('error_generic', language), show_alert=True)
+
 
 @router.callback_query(F.data == "help_guide_tasks")
 @log_user_activity('help_open', metadata_extra={'context': 'Руководство: задания'})

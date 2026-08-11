@@ -368,6 +368,30 @@ You can invite friends and receive <b>15 tokens</b> for each invited user who re
 
 <b>Checking:</b> You can track your token balance in your profile.''',
 
+'help_account_merge_text': '''🔗 <b>Linking Telegram and MAX accounts</b>
+
+If you use the bot in both Telegram and MAX, you can merge them into one account via a shared email. After merging, your diary, subscription, tokens, and profile are shared across both messengers.
+
+<b>How it works:</b>
+1. In one account, enter the email already linked to the other (Profile → Email or during payment).
+2. Confirm the merge with the button in the messenger where you started.
+3. Confirm the request in the second messenger (you will get a message with Yes / No).
+4. After both confirmations, accounts are merged automatically.
+
+<b>What is transferred:</b>
+• diary entries and analyses;
+• token balance (summed);
+• remaining subscription days (summed);
+• psychological profile (copied if only one side has it; rebuilt if both have it);
+• access from both channels (Telegram ID and MAX ID on one account).
+
+<b>Important:</b>
+• you cannot merge two Telegram accounts or two MAX accounts;
+• both accounts must be active (not deleted);
+• confirmation requests expire — if expired, start again.
+
+After merge, the referral code stays on the surviving account; each messenger shows the deep link for that channel.''',
+
         # Help buttons
         'help_faq': '❓ FAQ',
         'help_how_to_start': '🚀 How to start',
@@ -383,5 +407,7 @@ You can invite friends and receive <b>15 tokens</b> for each invited user who re
         'btn_back_to_help': '🔙 Back to help',
         'help_guide': '📖 Guide',
         'help_referral_program': '👥 Referral Program',
+        'help_account_merge': '🔗 Account merge',
+        'help_support': '🛠 Support',
     }
 }

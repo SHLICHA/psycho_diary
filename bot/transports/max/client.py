@@ -309,14 +309,25 @@ class MaxClient:
             for button in row:
                 text = getattr(button, 'text', None)
                 callback_data = getattr(button, 'callback_data', None)
-                if callback_data is None:
+                url = getattr(button, 'url', None)
+                if callback_data is not None:
+                    converted_row.append(
+                        {
+                            'text': MaxClient._sanitize_button_text(text),
+                            'payload': str(callback_data),
+                        }
+                    )
+                elif url:
+                    # MAX link button (share / deep-link open).
+                    converted_row.append(
+                        {
+                            'type': 'link',
+                            'text': MaxClient._sanitize_button_text(text),
+                            'url': str(url),
+                        }
+                    )
+                else:
                     continue
-                converted_row.append(
-                    {
-                        'text': MaxClient._sanitize_button_text(text),
-                        'payload': str(callback_data),
-                    }
-                )
             if converted_row:
                 result.append(converted_row)
         return result
@@ -341,6 +352,15 @@ class MaxClient:
             normalized_row: list[dict[str, Any]] = []
             for button in truncated_row:
                 text = MaxClient._sanitize_button_text(button.get('text'))
+                if button.get('type') == 'link' and button.get('url'):
+                    normalized_row.append(
+                        {
+                            'type': 'link',
+                            'text': text,
+                            'url': str(button['url']),
+                        }
+                    )
+                    continue
                 raw_payload = button.get('payload')
                 if mode == 'legacy':
                     normalized_button: dict[str, Any] = {'text': text}

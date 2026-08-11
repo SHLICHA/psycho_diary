@@ -87,12 +87,14 @@ PROFILE_MESSAGES_EN = {
 Share this link with friends. For each person who registers and starts using the bot, you will receive <b>15 tokens</b>!
 
 <b>How it works:</b>
-1. Click the "Share link" button below
-2. Choose with whom you want to share (private chat, group, channel)
-3. Telegram will send the predefined text and link
+1. Copy the link below or tap "Share link" (in Telegram)
+2. Send it to friends
+3. When a friend opens the link and starts using the bot, you get tokens
 
-<b>Your link:</b> will be sent when sharing.''',
+<b>Your link:</b>
+<code>{url}</code>''',
     'no_referral_link_error': '❌ You do not have an active referral link yet.',
+    'referral_max_bot_username_missing': '❌ MAX referral link is not configured (MAX_BOT_USERNAME). Contact the administrator.',
     'morning_motivation_profile_changed': '📋 Your psychological profile has been updated! Click the button below to review the changes.',
     }
 }

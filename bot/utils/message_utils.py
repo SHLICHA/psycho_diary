@@ -8,6 +8,8 @@ from aiogram import Bot
 from aiogram.types import Message
 from aiogram.exceptions import TelegramBadRequest, TelegramAPIError, TelegramForbiddenError
 
+from django.conf import settings
+
 from bot.utils.callback_utils import is_message_not_modified_error 
 from bot.transports.contracts import NormalizedButton, NormalizedOutput
 from bot.transports.unified_send_port import UnifiedSendPort
@@ -240,6 +242,89 @@ async def safe_telegram_call(
 
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
    
+async def send_message_to_user_all_channels(
+    bot: Bot,
+    user: User,
+    text: str,
+    reply_markup=None,
+    disable_notification: bool = False,
+) -> bool:
+    """
+    Fan-out одного текста в Telegram и MAX (если ids есть).
+    Успех, если доставлен хотя бы один канал. Блокировка TG не режет MAX.
+    """
+    if disable_notification:
+        return False
+
+    normalized_output = _build_normalized_output(text=text, reply_markup=reply_markup)
+    if normalized_output is None:
+        normalized_output = NormalizedOutput(text=text)
+
+    any_success = False
+    port = UnifiedSendPort()
+
+    if user.telegram_id:
+        send_result = await port.send(
+            platform='telegram',
+            recipient_id=int(user.telegram_id),
+            output=normalized_output,
+        )
+        if send_result.success:
+            await User.mark_unblocked(user.telegram_id)
+            any_success = True
+        elif send_result.reason in {'telegram_forbidden', 'telegram_blocked_or_chat_not_found'}:
+            await User.mark_blocked(user.telegram_id)
+            logger.info(
+                'TG blocked for user telegram_id=%s reason=%s',
+                user.telegram_id,
+                send_result.reason,
+            )
+        else:
+            # Legacy TG fallback for markup edge cases
+            try:
+                await bot.send_message(
+                    chat_id=user.telegram_id,
+                    text=text,
+                    reply_markup=reply_markup,
+                    disable_notification=disable_notification,
+                )
+                await User.mark_unblocked(user.telegram_id)
+                any_success = True
+            except (TelegramForbiddenError, TelegramBadRequest) as e:
+                error_message = str(e).lower()
+                if any(
+                    token in error_message
+                    for token in (
+                        'bot was blocked by the user',
+                        'user is deactivated',
+                        'chat not found',
+                        'forbidden',
+                    )
+                ):
+                    await User.mark_blocked(user.telegram_id)
+                else:
+                    logger.warning('TG legacy send failed telegram_id=%s: %s', user.telegram_id, e)
+            except Exception as e:
+                logger.warning('TG legacy send failed telegram_id=%s: %s', user.telegram_id, e)
+
+    if user.max_id and getattr(settings, 'MAX_TRANSPORT_ENABLED', False):
+        max_result = await port.send(
+            platform='max',
+            recipient_id=int(user.max_id),
+            output=normalized_output,
+        )
+        if max_result.success:
+            any_success = True
+        else:
+            logger.info(
+                'MAX send failed for user max_id=%s reason=%s',
+                user.max_id,
+                max_result.reason,
+            )
+
+    return any_success
+
+
 async def send_message_to_user(
     bot: Bot,
     user: User,
@@ -249,79 +334,17 @@ async def send_message_to_user(
 ) -> bool:
     """
     Безопасная отправка сообщения пользователю с обработкой исключений.
-    Автоматически обновляет флаг is_blocked при блокировке/разблокировке.
-
-    Args:
-        bot: Экземпляр бота
-        user: Пользователь (модель User)
-        text: Текст сообщения
-        reply_markup: Клавиатура сообщения
-        disable_notification: Отключить уведомление
+    Для объединённых аккаунтов доставляет в Telegram и MAX.
 
     Returns:
-        bool: True если сообщение отправлено успешно, False в противном случае
+        bool: True если сообщение отправлено хотя бы в один канал
     """
-    if user.telegram_id and not disable_notification:
-        normalized_output = _build_normalized_output(text=text, reply_markup=reply_markup)
-        if normalized_output is not None:
-            send_result = await UnifiedSendPort().send(
-                platform='telegram',
-                recipient_id=int(user.telegram_id),
-                output=normalized_output,
-            )
-            if send_result.success:
-                await User.mark_unblocked(user.telegram_id)
-                logger.debug(f"Пользователь {user.telegram_id} помечен как разблокированный (успешная отправка через UnifiedSendPort).")
-                return True
-
-            if send_result.reason in {'telegram_forbidden', 'telegram_blocked_or_chat_not_found'}:
-                await User.mark_blocked(user.telegram_id)
-                logger.info(
-                    f"Пользователь {user.telegram_id} заблокировал бота или чат недоступен (UnifiedSendPort): {send_result.reason}"
-                )
-                return False
-
-            logger.warning(
-                f"UnifiedSendPort не смог отправить сообщение пользователю {user.telegram_id}, используем legacy fallback: {send_result.reason}"
-            )
-
-    try:
-        await bot.send_message(
-            chat_id=user.telegram_id,
-            text=text,
+    if user.telegram_id or user.max_id:
+        return await send_message_to_user_all_channels(
+            bot,
+            user,
+            text,
             reply_markup=reply_markup,
-            disable_notification=disable_notification
+            disable_notification=disable_notification,
         )
-        await User.mark_unblocked(user.telegram_id)
-        logger.debug(f"Пользователь {user.telegram_id} помечен как разблокированный (успешная отправка).")
-        return True
-    except TelegramForbiddenError as e:
-        error_message = str(e).lower()
-        if "bot was blocked by the user" in error_message or \
-           "user is deactivated" in error_message or \
-           "chat not found" in error_message or \
-           "forbidden" in error_message:
-            await User.mark_blocked(user.telegram_id)
-            logger.info(f"Пользователь {user.telegram_id} заблокировал бота или чат недоступен: {e}")
-            return False
-        else:
-            logger.error(f"TelegramForbiddenError (не блокировка) при отправке сообщения пользователю {user.telegram_id}: {e}")
-            return False
-    except TelegramBadRequest as e:
-        error_message = str(e).lower()
-        if "bot was blocked by the user" in error_message or \
-           "user is deactivated" in error_message or \
-           "chat not found" in error_message or \
-           "forbidden" in error_message:
-            await User.mark_blocked(user.telegram_id)
-            logger.info(f"Пользователь {user.telegram_id} заблокировал бота или чат недоступен (BadRequest): {e}")
-            return False
-        else:
-            logger.error(f"TelegramBadRequest при отправке сообщения пользователю {user.telegram_id}: {e}")
-            return False
-    except TelegramAPIError as e:
-        logger.error(f"TelegramAPIError при отправке сообщения пользователю {user.telegram_id}: {e}")
-        return False
-    except Exception as e:
-        logger.error(f"Неизвестная ошибка при отправке сообщения пользователю {user.telegram_id}: {e}")
-        return False
+    return False

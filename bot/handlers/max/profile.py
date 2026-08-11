@@ -333,7 +333,7 @@ async def route_wave6_profile_callback(
         return await handle_main_menu(user, send_func, max_id=max_id)
 
     if payload == 'get_referral_link':
-        view = await build_referral_link_view(user, language)
+        view = await build_referral_link_view(user, language, platform='max')
         await send_func(view['text'], view.get('reply_markup'))
         return {'ok': True, 'handled': payload}
 

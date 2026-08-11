@@ -26,6 +26,47 @@ REFERRAL_PATTERN = re.compile(r'^start\s+ref_(\d+)_([a-zA-Z0-9_-]+)$')
 REFERRAL_PAYLOAD_LEGACY_PATTERN = re.compile(r'^ref_(\d+)_([a-zA-Z0-9_-]+)$')
 
 
+async def resolve_referrer_user_from_payload(
+    payload: str,
+    *,
+    current_telegram_id: Optional[int] = None,
+    current_max_id: Optional[int] = None,
+) -> Optional[User]:
+    """Resolve referrer from deep-link start payload (Telegram /start or MAX bot_started)."""
+    if not payload:
+        return None
+
+    normalized = payload.strip()
+    if not normalized:
+        return None
+
+    legacy_match = REFERRAL_PAYLOAD_LEGACY_PATTERN.match(normalized)
+    if legacy_match:
+        referrer_telegram_id = int(legacy_match.group(1))
+        if current_telegram_id and referrer_telegram_id == current_telegram_id:
+            logger.warning(f"[Middleware] Пользователь {current_telegram_id} попытался пригласить сам себя.")
+            return None
+        try:
+            return await User.objects.aget(telegram_id=referrer_telegram_id)
+        except User.DoesNotExist:
+            logger.warning(f"[Middleware] Пользователь-пригласитель с telegram_id {referrer_telegram_id} не найден.")
+            return None
+
+    try:
+        referrer = await User.objects.aget(referral_link=normalized)
+    except User.DoesNotExist:
+        return None
+
+    if current_telegram_id and referrer.telegram_id and referrer.telegram_id == current_telegram_id:
+        logger.warning(f"[Middleware] Пользователь {current_telegram_id} попытался пригласить сам себя.")
+        return None
+    if current_max_id and referrer.max_id and referrer.max_id == current_max_id:
+        logger.warning(f"[Middleware] Пользователь max_id={current_max_id} попытался пригласить сам себя.")
+        return None
+
+    return referrer
+
+
 async def resolve_referrer_user_from_start(start_text: str, current_telegram_id: Optional[int]) -> Optional[User]:
     """Resolve referrer from /start payload with support for legacy and new referral formats."""
     if not start_text:
@@ -46,29 +87,10 @@ async def resolve_referrer_user_from_start(start_text: str, current_telegram_id:
     if not payload:
         return None
 
-    legacy_match = REFERRAL_PAYLOAD_LEGACY_PATTERN.match(payload)
-    if legacy_match:
-        referrer_telegram_id = int(legacy_match.group(1))
-        if current_telegram_id and referrer_telegram_id == current_telegram_id:
-            logger.warning(f"[Middleware] Пользователь {current_telegram_id} попытался пригласить сам себя.")
-            return None
-        try:
-            return await User.objects.aget(telegram_id=referrer_telegram_id)
-        except User.DoesNotExist:
-            logger.warning(f"[Middleware] Пользователь-пригласитель с telegram_id {referrer_telegram_id} не найден.")
-            return None
-
-    # Новый формат: payload совпадает с user.referral_link (например, ref_u_xxx).
-    try:
-        referrer = await User.objects.aget(referral_link=payload)
-    except User.DoesNotExist:
-        return None
-
-    if current_telegram_id and referrer.telegram_id and referrer.telegram_id == current_telegram_id:
-        logger.warning(f"[Middleware] Пользователь {current_telegram_id} попытался пригласить сам себя.")
-        return None
-
-    return referrer
+    return await resolve_referrer_user_from_payload(
+        payload,
+        current_telegram_id=current_telegram_id,
+    )
 
 class UserMiddleware(BaseMiddleware):
     """

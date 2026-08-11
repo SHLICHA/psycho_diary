@@ -46,6 +46,7 @@ HELP_SECTION_KEYS = {
     'help_privacy': 'help_privacy_text',
     'help_subscription_and_tokens': 'help_subscription_and_tokens_text',
     'help_referral_program': 'help_referral_program_text',
+    'help_account_merge': 'help_account_merge_text',
 }
 
 HELP_GUIDE_KEYS = {
@@ -122,6 +123,10 @@ async def route_callback(
     if payload == 'help' or payload == 'help_back_to_main':
         from bot.handlers.max.commands import handle_help
         return await handle_help(user, send_func)
+
+    if payload == 'help_support':
+        from bot.handlers.max.feedback import handle_feedback_start
+        return await handle_feedback_start(user, send_func, max_id=max_id)
 
     if payload in HELP_SECTION_KEYS:
         await send_func(

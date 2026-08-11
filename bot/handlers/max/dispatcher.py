@@ -9,15 +9,17 @@ from asgiref.sync import sync_to_async
 from django.conf import settings
 
 from bot.handlers.max.callbacks import route_callback
+from bot.handlers.max.commands import handle_start
 from bot.handlers.max.messages import route_text_message
 from bot.handlers.max.send_adapter import build_send_func
+from bot.middlewares.user_middleware import resolve_referrer_user_from_payload
 from bot.transports.max.client import MaxClient
 from bot.transports.max.inbound import (
     MaxNormalizedEvent,
     normalize_update,
     parse_merge_target_callback,
 )
-from diary.services.user_service import get_or_create_user_by_max_id
+from diary.services.user_service import award_referral_bonus, get_or_create_user_by_max_id
 from users.models import User
 from users.services.email_merge_service import EmailMergeService
 
@@ -116,9 +118,28 @@ async def dispatch_max_update(
     client = max_client or _build_max_client()
     callback_answered = callback_already_answered
     try:
-        user, _created = await get_or_create_user_by_max_id(event.user_id)
+        referrer_user = None
+        if event.event_type == 'bot_started' and event.payload:
+            referrer_user = await resolve_referrer_user_from_payload(
+                event.payload,
+                current_max_id=event.user_id,
+            )
+
+        user, was_created, invited_set = await get_or_create_user_by_max_id(
+            event.user_id,
+            referrer_user=referrer_user,
+        )
         if user is None:
             return {'ok': False, 'error': 'user_resolve_failed'}
+
+        if was_created and invited_set and referrer_user is not None:
+            bonus_ok = await award_referral_bonus(referrer_user, user)
+            logger.info(
+                '[MAX dispatch] referral bonus awarded=%s referrer=%s invitee_max=%s',
+                bonus_ok,
+                referrer_user.id,
+                event.user_id,
+            )
 
         send_func = build_send_func(
             client,
@@ -132,7 +153,11 @@ async def dispatch_max_update(
         )
 
         result: dict[str, Any]
-        if event.event_type in {'message_created', 'bot_started'}:
+        if event.event_type == 'bot_started':
+            # Deep-link start: payload уже обработан; показываем обычный /start.
+            result = await handle_start(user, send_func, max_id=event.user_id)
+            result = {**result, 'referral_applied': bool(invited_set)}
+        elif event.event_type == 'message_created':
             result = await route_text_message(
                 user,
                 event.text or '',

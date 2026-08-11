@@ -23,8 +23,9 @@ router = Router()
 
 
 @router.message(Command("feedback"))
+@router.message(Command("support"))
 async def feedback_handler(message: Message, state: FSMContext, user, language: str):
-    """Команда /feedback — запрос текста обращения."""
+    """Команда /feedback или /support — запрос текста обращения."""
     await message.answer(
         get_message('feedback', language),
         reply_markup=get_back_keyboard(language)

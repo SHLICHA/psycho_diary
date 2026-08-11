@@ -159,20 +159,29 @@ class UserService:
         *,
         username: Optional[str] = None,
         language: str = 'ru',
-    ) -> Tuple[Optional[User], bool]:
+        referrer_user: Optional[User] = None,
+    ) -> Tuple[Optional[User], bool, bool]:
         """
         Получение или создание пользователя по VK MAX user_id.
         Не трогает telegram_id (nullable).
+
+        Returns:
+            (user, created, invited_by_set)
         """
         if not max_id:
-            return None, False
+            return None, False, False
 
         try:
             user = await User.objects.aget(max_id=max_id)
             if user.is_blocked:
                 user.is_blocked = False
                 await user.asave(update_fields=['is_blocked'])
-            return user, False
+            invited_set = False
+            if user.invited_by_id is None and referrer_user is not None and referrer_user.id != user.id:
+                user.invited_by = referrer_user
+                await user.asave(update_fields=['invited_by'])
+                invited_set = True
+            return user, False, invited_set
         except User.DoesNotExist:
             pass
         except Exception as exc:
@@ -180,17 +189,24 @@ class UserService:
                 f"[UserService] Ошибка поиска пользователя max_id={max_id}: {exc}",
                 exc_info=True,
             )
-            return None, False
+            return None, False, False
 
         safe_username = (username or f'max_{max_id}')[:150]
         lang = language if language in {'ru', 'en'} else 'ru'
+        referrer_id = referrer_user.id if referrer_user is not None else None
 
         @sync_to_async
         def _create_user_atomic():
             with transaction.atomic():
                 existing = User.objects.filter(max_id=max_id).first()
                 if existing is not None:
-                    return existing, False
+                    return existing, False, False
+
+                invited_by = None
+                invited_set = False
+                if referrer_id is not None:
+                    invited_by = User.objects.filter(id=referrer_id).first()
+                    invited_set = invited_by is not None
 
                 user = User.objects.create(
                     max_id=max_id,
@@ -200,6 +216,7 @@ class UserService:
                     last_name='',
                     language=lang,
                     timezone='UTC',
+                    invited_by=invited_by,
                 )
                 welcome_tokens = 15
                 user.token_balance += welcome_tokens
@@ -212,9 +229,9 @@ class UserService:
                 )
                 logger.info(
                     f"[UserService] Новый MAX-пользователь создан: {user.username} "
-                    f"(max_id={user.max_id}), tokens={welcome_tokens}"
+                    f"(max_id={user.max_id}), tokens={welcome_tokens}, invited={invited_set}"
                 )
-                return user, True
+                return user, True, invited_set
 
         try:
             return await _create_user_atomic()
@@ -225,9 +242,9 @@ class UserService:
             )
             try:
                 user = await User.objects.aget(max_id=max_id)
-                return user, False
+                return user, False, False
             except User.DoesNotExist:
-                return None, False
+                return None, False, False
 
     @classmethod
     async def award_referral_bonus(cls, referrer_user: User, referred_user: User) -> bool:
@@ -504,10 +521,11 @@ async def get_or_create_user_by_max_id(
     *,
     username: Optional[str] = None,
     language: str = 'ru',
-) -> Tuple[Optional[User], bool]:
+    referrer_user: Optional[User] = None,
+) -> Tuple[Optional[User], bool, bool]:
     """Удобная функция для получения/создания пользователя по MAX id."""
     return await UserService.get_or_create_user_by_max_id(
-        max_id, username=username, language=language
+        max_id, username=username, language=language, referrer_user=referrer_user
     )
 
 

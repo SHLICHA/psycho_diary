@@ -416,6 +416,8 @@ class EmailMergeRequest(models.Model):
     STATUS_CHOICES = [
         ('pending', 'Ожидает подтверждения'),
         ('confirmed', 'Подтверждено'),
+        ('merged', 'Объединено'),
+        ('merge_failed', 'Ошибка объединения'),
         ('expired', 'Истекло'),
         ('cancelled', 'Отменено'),
     ]

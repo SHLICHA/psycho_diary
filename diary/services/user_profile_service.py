@@ -710,9 +710,16 @@ class UserProfileService:
             return {'success': False, 'error': str(e)}
 
     @classmethod
-    async def get_referral_link_info(cls, user: User, language: str) -> Dict[str, Any]:
+    async def get_referral_link_info(
+        cls,
+        user: User,
+        language: str,
+        *,
+        platform: str = 'telegram',
+    ) -> Dict[str, Any]:
         """
         Получает информацию для отображения реферальной ссылки.
+        platform: telegram | max — определяет deep-link хост.
         """
         if not user.referral_link:
             return {
@@ -721,20 +728,92 @@ class UserProfileService:
                 'message': get_message('no_referral_link_error', language)
             }
 
-        bot_username = os.getenv("TELEGRAM_BOT_USERNAME", settings.BOT_USERNAME) # Используем settings.BOT_USERNAME как fallback
-        if not bot_username or bot_username == "your_bot_username":
-             logger.warning("TELEGRAM_BOT_USERNAME не установлен. Используется значение по умолчанию.")
-        referral_link_url = f"https://t.me/{bot_username}?start={user.referral_link}"
-        display_msg = get_message('referral_link_display_text', language)
-        share_text_raw = get_message('referral_share_text', language)
-        share_text_formatted = share_text_raw.format(url=referral_link_url)
-        encoded_text = urllib.parse.quote_plus(share_text_formatted)
-        share_url = f"https://t.me/share/url?url={referral_link_url}&text={encoded_text}"
+        platform_norm = (platform or 'telegram').lower()
+        if platform_norm == 'max':
+            bot_username = (getattr(settings, 'MAX_BOT_USERNAME', '') or '').strip().lstrip('@')
+            if not bot_username:
+                logger.warning('MAX_BOT_USERNAME не задан — реферальная ссылка MAX недоступна')
+                return {
+                    'success': False,
+                    'error': 'max_bot_username_missing',
+                    'message': get_message('referral_max_bot_username_missing', language),
+                }
+            referral_link_url = f'https://max.ru/{bot_username}?start={user.referral_link}'
+            share_text = (
+                f"{get_message('referral_share_text', language)} {referral_link_url}"
+            )
+            share_url = f'https://max.ru/:share?text={urllib.parse.quote(share_text)}'
+        else:
+            bot_username = os.getenv('TELEGRAM_BOT_USERNAME', settings.BOT_USERNAME)
+            if not bot_username or bot_username == 'your_bot_username':
+                logger.warning('TELEGRAM_BOT_USERNAME не установлен. Используется значение по умолчанию.')
+            referral_link_url = f'https://t.me/{bot_username}?start={user.referral_link}'
+            share_text = f"{get_message('referral_share_text', language)} {referral_link_url}"
+            encoded_text = urllib.parse.quote_plus(share_text)
+            share_url = (
+                f'https://t.me/share/url?'
+                f'url={urllib.parse.quote(referral_link_url, safe="")}&text={encoded_text}'
+            )
+
+        display_msg = get_message(
+            'referral_link_display_text',
+            language,
+            url=referral_link_url,
+        )
         return {
             'success': True,
             'display_message': display_msg,
             'share_url': share_url,
-            'referral_link_url': referral_link_url
+            'referral_link_url': referral_link_url,
+            'platform': platform_norm,
+        }
+
+    @classmethod
+    async def build_referral_link_view(
+        cls,
+        user: User,
+        language: str,
+        *,
+        platform: str = 'telegram',
+    ) -> Dict[str, Any]:
+        """Экран реферальной ссылки + share keyboard."""
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        from messages import get_button_text
+        from bot.keyboards import get_single_button_keyboard
+
+        link_info = await cls.get_referral_link_info(user, language, platform=platform)
+        if not link_info.get('success'):
+            return {
+                'success': False,
+                'mode': 'error',
+                'error': link_info.get('error'),
+                'text': link_info.get('message') or get_message('error_generic', language),
+                'reply_markup': get_single_button_keyboard(language, 'user_profile', 'btn_back'),
+            }
+
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text=get_button_text('btn_share_referral_link', language),
+                        url=link_info['share_url'],
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text=get_button_text('btn_back', language),
+                        callback_data='user_profile',
+                    )
+                ],
+            ]
+        )
+        return {
+            'success': True,
+            'mode': 'referral',
+            'text': link_info['display_message'],
+            'reply_markup': keyboard,
+            'platform': link_info.get('platform'),
+            'referral_link_url': link_info.get('referral_link_url'),
         }
 
     @classmethod
@@ -913,46 +992,6 @@ class UserProfileService:
             'set_state': 'in_account_deletion_menu',
         }
 
-    @classmethod
-    async def build_referral_link_view(cls, user: User, language: str) -> Dict[str, Any]:
-        """Экран реферальной ссылки + share keyboard."""
-        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-        from messages import get_button_text
-        from bot.keyboards import get_single_button_keyboard
-
-        link_info = await cls.get_referral_link_info(user, language)
-        if not link_info.get('success'):
-            return {
-                'success': False,
-                'mode': 'error',
-                'error': link_info.get('error'),
-                'text': link_info.get('message') or get_message('error_generic', language),
-                'reply_markup': get_single_button_keyboard(language, 'user_profile', 'btn_back'),
-            }
-
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text=get_button_text('btn_share_referral_link', language),
-                        url=link_info['share_url'],
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text=get_button_text('btn_back', language),
-                        callback_data='user_profile',
-                    )
-                ],
-            ]
-        )
-        return {
-            'success': True,
-            'mode': 'referral',
-            'text': link_info['display_message'],
-            'reply_markup': keyboard,
-        }
-
 
 async def get_user_profile_data(user: User) -> Dict[str, Any]:
     return await UserProfileService.get_user_profile_data(user)
@@ -1010,8 +1049,13 @@ async def anonymize_user_account(user: User) -> Dict[str, Any]:
 async def export_user_data(user: User) -> Dict[str, Any]:
     return await UserProfileService.export_user_data(user)
 
-async def get_referral_link_info(user: User, language: str) -> Dict[str, Any]:
-    return await UserProfileService.get_referral_link_info(user, language)
+async def get_referral_link_info(
+    user: User,
+    language: str,
+    *,
+    platform: str = 'telegram',
+) -> Dict[str, Any]:
+    return await UserProfileService.get_referral_link_info(user, language, platform=platform)
 
 async def build_profile_screen_view(user: User, language: str) -> Dict[str, Any]:
     return await UserProfileService.build_profile_screen_view(user, language)
@@ -1032,5 +1076,10 @@ async def build_list_field_edit_prompt(
 def build_account_deletion_menu_view(user: User, language: str) -> Dict[str, Any]:
     return UserProfileService.build_account_deletion_menu_view(user, language)
 
-async def build_referral_link_view(user: User, language: str) -> Dict[str, Any]:
-    return await UserProfileService.build_referral_link_view(user, language)
+async def build_referral_link_view(
+    user: User,
+    language: str,
+    *,
+    platform: str = 'telegram',
+) -> Dict[str, Any]:
+    return await UserProfileService.build_referral_link_view(user, language, platform=platform)

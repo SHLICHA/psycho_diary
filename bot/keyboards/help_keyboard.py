@@ -34,6 +34,12 @@ def get_help_keyboard(language: str) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
+                text=get_button_text('help_account_merge', language),
+                callback_data="help_account_merge"
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 text=get_button_text('help_faq', language),
                 callback_data="help_faq"
             )
@@ -54,6 +60,12 @@ def get_help_keyboard(language: str) -> InlineKeyboardMarkup:
             InlineKeyboardButton(
                 text=get_button_text('help_privacy', language),
                 callback_data="help_privacy"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=get_button_text('help_support', language),
+                callback_data="help_support"
             )
         ],
         #[
