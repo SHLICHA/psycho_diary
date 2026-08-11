@@ -40,6 +40,7 @@ class MaxNormalizedEvent:
     payload: str | None
     update: dict[str, Any]
     media: MaxMediaInfo | None = None
+    callback_id: str | None = None
 
 
 def _to_int(value: Any) -> int | None:
@@ -121,38 +122,85 @@ def extract_media_from_message(message: dict[str, Any] | None) -> MaxMediaInfo |
 
 def _extract_user_chat_text_payload(
     update: dict[str, Any],
-) -> tuple[int | None, int | None, str | None, str | None, MaxMediaInfo | None]:
+) -> tuple[int | None, int | None, str | None, str | None, MaxMediaInfo | None, str | None]:
     callback = update.get('callback') or update.get('message_callback') or {}
+    if not isinstance(callback, dict):
+        callback = {}
     message = update.get('message') or {}
+    if not isinstance(message, dict):
+        message = {}
     source = update.get('source') or {}
+    if not isinstance(source, dict):
+        source = {}
 
-    user_id = (
-        ((callback.get('sender') or {}).get('user_id'))
-        or ((message.get('sender') or {}).get('user_id'))
-        or source.get('user_id')
-        or message.get('from_id')
-        or update.get('from_id')
-    )
+    callback_user = callback.get('user') or callback.get('sender') or {}
+    if not isinstance(callback_user, dict):
+        callback_user = {}
+    update_user = update.get('user') or source.get('user') or {}
+    if not isinstance(update_user, dict):
+        update_user = {}
+    message_sender = message.get('sender') or {}
+    if not isinstance(message_sender, dict):
+        message_sender = {}
+    recipient = message.get('recipient') or {}
+    if not isinstance(recipient, dict):
+        recipient = {}
+
+    raw_update_type = (update.get('update_type') or update.get('type') or '').lower()
+    is_callback = raw_update_type in {'message_callback', 'message_event'}
+
+    if is_callback:
+        # У callback message.sender часто сам бот (автор сообщения с кнопкой).
+        # Берём пользователя, который нажал кнопку.
+        user_id = (
+            callback_user.get('user_id')
+            or callback_user.get('id')
+            or update_user.get('user_id')
+            or update_user.get('id')
+            or source.get('user_id')
+            or update.get('user_id')
+            or recipient.get('user_id')
+            or recipient.get('id')
+            or callback.get('user_id')
+        )
+    else:
+        user_id = (
+            update_user.get('user_id')
+            or update_user.get('id')
+            or message_sender.get('user_id')
+            or message_sender.get('id')
+            or source.get('user_id')
+            or message.get('from_id')
+            or message.get('user_id')
+            or update.get('from_id')
+            or update.get('user_id')
+        )
 
     chat_id = (
-        ((message.get('recipient') or {}).get('chat_id'))
-        or message.get('chat_id')
+        update.get('chat_id')
         or source.get('chat_id')
-        or update.get('chat_id')
+        or recipient.get('chat_id')
+        or message.get('chat_id')
+        or ((message.get('chat') or {}).get('chat_id') if isinstance(message.get('chat'), dict) else None)
+        or ((message.get('chat') or {}).get('id') if isinstance(message.get('chat'), dict) else None)
     )
 
     text = (
-        ((message.get('body') or {}).get('text'))
+        ((message.get('body') or {}).get('text') if isinstance(message.get('body'), dict) else None)
         or message.get('text')
-        or ((update.get('body') or {}).get('text'))
+        or ((update.get('body') or {}).get('text') if isinstance(update.get('body'), dict) else None)
     )
 
-    payload = callback.get('payload') or update.get('payload')
+    payload = callback.get('payload')
     if payload is None:
+        payload = callback.get('data')
+    if payload is None:
+        payload = update.get('payload')
+    if payload is None and not is_callback:
         payload = text
 
     if isinstance(payload, dict):
-        payload = payload.get('action') or payload.get('payload')
+        payload = payload.get('action') or payload.get('payload') or payload.get('data')
 
     if text is not None:
         text = str(text)
@@ -160,12 +208,22 @@ def _extract_user_chat_text_payload(
         payload = str(payload)
 
     media = extract_media_from_message(message if isinstance(message, dict) else None)
-    return _to_int(user_id), _to_int(chat_id), text, payload, media
+
+    callback_id_raw = (
+        callback.get('callback_id')
+        or callback.get('id')
+        or update.get('callback_id')
+    )
+    callback_id = str(callback_id_raw).strip() if callback_id_raw else None
+    if callback_id == '':
+        callback_id = None
+
+    return _to_int(user_id), _to_int(chat_id), text, payload, media, callback_id
 
 
 def extract_message_callback_payload(update: dict[str, Any]) -> tuple[int | None, str | None]:
     """Backward-compatible extractor returning only (user_id, payload)."""
-    user_id, _chat_id, _text, payload, _media = _extract_user_chat_text_payload(update)
+    user_id, _chat_id, _text, payload, _media, _callback_id = _extract_user_chat_text_payload(update)
     return user_id, payload
 
 
@@ -175,7 +233,7 @@ def normalize_update(update: dict[str, Any]) -> MaxNormalizedEvent | None:
     if raw_update_type not in SUPPORTED_UPDATE_TYPES:
         return None
 
-    user_id, chat_id, text, payload, media = _extract_user_chat_text_payload(update)
+    user_id, chat_id, text, payload, media, callback_id = _extract_user_chat_text_payload(update)
 
     return MaxNormalizedEvent(
         event_type=raw_update_type,
@@ -186,6 +244,7 @@ def normalize_update(update: dict[str, Any]) -> MaxNormalizedEvent | None:
         payload=payload,
         update=update,
         media=media,
+        callback_id=callback_id,
     )
 
 
@@ -265,14 +324,23 @@ def process_max_update(update: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def aprocess_max_update(update: dict[str, Any]) -> dict[str, Any]:
+async def aprocess_max_update(
+    update: dict[str, Any],
+    *,
+    max_client=None,
+    callback_already_answered: bool = False,
+) -> dict[str, Any]:
     """Async wrapper — always uses Wave 1 dispatcher when available."""
     from django.conf import settings
 
     if getattr(settings, 'MAX_TRANSPORT_ENABLED', False):
         from bot.handlers.max.dispatcher import dispatch_max_update
 
-        return await dispatch_max_update(update)
+        return await dispatch_max_update(
+            update,
+            max_client=max_client,
+            callback_already_answered=callback_already_answered,
+        )
 
     return await sync_to_async(process_max_update)(update)
 

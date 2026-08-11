@@ -391,7 +391,7 @@ MAX_API_BASE_URL = config('MAX_API_BASE_URL', default='https://platform-api2.max
 MAX_API_TIMEOUT_SECONDS = config('MAX_API_TIMEOUT_SECONDS', default=10, cast=int)
 MAX_WEBHOOK_SECRET = config('MAX_WEBHOOK_SECRET', default='')
 MAX_POLLING_TIMEOUT_SECONDS = config('MAX_POLLING_TIMEOUT_SECONDS', default=30, cast=int)
-MAX_POLLING_IDLE_SLEEP_SECONDS = config('MAX_POLLING_IDLE_SLEEP_SECONDS', default=1.5, cast=float)
+MAX_POLLING_IDLE_SLEEP_SECONDS = config('MAX_POLLING_IDLE_SLEEP_SECONDS', default=0.0, cast=float)
 MAX_RATE_LIMIT_RPS = config('MAX_RATE_LIMIT_RPS', default=10, cast=float)
 MAX_RATE_LIMIT_BURST = config('MAX_RATE_LIMIT_BURST', default=50, cast=int)
 MAX_MESSAGE_MAX_LENGTH = config('MAX_MESSAGE_MAX_LENGTH', default=3500, cast=int)

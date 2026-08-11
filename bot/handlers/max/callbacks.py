@@ -66,6 +66,7 @@ async def route_callback(
     *,
     max_id: int,
     max_client=None,
+    callback_id: str | None = None,
 ) -> dict:
     payload = (payload or '').strip()
     language = user.language or 'ru'
@@ -109,7 +110,14 @@ async def route_callback(
         return wave6_profile
 
     if payload in {'onboarding_agree_1', 'onboarding_agree_2', 'onboarding_ask_timezone'}:
-        return await _handle_onboarding_callback(user, payload, send_func, max_id=max_id)
+        return await _handle_onboarding_callback(
+            user,
+            payload,
+            send_func,
+            max_id=max_id,
+            max_client=max_client,
+            callback_id=callback_id,
+        )
 
     if payload == 'help' or payload == 'help_back_to_main':
         from bot.handlers.max.commands import handle_help
@@ -203,7 +211,7 @@ async def route_callback(
         current_tz = info.get('current_timezone', user.timezone or 'UTC')
         await send_func(
             get_message('select_timezone_title', language, current_timezone=current_tz),
-            get_common_timezones_keyboard(language),
+            get_common_timezones_keyboard(language, current_tz),
         )
         return {'ok': True, 'handled': payload}
 
@@ -238,11 +246,26 @@ async def route_callback(
     return {'ok': True, 'handled': 'unhandled_callback', 'payload': payload}
 
 
-async def _handle_onboarding_callback(user, payload, send_func, *, max_id: int) -> dict:
+async def _handle_onboarding_callback(
+    user,
+    payload,
+    send_func,
+    *,
+    max_id: int,
+    max_client=None,
+    callback_id: str | None = None,
+) -> dict:
     language = user.language or 'ru'
+    # callback_id / max_client: ack уже сделан в dispatcher через notification;
+    # контент шлём новым сообщением (как wb_analyzer + docs POST /messages).
 
     if payload == 'onboarding_agree_1':
         if not max_state.matches_state(max_id, OnboardingStates.waiting_for_agreement_1):
+            logger.warning(
+                '[MAX onboarding] wrong_state agree_1 max_id=%s current=%s',
+                max_id,
+                max_state.get_fsm_state(max_id),
+            )
             await send_func(get_message('error_generic', language))
             return {'ok': True, 'handled': payload, 'error': 'wrong_state'}
         keyboard = get_single_button_keyboard(

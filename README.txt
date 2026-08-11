@@ -201,6 +201,8 @@
   (также работают `is_staff` / `MONITORING_PRIVILEGED_USER_IDS` / `DEVELOPER_CHAT_ID` при linked telegram_id)
 
 Admin в MAX (при включённом транспорте): `/admin`, `/stats`, `/feedbacks`, `/broadcast`.
+
+После `message_callback` первый ответ бота идёт через `POST /answers` с `message` (+ `notification`). В polling нельзя перезаписывать `MaxStateStore` целиком перед dispatch — это стирало `fsm_state` онбординга и подставляло `error_generic`.
 Также: tasks (`tasks` / `/tasks`), profile (`user_profile` / `/profile`), therapy (`start_therapy_chat`).
 
 Проверка конфига перед запуском:

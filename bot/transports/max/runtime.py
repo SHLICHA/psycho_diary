@@ -10,9 +10,8 @@ from django.conf import settings
 from core.services.monitoring_service import monitoring_service
 
 from .client import MaxClient
-from .inbound import aprocess_max_update, normalize_update
+from .inbound import aprocess_max_update
 from .preflight import collect_preflight_errors, normalize_transport_mode
-from .state_store import MaxStateStore
 
 
 logger = logging.getLogger(__name__)
@@ -30,7 +29,6 @@ class MaxTransportCoordinator:
             rate_limit_burst=getattr(settings, 'MAX_RATE_LIMIT_BURST', 50),
             max_message_length=getattr(settings, 'MAX_MESSAGE_MAX_LENGTH', 3500),
         )
-        self.state_store = MaxStateStore(ttl_seconds=getattr(settings, 'MAX_STATE_TTL_SECONDS', 3600))
 
     async def _record_runtime_metric(
         self,
@@ -86,7 +84,9 @@ class MaxTransportCoordinator:
     async def _run_polling_mode(self, stop_event: asyncio.Event) -> None:
         marker: str | None = None
         polling_timeout = int(getattr(settings, 'MAX_POLLING_TIMEOUT_SECONDS', 30))
-        idle_sleep = float(getattr(settings, 'MAX_POLLING_IDLE_SLEEP_SECONDS', 1.5))
+        # После пустого long-poll сразу начинаем следующий — sleep только на ошибках.
+        idle_sleep = float(getattr(settings, 'MAX_POLLING_IDLE_SLEEP_SECONDS', 0))
+        error_sleep = max(idle_sleep, 1.0)
         update_types = ['message_created', 'bot_started', 'message_callback']
 
         while not stop_event.is_set():
@@ -98,23 +98,23 @@ class MaxTransportCoordinator:
                     update_types=update_types,
                 )
                 if not updates:
-                    await asyncio.sleep(idle_sleep)
+                    if idle_sleep > 0:
+                        await asyncio.sleep(idle_sleep)
                     continue
 
+                # Не делаем notification-only fast-ack здесь: он «сжигает» callback_id,
+                # а клиент MAX снимает ошибку на кнопке только при /answers с message.
+                # Передаём прогретый client в dispatcher — первый send_func ответит через /answers.
                 for update in updates:
                     if stop_event.is_set():
                         break
-                    event = normalize_update(update)
-                    if event and event.user_id:
-                        self.state_store.set_state(
-                            event.user_id,
-                            {
-                                'event_type': event.event_type,
-                                'chat_id': event.chat_id,
-                                'last_text': event.text,
-                            },
-                        )
-                    await aprocess_max_update(update)
+                    # Не трогаем MaxStateStore здесь: set_state перезаписывает весь ключ
+                    # и стирает fsm_state онбординга → error_generic на кнопке «Далее».
+                    await aprocess_max_update(
+                        update,
+                        max_client=self.client,
+                        callback_already_answered=False,
+                    )
 
                 duration_ms = (time.perf_counter() - iteration_started_at) * 1000
                 await self._record_runtime_metric(
@@ -132,7 +132,7 @@ class MaxTransportCoordinator:
                     metadata={'mode': 'polling', 'error_type': type(exc).__name__},
                 )
                 logger.error('[MAX Runtime] polling iteration failed: %s', exc, exc_info=True)
-                await asyncio.sleep(idle_sleep)
+                await asyncio.sleep(error_sleep)
 
     async def run(self, stop_event: asyncio.Event) -> None:
         """Точка входа runtime coordinator с graceful shutdown."""

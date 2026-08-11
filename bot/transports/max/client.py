@@ -148,7 +148,129 @@ class MaxClient:
     @staticmethod
     def _is_keyboard_payload_error(body: Any) -> bool:
         text = MaxClient._extract_text_from_body(body).lower()
-        return ('keyboard' in text) or ('attachment' in text) or ('payload' in text)
+        return (
+            'keyboard' in text
+            or 'attachment' in text
+            or 'proto.payload' in text
+            or "can't deserialize" in text
+            or 'deserialize body' in text
+        )
+
+    async def _send_single_message(
+        self,
+        *,
+        target_key: str,
+        target_value: int,
+        text: str,
+        attachments: list[dict[str, Any]] | None = None,
+        text_format: str | None = 'html',
+    ) -> tuple[bool, int, Any]:
+        params = {target_key: str(target_value)}
+        payload: dict[str, Any] = {'text': text}
+        # MAX рендерит <b>/<i>/… только при явном format=html|markdown.
+        if text_format in {'html', 'markdown'}:
+            payload['format'] = text_format
+        if attachments:
+            payload['attachments'] = attachments
+
+        response_status, response_body = await self._request_json(
+            method='POST',
+            path='/messages',
+            params=params,
+            payload=payload,
+        )
+        return (200 <= response_status < 300), response_status, response_body
+
+    async def answer_callback(
+        self,
+        *,
+        callback_id: str,
+        notification: str | None = None,
+        message: dict[str, Any] | None = None,
+        text: str | None = None,
+        reply_markup: Any = None,
+        text_format: str | None = 'html',
+    ) -> bool:
+        """
+        POST /answers?callback_id=...
+
+        Для снятия ошибки/спиннера на кнопке надёжнее слать непустой
+        `notification`. Редактирование через `message` оставляем опциональным.
+        """
+        callback_id = (callback_id or '').strip()
+        if not callback_id:
+            logger.warning('[MaxClient] answer_callback skipped: empty callback_id')
+            return False
+
+        message_variants: list[dict[str, Any] | None]
+        if message is not None:
+            message_variants = [message]
+        elif text is not None:
+            safe_text = str(text).strip() or '·'
+            base: dict[str, Any] = {'text': safe_text}
+            if text_format in {'html', 'markdown'}:
+                base['format'] = text_format
+            keyboard_variants = self._build_keyboard_attachment_variants(reply_markup)
+            if keyboard_variants:
+                message_variants = [
+                    {**base, 'attachments': [attachment]}
+                    for attachment in keyboard_variants
+                ]
+                message_variants.append(dict(base))
+            else:
+                message_variants = [base]
+        else:
+            message_variants = [None]
+
+        last_status: int | None = None
+        last_body: Any = None
+        for message_body in message_variants:
+            payload: dict[str, Any] = {}
+            if message_body is not None:
+                payload['message'] = message_body
+            # notification обязателен, если нет message; при message тоже полезен для UI.
+            if notification is not None:
+                payload['notification'] = notification
+            elif 'message' not in payload:
+                payload['notification'] = '✓'
+
+            status, body = await self._request_json(
+                method='POST',
+                path='/answers',
+                params={'callback_id': callback_id},
+                payload=payload,
+            )
+            last_status, last_body = status, body
+            success_flag = None
+            if isinstance(body, dict) and 'success' in body:
+                success_flag = bool(body.get('success'))
+
+            logger.info(
+                '[MaxClient] answer_callback status=%s success=%s has_message=%s callback_id=%s',
+                status,
+                success_flag,
+                'message' in payload,
+                callback_id[:40],
+            )
+
+            if 200 <= status < 300 and success_flag is not False:
+                return True
+
+            if (
+                message_body is not None
+                and message_body.get('attachments')
+                and self._is_keyboard_payload_error(body)
+            ):
+                continue
+            break
+
+        logger.error(
+            '[MaxClient] answer_callback failed: status=%s body=%s callback_id=%s',
+            last_status,
+            last_body,
+            callback_id[:40],
+        )
+        return False
 
     def _chunk_text(self, text: str) -> list[str]:
         if len(text) <= self.max_message_length:
@@ -169,32 +291,17 @@ class MaxClient:
             chunks.append(current)
         return chunks or [text]
 
-    async def _send_single_message(
-        self,
-        *,
-        target_key: str,
-        target_value: int,
-        text: str,
-        attachments: list[dict[str, Any]] | None = None,
-    ) -> tuple[bool, int, Any]:
-        params = {target_key: str(target_value)}
-        payload: dict[str, Any] = {'text': text}
-        if attachments:
-            payload['attachments'] = attachments
-
-        response_status, response_body = await self._request_json(
-            method='POST',
-            path='/messages',
-            params=params,
-            payload=payload,
-        )
-        return (200 <= response_status < 300), response_status, response_body
+    @staticmethod
+    def _sanitize_button_text(text: Any) -> str:
+        """MAX отклоняет whitespace-only text (errors.required) — как в ячейках календаря."""
+        value = str(text or '').strip()
+        return value if value else '·'
 
     @staticmethod
-    def _serialize_inline_keyboard(reply_markup: Any) -> list[list[dict[str, str]]] | None:
-        """Convert aiogram InlineKeyboardMarkup into MAX buttons format."""
+    def _extract_aiogram_button_rows(reply_markup: Any) -> list[list[dict[str, str]]]:
+        """Convert aiogram InlineKeyboardMarkup into raw text/payload rows."""
         if not reply_markup or not hasattr(reply_markup, 'inline_keyboard'):
-            return None
+            return []
 
         result: list[list[dict[str, str]]] = []
         for row in getattr(reply_markup, 'inline_keyboard', []) or []:
@@ -202,13 +309,78 @@ class MaxClient:
             for button in row:
                 text = getattr(button, 'text', None)
                 callback_data = getattr(button, 'callback_data', None)
-                if not text or not callback_data:
+                if callback_data is None:
                     continue
-                converted_row.append({'text': str(text), 'payload': str(callback_data)})
+                converted_row.append(
+                    {
+                        'text': MaxClient._sanitize_button_text(text),
+                        'payload': str(callback_data),
+                    }
+                )
             if converted_row:
                 result.append(converted_row)
+        return result
 
-        return result or None
+    @staticmethod
+    def _normalize_keyboard_rows(
+        rows: list[list[dict[str, str]]],
+        *,
+        mode: str = 'callback_string',
+    ) -> list[list[dict[str, Any]]]:
+        """
+        Normalize button rows to a MAX API keyboard variant.
+
+        Modes:
+        - callback_string: type=callback, payload="..."  (канон MAX API)
+        - legacy: без type, payload="..."
+        """
+        normalized_rows: list[list[dict[str, Any]]] = []
+        for row in rows:
+            # MAX: до 7 кнопок в ряду.
+            truncated_row = row[:7]
+            normalized_row: list[dict[str, Any]] = []
+            for button in truncated_row:
+                text = MaxClient._sanitize_button_text(button.get('text'))
+                raw_payload = button.get('payload')
+                if mode == 'legacy':
+                    normalized_button: dict[str, Any] = {'text': text}
+                    if raw_payload is not None:
+                        normalized_button['payload'] = str(raw_payload)
+                else:
+                    # Канон docs: type=callback, text, payload=string (без intent).
+                    normalized_button = {
+                        'type': 'callback',
+                        'text': text,
+                    }
+                    if raw_payload is not None:
+                        normalized_button['payload'] = str(raw_payload)
+                normalized_row.append(normalized_button)
+            if normalized_row:
+                normalized_rows.append(normalized_row)
+        # MAX: до 30 рядов / 210 кнопок.
+        return normalized_rows[:30]
+
+    def _build_keyboard_attachment_variants(self, reply_markup: Any) -> list[dict[str, Any]]:
+        """
+        MAX platform-api2 принимает payload кнопки только как строку.
+        Вариант с payload={"action":...} даёт proto.payload — не используем.
+        """
+        rows = self._extract_aiogram_button_rows(reply_markup)
+        if not rows:
+            return []
+
+        variants: list[dict[str, Any]] = []
+        for mode in ('callback_string', 'legacy'):
+            normalized = self._normalize_keyboard_rows(rows, mode=mode)
+            if not normalized:
+                continue
+            variants.append(
+                {
+                    'type': 'inline_keyboard',
+                    'payload': {'buttons': normalized},
+                }
+            )
+        return variants
 
     async def send_message(
         self,
@@ -217,8 +389,9 @@ class MaxClient:
         chat_id: int | None = None,
         text: str,
         reply_markup: Any = None,
+        text_format: str | None = 'html',
     ) -> bool:
-        """Send MAX message with fallback chat_id->user_id and chunking."""
+        """Send MAX message with fallback and chunking."""
         if not self.api_token:
             logger.warning('[MaxClient] Skip send: MAX_BOT_TOKEN is empty')
             return False
@@ -228,52 +401,80 @@ class MaxClient:
             return False
 
         text_chunks = self._chunk_text(text)
+        keyboard_variants = self._build_keyboard_attachment_variants(reply_markup)
 
-        buttons = self._serialize_inline_keyboard(reply_markup)
-        attachments = [{'type': 'inline_keyboard', 'buttons': buttons}] if buttons else None
-
-        primary_target = ('chat_id', int(chat_id)) if chat_id is not None else ('user_id', int(user_id))
-        fallback_target = None
-        if chat_id is not None and user_id is not None:
-            fallback_target = ('user_id', int(user_id))
+        # В личке с ботом надёжнее user_id (см. docs POST /messages).
+        if user_id is not None:
+            primary_target = ('user_id', int(user_id))
+            fallback_target = ('chat_id', int(chat_id)) if chat_id is not None else None
+        else:
+            primary_target = ('chat_id', int(chat_id))
+            fallback_target = None
 
         for index, chunk in enumerate(text_chunks):
-            chunk_attachments = attachments if index == len(text_chunks) - 1 else None
+            # Клавиатуру вешаем только на последний чанк.
+            variants_to_try: list[dict[str, Any] | None]
+            if index == len(text_chunks) - 1 and keyboard_variants:
+                variants_to_try = list(keyboard_variants) + [None]
+            else:
+                variants_to_try = [None]
 
-            ok, status_code, body = await self._send_single_message(
-                target_key=primary_target[0],
-                target_value=primary_target[1],
-                text=chunk,
-                attachments=chunk_attachments,
-            )
-
-            if not ok and chunk_attachments and self._is_keyboard_payload_error(body):
-                logger.warning('[MaxClient] Retry without keyboard due to payload error')
+            sent = False
+            last_status = 0
+            last_body: Any = None
+            for variant_index, keyboard_attachment in enumerate(variants_to_try):
+                attachments = [keyboard_attachment] if keyboard_attachment else None
                 ok, status_code, body = await self._send_single_message(
                     target_key=primary_target[0],
                     target_value=primary_target[1],
                     text=chunk,
-                    attachments=None,
+                    attachments=attachments,
+                    text_format=text_format,
                 )
-
-            if not ok and fallback_target is not None:
-                logger.warning('[MaxClient] Fallback send from %s to %s', primary_target[0], fallback_target[0])
-                ok, status_code, body = await self._send_single_message(
-                    target_key=fallback_target[0],
-                    target_value=fallback_target[1],
-                    text=chunk,
-                    attachments=chunk_attachments,
-                )
-                if not ok and chunk_attachments and self._is_keyboard_payload_error(body):
+                # Fallback на chat_id только если ошибка не про keyboard schema.
+                if (
+                    not ok
+                    and fallback_target is not None
+                    and not (attachments and self._is_keyboard_payload_error(body))
+                ):
+                    logger.warning(
+                        '[MaxClient] Fallback send from %s to %s',
+                        primary_target[0],
+                        fallback_target[0],
+                    )
                     ok, status_code, body = await self._send_single_message(
                         target_key=fallback_target[0],
                         target_value=fallback_target[1],
                         text=chunk,
-                        attachments=None,
+                        attachments=attachments,
+                        text_format=text_format,
                     )
 
-            if not ok:
-                logger.error('[MaxClient] MAX message send failed: status=%s body=%s', status_code, body)
+                if ok:
+                    sent = True
+                    break
+
+                last_status, last_body = status_code, body
+                if (
+                    keyboard_attachment is not None
+                    and self._is_keyboard_payload_error(body)
+                    and variant_index < len(variants_to_try) - 1
+                ):
+                    logger.warning(
+                        '[MaxClient] Keyboard variant %s/%s rejected, trying next. body=%s',
+                        variant_index + 1,
+                        len(variants_to_try) - 1,
+                        body,
+                    )
+                    continue
+                break
+
+            if not sent:
+                logger.error(
+                    '[MaxClient] MAX message send failed: status=%s body=%s',
+                    last_status,
+                    last_body,
+                )
                 return False
 
         return True
@@ -398,12 +599,13 @@ class MaxClient:
         if user_id is None and chat_id is None:
             return False
 
-        buttons = self._serialize_inline_keyboard(reply_markup)
+        keyboard_variants = self._build_keyboard_attachment_variants(reply_markup)
+        keyboard_attachment = keyboard_variants[0] if keyboard_variants else None
         attachments: list[dict[str, Any]] = [
             {'type': 'image', 'payload': {'token': token}},
         ]
-        if buttons:
-            attachments.append({'type': 'inline_keyboard', 'buttons': buttons})
+        if keyboard_attachment:
+            attachments.append(keyboard_attachment)
 
         primary_target = ('chat_id', int(chat_id)) if chat_id is not None else ('user_id', int(user_id))
         ok, status_code, body = await self._send_single_message(
@@ -411,6 +613,7 @@ class MaxClient:
             target_value=primary_target[1],
             text=caption or '',
             attachments=attachments,
+            text_format='html' if caption else None,
         )
         if ok:
             return True
@@ -420,6 +623,7 @@ class MaxClient:
                 target_value=int(user_id),
                 text=caption or '',
                 attachments=attachments,
+                text_format='html' if caption else None,
             )
             if ok:
                 return True

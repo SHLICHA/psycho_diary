@@ -31,21 +31,16 @@ async def create_bot_for_task() -> Bot:
     
     logger.info(f"✓ Bot token найден (длина: {len(token)})")
     
-    proxy_url = config('TELEGRAM_PROXY_URL', default=None)
-    
-    if proxy_url:
-        # Маскируем пароль для логов
-        if '@' in proxy_url:
-            masked_url = f"{proxy_url.split('@')[0].split('://')[0]}://***:***@{proxy_url.split('@')[1]}"
-        else:
-            masked_url = proxy_url
-        
-        logger.info(f"✓ Найден прокси: {masked_url}")
+    from bot.bot_instance import mask_proxy_url
+
+    proxy_url = (config('TELEGRAM_PROXY_URL', default='') or '').strip()
+    if proxy_url and proxy_url.lower() not in {'none', 'null', 'false', '-'}:
+        logger.info("✓ Найден прокси: %s", mask_proxy_url(proxy_url))
         try:
             session = AiohttpSession(proxy=proxy_url)
-            logger.info(f"✓ Сессия с прокси создана")
+            logger.info("✓ Сессия с прокси создана")
         except Exception as e:
-            logger.error(f"✗ ОШИБКА при создании сессии с прокси: {e}", exc_info=True)
+            logger.error("✗ ОШИБКА при создании сессии с прокси: %s", e, exc_info=True)
             raise
     else:
         logger.warning("⚠ Прокси НЕ используется!")

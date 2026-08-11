@@ -17,8 +17,12 @@ def test_extract_message_callback_payload_from_callback_sender():
     update = {
         'type': 'message_callback',
         'callback': {
-            'sender': {'user_id': 445566},
+            'user': {'user_id': 445566},
             'payload': 'merge_target:yes:10',
+        },
+        # message.sender — бот; не должен перебивать user_id нажавшего
+        'message': {
+            'sender': {'user_id': 401723968, 'is_bot': True},
         },
     }
 
@@ -32,7 +36,7 @@ def test_parse_merge_target_callback_success():
     update = {
         'type': 'message_callback',
         'callback': {
-            'sender': {'user_id': 1122},
+            'user': {'user_id': 1122},
             'payload': 'merge_target:no:77',
         },
     }
@@ -42,17 +46,19 @@ def test_parse_merge_target_callback_success():
     assert parsed == (1122, 'no', 77)
 
 
-def test_process_merge_target_callback_ignores_non_callback_update():
+def test_process_merge_target_callback_ignores_non_callback_update(settings):
+    settings.MAX_TRANSPORT_ENABLED = False
     result = process_merge_target_callback({'type': 'message_new'})
 
     assert result == {'ok': True, 'ignored': True}
 
 
-def test_process_merge_target_callback_ignores_missing_target_user():
+def test_process_merge_target_callback_ignores_missing_target_user(settings):
+    settings.MAX_TRANSPORT_ENABLED = False
     update = {
         'type': 'message_callback',
         'callback': {
-            'sender': {'user_id': 998877},
+            'user': {'user_id': 998877},
             'payload': 'merge_target:yes:123',
         },
     }
@@ -62,7 +68,8 @@ def test_process_merge_target_callback_ignores_missing_target_user():
     assert result == {'ok': True, 'ignored': True}
 
 
-def test_process_merge_target_callback_calls_email_merge_service():
+def test_process_merge_target_callback_calls_email_merge_service(settings):
+    settings.MAX_TRANSPORT_ENABLED = False
     target_user = User.objects.create_user(
         username='inbound_target',
         email='inbound-target@example.com',
@@ -71,7 +78,7 @@ def test_process_merge_target_callback_calls_email_merge_service():
     update = {
         'update_type': 'message_callback',
         'callback': {
-            'sender': {'user_id': target_user.max_id},
+            'user': {'user_id': target_user.max_id},
             'payload': 'merge_target:yes:55',
         },
     }

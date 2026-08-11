@@ -130,3 +130,37 @@ async def test_dispatch_merge_still_works(settings, mocker, max_user):
     result = await dispatch_max_update(update)
     assert result['handled'] == 'merge_target'
     assert result['status'] == 'confirmed'
+
+
+@pytest.mark.asyncio
+async def test_dispatch_callback_answers_via_message(settings, mocker, max_user):
+    """Callback закрывается через /answers с message (правка исходного сообщения)."""
+    settings.MAX_TRANSPORT_ENABLED = True
+    settings.MAX_BOT_TOKEN = 'test-token'
+
+    mock_client = MagicMock()
+    mock_client.close = AsyncMock()
+    mock_client.answer_callback = AsyncMock(return_value=True)
+    mock_client.send_message = AsyncMock(return_value=True)
+    mocker.patch('bot.handlers.max.dispatcher.MaxClient', return_value=mock_client)
+
+    max_state.set_fsm_state(max_user.max_id, OnboardingStates.waiting_for_agreement_1)
+
+    update = {
+        'update_type': 'message_callback',
+        'callback': {
+            'callback_id': 'cb_dispatch_1',
+            'payload': 'onboarding_agree_1',
+            'user': {'user_id': max_user.max_id},
+        },
+    }
+    result = await dispatch_max_update(update)
+    assert result.get('ok') is True
+    assert result.get('handled') == 'onboarding_agree_1'
+    assert result.get('callback_answered') is True
+    mock_client.answer_callback.assert_awaited()
+    kwargs = mock_client.answer_callback.await_args.kwargs
+    assert kwargs['callback_id'] == 'cb_dispatch_1'
+    assert kwargs.get('text')
+    assert kwargs.get('notification') == '✓'
+    mock_client.send_message.assert_not_awaited()

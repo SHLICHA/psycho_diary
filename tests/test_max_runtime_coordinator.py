@@ -29,10 +29,11 @@ async def test_max_runtime_polling_mode_fetches_updates_and_processes(monkeypatc
             self.last_update_types = update_types
             return [
                 {
-                    'type': 'message_callback',
+                    'update_type': 'message_callback',
                     'callback': {
-                        'sender': {'user_id': 123},
-                        'payload': 'merge_target:yes:1',
+                        'callback_id': 'cb_fast_1',
+                        'user': {'user_id': 123},
+                        'payload': 'onboarding_agree_1',
                     },
                 }
             ], 'next'
@@ -41,8 +42,10 @@ async def test_max_runtime_polling_mode_fetches_updates_and_processes(monkeypatc
             self.closed = True
 
     fake_client = FakeClient()
-    async def _process_side_effect(update):
+    async def _process_side_effect(update, **kwargs):
         stop_event.set()
+        assert kwargs.get('max_client') is fake_client
+        assert kwargs.get('callback_already_answered') is False
         return {'ok': True, 'ignored': True}
 
     mock_process = AsyncMock(side_effect=_process_side_effect)

@@ -138,6 +138,14 @@ async def main():
         # Запуск polling
         await dp.start_polling(bot)
     except Exception as e:
+        err_name = type(e).__name__
+        err_text = str(e)
+        if '407' in err_text or 'Proxy Authentication' in err_text or err_name == 'ProxyError':
+            logger.error(
+                "✗ Telegram proxy auth failed (407). "
+                "Проверьте TELEGRAM_PROXY_URL (логин/пароль/срок действия) "
+                "или закомментируйте переменную для запуска без прокси."
+            )
         logger.error(f"✗ Bot остановлен с ошибкой: {e}", exc_info=True)
     finally:
         if max_runtime_task is not None:

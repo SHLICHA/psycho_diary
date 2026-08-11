@@ -47,26 +47,8 @@ def _process_merge_sync(event: MaxNormalizedEvent) -> dict[str, Any] | None:
     }
 
 
-async def dispatch_max_update(update: dict[str, Any]) -> dict[str, Any]:
-    """
-    Async entry for webhook/polling.
-    Merge callbacks stay first; otherwise Wave 1 product routing.
-    """
-    event = normalize_update(update)
-    if event is None:
-        return {'ok': True, 'ignored': True, 'reason': 'unsupported_update'}
-
-    merge_result = await sync_to_async(_process_merge_sync)(event)
-    if merge_result is not None:
-        return merge_result
-
-    if not event.user_id:
-        return {'ok': True, 'ignored': True, 'reason': 'missing_user_id'}
-
-    if not getattr(settings, 'MAX_TRANSPORT_ENABLED', False):
-        return {'ok': True, 'ignored': True, 'reason': 'transport_disabled'}
-
-    max_client = MaxClient(
+def _build_max_client() -> MaxClient:
+    return MaxClient(
         api_token=getattr(settings, 'MAX_BOT_TOKEN', ''),
         base_url=getattr(settings, 'MAX_API_BASE_URL', 'https://platform-api2.max.ru'),
         timeout_seconds=getattr(settings, 'MAX_API_TIMEOUT_SECONDS', 10),
@@ -74,41 +56,130 @@ async def dispatch_max_update(update: dict[str, Any]) -> dict[str, Any]:
         rate_limit_burst=getattr(settings, 'MAX_RATE_LIMIT_BURST', 50),
         max_message_length=getattr(settings, 'MAX_MESSAGE_MAX_LENGTH', 3500),
     )
+
+
+async def dispatch_max_update(
+    update: dict[str, Any],
+    *,
+    max_client: MaxClient | None = None,
+    callback_already_answered: bool = False,
+) -> dict[str, Any]:
+    """
+    Async entry for webhook/polling.
+
+    Важно: для message_callback единственный корректный способ снять ошибку
+    на кнопке в клиенте MAX — POST /answers с полем message (правка исходного
+    сообщения). Чистый notification «сжигает» callback, но UI ошибки может
+    остаться. Поэтому ответ с message делает send_func при первом send.
+    """
+    event = normalize_update(update)
+    if event is None:
+        return {'ok': True, 'ignored': True, 'reason': 'unsupported_update'}
+
+    logger.info(
+        '[MAX dispatch] type=%s user_id=%s chat_id=%s payload=%s callback_id=%s',
+        event.event_type,
+        event.user_id,
+        event.chat_id,
+        (event.payload or '')[:80],
+        (event.callback_id or '')[:40] or None,
+    )
+
+    merge_result = await sync_to_async(_process_merge_sync)(event)
+    if merge_result is not None:
+        if (
+            event.callback_id
+            and not callback_already_answered
+            and getattr(settings, 'MAX_TRANSPORT_ENABLED', False)
+        ):
+            owned = max_client is None
+            client = max_client or _build_max_client()
+            try:
+                await client.answer_callback(
+                    callback_id=event.callback_id,
+                    notification='✓',
+                    message={'text': 'Готово'},
+                )
+            finally:
+                if owned:
+                    await client.close()
+        return merge_result
+
+    if not event.user_id:
+        logger.warning('[MAX dispatch] missing user_id for type=%s', event.event_type)
+        return {'ok': True, 'ignored': True, 'reason': 'missing_user_id'}
+
+    if not getattr(settings, 'MAX_TRANSPORT_ENABLED', False):
+        return {'ok': True, 'ignored': True, 'reason': 'transport_disabled'}
+
+    owns_client = max_client is None
+    client = max_client or _build_max_client()
+    callback_answered = callback_already_answered
     try:
         user, _created = await get_or_create_user_by_max_id(event.user_id)
         if user is None:
             return {'ok': False, 'error': 'user_resolve_failed'}
 
         send_func = build_send_func(
-            max_client,
+            client,
             max_id=event.user_id,
             chat_id=event.chat_id,
+            callback_id=(
+                event.callback_id
+                if event.event_type == 'message_callback' and not callback_answered
+                else None
+            ),
         )
 
+        result: dict[str, Any]
         if event.event_type in {'message_created', 'bot_started'}:
-            return await route_text_message(
+            result = await route_text_message(
                 user,
                 event.text or '',
                 send_func,
                 max_id=event.user_id,
                 media=event.media,
-                max_client=max_client,
+                max_client=client,
             )
-
-        if event.event_type == 'message_callback':
-            return await route_callback(
+        elif event.event_type == 'message_callback':
+            result = await route_callback(
                 user,
                 event.payload or '',
                 send_func,
                 max_id=event.user_id,
-                max_client=max_client,
+                max_client=client,
+                callback_id=event.callback_id,
             )
+            answered_via_send = False
+            was_answered = getattr(send_func, 'was_callback_answered', None)
+            if callable(was_answered):
+                answered_via_send = bool(was_answered())
+            callback_answered = callback_answered or answered_via_send
 
-        return {'ok': True, 'ignored': True, 'reason': 'unhandled_event_type'}
+            # Если handler ничего не отправил — закрываем кнопку notification-only.
+            if event.callback_id and not callback_answered:
+                callback_answered = await client.answer_callback(
+                    callback_id=event.callback_id,
+                    notification='✓',
+                )
+            result = {**result, 'callback_answered': callback_answered}
+        else:
+            result = {'ok': True, 'ignored': True, 'reason': 'unhandled_event_type'}
+
+        return result
     except Exception as exc:
         logger.error('[MAX dispatch] failed: %s', exc, exc_info=True)
+        if event.callback_id and not callback_answered:
+            try:
+                await client.answer_callback(
+                    callback_id=event.callback_id,
+                    notification='Произошла ошибка, попробуйте ещё раз',
+                )
+            except Exception:
+                logger.exception('[MAX dispatch] answer_callback after error failed')
         return {'ok': False, 'error': 'dispatch_exception', 'detail': str(exc)}
     finally:
-        close_result = max_client.close()
-        if hasattr(close_result, '__await__'):
-            await close_result
+        if owns_client:
+            close_result = client.close()
+            if hasattr(close_result, '__await__'):
+                await close_result

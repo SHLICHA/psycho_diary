@@ -266,6 +266,11 @@ print_stack_banner() {
     else
         echo "   PAYMENT_WEBHOOK:  disabled (нет BOT_PUBLIC_DOMAIN / PAYMENT_WEBHOOK_URL)"
     fi
+    if [ "${MAX_TRANSPORT:-polling}" = "polling" ]; then
+        echo "   MAX process:     runmaxbot (отдельный [max] в логах)"
+    else
+        echo "   MAX process:     через [web] webhook endpoint"
+    fi
 }
 
 # Держим терминал: стримим логи, выходим только по Ctrl+C (или если все сервисы умерли)
@@ -432,6 +437,7 @@ case "$MODE" in
         start_telegram
         if [ "$MAX_TRANSPORT" = "polling" ]; then
             start_max_polling
+            echo "✅ MAX polling запущен (смотрите логи с префиксом [max])"
         else
             echo "ℹ️  MAX webhook через [web] (${MAX_WEBHOOK_URL_RESOLVED:-/api/max/webhook/})"
             echo "ℹ️  Отдельный runmaxbot не запускается (polling и webhook взаимоисключаемы)"
