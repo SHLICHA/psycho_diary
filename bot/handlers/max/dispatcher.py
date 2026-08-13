@@ -208,6 +208,18 @@ async def dispatch_max_update(
         else:
             result = {'ok': True, 'ignored': True, 'reason': 'unhandled_event_type'}
 
+        try:
+            from diary.services.activity_service import record_max_dispatch_activity
+
+            await record_max_dispatch_activity(
+                user,
+                result,
+                event_type=event.event_type,
+                payload=event.payload or event.text,
+            )
+        except Exception:
+            logger.exception('[MAX dispatch] activity record failed')
+
         return result
     except Exception as exc:
         logger.error('[MAX dispatch] failed: %s', exc, exc_info=True)

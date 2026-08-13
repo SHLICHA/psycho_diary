@@ -905,14 +905,15 @@
 | 2026-08-08 | MAX Минцифра CA TLS | `MAX_API_CA_CERT_PATHS` + SSL context в MaxClient; Docker update-ca-certificates; preflight check | settings, client.py, preflight.py, Dockerfile, docker-compose.yml, .env.example, tests | Средний: без CA TLS к MAX падает | unit CA + docker build | Выполнено |
 | 2026-08-13 | Activity tracking plan (deferred) | Зафиксирован единый паттерн UserActivity TG+MAX: сервис, allowlist, P0→P1→P2; реализация отложена | ACTIVITY_TRACKING_PLAN.md, IMPLEMENTATION_PLAN.md | Низкий: только документация | — | Зафиксировано, к возврату |
 | 2026-08-13 | MAX task analysis hang fix | Анализ после выполнения задания: `await` вместо `create_task` (webhook/async_to_sync убивал фон → нет TaskCompletionAnalysis) | bot/handlers/max/tasks.py, tests/test_max_wave6_handlers.py | Средний: webhook дольше держит запрос на AI | `pytest -q tests/test_max_wave6_handlers.py` (**8 passed**) | Выполнено |
+| 2026-08-13 | UserActivity P0+P1 | Единый `activity_service` (allowlist + platform), MAX hook в dispatcher, TG decorator → сервис | diary/services/activity_service.py, dispatcher, analytics_decorator, tests/test_activity_service.py | Низкий/средний: меньше шума TG; MAX пишет активность | `pytest -q tests/test_activity_service.py` (**7 passed**) | Выполнено |
 
 ---
 
 ## 9.1) Backlog к возврату
 
-- [ ] **Единая фиксация активности (UserActivity)** — см. [ACTIVITY_TRACKING_PLAN.md](ACTIVITY_TRACKING_PLAN.md)  
-  Порядок: P0 сервис → P1 хук MAX dispatcher → P2 cleanup Telegram-декораторов.  
-  Навигацию (main_menu / help subsections) в `UserActivity` не писать; `archive_viewed` оставить в allowlist.
+- [x] **Единая фиксация активности (UserActivity) P0+P1** — см. [ACTIVITY_TRACKING_PLAN.md](ACTIVITY_TRACKING_PLAN.md)  
+  Сделано: сервис + MAX dispatcher + TG decorator через allowlist/`platform`.  
+  Осталось P2: снять лишние декораторы с TG-хендлеров; стендовая проверка AI-выборки.
 
 ---
 

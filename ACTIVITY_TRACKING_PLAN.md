@@ -1,7 +1,8 @@
 # План единой фиксации активности (UserActivity)
 
-Статус: **согласовано к реализации, отложено**  
+Статус: **P0+P1 в работе / реализовано**  
 Дата фиксации: 2026-08-13  
+Обновлено: 2026-08-13 — сервис + MAX dispatcher hook + TG decorator → сервис  
 Связанные места: `bot/decorators/analytics_decorator.py`, `diary/models.py` (`UserActivity`), `core/constants.py` (`ACTIVITY_TYPES`), `diary/tasks/ai_activity_filter.py`, `bot/utils/activity_chart.py`, `bot/handlers/max/dispatcher.py`
 
 ---
@@ -128,22 +129,23 @@ async def record_user_activity(
 
 ### P0 — инфраструктура
 
-- [ ] Сервис `record_user_activity`
-- [ ] `platform` в metadata
-- [ ] обновление `last_activity`
-- [ ] unit-тесты сервиса (allowlist, touch, ошибки Redis/БД не роняют caller)
+- [x] Сервис `record_user_activity` (`diary/services/activity_service.py`)
+- [x] `platform` в metadata (`telegram` / `max` / `web`)
+- [x] обновление `last_activity`
+- [x] unit-тесты сервиса (`tests/test_activity_service.py`)
+- [x] тип `onboarding` в `ACTIVITY_TYPES` + миграция
 
 ### P1 — MAX
 
-- [ ] Хук в `dispatch_max_update` после успешного routing
-- [ ] Маппинг `handled` → allowlist
-- [ ] Проверка: MAX-only пользователь попадает в утреннюю/вечернюю выборку при кликах без новых записей
+- [x] Хук в `dispatch_max_update` после успешного routing
+- [x] Маппинг `handled` → allowlist (+ touch_only для навигации)
+- [ ] Проверка на стенде: MAX-only пользователь попадает в утреннюю/вечернюю выборку при кликах без новых записей
 
 ### P2 — Telegram cleanup
 
-- [ ] Декоратор → тонкая обёртка над сервисом
-- [ ] Снять лишние `@log_user_activity` по allowlist
-- [ ] Сохранить поведение «после успешного handler»
+- [x] Декоратор → тонкая обёртка над сервисом (`platform='telegram'`)
+- [ ] Снять лишние `@log_user_activity` с хендлеров (шум уже не пишется из‑за allowlist)
+- [x] Сохранить поведение «после успешного handler»
 
 ### P3 — выравнивание и документация
 
