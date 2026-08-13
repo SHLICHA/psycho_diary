@@ -476,12 +476,21 @@ class UserProfileService:
                     resolution = await IdentityPolicyService.aresolve_email_claim(new_value, requester_user=user)
                     if resolution.status == 'conflict':
                         if getattr(settings, 'EMAIL_MERGE_CONFIRMATION_ENABLED', False):
-                            merge_request = await EmailMergeService.acreate_merge_request(
-                                requester_user=user,
-                                email=new_value,
-                                source_platform=source_platform or 'telegram',
-                                source_context='profile_edit',
-                            )
+                            from users.services.email_merge_service import EmailMergeError
+
+                            try:
+                                merge_request = await EmailMergeService.acreate_merge_request(
+                                    requester_user=user,
+                                    email=new_value,
+                                    source_platform=source_platform or 'telegram',
+                                    source_context='profile_edit',
+                                )
+                            except EmailMergeError as merge_error:
+                                return {
+                                    'success': False,
+                                    'error': merge_error.code,
+                                    'error_code': merge_error.code,
+                                }
                             return {
                                 'success': False,
                                 'error': 'email_confirmation_required',
@@ -503,6 +512,10 @@ class UserProfileService:
                 new_value = cls._filter_remove_items(new_value)
             setattr(user, field_name, new_value)
             update_fields = [field_name]
+            # email_hash должен сохраняться вместе с email, иначе conflict/merge
+            # не увидят уже сохраненный адрес в следующем запросе.
+            if field_name == 'email':
+                update_fields.append('email_hash')
             await user.asave(update_fields=update_fields)
             logger.debug(f"[UserProfileService] Поле {field_name} пользователя {user.telegram_id} обновлено.")
             return {'success': True}

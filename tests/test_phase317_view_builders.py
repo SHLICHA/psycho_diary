@@ -18,6 +18,10 @@ def _sample_stats(**overrides):
         'users_with_auto_analysis_enabled': 6,
         'users_completed_onboarding': 7,
         'users_with_entries': 6,
+        'users_telegram_only': 4,
+        'users_max_only': 2,
+        'users_both_messengers': 1,
+        'users_no_messenger': 1,
         'subscriptions_30_count': 1,
         'subscriptions_year_count': 1,
         'tokens_10_count': 1,
@@ -43,6 +47,10 @@ def test_build_admin_stats_report_contains_sections():
     assert 'Статистика приложения' in report
     assert 'Europe/Moscow' in report
     assert '⭐⭐⭐⭐⭐' in report
+    assert 'Только Telegram: 4' in report
+    assert 'Только MAX: 2' in report
+    assert 'Оба мессенджера (TG+MAX): 1' in report
+    assert 'Без мессенджера (web): 1' in report
 
 
 @pytest.mark.asyncio

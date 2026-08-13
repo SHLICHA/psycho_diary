@@ -91,7 +91,7 @@ async def test_send_message_chunks_text_and_keeps_keyboard_on_last_chunk(monkeyp
         reply_markup=markup,
     )
 
-    assert ok is True
+    assert ok[0] is True
     assert len(calls) >= 2
     assert calls[0]['attachments'] is None
     assert calls[-1]['attachments'] is not None
@@ -120,7 +120,7 @@ async def test_send_message_fallbacks_from_chat_to_user(monkeypatch):
 
     ok = await client.send_message(user_id=111, chat_id=222, text='hello')
 
-    assert ok is True
+    assert ok[0] is True
     # В личке сначала user_id, chat_id — только fallback.
     assert call_targets[0] == ('user_id', 111)
 
@@ -148,7 +148,7 @@ async def test_send_message_tries_keyboard_variants_then_plain(monkeypatch):
 
     ok = await client.send_message(user_id=123, text='hello', reply_markup=markup)
 
-    assert ok is True
+    assert ok[0] is True
     # 2 keyboard variants (string/legacy) + plain fallback
     assert len(calls) == 3
     assert calls[-1]['attachments'] is None
@@ -231,9 +231,67 @@ async def test_send_message_includes_html_format_in_payload(monkeypatch):
     monkeypatch.setattr(client, '_request_json', fake_request_json)
     ok = await client.send_message(user_id=7, text='<b>Привет</b>')
 
-    assert ok is True
+    assert ok[0] is True
     assert captured['payload']['text'] == '<b>Привет</b>'
     assert captured['payload']['format'] == 'html'
+
+
+@pytest.mark.asyncio
+async def test_send_message_returns_extracted_message_id(monkeypatch):
+    client = MaxClient(
+        api_token='token',
+        base_url='https://platform-api2.max.ru',
+        ca_cert_paths=[],
+    )
+
+    async def fake_send_single_message(**kwargs):
+        return True, 200, {'message_id': 'mid-42', 'text': kwargs.get('text')}
+
+    monkeypatch.setattr(client, '_send_single_message', fake_send_single_message)
+    ok, message_id = await client.send_message(user_id=7, text='hello')
+    assert ok is True
+    assert message_id == 'mid-42'
+
+
+@pytest.mark.asyncio
+async def test_edit_message_puts_messages_endpoint(monkeypatch):
+    client = MaxClient(
+        api_token='token',
+        base_url='https://platform-api2.max.ru',
+        ca_cert_paths=[],
+    )
+    calls = []
+
+    async def fake_request_json(*, method, path, params=None, payload=None, timeout_seconds=None):
+        calls.append(
+            {
+                'method': method,
+                'path': path,
+                'params': params,
+                'payload': payload,
+            }
+        )
+        return 200, {'success': True}
+
+    monkeypatch.setattr(client, '_request_json', fake_request_json)
+    ok = await client.edit_message(message_id='mid-1', text='Готово')
+    assert ok is True
+    assert calls == [
+        {
+            'method': 'PUT',
+            'path': '/messages',
+            'params': {'message_id': 'mid-1'},
+            'payload': {'text': 'Готово', 'format': 'html', 'attachments': []},
+        }
+    ]
+
+
+def test_extract_message_id_from_known_shapes():
+    assert MaxClient._extract_message_id({'message_id': 'a'}) == 'a'
+    assert MaxClient._extract_message_id({'message': {'message_id': 'b'}}) == 'b'
+    assert MaxClient._extract_message_id({'message': {'body': {'mid': 'c'}}}) == 'c'
+    assert MaxClient._extract_message_id({'body': {'mid': 'd'}}) == 'd'
+    assert MaxClient._extract_message_id({'ok': True}) is None
 
 
 def test_keyboard_blank_button_text_is_sanitized():

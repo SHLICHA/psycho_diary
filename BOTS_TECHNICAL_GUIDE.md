@@ -1104,6 +1104,8 @@ def test_webhook_parses_message():
 | **aiohttp session leak**         | MaxClient создаётся один раз на событие, закрывается в `finally` |
 | **MAX state TTL**                | Redis-состояние FSM живёт 3600 секунд, потом сбрасывается     |
 | **Celery Beat**                  | Platform stats snapshot каждый час, reconciliation платежей    |
+| **UserActivity parity (deferred)** | Единый сервис TG+MAX ещё не внедрён; план и allowlist — [ACTIVITY_TRACKING_PLAN.md](ACTIVITY_TRACKING_PLAN.md) |
+| **Webhook + `async_to_sync`** | Нельзя `asyncio.create_task` для AI/уведомлений в MAX: цикл и MaxClient закрываются после ответа; анализ заданий — через `await` |
 
 ### 10.4 Тестирование
 

@@ -156,6 +156,38 @@ class MaxClient:
             or 'deserialize body' in text
         )
 
+    @staticmethod
+    def _extract_message_id(body: Any) -> str | None:
+        """Достаёт message_id/mid из ответа POST /messages (оба известных формата)."""
+        if not isinstance(body, dict):
+            return None
+
+        for key in ('message_id', 'mid'):
+            value = body.get(key)
+            if value:
+                return str(value)
+
+        message = body.get('message')
+        if isinstance(message, dict):
+            for key in ('message_id', 'mid'):
+                value = message.get(key)
+                if value:
+                    return str(value)
+            nested_body = message.get('body')
+            if isinstance(nested_body, dict):
+                for key in ('mid', 'message_id'):
+                    value = nested_body.get(key)
+                    if value:
+                        return str(value)
+
+        nested_body = body.get('body')
+        if isinstance(nested_body, dict):
+            for key in ('mid', 'message_id'):
+                value = nested_body.get(key)
+                if value:
+                    return str(value)
+        return None
+
     async def _send_single_message(
         self,
         *,
@@ -410,15 +442,20 @@ class MaxClient:
         text: str,
         reply_markup: Any = None,
         text_format: str | None = 'html',
-    ) -> bool:
-        """Send MAX message with fallback and chunking."""
+    ) -> tuple[bool, str | None]:
+        """Send MAX message with fallback and chunking.
+
+        Returns:
+            (ok, message_id) — message_id берётся из последнего успешно
+            отправленного чанка (для edit-in-place статусного сообщения).
+        """
         if not self.api_token:
             logger.warning('[MaxClient] Skip send: MAX_BOT_TOKEN is empty')
-            return False
+            return False, None
 
         if user_id is None and chat_id is None:
             logger.error('[MaxClient] Skip send: neither user_id nor chat_id provided')
-            return False
+            return False, None
 
         text_chunks = self._chunk_text(text)
         keyboard_variants = self._build_keyboard_attachment_variants(reply_markup)
@@ -431,6 +468,7 @@ class MaxClient:
             primary_target = ('chat_id', int(chat_id))
             fallback_target = None
 
+        last_message_id: str | None = None
         for index, chunk in enumerate(text_chunks):
             # Клавиатуру вешаем только на последний чанк.
             variants_to_try: list[dict[str, Any] | None]
@@ -472,6 +510,7 @@ class MaxClient:
 
                 if ok:
                     sent = True
+                    last_message_id = self._extract_message_id(body) or last_message_id
                     break
 
                 last_status, last_body = status_code, body
@@ -495,9 +534,95 @@ class MaxClient:
                     last_status,
                     last_body,
                 )
-                return False
+                return False, None
 
-        return True
+        return True, last_message_id
+
+    async def edit_message(
+        self,
+        *,
+        message_id: str,
+        text: str,
+        reply_markup: Any = None,
+        text_format: str | None = 'html',
+        clear_attachments_if_no_keyboard: bool = True,
+    ) -> bool:
+        """PUT /messages?message_id=... — редактирует ранее отправленное сообщение бота."""
+        message_id = (message_id or '').strip()
+        if not message_id:
+            logger.warning('[MaxClient] edit_message skipped: empty message_id')
+            return False
+        if not self.api_token:
+            logger.warning('[MaxClient] Skip edit: MAX_BOT_TOKEN is empty')
+            return False
+
+        # Edit рассчитан на одно сообщение; длинный текст лучше отправлять заново.
+        if len(self._chunk_text(text)) > 1:
+            logger.info(
+                '[MaxClient] edit_message fallback: text too long for single edit message_id=%s',
+                message_id[:40],
+            )
+            return False
+
+        keyboard_variants = self._build_keyboard_attachment_variants(reply_markup)
+        variants_to_try: list[list[dict[str, Any]] | None]
+        if keyboard_variants:
+            variants_to_try = [[variant] for variant in keyboard_variants] + [None]
+        elif clear_attachments_if_no_keyboard:
+            # Пустой список удаляет старые вложения; null оставляет как было.
+            variants_to_try = [[]]
+        else:
+            variants_to_try = [None]
+
+        last_status = 0
+        last_body: Any = None
+        for variant_index, attachments in enumerate(variants_to_try):
+            payload: dict[str, Any] = {'text': text}
+            if text_format in {'html', 'markdown'}:
+                payload['format'] = text_format
+            if attachments is not None:
+                payload['attachments'] = attachments
+
+            status_code, body = await self._request_json(
+                method='PUT',
+                path='/messages',
+                params={'message_id': message_id},
+                payload=payload,
+            )
+            ok = 200 <= status_code < 300
+            if ok and isinstance(body, dict) and body.get('success') is False:
+                ok = False
+
+            if ok:
+                logger.info(
+                    '[MaxClient] edit_message ok message_id=%s has_keyboard=%s',
+                    message_id[:40],
+                    bool(attachments),
+                )
+                return True
+
+            last_status, last_body = status_code, body
+            if (
+                attachments
+                and self._is_keyboard_payload_error(body)
+                and variant_index < len(variants_to_try) - 1
+            ):
+                logger.warning(
+                    '[MaxClient] edit keyboard variant %s/%s rejected, trying next. body=%s',
+                    variant_index + 1,
+                    len(variants_to_try) - 1,
+                    body,
+                )
+                continue
+            break
+
+        logger.error(
+            '[MaxClient] edit_message failed: status=%s body=%s message_id=%s',
+            last_status,
+            last_body,
+            message_id[:40],
+        )
+        return False
 
     async def download_file(self, url: str) -> bytes | None:
         """Download binary content from a MAX media URL."""

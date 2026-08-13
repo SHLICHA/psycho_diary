@@ -513,7 +513,7 @@ class AccountMergeService:
                 setattr(survivor, name, getattr(donor, name))
 
         donor.email = ''
-        donor.email_hash = ''
+        donor.email_hash = None
         donor.token_balance = 0
         donor.is_premium = False
         donor.premium_expires_at = None
@@ -535,7 +535,7 @@ class AccountMergeService:
         donor.telegram_id = None
         donor.max_id = None
         donor.email = ''
-        donor.email_hash = ''
+        donor.email_hash = None
         donor.referral_link = f'merged_ref_{donor.id}'
         donor.first_name = ''
         donor.last_name = ''

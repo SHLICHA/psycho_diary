@@ -112,7 +112,7 @@ async def test_broadcast_flow(admin_user, mocker):
     assert max_state.get_fsm_state(admin_user.max_id) == STATE_BROADCAST_MESSAGE
 
     mock_client = MagicMock()
-    mock_client.send_message = AsyncMock(return_value=True)
+    mock_client.send_message = AsyncMock(return_value=(True, 'mid-1'))
     mock_client.close = MagicMock(return_value=None)
     mocker.patch('bot.handlers.max.admin._build_max_client', return_value=mock_client)
     mocker.patch(

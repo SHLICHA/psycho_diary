@@ -50,7 +50,9 @@ async def test_new_entry_prompt_sets_fsm(max_user, mocker):
 
 @pytest.mark.asyncio
 async def test_process_new_entry_use_case(max_user, mocker):
-    send_func = AsyncMock(return_value=True)
+    send_func = AsyncMock(return_value='status-mid')
+    send_func.edit_or_send = AsyncMock(return_value='status-mid')
+    send_func.pending_status_id = None
     max_state.set_fsm_state(max_user.max_id, DiaryStates.waiting_for_text_entry)
     mocker.patch(
         'bot.handlers.max.diary.diary_service.process_new_entry_use_case',
@@ -72,6 +74,10 @@ async def test_process_new_entry_use_case(max_user, mocker):
     )
     assert result['handled'] == 'new_entry_process'
     assert max_state.get_fsm_state(max_user.max_id) is None
+    send_func.assert_awaited_once()
+    first_text = send_func.await_args.args[0]
+    assert 'Обрабатываю' in first_text or 'Processing' in first_text
+    send_func.edit_or_send.assert_awaited_once_with('status-mid', 'Сохранено', None)
 
 
 @pytest.mark.asyncio
@@ -113,3 +119,47 @@ async def test_handle_progress_direct(max_user, mocker):
     )
     assert (await handle_progress(max_user, send_func))['handled'] == 'progress'
     assert (await handle_archive(max_user, send_func, max_id=max_user.max_id))['handled'] == 'archive'
+
+
+@pytest.mark.asyncio
+async def test_rate_analysis_callback_saves_rating(max_user, mocker):
+    send_func = AsyncMock(return_value='mid')
+    submit = mocker.patch(
+        'bot.handlers.max.diary.diary_display_service.submit_analysis_rating_use_case',
+        new=AsyncMock(return_value={'success': True, 'rating': 5}),
+    )
+    open_menu = mocker.patch(
+        'bot.handlers.max.commands.handle_main_menu',
+        new=AsyncMock(return_value={'ok': True, 'handled': 'main_menu'}),
+    )
+
+    result = await route_callback(
+        max_user, 'rate_analysis:216:5', send_func, max_id=max_user.max_id
+    )
+
+    assert result['handled'] == 'rate_analysis'
+    assert result.get('mode') == 'saved'
+    submit.assert_awaited_once_with(216, max_user, 5)
+    open_menu.assert_awaited_once_with(max_user, send_func, max_id=max_user.max_id)
+
+
+@pytest.mark.asyncio
+async def test_rate_analysis_callback_already_rated(max_user, mocker):
+    send_func = AsyncMock(return_value='mid')
+    mocker.patch(
+        'bot.handlers.max.diary.diary_display_service.submit_analysis_rating_use_case',
+        new=AsyncMock(return_value={'success': False, 'error': 'already_rated'}),
+    )
+    open_menu = mocker.patch(
+        'bot.handlers.max.commands.handle_main_menu',
+        new=AsyncMock(return_value={'ok': True, 'handled': 'main_menu'}),
+    )
+
+    result = await route_callback(
+        max_user, 'rate_analysis:216:3', send_func, max_id=max_user.max_id
+    )
+
+    assert result['handled'] == 'rate_analysis'
+    assert result.get('mode') == 'already_rated'
+    open_menu.assert_not_awaited()
+    send_func.assert_awaited()

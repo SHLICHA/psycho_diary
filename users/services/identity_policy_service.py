@@ -1,12 +1,15 @@
 """Policy-first сервис для merge/conflict разрешения identity по email."""
 
 import hashlib
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
 from asgiref.sync import sync_to_async
 
 from users.models import User
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -40,10 +43,20 @@ class IdentityPolicyService:
           - conflict: email занят другим аккаунтом
         """
         email_hash = cls.build_email_hash(email)
-        matched_user = User.objects.filter(email_hash=email_hash).first()
-
-        if matched_user is None:
+        try:
+            matched_user = User.objects.get(email_hash=email_hash)
+        except User.DoesNotExist:
             return EmailIdentityResolution(status='available')
+        except User.MultipleObjectsReturned:
+            # После unique-миграции не ожидается; оставляем безопасный fallback.
+            logger.error('Multiple users share email_hash=%s', email_hash)
+            matched_user = (
+                User.objects.filter(email_hash=email_hash)
+                .order_by('-last_activity', '-created_at', '-id')
+                .first()
+            )
+            if matched_user is None:
+                return EmailIdentityResolution(status='available')
 
         if requester_user and matched_user.id == requester_user.id:
             return EmailIdentityResolution(status='self', matched_user_id=matched_user.id)

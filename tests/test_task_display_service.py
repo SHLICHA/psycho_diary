@@ -348,10 +348,10 @@ class TestTaskDisplayServiceSuccessfulAnalysis:
         mock_analysis.api_response = {'result': {'formatted_message': "Анализ"}}
         mock_analysis.tokens_awarded = 10
 
-        with patch('users.models.User.objects.aget', new_callable=AsyncMock) as mock_aget:
+        with patch.object(task_display_service, '_reload_user', new_callable=AsyncMock) as mock_reload:
             mock_user = MagicMock()
             mock_user.token_balance = 60
-            mock_aget.return_value = mock_user
+            mock_reload.return_value = mock_user
 
             notification = await task_display_service._format_successful_analysis(
                 mock_analysis, test_user, test_completion
@@ -390,15 +390,31 @@ class TestTaskDisplayServiceBuildDetailedAnalysisText:
         mock_analysis.recommendation = "Рекомендация"
         mock_analysis.detailed_analysis = ""
 
-        with patch('users.models.User.objects.aget', new_callable=AsyncMock) as mock_aget:
+        with patch.object(task_display_service, '_reload_user', new_callable=AsyncMock) as mock_reload:
             mock_user = MagicMock()
             mock_user.token_balance = 120
-            mock_aget.return_value = mock_user
+            mock_reload.return_value = mock_user
 
             text = await task_display_service._build_detailed_analysis_text(
                 mock_analysis, test_user, tokens_awarded=20
             )
             assert "20" in text
+
+    @pytest.mark.asyncio
+    async def test_build_detailed_text_with_tokens_for_max_user(self):
+        max_user = baker.make(User, telegram_id=None, max_id=900501, language='ru', token_balance=135)
+        mock_analysis = MagicMock()
+        mock_analysis.effect_description = "Эффект"
+        mock_analysis.mood_impact_score = 2
+        mock_analysis.comment = "Комментарий"
+        mock_analysis.recommendation = "Рекомендация"
+        mock_analysis.detailed_analysis = ""
+
+        text = await task_display_service._build_detailed_analysis_text(
+            mock_analysis, max_user, tokens_awarded=20
+        )
+
+        assert "20" in text
 
     @pytest.mark.asyncio
     async def test_build_detailed_text_defaults(self, test_user):

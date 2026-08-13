@@ -98,7 +98,7 @@ async def test_dispatch_target_merge_confirmation_sends_to_max_when_enabled(sett
             sent_payload['user_id'] = user_id
             sent_payload['text'] = text
             sent_payload['reply_markup'] = reply_markup
-            return True
+            return True, 'fake-mid'
 
     monkeypatch.setattr('bot.transports.unified_send_port.MaxClient', FakeMaxClient)
 

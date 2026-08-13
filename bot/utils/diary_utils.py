@@ -101,13 +101,19 @@ async def check_and_award_streak_bonus(user: User) -> Dict[str, Any]:
         logger.debug(f"[Streak Bonus] Текущая серия пользователя {user.telegram_id} <= 0, наград не начисляется.")
         return {"awarded": False}
     try:
-        user_db = await User.objects.aget(telegram_id=user.telegram_id)
+        # Для MAX/web-пользователей telegram_id может быть NULL, поэтому
+        # повторно загружаем того же пользователя по первичному ключу.
+        user_db = await User.objects.aget(pk=user.pk)
         last_7 = user_db.last_streak_reward_7
         last_30 = user_db.last_streak_reward_30
         last_365 = user_db.last_streak_reward_365
         logger.debug(f"[Streak Bonus] Последние награды для {user.telegram_id}: 7={last_7}, 30={last_30}, 365={last_365}")
     except User.DoesNotExist:
-        logger.error(f"[Streak Bonus] Пользователь с telegram_id {user.telegram_id} не найден в БД при проверке награды за серию.")
+        logger.error(
+            f"[Streak Bonus] Пользователь id={user.pk} "
+            f"(telegram_id={user.telegram_id}, max_id={getattr(user, 'max_id', None)}) "
+            "не найден в БД при проверке награды за серию."
+        )
         return {"awarded": False, "error": "user_not_found"}
     rewards_awarded: List[Tuple[int, int]] = []
     updated_fields = []

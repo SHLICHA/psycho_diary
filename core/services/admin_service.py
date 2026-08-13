@@ -98,7 +98,7 @@ class AdminService:
                 )
                 prefix = '🔴 ' if is_important else '🔵 '
                 broadcast_prefix = get_message('broadcast_prefix', user_lang)
-                ok = await max_client.send_message(
+                ok, _message_id = await max_client.send_message(
                     user_id=max_id,
                     text=f'{prefix}{broadcast_prefix}\n\n{message_text}',
                     reply_markup=kb,
@@ -126,6 +126,24 @@ class AdminService:
         stats['active_users'] = await active_users_query.acount()
         stats['active_users_last_7_days'] = await active_users_query.filter(last_activity__gte=seven_days_ago).acount()
         stats['blocked_users'] = await active_in_system_users.filter(is_blocked=True).acount()
+
+        # Разбивка по transport identity (среди незаблокированных активных в системе).
+        stats['users_telegram_only'] = await active_users_query.filter(
+            telegram_id__isnull=False,
+            max_id__isnull=True,
+        ).acount()
+        stats['users_max_only'] = await active_users_query.filter(
+            telegram_id__isnull=True,
+            max_id__isnull=False,
+        ).acount()
+        stats['users_both_messengers'] = await active_users_query.filter(
+            telegram_id__isnull=False,
+            max_id__isnull=False,
+        ).acount()
+        stats['users_no_messenger'] = await active_users_query.filter(
+            telegram_id__isnull=True,
+            max_id__isnull=True,
+        ).acount()
 
         premium_users = 0
         async for user in active_users_query:
@@ -329,6 +347,10 @@ class AdminService:
 • 🟢Активных (незаблокированных): {stats['active_users']}
 • 🟢Активных за последние 7 дней: {stats['active_users_last_7_days']}
 • 🔴Заблокировано: {stats['blocked_users']}
+• 📱Только Telegram: {stats.get('users_telegram_only', 0)}
+• 💬Только MAX: {stats.get('users_max_only', 0)}
+• 🔗Оба мессенджера (TG+MAX): {stats.get('users_both_messengers', 0)}
+• 🌐Без мессенджера (web): {stats.get('users_no_messenger', 0)}
 • 💳С активной подпиской: {stats['premium_users']}
 • 💎С токенами: {stats['users_with_tokens']}
 • 📈С включённым автоанализом: {stats['users_with_auto_analysis_enabled']}

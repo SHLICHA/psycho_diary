@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING, Optional
 
 from messages import get_message
 from bot.handlers.max import state as max_state
+from bot.handlers.max.send_adapter import edit_or_send, ensure_processing_status
 from bot.keyboards import (
     get_confirm_delete_task_keyboard,
     get_single_button_keyboard,
@@ -83,13 +83,13 @@ async def _process_feelings_text(user, text, send_func, *, max_id: int) -> dict:
         await send_func(get_message('invalid_input', language))
         return {'ok': True, 'handled': 'task_feelings', 'error': 'empty'}
 
-    await send_func(get_message('task_processing', language))
+    status_id = await ensure_processing_status(send_func, language, 'task_processing')
     raw = max_state.get_raw_state(max_id)
     task_id = raw.get('completing_task_id')
     completion_text = raw.get('completion_text') or ''
     if not task_id:
         max_state.clear_fsm_state(max_id)
-        await send_func(get_message('error_generic', language))
+        await edit_or_send(send_func, status_id, get_message('error_generic', language))
         return {'ok': True, 'handled': 'task_feelings', 'error': 'missing_task'}
 
     completion_response = await complete_task_with_feelings_use_case(
@@ -102,20 +102,30 @@ async def _process_feelings_text(user, text, send_func, *, max_id: int) -> dict:
     max_state.clear_fsm_state(max_id)
 
     if not completion_response.success:
-        await send_func(completion_response.message or get_message('error_processing', language))
+        await edit_or_send(
+            send_func,
+            status_id,
+            completion_response.message or get_message('error_processing', language),
+        )
         return {'ok': True, 'handled': 'task_feelings', 'error': True}
 
     task_completion_obj = (completion_response.data or {}).get('task_completion')
     if task_completion_obj:
-        asyncio.create_task(
-            _notify_analysis(task_completion_obj, user, send_func)
+        # Нельзя create_task: webhook идёт через async_to_sync, клиент закрывается
+        # в finally dispatch — фон отменяется и TaskCompletionAnalysis не пишется.
+        await _notify_analysis(
+            task_completion_obj, user, send_func, status_id=status_id
         )
     else:
-        await send_func(get_message('error_processing', language))
+        await edit_or_send(
+            send_func,
+            status_id,
+            get_message('error_processing', language),
+        )
     return {'ok': True, 'handled': 'task_feelings'}
 
 
-async def _notify_analysis(task_completion, user, send_func) -> None:
+async def _notify_analysis(task_completion, user, send_func, *, status_id=None) -> None:
     language = getattr(user, 'language', None) or 'ru'
     try:
         response = await analyze_completed_task_for_notification_use_case(
@@ -128,11 +138,15 @@ async def _notify_analysis(task_completion, user, send_func) -> None:
             'task_analysis_error_formatted', language
         )
         keyboard = payload.get('notification_keyboard')
-        await send_func(text, keyboard)
+        await edit_or_send(send_func, status_id, text, keyboard)
     except Exception as exc:
         logger.error('[MAX tasks] analysis notify failed: %s', exc, exc_info=True)
         try:
-            await send_func(get_message('task_analysis_error_formatted', language))
+            await edit_or_send(
+                send_func,
+                status_id,
+                get_message('task_analysis_error_formatted', language),
+            )
         except Exception:
             pass
 
@@ -190,27 +204,39 @@ async def route_wave6_tasks_callback(
                 'ℹ️ График влияния заданий временно недоступен.'
             )
             return {'ok': True, 'handled': 'show_task_impact_chart', 'mode': 'no_client'}
+        status_id = None
         try:
             from bot.utils.task_impact_chart import generate_task_impact_chart_image
 
-            await send_func(get_message('processing', language))
+            status_id = await ensure_processing_status(send_func, language)
             days = 30
+            caption = get_message('task_impact_chart_caption', language, days=days)
             chart_buf = await generate_task_impact_chart_image(
                 user, days=days, language=language
             )
             ok = await max_client.send_image(
                 user_id=max_id,
                 image_bytes=chart_buf.getvalue(),
-                caption=get_message('task_impact_chart_caption', language, days=days),
+                caption=caption,
                 filename='task_impact_chart.png',
             )
             if not ok:
-                await send_func(get_message('error_processing', language))
+                await edit_or_send(
+                    send_func,
+                    status_id,
+                    get_message('error_processing', language),
+                )
                 return {'ok': True, 'handled': 'show_task_impact_chart', 'error': True}
+            # Картинку нельзя «вшить» в status-текст — превращаем статус в подпись.
+            await edit_or_send(send_func, status_id, caption)
             return {'ok': True, 'handled': 'show_task_impact_chart'}
         except Exception as exc:
             logger.error('[MAX tasks] impact chart failed: %s', exc, exc_info=True)
-            await send_func(get_message('error_processing', language))
+            await edit_or_send(
+                send_func,
+                status_id,
+                get_message('error_processing', language),
+            )
             return {'ok': True, 'handled': 'show_task_impact_chart', 'error': True}
 
     if payload.startswith('tasks_paginate:'):

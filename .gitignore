@@ -26,3 +26,8 @@ Thumbs.db
 
 # Media files
 media/
+
+# TLS certificates (keep on server only; never commit private keys)
+nginx/certs/*
+!nginx/certs/.gitkeep
+!nginx/certs/README.md

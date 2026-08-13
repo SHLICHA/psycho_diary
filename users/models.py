@@ -25,11 +25,11 @@ class User(AbstractUser):
         help_text="Может быть NULL для web-only пользователей"
     )
     max_id = models.BigIntegerField(
+        unique=True,
         null=True,
         blank=True,
-        db_index=True,
         verbose_name="MAX ID",
-        help_text="Идентификатор пользователя в VK MAX (nullable на этапе expand)"
+        help_text="Идентификатор пользователя в VK MAX (unique, nullable)"
     )
     language = models.CharField(
         max_length=2, 
@@ -115,7 +115,15 @@ class User(AbstractUser):
     )
     date_of_birth = models.DateField(null=True, blank=True, verbose_name="Дата рождения")
     email = EncryptedEmailField(blank=True, verbose_name="Email")
-    email_hash = models.CharField(max_length=64, blank=True, editable=False, verbose_name="Email hash (для поиска)")
+    email_hash = models.CharField(
+        max_length=64,
+        unique=True,
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name="Email hash (для поиска)",
+        help_text="SHA-256 от email в lower-case; NULL если email не задан",
+    )
     token_balance = models.PositiveIntegerField(default=0, verbose_name="Баланс токенов")
     last_streak_reward_7 = models.PositiveIntegerField(
         default=0,
@@ -141,14 +149,14 @@ class User(AbstractUser):
     def __str__(self):
         return f"{self.username} ({self.telegram_id})"
     def save(self, *args, **kwargs):
-        # Генерируем hash email для поиска (deterministic)
-        if self.email and isinstance(self.email, str):
+        # Генерируем hash email для поиска (deterministic). Пустой email → NULL (unique).
+        if self.email and isinstance(self.email, str) and self.email.strip():
             import hashlib
             self.email_hash = hashlib.sha256(self.email.lower().encode()).hexdigest()
         else:
             if self.email is not None and not isinstance(self.email, str):
                 self.email = ''
-            self.email_hash = ''
+            self.email_hash = None
         
         if not self.referral_link:
             # Гибридная модель: единый transport-agnostic referral code.

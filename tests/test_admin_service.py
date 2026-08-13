@@ -107,13 +107,16 @@ class TestAdminService:
     def stats_users(self):
         """Создает пользователей для статистики."""
         return [
-            baker.make(User, telegram_id=200, is_blocked=False, deletion_status='active',
+            baker.make(User, telegram_id=200, max_id=None, is_blocked=False, deletion_status='active',
                       deleted_at=None, token_balance=100, auto_analysis_enabled=True,
                       is_onboarding_completed=True, language='ru'),
-            baker.make(User, telegram_id=201, is_blocked=False, deletion_status='active',
+            baker.make(User, telegram_id=None, max_id=9201, is_blocked=False, deletion_status='active',
                       deleted_at=None, token_balance=0, auto_analysis_enabled=False,
                       is_onboarding_completed=False, language='en'),
-            baker.make(User, telegram_id=202, is_blocked=True, deletion_status='active',
+            baker.make(User, telegram_id=202, max_id=9202, is_blocked=False, deletion_status='active',
+                      deleted_at=None, token_balance=10, auto_analysis_enabled=True,
+                      is_onboarding_completed=True, language='ru'),
+            baker.make(User, telegram_id=203, max_id=None, is_blocked=True, deletion_status='active',
                       deleted_at=None, token_balance=50, language='ru'),
         ]
 
@@ -122,11 +125,31 @@ class TestAdminService:
         """Тест: базовая статистика пользователей."""
         stats = await admin_service.get_admin_stats()
 
-        assert stats['total_users'] >= 2  # Не считаем superuser
-        assert stats['active_users'] >= 2
+        assert stats['total_users'] >= 3  # Не считаем superuser
+        assert stats['active_users'] >= 3
         assert stats['blocked_users'] >= 1
         assert 'top_timezones' in stats
         assert 'rating_distribution' in stats
+        assert stats['users_telegram_only'] >= 1
+        assert stats['users_max_only'] >= 1
+        assert stats['users_both_messengers'] >= 1
+
+    @pytest.mark.asyncio
+    async def test_get_admin_stats_messenger_breakdown(self, stats_users):
+        """Тест: разбивка незаблокированных по мессенджерам."""
+        stats = await admin_service.get_admin_stats()
+
+        assert stats['users_telegram_only'] >= 1  # telegram_id=200
+        assert stats['users_max_only'] >= 1  # max_id=9201
+        assert stats['users_both_messengers'] >= 1  # 202+9202
+        # Заблокированный TG-only не входит в messenger-разбивку (считаем среди active_users).
+        messenger_sum = (
+            stats['users_telegram_only']
+            + stats['users_max_only']
+            + stats['users_both_messengers']
+            + stats['users_no_messenger']
+        )
+        assert messenger_sum == stats['active_users']
 
     @pytest.fixture
     def diary_entries_for_stats(self, stats_users):

@@ -70,8 +70,11 @@ async def handle_main_menu(user: 'User', send_func: 'SendFunc', *, max_id: int) 
     language = user.language or 'ru'
     max_state.clear_fsm_state(max_id)
     menu = await build_main_menu_data(user=user, language=language)
-    markup = await get_main_menu_keyboard(language, user)
-    await send_func(menu.get('text') or get_message('main_menu', language), markup)
+    markup = menu.get('keyboard') or await get_main_menu_keyboard(language, user)
+    await send_func(
+        menu.get('message_text') or get_message('main_menu', language),
+        markup,
+    )
     return {'ok': True, 'handled': 'main_menu'}
 
 

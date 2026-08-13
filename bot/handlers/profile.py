@@ -295,6 +295,9 @@ async def _process_field_input(message: Message, state: FSMContext, user, langua
             if error_code == 'email_already_exists':
                 await message.answer(get_message('email_already_exists', language))
                 return
+            if error_code == 'target_messenger_unavailable':
+                await message.answer(get_message('merge_target_messenger_unavailable', language))
+                return
             if error_code in {
                 'invalid_email_format',
                 'invalid_date_format',

@@ -1,15 +1,27 @@
 """Сервис explicit confirm flow для merge-конфликтов по email."""
 
+from __future__ import annotations
+
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
 
 from asgiref.sync import sync_to_async
+from django.db import transaction
 from django.utils import timezone
 
 from users.models import EmailMergeRequest, User
 from users.services.identity_policy_service import IdentityPolicyService
+
+
+class EmailMergeError(Exception):
+    """Ошибка создания/ведения merge-request."""
+
+    def __init__(self, code: str, message: str = ''):
+        self.code = code
+        self.message = message or code
+        super().__init__(self.message)
 
 
 @dataclass(frozen=True)
@@ -51,21 +63,55 @@ class EmailMergeService:
         return EmailMergeConfirmationResult(status='confirmed', merge_request=merge_request)
 
     @classmethod
-    def _resolve_target_platform(cls, merge_request: EmailMergeRequest) -> Optional[str]:
-        """Определяет второй канал для двустороннего подтверждения Telegram/MAX."""
-        source_platform = (merge_request.source_platform or '').lower()
-        target_user = merge_request.target_user
+    def resolve_target_delivery_platform(
+        cls,
+        *,
+        target_user: User,
+        source_platform: str = 'web',
+        requester_user: User | None = None,
+    ) -> str:
+        """
+        Выбирает канал доставки target-confirm.
 
-        if source_platform == 'telegram' and getattr(target_user, 'max_id', None):
+        Dual-confirm обязателен всегда; без мессенджера у владельца email — ошибка.
+        Предпочтение: complementary к source_platform, иначе любой доступный канал target.
+        """
+        target_tg = getattr(target_user, 'telegram_id', None)
+        target_max = getattr(target_user, 'max_id', None)
+        if not target_tg and not target_max:
+            raise EmailMergeError(
+                'target_messenger_unavailable',
+                'Email owner has no Telegram or MAX identity for confirmation',
+            )
+
+        source = (source_platform or 'web').lower()
+        requester_tg = getattr(requester_user, 'telegram_id', None) if requester_user else None
+        requester_max = getattr(requester_user, 'max_id', None) if requester_user else None
+
+        # Complementary: TG requester → MAX target, MAX requester → TG target.
+        if source == 'telegram' and target_max:
             return 'max'
-        if source_platform == 'max' and getattr(target_user, 'telegram_id', None):
+        if source == 'max' and target_tg:
             return 'telegram'
-        return None
+
+        # Web / same-platform / unknown: prefer channel target has that requester lacks.
+        if target_tg and not requester_tg:
+            return 'telegram'
+        if target_max and not requester_max:
+            return 'max'
+
+        if target_tg:
+            return 'telegram'
+        return 'max'
 
     @classmethod
-    def _build_transport_confirmation_metadata(cls, merge_request: EmailMergeRequest) -> dict:
-        """Формирует metadata для двустороннего transport confirmation flow."""
-        target_platform = cls._resolve_target_platform(merge_request)
+    def _build_transport_confirmation_metadata(
+        cls,
+        merge_request: EmailMergeRequest,
+        *,
+        target_platform: str,
+    ) -> dict:
+        """Формирует metadata для обязательного двустороннего transport confirmation."""
         now = timezone.now()
         metadata = dict(merge_request.metadata or {})
 
@@ -76,14 +122,12 @@ class EmailMergeService:
                 'requester_confirmed': False,
                 'requester_confirmed_at': None,
                 'target_platform': target_platform,
-                'target_confirmation_required': bool(target_platform),
-                'target_confirmation_token': secrets.token_urlsafe(32) if target_platform else None,
-                'target_confirmation_status': 'pending' if target_platform else 'not_required',
+                'target_confirmation_required': True,
+                'target_confirmation_token': secrets.token_urlsafe(32),
+                'target_confirmation_status': 'pending',
                 'target_confirmation_expires_at': (
                     now + timedelta(seconds=cls.TARGET_CONFIRMATION_TTL_SECONDS)
-                ).isoformat()
-                if target_platform
-                else None,
+                ).isoformat(),
                 'target_confirmed_at': None,
             }
         )
@@ -99,6 +143,12 @@ class EmailMergeService:
     ) -> EmailMergeRequest:
         email_hash = IdentityPolicyService.build_email_hash(email)
         target_user = User.objects.get(email_hash=email_hash)
+
+        target_platform = cls.resolve_target_delivery_platform(
+            target_user=target_user,
+            source_platform=source_platform,
+            requester_user=requester_user,
+        )
 
         now = timezone.now()
         # Инвалидация активных pending-запросов от того же инициатора по тому же email.
@@ -119,7 +169,10 @@ class EmailMergeService:
             expires_at=now + timedelta(seconds=cls.DEFAULT_TTL_SECONDS),
             metadata={'email': email},
         )
-        merge_request.metadata = cls._build_transport_confirmation_metadata(merge_request)
+        merge_request.metadata = cls._build_transport_confirmation_metadata(
+            merge_request,
+            target_platform=target_platform,
+        )
         merge_request.save(update_fields=['metadata', 'updated_at'])
         return merge_request
 
@@ -145,50 +198,57 @@ class EmailMergeService:
         requester_user: User,
         confirmation_token: str,
     ) -> EmailMergeConfirmationResult:
-        merge_request = EmailMergeRequest.objects.filter(
-            requester_user=requester_user,
-            confirmation_token=confirmation_token,
-        ).first()
-
-        if merge_request is None:
-            return EmailMergeConfirmationResult(status='error', code='merge_request_not_found')
-
-        if merge_request.status != 'pending':
-            return EmailMergeConfirmationResult(status='error', code='merge_request_not_pending')
-
-        now = timezone.now()
-        if merge_request.expires_at <= now:
-            merge_request.status = 'expired'
-            merge_request.save(update_fields=['status', 'updated_at'])
-            return EmailMergeConfirmationResult(status='error', code='merge_request_expired')
-
-        metadata = dict(merge_request.metadata or {})
-        if metadata.get('confirmation_mode') == 'dual_transport':
-            metadata['requester_confirmed'] = True
-            metadata['requester_confirmed_at'] = now.isoformat()
-
-            target_required = bool(metadata.get('target_confirmation_required'))
-            target_status = metadata.get('target_confirmation_status')
-
-            if target_required and target_status != 'approved':
-                merge_request.metadata = metadata
-                merge_request.save(update_fields=['metadata', 'updated_at'])
-                return EmailMergeConfirmationResult(
-                    status='pending_target_confirmation',
-                    code='pending_target_confirmation',
-                    merge_request=merge_request,
+        with transaction.atomic():
+            merge_request = (
+                EmailMergeRequest.objects.select_for_update()
+                .select_related('requester_user', 'target_user')
+                .filter(
+                    requester_user=requester_user,
+                    confirmation_token=confirmation_token,
                 )
+                .first()
+            )
 
-            merge_request.metadata = metadata
+            if merge_request is None:
+                return EmailMergeConfirmationResult(status='error', code='merge_request_not_found')
+
+            if merge_request.status != 'pending':
+                return EmailMergeConfirmationResult(status='error', code='merge_request_not_pending')
+
+            now = timezone.now()
+            if merge_request.expires_at <= now:
+                merge_request.status = 'expired'
+                merge_request.save(update_fields=['status', 'updated_at'])
+                return EmailMergeConfirmationResult(status='error', code='merge_request_expired')
+
+            metadata = dict(merge_request.metadata or {})
+            if metadata.get('confirmation_mode') == 'dual_transport':
+                metadata['requester_confirmed'] = True
+                metadata['requester_confirmed_at'] = now.isoformat()
+
+                target_required = bool(metadata.get('target_confirmation_required', True))
+                target_status = metadata.get('target_confirmation_status')
+
+                if target_required and target_status != 'approved':
+                    merge_request.metadata = metadata
+                    merge_request.save(update_fields=['metadata', 'updated_at'])
+                    return EmailMergeConfirmationResult(
+                        status='pending_target_confirmation',
+                        code='pending_target_confirmation',
+                        merge_request=merge_request,
+                    )
+
+                merge_request.metadata = metadata
+                merge_request.status = 'confirmed'
+                merge_request.confirmed_at = now
+                merge_request.save(update_fields=['metadata', 'status', 'confirmed_at', 'updated_at'])
+                return cls._maybe_execute_merge(merge_request)
+
+            # Legacy single-confirm path (не должен создаваться новыми запросами).
             merge_request.status = 'confirmed'
             merge_request.confirmed_at = now
-            merge_request.save(update_fields=['metadata', 'status', 'confirmed_at', 'updated_at'])
+            merge_request.save(update_fields=['status', 'confirmed_at', 'updated_at'])
             return cls._maybe_execute_merge(merge_request)
-
-        merge_request.status = 'confirmed'
-        merge_request.confirmed_at = now
-        merge_request.save(update_fields=['status', 'confirmed_at', 'updated_at'])
-        return cls._maybe_execute_merge(merge_request)
 
     @classmethod
     def confirm_target_transport(
@@ -198,59 +258,65 @@ class EmailMergeService:
         approve: bool,
     ) -> EmailMergeConfirmationResult:
         """Подтверждение merge во втором канале (Telegram/MAX)."""
-        merge_request = None
-        for candidate in EmailMergeRequest.objects.filter(target_user=target_user, status='pending').order_by('-created_at'):
-            candidate_metadata = dict(candidate.metadata or {})
-            if candidate_metadata.get('target_confirmation_token') == target_confirmation_token:
-                merge_request = candidate
-                break
+        with transaction.atomic():
+            merge_request = None
+            for candidate in (
+                EmailMergeRequest.objects.select_for_update()
+                .select_related('requester_user', 'target_user')
+                .filter(target_user=target_user, status='pending')
+                .order_by('-created_at')
+            ):
+                candidate_metadata = dict(candidate.metadata or {})
+                if candidate_metadata.get('target_confirmation_token') == target_confirmation_token:
+                    merge_request = candidate
+                    break
 
-        if merge_request is None:
-            return EmailMergeConfirmationResult(status='error', code='merge_request_not_found')
+            if merge_request is None:
+                return EmailMergeConfirmationResult(status='error', code='merge_request_not_found')
 
-        metadata = dict(merge_request.metadata or {})
+            metadata = dict(merge_request.metadata or {})
 
-        now = timezone.now()
-        target_expires_at = metadata.get('target_confirmation_expires_at')
-        if target_expires_at:
-            expires_dt = datetime.fromisoformat(target_expires_at)
-            if timezone.is_naive(expires_dt):
-                expires_dt = timezone.make_aware(expires_dt, timezone.get_current_timezone())
-            if expires_dt <= now:
-                metadata['target_confirmation_status'] = 'expired'
+            now = timezone.now()
+            target_expires_at = metadata.get('target_confirmation_expires_at')
+            if target_expires_at:
+                expires_dt = datetime.fromisoformat(target_expires_at)
+                if timezone.is_naive(expires_dt):
+                    expires_dt = timezone.make_aware(expires_dt, timezone.get_current_timezone())
+                if expires_dt <= now:
+                    metadata['target_confirmation_status'] = 'expired'
+                    merge_request.metadata = metadata
+                    merge_request.status = 'expired'
+                    merge_request.save(update_fields=['metadata', 'status', 'updated_at'])
+                    return EmailMergeConfirmationResult(status='error', code='target_confirmation_expired')
+
+            if not approve:
+                metadata['target_confirmation_status'] = 'rejected'
+                metadata['target_confirmed_at'] = now.isoformat()
                 merge_request.metadata = metadata
-                merge_request.status = 'expired'
+                merge_request.status = 'cancelled'
                 merge_request.save(update_fields=['metadata', 'status', 'updated_at'])
-                return EmailMergeConfirmationResult(status='error', code='target_confirmation_expired')
+                return EmailMergeConfirmationResult(
+                    status='rejected',
+                    code='merge_request_rejected_by_target',
+                    merge_request=merge_request,
+                )
 
-        if not approve:
-            metadata['target_confirmation_status'] = 'rejected'
+            metadata['target_confirmation_status'] = 'approved'
             metadata['target_confirmed_at'] = now.isoformat()
             merge_request.metadata = metadata
-            merge_request.status = 'cancelled'
-            merge_request.save(update_fields=['metadata', 'status', 'updated_at'])
+
+            if metadata.get('requester_confirmed'):
+                merge_request.status = 'confirmed'
+                merge_request.confirmed_at = now
+                merge_request.save(update_fields=['metadata', 'status', 'confirmed_at', 'updated_at'])
+                return cls._maybe_execute_merge(merge_request)
+
+            merge_request.save(update_fields=['metadata', 'updated_at'])
             return EmailMergeConfirmationResult(
-                status='rejected',
-                code='merge_request_rejected_by_target',
+                status='pending_requester_confirmation',
+                code='pending_requester_confirmation',
                 merge_request=merge_request,
             )
-
-        metadata['target_confirmation_status'] = 'approved'
-        metadata['target_confirmed_at'] = now.isoformat()
-        merge_request.metadata = metadata
-
-        if metadata.get('requester_confirmed'):
-            merge_request.status = 'confirmed'
-            merge_request.confirmed_at = now
-            merge_request.save(update_fields=['metadata', 'status', 'confirmed_at', 'updated_at'])
-            return cls._maybe_execute_merge(merge_request)
-
-        merge_request.save(update_fields=['metadata', 'updated_at'])
-        return EmailMergeConfirmationResult(
-            status='pending_requester_confirmation',
-            code='pending_requester_confirmation',
-            merge_request=merge_request,
-        )
 
     @classmethod
     async def aconfirm_target_transport(
@@ -309,22 +375,27 @@ class EmailMergeService:
         merge_request_id: int,
     ) -> EmailMergeConfirmationResult:
         """Отмена merge-request инициатором."""
-        merge_request = EmailMergeRequest.objects.filter(
-            id=merge_request_id,
-            requester_user=requester_user,
-        ).first()
-        if merge_request is None:
-            return EmailMergeConfirmationResult(status='error', code='merge_request_not_found')
-        if merge_request.status != 'pending':
-            return EmailMergeConfirmationResult(status='error', code='merge_request_not_pending')
+        with transaction.atomic():
+            merge_request = (
+                EmailMergeRequest.objects.select_for_update()
+                .filter(
+                    id=merge_request_id,
+                    requester_user=requester_user,
+                )
+                .first()
+            )
+            if merge_request is None:
+                return EmailMergeConfirmationResult(status='error', code='merge_request_not_found')
+            if merge_request.status != 'pending':
+                return EmailMergeConfirmationResult(status='error', code='merge_request_not_pending')
 
-        metadata = dict(merge_request.metadata or {})
-        metadata['cancelled_by'] = 'requester'
-        metadata['cancelled_at'] = timezone.now().isoformat()
-        merge_request.metadata = metadata
-        merge_request.status = 'cancelled'
-        merge_request.save(update_fields=['metadata', 'status', 'updated_at'])
-        return EmailMergeConfirmationResult(status='cancelled', merge_request=merge_request)
+            metadata = dict(merge_request.metadata or {})
+            metadata['cancelled_by'] = 'requester'
+            metadata['cancelled_at'] = timezone.now().isoformat()
+            merge_request.metadata = metadata
+            merge_request.status = 'cancelled'
+            merge_request.save(update_fields=['metadata', 'status', 'updated_at'])
+            return EmailMergeConfirmationResult(status='cancelled', merge_request=merge_request)
 
     @classmethod
     async def acancel_merge_request_by_id(
@@ -425,6 +496,14 @@ def build_requester_merge_result_view(
                 'success': True,
                 'mode': 'max_deferred',
                 'text': get_message('merge_target_confirmation_deferred_max', language=language),
+            }
+        if delivery_result and not delivery_result.get('success'):
+            return {
+                'success': False,
+                'mode': 'delivery_failed',
+                'alert_text': get_message('merge_target_delivery_failed', language=language),
+                'show_alert': True,
+                'text': get_message('merge_target_delivery_failed', language=language),
             }
 
     return {

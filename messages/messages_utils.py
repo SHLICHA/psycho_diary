@@ -120,7 +120,9 @@ MESSAGES = {
         'merge_requester_confirmation_prompt': '⚠️ Email уже связан с другим аккаунтом. Хотите начать безопасное объединение аккаунтов?',
         'merge_target_confirmation_prompt': '⚠️ Пользователь {requester_name} ({requester_platform}) запросил объединение аккаунтов по вашему email. Подтвердить объединение?',
         'merge_target_confirmation_sent': 'Запрос на подтверждение отправлен во второй канал. Ожидаем ответ.',
-        'merge_target_confirmation_deferred_max': 'Запрос зафиксирован, но доставка подтверждения в MAX будет подключена следующим шагом. Web fallback остается доступен временно.',
+        'merge_target_confirmation_deferred_max': 'Запрос зафиксирован, но доставка подтверждения в MAX сейчас недоступна. Попробуйте позже или подтвердите, когда MAX снова будет доступен.',
+        'merge_target_delivery_failed': '❌ Не удалось отправить запрос подтверждения во второй канал. Попробуйте позже.',
+        'merge_target_messenger_unavailable': '❌ Нельзя объединить аккаунты: у владельца email нет Telegram или MAX для подтверждения.',
         'merge_request_confirmed': '✅ Подтверждение получено. Объединение будет выполнено после финальных проверок безопасности.',
         'merge_accounts_completed': '✅ Аккаунты объединены. Дневник и подписка теперь общие для Telegram и MAX. Анализы за текущую неделю будут пересчитаны при необходимости.',
         'merge_accounts_failed': '❌ Не удалось объединить аккаунты. Обратитесь в поддержку или попробуйте позже.',
@@ -156,6 +158,7 @@ MESSAGES = {
 'premium_expires_in_7_days': 'Ваша подписка PRO закончится через <b>7 дней</b>. Продлите заранее, чтобы не потерять доступ.',
 'morning_motivation_premium_expired_preamble': '''\n\n------------\n❌ <b>Подписка закончилась!</b>\n\n''',
 'morning_motivation_premium_expired_text': 'Ваша PRO подписка истекла. Продлите, чтобы снова получить доступ ко всем премиум-функциям.',
+'morning_motivation_premium_why': 'С подпиской вы получаете автоматический полный анализ дня, объединение записей и обновление психологического профиля — для более точного понимания себя.',
 'reply_feedback_prompt': (
     '✍️ Ответ на обращение #{feedback_id} от {username} ({created_at}):\n\n'
     'Сообщение:\n{message_text}\n\n'
@@ -284,7 +287,9 @@ Our thoughts and feelings are an important part of the path to understanding our
         'merge_requester_confirmation_prompt': '⚠️ This email is already linked to another account. Start a secure account merge?',
         'merge_target_confirmation_prompt': '⚠️ User {requester_name} ({requester_platform}) requested account merge using your email. Approve merge?',
         'merge_target_confirmation_sent': 'A confirmation request has been sent to the second channel. Waiting for response.',
-        'merge_target_confirmation_deferred_max': 'Request saved, but MAX delivery will be enabled in the next step. Web fallback is temporarily available.',
+        'merge_target_confirmation_deferred_max': 'Request saved, but MAX delivery is currently unavailable. Try again later or confirm when MAX is available.',
+        'merge_target_delivery_failed': '❌ Could not deliver the confirmation request to the second channel. Please try again later.',
+        'merge_target_messenger_unavailable': '❌ Cannot merge accounts: the email owner has no Telegram or MAX identity for confirmation.',
         'merge_request_confirmed': '✅ Confirmation received. Merge will run after final safety checks.',
         'merge_accounts_completed': '✅ Accounts merged. Your diary and subscription are now shared across Telegram and MAX. Analyses for the current week will be recalculated if needed.',
         'merge_accounts_failed': '❌ Could not merge accounts. Contact support or try again later.',
@@ -320,6 +325,7 @@ Our thoughts and feelings are an important part of the path to understanding our
 'premium_expires_in_7_days': 'Your PRO subscription will end in <b>7 days</b>. Renew early to avoid interruption.',
 'morning_motivation_premium_expired_preamble': '''\n\n------------\n❌ <b>Subscription expired!</b>\n\n''',
 'morning_motivation_premium_expired_text': 'Your PRO subscription has expired. Renew to regain access to all premium features.',
+'morning_motivation_premium_why': 'With a subscription you get automatic full-day analysis, combined entries, and an updated psychological profile — for a clearer understanding of yourself.',
 'reply_feedback_prompt': (
     '✍️ Reply to feedback #{feedback_id} from {username} ({created_at}):\n\n'
     'Message:\n{message_text}\n\n'

@@ -32,25 +32,26 @@ async def recognize_max_voice(
     language: str,
     context_name: str,
     send_func: Optional['SendFunc'] = None,
-) -> Tuple[bool, str, str]:
+) -> Tuple[bool, str, str, Optional[str]]:
     """
     Download MAX audio and run shared STT pipeline.
-    Returns (success, text, error_message).
+    Returns (success, text, error_message, status_message_id).
     """
+    status_id: Optional[str] = None
     voice_bytes = await download_media_bytes(max_client, media)
     if not voice_bytes:
-        return False, '', 'Не удалось скачать голосовое сообщение.'
+        return False, '', 'Не удалось скачать голосовое сообщение.', None
 
     if send_func is not None:
         from messages import get_message
 
-        await send_func(get_message('processing', language))
+        status_id = await send_func(get_message('processing', language))
 
     filename = media.filename or 'voice.ogg'
     audio_format = resolve_audio_format(filename, media.content_type or '')
     duration = int(media.duration or 0)
 
-    return await process_voice_bytes(
+    ok, text, error = await process_voice_bytes(
         voice_bytes,
         duration=duration,
         language=language,
@@ -58,3 +59,4 @@ async def recognize_max_voice(
         audio_format=audio_format,
         filename_hint=filename,
     )
+    return ok, text, error, status_id

@@ -1623,7 +1623,7 @@ from users.services.auth_token_service import (
     create_web_link_token
 )
 from users.services.identity_policy_service import IdentityPolicyService
-from users.services.email_merge_service import EmailMergeService
+from users.services.email_merge_service import EmailMergeError, EmailMergeService
 from bot.transports.max.inbound import process_merge_target_callback
 from .serializers import (
     RegisterSerializer,
@@ -1750,12 +1750,26 @@ class CompleteRegistrationView(APIView):
             if email:
                 resolution = IdentityPolicyService.resolve_email_claim(email, requester_user=request.user)
                 if resolution.status == 'conflict':
-                    merge_request = EmailMergeService.create_merge_request(
-                        requester_user=request.user,
-                        email=email,
-                        source_platform='web',
-                        source_context='complete_registration',
+                    try:
+                        merge_request = EmailMergeService.create_merge_request(
+                            requester_user=request.user,
+                            email=email,
+                            source_platform='web',
+                            source_context='complete_registration',
+                        )
+                    except EmailMergeError as merge_error:
+                        return api_error_response(
+                            code=merge_error.code,
+                            message=merge_error.message,
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                        )
+
+                    from asgiref.sync import async_to_sync
+                    from bot.transports.identity_merge_dispatcher import (
+                        dispatch_target_merge_confirmation,
                     )
+
+                    delivery_result = async_to_sync(dispatch_target_merge_confirmation)(merge_request)
                     return api_error_response(
                         code='email_confirmation_required',
                         message='Email is linked to another account. Confirmation is required.',
@@ -1765,6 +1779,8 @@ class CompleteRegistrationView(APIView):
                             'expires_in': EmailMergeService.DEFAULT_TTL_SECONDS,
                             'target_user_id': merge_request.target_user_id,
                             'confirmation_mode': 'transport_callbacks_primary',
+                            'target_platform': (merge_request.metadata or {}).get('target_platform'),
+                            'target_delivery': delivery_result,
                         },
                     )
 
@@ -1819,6 +1835,15 @@ class ConfirmEmailMergeView(APIView):
             confirmation_token=serializer.validated_data['confirmation_token'],
         )
 
+        delivery_result = None
+        if result.status == 'pending_target_confirmation' and result.merge_request is not None:
+            from asgiref.sync import async_to_sync
+            from bot.transports.identity_merge_dispatcher import (
+                dispatch_target_merge_confirmation,
+            )
+
+            delivery_result = async_to_sync(dispatch_target_merge_confirmation)(result.merge_request)
+
         if result.status not in {'confirmed', 'merged', 'pending_target_confirmation'}:
             return api_error_response(
                 code=result.code or 'merge_request_failed',
@@ -1840,6 +1865,7 @@ class ConfirmEmailMergeView(APIView):
                 if merge_request
                 else None,
                 'next_step': next_step,
+                'target_delivery': delivery_result,
             },
             status=status.HTTP_200_OK,
         )

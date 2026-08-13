@@ -189,7 +189,12 @@ class PaymentService:
 
     @classmethod
     async def process_user_email_for_pending_payment(
-        cls, user: User, email: str, pending_payment_data: Dict[str, Any]
+        cls,
+        user: User,
+        email: str,
+        pending_payment_data: Dict[str, Any],
+        *,
+        source_platform: str = 'telegram',
     ) -> Dict[str, Any]:
         """
         Обрабатывает email, предоставленный пользователем для сохранения в чеке.
@@ -199,6 +204,7 @@ class PaymentService:
             user: Объект пользователя Django.
             email: Email, введенный пользователем.
             pending_payment_data: Данные, сохраненные в FSM.
+            source_platform: Канал инициатора ('telegram' | 'max' | 'web').
 
         Returns:
             Dict[str, Any]: Результат обработки email и создания платежа.
@@ -218,12 +224,22 @@ class PaymentService:
             resolution = await IdentityPolicyService.aresolve_email_claim(email, requester_user=user)
             if resolution.status == 'conflict':
                 if getattr(settings, 'EMAIL_MERGE_CONFIRMATION_ENABLED', False):
-                    merge_request = await EmailMergeService.acreate_merge_request(
-                        requester_user=user,
-                        email=email,
-                        source_platform='telegram',
-                        source_context='payment_receipt_email',
-                    )
+                    from users.services.email_merge_service import EmailMergeError
+
+                    try:
+                        merge_request = await EmailMergeService.acreate_merge_request(
+                            requester_user=user,
+                            email=email,
+                            source_platform=source_platform or 'telegram',
+                            source_context='payment_receipt_email',
+                        )
+                    except EmailMergeError as merge_error:
+                        return {
+                            "success": False,
+                            "confirmation_url": None,
+                            "error": merge_error.message,
+                            "error_code": merge_error.code,
+                        }
                     return {
                         "success": False,
                         "confirmation_url": None,
@@ -243,7 +259,9 @@ class PaymentService:
 
             # Сохраняем email
             user.email = email
-            await sync_to_async(user.save)(update_fields=['email'])
+            # email_hash должен обновляться атомарно с email, чтобы повторный claim
+            # корректно определял conflict и запускал merge flow.
+            await sync_to_async(user.save)(update_fields=['email', 'email_hash'])
             logger.debug(f"[PaymentService] Email {email} сохранен для пользователя {user.telegram_id}")
 
             # Создаем платеж
@@ -654,6 +672,13 @@ class PaymentService:
                 'clear_state': False,
                 'text': get_message('email_already_exists', language),
             }
+        if error_code == 'target_messenger_unavailable':
+            return {
+                'success': False,
+                'mode': 'target_messenger_unavailable',
+                'clear_state': False,
+                'text': get_message('merge_target_messenger_unavailable', language),
+            }
 
         return {
             'success': False,
@@ -673,10 +698,19 @@ async def initiate_token_payment(user: User, token_count: int) -> Dict[str, Any]
     return await PaymentService.initiate_token_payment(user, token_count)
 
 async def process_user_email_for_pending_payment(
-    user: User, email: str, pending_payment_data: Dict[str, Any]
+    user: User,
+    email: str,
+    pending_payment_data: Dict[str, Any],
+    *,
+    source_platform: str = 'telegram',
 ) -> Dict[str, Any]:
     """Удобная функция для обработки email и создания платежа."""
-    return await PaymentService.process_user_email_for_pending_payment(user, email, pending_payment_data)
+    return await PaymentService.process_user_email_for_pending_payment(
+        user,
+        email,
+        pending_payment_data,
+        source_platform=source_platform,
+    )
 
 def build_premium_menu_view(user: User, language: str) -> Dict[str, Any]:
     return PaymentService.build_premium_menu_view(user, language)

@@ -151,7 +151,9 @@ async def process_payment_email_text(
         max_state.clear_fsm_state(max_id)
         return {'ok': True, 'handled': 'payment_email', 'error': 'missing_pending'}
 
-    result = await process_user_email_for_pending_payment(user, email, pending)
+    result = await process_user_email_for_pending_payment(
+        user, email, pending, source_platform='max'
+    )
     view = build_email_payment_result_view(result, payment_kind, language)
     if view.get('clear_state'):
         max_state.clear_fsm_state(max_id)

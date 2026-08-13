@@ -95,7 +95,7 @@ async def test_diary_voice_stt_routes_to_text(max_user, mocker):
 
     mocker.patch(
         'bot.handlers.max.media.recognize_max_voice',
-        new=AsyncMock(return_value=(True, 'Голосовая запись дня', '')),
+        new=AsyncMock(return_value=(True, 'Голосовая запись дня', '', 'stt-mid')),
     )
     mocker.patch(
         'bot.handlers.max.diary.process_diary_text',

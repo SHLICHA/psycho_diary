@@ -55,6 +55,7 @@ ENTRY_MESSAGES_EN = {
         'comment_already_added': 'A comment has already been added to this entry.',
         'ask_user_comment': 'Please enter your comment for the entry.',
         'rating_already_submitted': 'You have already rated this analysis.',
+        'rating_saved': '✅ Thanks! Your analysis rating has been saved.',
         'add_more_prompt': '''📝 <b>Great!</b>
 
 💬 <i>Would you like to add something to what you wrote?</i>''',

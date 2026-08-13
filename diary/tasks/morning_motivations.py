@@ -27,6 +27,101 @@ from diary.tasks.ai_activity_filter import ais_user_active_for_ai_tasks
 
 logger = logging.getLogger(__name__)
 
+
+def build_morning_motivation_extras(
+    *,
+    language: str,
+    is_premium_active: bool,
+    premium_expires_at: datetime | None,
+    token_balance: int,
+    auto_analysis_enabled: bool,
+    user_local_date: date,
+    user_tz,
+) -> dict:
+    """
+    Собирает предупреждения и кнопки оплаты/подписки для утренней мотивации.
+
+    Приоритет при неактивной подписке:
+    1) подписка уже истекла (есть premium_expires_at в прошлом) → expired + оплата;
+    2) нет токенов → recharge;
+    3) токены есть, автоанализ выкл → предложить включить.
+    """
+    expiry_text = ''
+    additional_text = ''
+    renewal_button_callback = None
+    renewal_button_text_key = None
+    additional_button_callback = None
+    additional_button_text_key = None
+
+    days_until_expiry: int | None = None
+    if premium_expires_at is not None:
+        expires_local_date = premium_expires_at.astimezone(user_tz).date()
+        days_until_expiry = (expires_local_date - user_local_date).days
+
+    if is_premium_active and days_until_expiry is not None:
+        if 1 <= days_until_expiry <= 3:
+            expiry_text = (
+                get_message('morning_motivation_premium_expiry_preamble', language)
+                + get_message(f'premium_expires_in_{days_until_expiry}_days', language)
+            )
+            renewal_button_callback = 'settings_premium'
+            renewal_button_text_key = 'btn_manage_subscription'
+        elif days_until_expiry == 7:
+            expiry_text = (
+                get_message('morning_motivation_premium_expiry_preamble', language)
+                + get_message('premium_expires_in_7_days', language)
+            )
+            renewal_button_callback = 'settings_premium'
+            renewal_button_text_key = 'btn_manage_subscription'
+        elif days_until_expiry <= 0:
+            # Редкий TZ-край: локальная дата уже после expires, UTC ещё «активен».
+            expiry_text = (
+                get_message('morning_motivation_premium_expired_preamble', language)
+                + get_message('morning_motivation_premium_expired_text', language)
+            )
+            renewal_button_callback = 'settings_premium'
+            renewal_button_text_key = 'btn_morning_motivation_renew_subscription'
+
+    elif not is_premium_active:
+        subscription_expired = days_until_expiry is not None and days_until_expiry <= 0
+        if subscription_expired:
+            expiry_text = (
+                get_message('morning_motivation_premium_expired_preamble', language)
+                + get_message('morning_motivation_premium_expired_text', language)
+            )
+            renewal_button_callback = 'settings_premium'
+            renewal_button_text_key = 'btn_morning_motivation_renew_subscription'
+        elif token_balance <= 0:
+            additional_text = (
+                get_message('morning_motivation_recharge_preamble', language)
+                + get_message('morning_motivation_recharge_text', language)
+            )
+            additional_button_callback = 'premium_subscribe'
+            additional_button_text_key = 'btn_morning_motivation_recharge'
+        elif not auto_analysis_enabled:
+            additional_text = (
+                get_message('morning_motivation_enable_auto_analysis_preamble', language)
+                + get_message('morning_motivation_enable_auto_analysis_text', language)
+            )
+            additional_button_callback = 'settings_toggle_auto_analysis'
+            additional_button_text_key = 'btn_morning_motivation_enable_auto_analysis'
+
+    if expiry_text:
+        expiry_text = (
+            f"{expiry_text}\n\n{get_message('morning_motivation_premium_why', language)}"
+        )
+
+    return {
+        'expiry_text': expiry_text,
+        'additional_text': additional_text,
+        'renewal_button_callback': renewal_button_callback,
+        'renewal_button_text_key': renewal_button_text_key,
+        'additional_button_callback': additional_button_callback,
+        'additional_button_text_key': additional_button_text_key,
+        'days_until_expiry': days_until_expiry,
+    }
+
+
 async def aget_users_for_morning_motivation():
     """
     Асинхронное получение активных пользователей с включенными уведомлениями, не заблокированных.
@@ -221,77 +316,44 @@ async def _send_morning_motivation_async():
 
                         @sync_to_async
                         def get_user_premium_status():
-                            """Получает актуальный статус премиума и дату окончания."""
-                            return user.is_premium_active(), user.premium_expires_at, user.token_balance
+                            """Актуальные premium/token поля (refresh из БД)."""
+                            user.refresh_from_db(
+                                fields=[
+                                    'is_premium',
+                                    'premium_expires_at',
+                                    'token_balance',
+                                    'auto_analysis_enabled',
+                                ]
+                            )
+                            return (
+                                user.is_premium_active(),
+                                user.premium_expires_at,
+                                user.token_balance,
+                                bool(user.auto_analysis_enabled),
+                            )
 
-                        user_is_premium_active, premium_expires_at, user_token_balance = await get_user_premium_status()
+                        (
+                            user_is_premium_active,
+                            premium_expires_at,
+                            user_token_balance,
+                            user_auto_analysis_enabled,
+                        ) = await get_user_premium_status()
 
-                        additional_text = ""
-                        additional_button_callback = None
-                        additional_button_text_key = None
-
-                        # === БЛОК 1: Подписка истекает скоро (7, 3, 2, 1 дней) ===
-                        renewal_button_callback = None
-                        renewal_button_text_key = None
-                        expiry_text = ""
-
-                        if user_is_premium_active and premium_expires_at:
-                            # Переводим время окончания подписки в локальный часовой пояс пользователя
-                            expires_local_dt = premium_expires_at.astimezone(user_tz)
-                            expires_local_date = expires_local_dt.date()
-                            user_local_date = user_local_time.date()
-                            days_until_expiry = (expires_local_date - user_local_date).days
-
-                            if days_until_expiry <= 0:
-                                # Подписка уже истекла — предлагаем продлить
-                                expiry_text = (
-                                    get_message('morning_motivation_premium_expired_preamble', user_language) +
-                                    get_message('morning_motivation_premium_expired_text', user_language)
-                                )
-                                renewal_button_callback = "settings_premium"
-                                renewal_button_text_key = 'btn_manage_subscription'
-                            elif 1 <= days_until_expiry <= 3:
-                                # 1-3 дня — срочное напоминание
-                                expiry_message_key = f'premium_expires_in_{days_until_expiry}_days'
-                                expiry_text = (
-                                    get_message('morning_motivation_premium_expiry_preamble', user_language) +
-                                    get_message(expiry_message_key, user_language)
-                                )
-                                renewal_button_callback = "settings_premium"
-                                renewal_button_text_key = 'btn_manage_subscription'
-                            elif days_until_expiry == 7:
-                                # 7 дней — заблаговременное напоминание
-                                expiry_text = (
-                                    get_message('morning_motivation_premium_expiry_preamble', user_language) +
-                                    get_message('premium_expires_in_7_days', user_language)
-                                )
-                                renewal_button_callback = "settings_premium"
-                                renewal_button_text_key = 'btn_manage_subscription'
-
-                        # === БЛОК 2: Нет подписки — предлагаем купить или пополнить токены ===
-                        if not user_is_premium_active:
-                            if user_token_balance <= 0:
-                                # Нет подписки и нет токенов — предлагаем пополнить
-                                additional_text = (
-                                    get_message('morning_motivation_recharge_preamble', user_language) +
-                                    get_message('morning_motivation_recharge_text', user_language)
-                                )
-                                additional_button_callback = "premium_subscribe"
-                                additional_button_text_key = 'btn_morning_motivation_recharge'
-                            else:
-                                # Нет подписки, но есть токены — предлагаем автоанализ
-                                @sync_to_async
-                                def get_user_auto_analysis_status():
-                                    return user.auto_analysis_enabled
-                                user_auto_analysis_enabled = await get_user_auto_analysis_status()
-
-                                if not user_auto_analysis_enabled:
-                                    additional_text = (
-                                        get_message('morning_motivation_enable_auto_analysis_preamble', user_language) +
-                                        get_message('morning_motivation_enable_auto_analysis_text', user_language)
-                                    )
-                                    additional_button_callback = "settings_toggle_auto_analysis"
-                                    additional_button_text_key = 'btn_morning_motivation_enable_auto_analysis'
+                        extras = build_morning_motivation_extras(
+                            language=user_language,
+                            is_premium_active=user_is_premium_active,
+                            premium_expires_at=premium_expires_at,
+                            token_balance=user_token_balance,
+                            auto_analysis_enabled=user_auto_analysis_enabled,
+                            user_local_date=user_local_time.date(),
+                            user_tz=user_tz,
+                        )
+                        expiry_text = extras['expiry_text']
+                        additional_text = extras['additional_text']
+                        renewal_button_callback = extras['renewal_button_callback']
+                        renewal_button_text_key = extras['renewal_button_text_key']
+                        additional_button_callback = extras['additional_button_callback']
+                        additional_button_text_key = extras['additional_button_text_key']
 
                         # Собираем весь дополнительный текст
                         motivation_text = motivation_text_base + expiry_text + restore_text + additional_text

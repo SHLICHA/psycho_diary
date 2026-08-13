@@ -128,6 +128,9 @@ async def process_profile_text(
         if error_code == 'email_already_exists':
             await send_func(get_message('email_already_exists', language))
             return {'ok': True, 'handled': 'profile_field', 'error': error_code}
+        if error_code == 'target_messenger_unavailable':
+            await send_func(get_message('merge_target_messenger_unavailable', language))
+            return {'ok': True, 'handled': 'profile_field', 'error': error_code}
         if error_code in {
             'invalid_email_format',
             'invalid_date_format',

@@ -308,9 +308,18 @@ def process_max_update(update: dict[str, Any]) -> dict[str, Any]:
         return {'ok': True, 'ignored': True}
 
     user_id, action, merge_request_id = parsed
-    target_user = User.objects.filter(max_id=user_id).first()
-    if target_user is None:
+    try:
+        target_user = User.objects.get(max_id=user_id)
+    except User.DoesNotExist:
         return {'ok': True, 'ignored': True}
+    except User.MultipleObjectsReturned:
+        target_user = (
+            User.objects.filter(max_id=user_id)
+            .order_by('-last_activity', '-created_at', '-id')
+            .first()
+        )
+        if target_user is None:
+            return {'ok': True, 'ignored': True}
 
     result = EmailMergeService.confirm_target_transport_by_request_id(
         target_user=target_user,

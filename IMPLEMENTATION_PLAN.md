@@ -903,6 +903,16 @@
 | 2026-08-08 | Phase 7 Wave 6 MAX parity | Tasks + therapy chat + profile/email + merge_requester; source_platform=max | bot/handlers/max/{tasks,therapy,profile}.py, user_profile_service.py, tests/test_max_wave6_handlers.py, IMPLEMENTATION_PLAN.md | Средний: tokens/therapy + merge | `pytest -q tests/test_max_wave6_handlers.py` (**7 passed**) | Выполнено |
 | 2026-08-08 | Phase 7 Wave 7 MAX media | Inbound audio/image + STT; feedback voice/photo; upload/send_image for charts | inbound.py, max/client.py, max/media.py, messages/feedback/tasks/admin, tests/test_max_wave7_handlers.py | Средний: download/STT/upload | `pytest -q tests/test_max_wave7_handlers.py` (**5 passed**) | Выполнено |
 | 2026-08-08 | MAX Минцифра CA TLS | `MAX_API_CA_CERT_PATHS` + SSL context в MaxClient; Docker update-ca-certificates; preflight check | settings, client.py, preflight.py, Dockerfile, docker-compose.yml, .env.example, tests | Средний: без CA TLS к MAX падает | unit CA + docker build | Выполнено |
+| 2026-08-13 | Activity tracking plan (deferred) | Зафиксирован единый паттерн UserActivity TG+MAX: сервис, allowlist, P0→P1→P2; реализация отложена | ACTIVITY_TRACKING_PLAN.md, IMPLEMENTATION_PLAN.md | Низкий: только документация | — | Зафиксировано, к возврату |
+| 2026-08-13 | MAX task analysis hang fix | Анализ после выполнения задания: `await` вместо `create_task` (webhook/async_to_sync убивал фон → нет TaskCompletionAnalysis) | bot/handlers/max/tasks.py, tests/test_max_wave6_handlers.py | Средний: webhook дольше держит запрос на AI | `pytest -q tests/test_max_wave6_handlers.py` (**8 passed**) | Выполнено |
+
+---
+
+## 9.1) Backlog к возврату
+
+- [ ] **Единая фиксация активности (UserActivity)** — см. [ACTIVITY_TRACKING_PLAN.md](ACTIVITY_TRACKING_PLAN.md)  
+  Порядок: P0 сервис → P1 хук MAX dispatcher → P2 cleanup Telegram-декораторов.  
+  Навигацию (main_menu / help subsections) в `UserActivity` не писать; `archive_viewed` оставить в allowlist.
 
 ---
 

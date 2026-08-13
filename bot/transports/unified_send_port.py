@@ -72,4 +72,5 @@ class UnifiedSendPort(SendPort):
             text=output.text,
             reply_markup=_build_inline_keyboard(output),
         )
-        return SendResult(success=sent, reason='sent' if sent else 'max_send_failed')
+        ok = sent[0] if isinstance(sent, tuple) else bool(sent)
+        return SendResult(success=ok, reason='sent' if ok else 'max_send_failed')

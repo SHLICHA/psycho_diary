@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Optional
 
 from messages import get_message
 from bot.handlers.max import state as max_state
+from bot.handlers.max.send_adapter import edit_or_send, ensure_processing_status
 from bot.handlers.max.commands import (
     handle_fallback,
     handle_help,
@@ -239,7 +240,7 @@ async def _handle_inbound_media(
         ):
             from bot.handlers.max.media import recognize_max_voice
 
-            ok, recognized, err = await recognize_max_voice(
+            ok, recognized, err, status_id = await recognize_max_voice(
                 max_client,
                 media,
                 language=language,
@@ -247,8 +248,17 @@ async def _handle_inbound_media(
                 send_func=send_func,
             )
             if not ok:
-                await send_func(f"{get_message('error_processing', language)}: {err}")
+                await edit_or_send(
+                    send_func,
+                    status_id,
+                    f"{get_message('error_processing', language)}: {err}",
+                )
                 return {'ok': True, 'handled': 'voice_stt', 'error': True}
+            # Передаём status_id дальше: diary/therapy/tasks переиспользуют его.
+            try:
+                send_func.pending_status_id = status_id  # type: ignore[attr-defined]
+            except Exception:
+                pass
             return await route_text_message(
                 user, recognized, send_func, max_id=max_id, media=None, max_client=max_client
             )
@@ -264,6 +274,7 @@ async def _process_first_entry(user, entry_text: str, send_func, *, max_id: int)
         await send_func(get_message('entry_empty', language))
         return {'ok': True, 'handled': 'first_entry', 'error': 'empty'}
 
+    status_id = await ensure_processing_status(send_func, language)
     response = await diary_service.process_first_onboarding_entry_use_case(
         user=user,
         entry_text=entry_text,
@@ -272,11 +283,15 @@ async def _process_first_entry(user, entry_text: str, send_func, *, max_id: int)
     )
     view = build_first_onboarding_entry_result_view(response, language)
     if not view.get('success'):
-        await send_func(view.get('text') or get_message('error_generic', language))
+        await edit_or_send(
+            send_func,
+            status_id,
+            view.get('text') or get_message('error_generic', language),
+        )
         return {'ok': True, 'handled': 'first_entry', 'error': True}
 
     markup = await get_main_menu_keyboard(language, user)
-    await send_func(view['text'], markup)
+    await edit_or_send(send_func, status_id, view['text'], markup)
     if view.get('clear_state'):
         max_state.clear_fsm_state(max_id)
     await user.arefresh_from_db()

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from messages import get_message
 from bot.handlers.max import state as max_state
+from bot.handlers.max.send_adapter import edit_or_send, ensure_processing_status
 from bot.keyboards import (
     format_entry_text_for_editing,
     get_single_button_keyboard,
@@ -237,6 +238,7 @@ async def process_diary_text(user: 'User', text: str, send_func: 'SendFunc', *, 
 
 async def _process_new_entry(user, entry_text: str, send_func, *, max_id: int) -> dict:
     language = user.language or 'ru'
+    status_id = await ensure_processing_status(send_func, language)
     response = await diary_service.process_new_entry_use_case(
         user=user,
         entry_text=entry_text,
@@ -244,7 +246,12 @@ async def _process_new_entry(user, entry_text: str, send_func, *, max_id: int) -
         entry_datetime=None,
     )
     outcome_view = await build_new_entry_outcome_view(response, user, language)
-    await send_func(outcome_view['text'], outcome_view.get('reply_markup'))
+    await edit_or_send(
+        send_func,
+        status_id,
+        outcome_view['text'],
+        outcome_view.get('reply_markup'),
+    )
     if outcome_view.get('fsm_action') == 'clarification':
         max_state.set_fsm_state(
             max_id,
@@ -275,6 +282,7 @@ async def _process_clarification(user, clarification_text: str, send_func, *, ma
         clarification_questions=questions,
         clarification_text=clarification_text,
     )
+    status_id = await ensure_processing_status(send_func, language)
     response = await diary_service.process_clarification_answers_use_case(
         user=user,
         diary_entry=diary_entry,
@@ -282,7 +290,11 @@ async def _process_clarification(user, clarification_text: str, send_func, *, ma
         language=language,
     )
     if not response.success:
-        await send_func(response.message or get_message('error_processing', language))
+        await edit_or_send(
+            send_func,
+            status_id,
+            response.message or get_message('error_processing', language),
+        )
         max_state.clear_fsm_state(max_id)
         return {'ok': True, 'handled': 'clarification', 'error': True}
     result = response.data or {}
@@ -292,7 +304,7 @@ async def _process_clarification(user, clarification_text: str, send_func, *, ma
         user=user,
         language=language,
     )
-    await send_func(view['text'], view.get('reply_markup'))
+    await edit_or_send(send_func, status_id, view['text'], view.get('reply_markup'))
     max_state.clear_fsm_state(max_id)
     return {'ok': True, 'handled': 'clarification'}
 
@@ -309,6 +321,7 @@ async def _process_comment(user, comment_text: str, send_func, *, max_id: int) -
         await send_func(get_message('entry_not_found', language))
         max_state.clear_fsm_state(max_id)
         return {'ok': True, 'handled': 'comment', 'error': 'not_found'}
+    status_id = await ensure_processing_status(send_func, language)
     response = await diary_service.process_user_comment_use_case(
         user=user,
         diary_entry=diary_entry,
@@ -316,7 +329,11 @@ async def _process_comment(user, comment_text: str, send_func, *, max_id: int) -
         language=language,
     )
     if not response.success:
-        await send_func(response.message or get_message('error_processing', language))
+        await edit_or_send(
+            send_func,
+            status_id,
+            response.message or get_message('error_processing', language),
+        )
         max_state.clear_fsm_state(max_id)
         return {'ok': True, 'handled': 'comment', 'error': True}
     result = response.data or {}
@@ -326,7 +343,7 @@ async def _process_comment(user, comment_text: str, send_func, *, max_id: int) -
         user=user,
         language=language,
     )
-    await send_func(view['text'], view.get('reply_markup'))
+    await edit_or_send(send_func, status_id, view['text'], view.get('reply_markup'))
     max_state.clear_fsm_state(max_id)
     return {'ok': True, 'handled': 'comment'}
 
@@ -342,6 +359,7 @@ async def _process_edit(user, new_text: str, send_func, *, max_id: int) -> dict:
         await send_func(get_message('error_generic', language))
         max_state.clear_fsm_state(max_id)
         return {'ok': True, 'handled': 'entry_edit_process', 'error': True}
+    status_id = await ensure_processing_status(send_func, language)
     response = await diary_service.process_entry_edit_use_case(
         user=user,
         entry_id=entry_id,
@@ -350,21 +368,33 @@ async def _process_edit(user, new_text: str, send_func, *, max_id: int) -> dict:
         target_date_iso=None,
     )
     if not response.success:
-        await send_func(response.message or get_message('error_processing', language))
+        await edit_or_send(
+            send_func,
+            status_id,
+            response.message or get_message('error_processing', language),
+        )
         max_state.clear_fsm_state(max_id)
         return {'ok': True, 'handled': 'entry_edit_process', 'error': True}
     day_view = (response.data or {}).get('day_view') or {}
     max_state.clear_fsm_state(max_id)
     if day_view.get('mode') == 'entries':
-        return await _send_entry_page(
-            user,
-            send_func,
+        result = await diary_display_service.format_entry_for_display(
             day_view['entry'],
             day_view['entries'],
             day_view['target_date'],
             language,
         )
-    await send_func(get_message('archive_empty', language), day_view.get('keyboard'))
+        if not result.get('success'):
+            await edit_or_send(send_func, status_id, get_message('error_generic', language))
+            return {'ok': True, 'handled': 'entry_edit_process', 'error': True}
+        await edit_or_send(send_func, status_id, result['text'], result.get('keyboard'))
+        return {'ok': True, 'handled': 'entry_edit_process'}
+    await edit_or_send(
+        send_func,
+        status_id,
+        get_message('archive_empty', language),
+        day_view.get('keyboard'),
+    )
     return {'ok': True, 'handled': 'entry_edit_process'}
 
 
@@ -464,10 +494,67 @@ async def route_wave2_callback(
         return await handle_archive(user, send_func, max_id=max_id)
     if payload.startswith('request_add_comment:'):
         return await handle_request_add_comment(user, payload, send_func, max_id=max_id)
+    if payload.startswith('rate_analysis:'):
+        return await handle_rate_analysis(user, payload, send_func, max_id=max_id)
     if payload == 'calendar_empty':
         return {'ok': True, 'handled': 'calendar_empty', 'ignored': True}
 
     return {'ok': True, 'handled': 'wave2_unhandled', 'payload': payload}
+
+
+async def handle_rate_analysis(
+    user: 'User',
+    payload: str,
+    send_func: 'SendFunc',
+    *,
+    max_id: int,
+) -> dict:
+    """Сохраняет оценку анализа (callback rate_analysis:{analysis_id}:{rating})."""
+    language = user.language or 'ru'
+    try:
+        parts = payload.split(':')
+        if len(parts) != 3:
+            await send_func(get_message('error_generic', language))
+            return {'ok': True, 'handled': 'rate_analysis', 'error': 'bad_payload'}
+        analysis_id = int(parts[1])
+        rating = int(parts[2])
+    except (TypeError, ValueError):
+        await send_func(get_message('error_generic', language))
+        return {'ok': True, 'handled': 'rate_analysis', 'error': 'bad_payload'}
+
+    try:
+        result = await diary_display_service.submit_analysis_rating_use_case(
+            analysis_id, user, rating
+        )
+        if result.get('success'):
+            logger.info(
+                '[MAX diary] rate_analysis saved user_id=%s analysis_id=%s rating=%s',
+                user.id,
+                analysis_id,
+                rating,
+            )
+            from bot.handlers.max.commands import handle_main_menu
+
+            menu_result = await handle_main_menu(user, send_func, max_id=max_id)
+            return {
+                'ok': True,
+                'handled': 'rate_analysis',
+                'mode': 'saved',
+                'menu': menu_result.get('handled'),
+            }
+        if result.get('error') == 'already_rated':
+            await send_func(get_message('rating_already_submitted', language))
+            return {'ok': True, 'handled': 'rate_analysis', 'mode': 'already_rated'}
+        await send_func(get_message('error_generic', language))
+        return {
+            'ok': True,
+            'handled': 'rate_analysis',
+            'error': result.get('error') or True,
+        }
+    except Exception as exc:
+        logger.error('[MAX diary] rate_analysis failed: %s', exc, exc_info=True)
+        await send_func(get_message('error_generic', language))
+        return {'ok': True, 'handled': 'rate_analysis', 'error': True}
 
 
 def is_wave2_callback(payload: str) -> bool:
@@ -487,5 +574,6 @@ def is_wave2_callback(payload: str) -> bool:
         'cancel_delete_specific_entry:',
         'request_add_comment:',
         'request_delete_specific_entry:',
+        'rate_analysis:',
     )
     return any(payload.startswith(p) for p in prefixes)

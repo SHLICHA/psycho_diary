@@ -1,7 +1,7 @@
 import pytest
 
 from users.models import User
-from users.services.email_merge_service import EmailMergeService
+from users.services.email_merge_service import EmailMergeError, EmailMergeService
 
 
 pytestmark = pytest.mark.django_db
@@ -34,6 +34,91 @@ def test_create_merge_request_builds_dual_transport_metadata_for_telegram_to_max
     assert merge_request.metadata.get('target_platform') == 'max'
     assert merge_request.metadata.get('target_confirmation_status') == 'pending'
     assert merge_request.metadata.get('target_confirmation_token')
+
+
+def test_web_source_always_requires_target_confirmation_via_available_messenger():
+    target_user = User.objects.create_user(
+        username='target_web_owner',
+        email='shared-web@example.com',
+        password='testpass123',
+        telegram_id=7003001,
+        max_id=None,
+    )
+    requester_user = User.objects.create_user(
+        username='requester_web_user',
+        email='',
+        telegram_id=7003002,
+    )
+
+    merge_request = EmailMergeService.create_merge_request(
+        requester_user=requester_user,
+        email='shared-web@example.com',
+        source_platform='web',
+        source_context='complete_registration',
+    )
+
+    assert merge_request.metadata.get('target_confirmation_required') is True
+    assert merge_request.metadata.get('target_platform') == 'telegram'
+    assert target_user.id == merge_request.target_user_id
+
+
+def test_create_merge_request_fails_when_target_has_no_messenger():
+    User.objects.create_user(
+        username='web_only_owner',
+        email='web-only@example.com',
+        password='testpass123',
+        telegram_id=None,
+        max_id=None,
+    )
+    requester_user = User.objects.create_user(
+        username='requester_needs_messenger',
+        email='',
+        telegram_id=7004001,
+    )
+
+    with pytest.raises(EmailMergeError) as exc_info:
+        EmailMergeService.create_merge_request(
+            requester_user=requester_user,
+            email='web-only@example.com',
+            source_platform='telegram',
+            source_context='profile_edit',
+        )
+
+    assert exc_info.value.code == 'target_messenger_unavailable'
+
+
+def test_payment_labeled_as_telegram_still_requires_dual_when_target_is_telegram_only():
+    """Регрессия: неверный/старый source_platform не должен отключать dual-confirm."""
+    target_user = User.objects.create_user(
+        username='target_tg_only',
+        email='shared-tg-only@example.com',
+        password='testpass123',
+        telegram_id=7005001,
+        max_id=None,
+    )
+    requester_user = User.objects.create_user(
+        username='requester_max_mislabeled',
+        email='',
+        telegram_id=None,
+        max_id=9005001,
+    )
+
+    merge_request = EmailMergeService.create_merge_request(
+        requester_user=requester_user,
+        email='shared-tg-only@example.com',
+        source_platform='telegram',  # ошибочная метка, как в старом payment bug
+        source_context='payment_receipt_email',
+    )
+
+    assert merge_request.metadata.get('target_confirmation_required') is True
+    assert merge_request.metadata.get('target_platform') == 'telegram'
+    assert merge_request.target_user_id == target_user.id
+
+    requester_confirmation = EmailMergeService.confirm_merge_request(
+        requester_user=requester_user,
+        confirmation_token=merge_request.confirmation_token,
+    )
+    assert requester_confirmation.status == 'pending_target_confirmation'
 
 
 def test_requester_confirmation_waits_for_target_confirmation_when_dual_transport_required():
@@ -152,7 +237,7 @@ def test_reverse_direction_max_to_telegram_is_supported():
 
 
 def test_requester_can_confirm_and_cancel_by_merge_request_id():
-    target_user = User.objects.create_user(
+    User.objects.create_user(
         username='target_for_id_ops',
         email='id-ops@example.com',
         password='testpass123',
@@ -204,7 +289,7 @@ def test_target_can_confirm_by_merge_request_id():
         requester_user=requester_user,
         email='target-by-id@example.com',
         source_platform='max',
-        source_context='settings_email',
+        source_context='profile_edit',
     )
 
     result = EmailMergeService.confirm_target_transport_by_request_id(

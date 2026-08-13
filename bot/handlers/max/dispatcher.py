@@ -32,20 +32,36 @@ def _process_merge_sync(event: MaxNormalizedEvent) -> dict[str, Any] | None:
         return None
 
     user_id, action, merge_request_id = parsed
-    target_user = User.objects.filter(max_id=user_id).first()
-    if target_user is None:
+    try:
+        target_user = User.objects.get(max_id=user_id)
+    except User.DoesNotExist:
         return {'ok': True, 'ignored': True, 'reason': 'merge_target_missing'}
+    except User.MultipleObjectsReturned:
+        logger.error('[MAX merge] multiple users for max_id=%s', user_id)
+        target_user = (
+            User.objects.filter(max_id=user_id)
+            .order_by('-last_activity', '-created_at', '-id')
+            .first()
+        )
+        if target_user is None:
+            return {'ok': True, 'ignored': True, 'reason': 'merge_target_missing'}
 
     result = EmailMergeService.confirm_target_transport_by_request_id(
         target_user=target_user,
         merge_request_id=merge_request_id,
         approve=(action == 'yes'),
     )
+    language = target_user.language or 'ru'
+    from users.services.email_merge_service import build_target_merge_result_view
+
+    view = build_target_merge_result_view(result, language)
     return {
         'ok': True,
         'handled': 'merge_target',
         'status': result.status,
         'code': result.code,
+        'view_text': view.get('text') or view.get('alert_text') or 'Готово',
+        'view_success': bool(view.get('success')),
     }
 
 
@@ -97,10 +113,11 @@ async def dispatch_max_update(
             owned = max_client is None
             client = max_client or _build_max_client()
             try:
+                message_text = merge_result.get('view_text') or 'Готово'
                 await client.answer_callback(
                     callback_id=event.callback_id,
-                    notification='✓',
-                    message={'text': 'Готово'},
+                    notification='✓' if merge_result.get('view_success', True) else '!',
+                    message={'text': message_text},
                 )
             finally:
                 if owned:

@@ -286,9 +286,21 @@ class TestCompleteRegistrationView:
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @pytest.mark.django_db
-    def test_complete_registration_conflict_returns_confirmation_token_when_enabled(self, user_with_email, user_with_telegram, api_client, settings):
+    def test_complete_registration_conflict_returns_confirmation_token_when_enabled(
+        self, user_with_email, user_with_telegram, api_client, settings, monkeypatch
+    ):
         settings.EMAIL_MERGE_CONFIRMATION_ENABLED = True
+        user_with_email.max_id = 555001
+        user_with_email.save(update_fields=['max_id'])
         api_client.force_authenticate(user=user_with_telegram)
+
+        async def _fake_dispatch(merge_request):
+            return {'success': True, 'delivery': 'max', 'reason': 'sent'}
+
+        monkeypatch.setattr(
+            'bot.transports.identity_merge_dispatcher.dispatch_target_merge_confirmation',
+            _fake_dispatch,
+        )
 
         response = api_client.post('/api/v1/auth/complete-registration/', {
             'email': 'web@example.com',
@@ -302,12 +314,42 @@ class TestCompleteRegistrationView:
         assert details.get('merge_request_id')
         assert details.get('confirmation_mode') == 'transport_callbacks_primary'
         assert int(details.get('target_user_id')) == user_with_email.id
+        assert details.get('target_platform') == 'max'
+        assert details.get('target_delivery', {}).get('delivery') == 'max'
 
     @pytest.mark.django_db
-    def test_confirm_email_merge_success_when_fallback_enabled(self, user_with_email, user_with_telegram, api_client, settings):
+    def test_complete_registration_conflict_fails_without_target_messenger(
+        self, user_with_email, user_with_telegram, api_client, settings
+    ):
+        settings.EMAIL_MERGE_CONFIRMATION_ENABLED = True
+        api_client.force_authenticate(user=user_with_telegram)
+
+        response = api_client.post('/api/v1/auth/complete-registration/', {
+            'email': 'web@example.com',
+            'password': 'securepassword123',
+            'password_confirm': 'securepassword123'
+        })
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data['error']['code'] == 'target_messenger_unavailable'
+
+    @pytest.mark.django_db
+    def test_confirm_email_merge_success_when_fallback_enabled(
+        self, user_with_email, user_with_telegram, api_client, settings, monkeypatch
+    ):
         settings.EMAIL_MERGE_CONFIRMATION_ENABLED = True
         settings.EMAIL_MERGE_WEB_CONFIRM_FALLBACK_ENABLED = True
+        user_with_email.max_id = 555002
+        user_with_email.save(update_fields=['max_id'])
         api_client.force_authenticate(user=user_with_telegram)
+
+        async def _fake_dispatch(merge_request):
+            return {'success': True, 'delivery': 'max', 'reason': 'sent'}
+
+        monkeypatch.setattr(
+            'bot.transports.identity_merge_dispatcher.dispatch_target_merge_confirmation',
+            _fake_dispatch,
+        )
 
         conflict_response = api_client.post('/api/v1/auth/complete-registration/', {
             'email': 'web@example.com',
@@ -325,8 +367,9 @@ class TestCompleteRegistrationView:
         })
 
         assert confirm_response.status_code == status.HTTP_200_OK
-        assert confirm_response.data['status'] == 'confirmed'
+        assert confirm_response.data['status'] == 'pending_target_confirmation'
         assert int(confirm_response.data['target_user_id']) == user_with_email.id
+        assert confirm_response.data['next_step'] == 'await_target_confirmation'
 
     @pytest.mark.django_db
     def test_confirm_email_merge_invalid_token(self, user_with_telegram, api_client, settings):

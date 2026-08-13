@@ -6,7 +6,7 @@ import pytest
 from django.core.cache import cache
 
 from bot.handlers.max import state as max_state
-from bot.handlers.max.commands import handle_help, handle_settings, handle_start
+from bot.handlers.max.commands import handle_help, handle_main_menu, handle_settings, handle_start
 from bot.handlers.max.callbacks import route_callback
 from bot.handlers.max.dispatcher import dispatch_max_update
 from bot.handlers.max.messages import route_text_message
@@ -70,6 +70,31 @@ async def test_help_and_settings(max_user):
     assert (await handle_help(max_user, send_func))['handled'] == 'help'
     assert (await handle_settings(max_user, send_func))['handled'] == 'settings'
     assert send_func.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_handle_main_menu_uses_message_text_with_stats(max_user, mocker):
+    max_user.is_onboarding_completed = True
+    max_user.first_name = 'Павел'
+    await max_user.asave(update_fields=['is_onboarding_completed', 'first_name'])
+    send_func = AsyncMock(return_value='mid')
+    mocker.patch(
+        'diary.services.main_menu_service.build_main_menu_data',
+        new=AsyncMock(
+            return_value={
+                'message_text': '👋 Привет, Павел!\n📊 Уровень осознанности: 8\n💰 Токены: 72',
+                'keyboard': None,
+            }
+        ),
+    )
+
+    result = await handle_main_menu(max_user, send_func, max_id=max_user.max_id)
+
+    assert result['handled'] == 'main_menu'
+    send_func.assert_awaited()
+    text = send_func.await_args.args[0]
+    assert 'Уровень осознанности' in text
+    assert 'Токены' in text
 
 
 @pytest.mark.asyncio
@@ -141,7 +166,7 @@ async def test_dispatch_callback_answers_via_message(settings, mocker, max_user)
     mock_client = MagicMock()
     mock_client.close = AsyncMock()
     mock_client.answer_callback = AsyncMock(return_value=True)
-    mock_client.send_message = AsyncMock(return_value=True)
+    mock_client.send_message = AsyncMock(return_value=(True, 'mid-1'))
     mocker.patch('bot.handlers.max.dispatcher.MaxClient', return_value=mock_client)
 
     max_state.set_fsm_state(max_user.max_id, OnboardingStates.waiting_for_agreement_1)

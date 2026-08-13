@@ -182,7 +182,9 @@ class PaymentEmailView(APIView):
             )
 
         result = run_async(
-            process_user_email_for_pending_payment(request.user, email, pending)
+            process_user_email_for_pending_payment(
+                request.user, email, pending, source_platform='web'
+            )
         )
         cleaned = strip_transport(result)
         if not cleaned.get('success'):

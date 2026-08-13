@@ -46,12 +46,20 @@ class DeepSeekAPIService:
                     logger.warning("[DeepSeek API] DEEPSEEK_API_KEY не настроен")
                     return {'success': False, 'error': 'api_key_missing', 'result': {}, 'raw_response': ''}
                 url = "https://api.deepseek.com/v1/chat/completions"
+                # DeepSeek требует слово "json" в промпте при response_format=json_object.
+                api_prompt = prompt
+                if 'json' not in (prompt or '').lower():
+                    api_prompt = (
+                        f"{prompt}\n\n"
+                        "Ответь строго одним JSON-объектом (json object) без пояснений вне JSON."
+                    )
                 payload = {
                     "model": "deepseek-v4-flash",
-                    "messages": [{"role": "user", "content": prompt}],
+                    "messages": [{"role": "user", "content": api_prompt}],
                     "temperature": 0.3,
                     "max_tokens": 8100,
                     "thinking": {"type": "disabled"},
+                    "response_format": {"type": "json_object"},
                 }
                 headers = {
                     "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
@@ -168,6 +176,153 @@ class DeepSeekAPIService:
             'raw_response': raw_response,
         }
 
+    # Часто встречающиеся одиночные строковые поля в ответах ИИ.
+    _KNOWN_STRING_JSON_KEYS = (
+        'prompt_text',
+        'motivation_message',
+        'cleaned_text',
+        'response_text',
+        'text',
+        'message',
+        'analysis',
+        'overall_analysis_text',
+    )
+
+    @staticmethod
+    def _strip_markdown_fences(text: str) -> str:
+        """Убирает обёртку ``` / ```json вокруг ответа, если она есть."""
+        stripped = (text or '').strip()
+        if not stripped.startswith('```'):
+            return stripped
+        match = re.match(r'^```(?:\w+)?\s*(.*?)\s*```$', stripped, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        # Незакрытый fence: срезаем первую строку ```json
+        lines = stripped.split('\n')
+        if lines and lines[0].startswith('```'):
+            body = '\n'.join(lines[1:])
+            if body.rstrip().endswith('```'):
+                body = body.rstrip()[:-3]
+            return body.strip()
+        return stripped
+
+    @staticmethod
+    def _repair_json_control_chars(text: str) -> str:
+        """Экранирует «сырые» control-символы внутри JSON-строк."""
+        out: list[str] = []
+        in_string = False
+        escape = False
+        for ch in text:
+            if escape:
+                out.append(ch)
+                escape = False
+                continue
+            if ch == '\\' and in_string:
+                out.append(ch)
+                escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                out.append(ch)
+                continue
+            if in_string:
+                if ch == '\n':
+                    out.append('\\n')
+                    continue
+                if ch == '\r':
+                    out.append('\\r')
+                    continue
+                if ch == '\t':
+                    out.append('\\t')
+                    continue
+                if ord(ch) < 0x20:
+                    out.append(f'\\u{ord(ch):04x}')
+                    continue
+            out.append(ch)
+        return ''.join(out)
+
+    @staticmethod
+    def _unescape_json_string(value: str) -> str:
+        """Декодирует стандартные JSON escape-последовательности в строке."""
+        try:
+            return json.loads(f'"{value}"')
+        except json.JSONDecodeError:
+            return (
+                value.replace('\\n', '\n')
+                .replace('\\r', '\r')
+                .replace('\\t', '\t')
+                .replace('\\"', '"')
+                .replace('\\\\', '\\')
+            )
+
+    def _extract_string_field_lenient(self, text: str, key: str) -> Optional[str]:
+        """
+        Достаёт строковое поле даже если внутри значения есть неэкранированные ".
+        Конец значения — кавычка, за которой следует "," или "}".
+        """
+        marker = f'"{key}"'
+        key_pos = text.find(marker)
+        if key_pos < 0:
+            return None
+        colon = text.find(':', key_pos + len(marker))
+        if colon < 0:
+            return None
+        i = colon + 1
+        while i < len(text) and text[i].isspace():
+            i += 1
+        if i >= len(text) or text[i] != '"':
+            return None
+        i += 1
+        chars: list[str] = []
+        escape = False
+        while i < len(text):
+            ch = text[i]
+            if escape:
+                chars.append(ch)
+                escape = False
+                i += 1
+                continue
+            if ch == '\\':
+                chars.append(ch)
+                escape = True
+                i += 1
+                continue
+            if ch == '"':
+                rest = text[i + 1:].lstrip()
+                if not rest or rest[0] in ',}':
+                    return self._unescape_json_string(''.join(chars))
+                # Неэкранированная кавычка внутри текста — оставляем как символ.
+                chars.append(ch)
+                i += 1
+                continue
+            chars.append(ch)
+            i += 1
+        return None
+
+    def _extract_known_string_fields(self, text: str) -> Optional[dict]:
+        """Fallback: собирает dict из известных строковых ключей."""
+        result: dict[str, str] = {}
+        for key in self._KNOWN_STRING_JSON_KEYS:
+            value = self._extract_string_field_lenient(text, key)
+            if value is not None:
+                result[key] = value
+        return result or None
+
+    def _loads_json_candidate(self, text: str) -> Optional[Any]:
+        """Пробует json.loads, ремонт control-chars, extract и lenient string fields."""
+        if not text or not text.strip():
+            return None
+        candidates = (text.strip(), self._repair_json_control_chars(text.strip()))
+        for candidate in candidates:
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+        for candidate in candidates:
+            extracted = self._extract_json_from_raw_text(candidate)
+            if extracted is not None:
+                return extracted
+        return self._extract_known_string_fields(text)
 
     def _extract_json_from_raw_text(self, text: str) -> Optional[dict]:
         """
@@ -206,91 +361,78 @@ class DeepSeekAPIService:
             if end == -1:
                 continue
             candidate = text[start:end + 1]
-            try:
-                return json.loads(candidate)
-            except json.JSONDecodeError:
-                pass
+            for variant in (candidate, self._repair_json_control_chars(candidate)):
+                try:
+                    return json.loads(variant)
+                except json.JSONDecodeError:
+                    continue
         return None
 
     async def _parse_analysis_response(self, response_text: str, language: str) -> dict:
         """
         Парсит ответ от DeepSeek.
-        Сначала пытается распарсить как JSON целиком.
-        Если неудачно, ищет JSON в Markdown-блоке `` `json ... ` `` и пытается распарсить его.
-        В случае любой ошибки парсинга ВЫЗЫВАЕТ ИСКЛЮЧЕНИЕ.
-        После успешного парсинга санитизирует HTML в строковых значениях результата.
+        Порядок: прямой JSON → без markdown-fence → блоки ``` → raw extract →
+        ремонт control-chars → lenient string fields.
         """
-        logger.debug(f"[DeepSeek API] Парсинг ответа API, язык: {language}, длина: {len(response_text)}")
+        logger.debug(
+            f"[DeepSeek API] Парсинг ответа API, язык: {language}, длина: {len(response_text)}"
+        )
+        result: Any = None
         try:
-            import json
-            # 1. Пробуем распарсить весь response_text как JSON
-            result = json.loads(response_text)
-            logger.debug("[DeepSeek API] Успешный парсинг всего ответа как JSON.")
-        except json.JSONDecodeError:
-            logger.debug("[DeepSeek API] Прямой парсинг JSON не удался. Ищем в Markdown-блоке...")
+            # 1. Прямой JSON
+            result = self._loads_json_candidate(response_text)
+            if result is None:
+                # 2. Срез fence целиком
+                stripped = self._strip_markdown_fences(response_text)
+                if stripped != response_text.strip():
+                    result = self._loads_json_candidate(stripped)
 
-            import re
-            # 2. Ищем JSON-блок внутри `` `json ... ` `` или `` ` ... ` ``
-            # Используем re.DOTALL для учета переносов строк внутри блока
-            all_code_blocks = re.findall(r'```(?:\w+)?\s*(.*?)\s*```', response_text, re.DOTALL)
-            # potential_blocks теперь содержит список строк - содержимого всех найденных блоков
-            potential_blocks = all_code_blocks
+            if result is None:
+                # 3. Все markdown-блоки по отдельности
+                code_blocks = re.findall(
+                    r'```(?:\w+)?\s*(.*?)\s*```', response_text, re.DOTALL
+                )
+                for i, block in enumerate(code_blocks):
+                    result = self._loads_json_candidate(block)
+                    if result is not None:
+                        logger.debug(
+                            f"[DeepSeek API] Успешный парсинг JSON-блока {i + 1} из Markdown."
+                        )
+                        break
 
-            # Убираем дубликаты, сохранив порядок (на случай, если регулярки пересекутся)
-            seen = set()
-            unique_blocks = []
-            for block in potential_blocks:
-                if block not in seen:
-                    seen.add(block)
-                    unique_blocks.append(block)
+            if result is None:
+                logger.warning("[DeepSeek API] Ни один JSON-блок не удалось распарсить корректно.")
+                logger.error(
+                    "[DeepSeek API] Ни прямой JSON, ни блок Markdown не удалось распарсить "
+                    f"корректно. Ответ API: {response_text[:500]}..."
+                )
+                raise ValueError("Не удалось распарсить корректный JSON из ответа API.")
 
-            potential_blocks = unique_blocks
-            if potential_blocks:
-                logger.debug(f"[DeepSeek API] Найдено {len(potential_blocks)} потенциальных JSON-блока(ов) в Markdown.")
-                # Пробуем распарсить каждый блок, начиная с первого
-                for i, block in enumerate(potential_blocks):
-                    try:
-                        # Пробуем распарсить текущий блок
-                        result = json.loads(block.strip())
-                        logger.debug(f"[DeepSeek API] Успешный парсинг JSON-блока {i+1} из Markdown.")
-                        break # Выходим из цикла, если один из блоков распарсился успешно
-                    except json.JSONDecodeError as je:
-                        logger.debug(f"[DeepSeek API] Ошибка парсинга блока {i+1}: {je}. Пробуем следующий блок.")
-                        continue # Переходим к следующему блоку
-                else:
-                    # Если цикл завершился без break — пробуем raw-поиск JSON в тексте
-                    result = self._extract_json_from_raw_text(response_text)
-                    if result is None:
-                        logger.warning("[DeepSeek API] Ни один JSON-блок не удалось распарсить корректно.")
-                        logger.error(f"[DeepSeek API] Ни прямой JSON, ни блок Markdown не удалось распарсить корректно. Ответ API: {response_text[:500]}...")
-                        raise ValueError("Не удалось распарсить корректный JSON из ответа API.")
-            else:
-                # Если блоки не найдены — пробуем raw-поиск JSON в тексте
-                result = self._extract_json_from_raw_text(response_text)
-                if result is None:
-                    logger.warning("[DeepSeek API] Ни один JSON-блок не удалось распарсить корректно.")
-                    logger.error(f"[DeepSeek API] Ни прямой JSON, ни блок Markdown не удалось распарсить корректно. Ответ API: {response_text[:500]}...")
-                    raise ValueError("Не удалось распарсить корректный JSON из ответа API.")
-
+            logger.debug("[DeepSeek API] Успешный парсинг ответа API.")
+        except ValueError:
+            raise
         except Exception as e:
-            # На всякий случай, если в первом `try` произойдёт что-то неожиданное
             logger.error(f"[DeepSeek API] Неожиданная ошибка при парсинге: {e}")
-            logger.error(f"[DeepSeek API] Ни прямой JSON, ни блок Markdown не удалось распарсить корректно. Ответ API: {response_text[:500]}...")
-            raise ValueError("Не удалось распарсить корректный JSON из ответа API.")
+            logger.error(
+                "[DeepSeek API] Ни прямой JSON, ни блок Markdown не удалось распарсить "
+                f"корректно. Ответ API: {response_text[:500]}..."
+            )
+            raise ValueError("Не удалось распарсить корректный JSON из ответа API.") from e
 
-        # --- НОВОЕ: Санитизация HTML в строковых значениях результата ---
-        # Предполагаем, что 'result' - это словарь или список, содержащий строковые поля с HTML
-        allowed_tags_for_responses = {'b', 'i', 'u', 'em', 'strong'} # Уточните, какие теги ИИ может использовать
+        allowed_tags_for_responses = {'b', 'i', 'u', 'em', 'strong'}
         try:
-            sanitized_result = sanitize_html_in_dict_or_string(result, allowed_tags=allowed_tags_for_responses)
+            sanitized_result = sanitize_html_in_dict_or_string(
+                result, allowed_tags=allowed_tags_for_responses
+            )
             logger.debug("[DeepSeek API] HTML в строковых значениях результата санитизировано.")
         except Exception as e:
-            logger.error(f"[DeepSeek API] Ошибка при санитизации HTML в результате: {e}. Возвращаем оригинальный результат.")
-            # В случае ошибки санитизации, возвращаем оригинальный результат, но логируем
+            logger.error(
+                f"[DeepSeek API] Ошибка при санитизации HTML в результате: {e}. "
+                "Возвращаем оригинальный результат."
+            )
             sanitized_result = result
-        # --- КОНЕЦ САНИТИЗАЦИИ ---
 
-        return sanitized_result # Возвращаем санитизированный результат
+        return sanitized_result
     
     async def punctuate_and_format_text(
         self, 

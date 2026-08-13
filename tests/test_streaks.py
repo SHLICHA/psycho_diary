@@ -7,8 +7,9 @@ from model_bakery import baker
 from asgiref.sync import sync_to_async
 import pytz
 from django.db import transaction
+from unittest.mock import AsyncMock, patch
 
-from bot.utils.diary_utils import get_user_streaks
+from bot.utils.diary_utils import check_and_award_streak_bonus, get_user_streaks
 from diary.models import DiaryEntry
 from users.models import User
 
@@ -158,3 +159,31 @@ class TestGetUserStreaks:
         assert current == 3
         assert maximum == 7
         assert has_today is True
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_check_and_award_streak_bonus_for_max_user_uses_primary_key():
+    max_user = baker.make(
+        User,
+        telegram_id=None,
+        max_id=321090518,
+        language='ru',
+        timezone='UTC',
+        last_streak_reward_7=0,
+        last_streak_reward_30=0,
+        last_streak_reward_365=0,
+    )
+
+    with patch(
+        'bot.utils.diary_utils.get_user_streaks',
+        new=AsyncMock(return_value=(7, 7, True)),
+    ), patch(
+        'bot.utils.diary_utils.TokenTransaction.create_and_update_balance',
+        return_value=None,
+    ) as create_bonus:
+        result = await check_and_award_streak_bonus(max_user)
+
+    assert result['awarded'] is True
+    assert result['total_tokens_awarded'] == 3
+    create_bonus.assert_called_once()

@@ -113,3 +113,30 @@ class TestParseAnalysisResponseFallback:
         text = 'Вот результат: {"cleaned_items": []} — готово.'
         result = asyncio.run(self.service._parse_analysis_response(text, 'ru'))
         assert result == {"cleaned_items": []}
+
+    def test_parse_prompt_text_with_raw_newlines(self):
+        text = '{\n  "prompt_text": "Привет, Павел!\nКак ты сейчас?"\n}'
+        result = asyncio.run(self.service._parse_analysis_response(text, 'ru'))
+        assert 'Павел' in result['prompt_text']
+        assert 'сейчас' in result['prompt_text']
+
+    def test_parse_prompt_text_with_unescaped_inner_quotes(self):
+        text = (
+            '{"prompt_text": "Спроси себя: "Как я сейчас?" — только если откликается. ✨"}'
+        )
+        result = asyncio.run(self.service._parse_analysis_response(text, 'ru'))
+        assert result['prompt_text'].startswith('Спроси себя:')
+        assert 'Как я сейчас?' in result['prompt_text']
+        assert 'откликается' in result['prompt_text']
+
+    def test_parse_motivation_message_lenient(self):
+        text = '{"motivation_message": "Доброе утро! "Ты сильный", продолжай."}'
+        result = asyncio.run(self.service._parse_analysis_response(text, 'ru'))
+        assert 'Доброе утро' in result['motivation_message']
+        assert 'сильный' in result['motivation_message']
+
+
+class TestDeepSeekJsonObjectResponseFormat:
+    def test_send_prompt_and_parse_requests_json_object(self):
+        source = inspect.getsource(DeepSeekAPIService.send_prompt_and_parse)
+        assert '"response_format": {"type": "json_object"}' in source

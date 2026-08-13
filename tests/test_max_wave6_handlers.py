@@ -83,8 +83,59 @@ async def test_complete_task_fsm(max_user, mocker):
 
 
 @pytest.mark.asyncio
+async def test_task_feelings_awaits_analysis_notification(max_user, mocker):
+    """Анализ должен выполняться в том же запросе (не create_task) — иначе webhook теряет его."""
+    send_func = AsyncMock(return_value='status-mid')
+    send_func.edit_or_send = AsyncMock(return_value='status-mid')
+    send_func.pending_status_id = None
+
+    max_state.set_fsm_state(
+        max_user.max_id,
+        TaskStates.describing_feelings,
+        completing_task_id=42,
+        completion_text='Сделал упражнение',
+    )
+
+    task_completion = MagicMock()
+    completion_response = MagicMock()
+    completion_response.success = True
+    completion_response.data = {'task_completion': task_completion}
+    completion_response.message = None
+
+    mocker.patch(
+        'bot.handlers.max.tasks.complete_task_with_feelings_use_case',
+        new=AsyncMock(return_value=completion_response),
+    )
+    analyze_mock = mocker.patch(
+        'bot.handlers.max.tasks.analyze_completed_task_for_notification_use_case',
+        new=AsyncMock(
+            return_value=MagicMock(
+                data={
+                    'notification_text': 'Анализ готов',
+                    'notification_keyboard': None,
+                }
+            )
+        ),
+    )
+
+    result = await route_text_message(
+        max_user, 'Чувствую спокойствие', send_func, max_id=max_user.max_id
+    )
+
+    assert result['handled'] == 'task_feelings'
+    assert result.get('error') is None
+    analyze_mock.assert_awaited_once()
+    send_func.edit_or_send.assert_awaited()
+    edit_text = send_func.edit_or_send.await_args.args[1]
+    assert edit_text == 'Анализ готов'
+    assert not max_state.matches_state(max_user.max_id, TaskStates.describing_feelings)
+
+
+@pytest.mark.asyncio
 async def test_therapy_start_and_message(max_user, mocker):
-    send_func = AsyncMock(return_value=True)
+    send_func = AsyncMock(return_value='status-mid')
+    send_func.edit_or_send = AsyncMock(return_value='status-mid')
+    send_func.pending_status_id = None
     mocker.patch(
         'bot.handlers.max.therapy.start_therapy_chat',
         new=AsyncMock(return_value={'success': True, 'initial_history': []}),
@@ -116,7 +167,9 @@ async def test_therapy_start_and_message(max_user, mocker):
 
     msg = await route_text_message(max_user, 'Здравствуйте', send_func, max_id=max_user.max_id)
     assert msg['handled'] == 'therapy_message'
-    assert any('AI reply' in str(c.args[0]) for c in send_func.await_args_list)
+    send_func.edit_or_send.assert_awaited()
+    edited_text = send_func.edit_or_send.await_args.args[1]
+    assert edited_text == 'AI reply'
 
 
 @pytest.mark.asyncio

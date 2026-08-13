@@ -40,6 +40,10 @@ class TaskHistoryDetail:
 class TaskDisplayService:
     """Сервис для отображения задач и их анализа."""
 
+    async def _reload_user(self, user: User) -> User:
+        """Перезагружает пользователя platform-agnostic по primary key."""
+        return await User.objects.aget(pk=user.pk)
+
     def build_task_completion_invalid_keyboard(
         self, task_id: int, language: str
     ) -> InlineKeyboardMarkup:
@@ -152,7 +156,7 @@ class TaskDisplayService:
             # Вариант A: есть готовое форматированное сообщение
             text = formatted_message
             if tokens_awarded > 0:
-                updated_user = await User.objects.aget(telegram_id=user.telegram_id)
+                updated_user = await self._reload_user(user)
                 tokens_info = get_message(
                     'task_tokens_awarded', language,
                     tokens=tokens_awarded,
@@ -206,7 +210,7 @@ class TaskDisplayService:
         )
 
         if tokens_awarded > 0:
-            updated_user = await User.objects.aget(telegram_id=user.telegram_id)
+            updated_user = await self._reload_user(user)
             tokens_info = get_message(
                 'task_tokens_awarded', language,
                 tokens=tokens_awarded,

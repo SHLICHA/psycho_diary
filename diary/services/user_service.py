@@ -197,10 +197,14 @@ class UserService:
 
         @sync_to_async
         def _create_user_atomic():
+            from django.db import IntegrityError
+
             with transaction.atomic():
-                existing = User.objects.filter(max_id=max_id).first()
-                if existing is not None:
+                try:
+                    existing = User.objects.get(max_id=max_id)
                     return existing, False, False
+                except User.DoesNotExist:
+                    pass
 
                 invited_by = None
                 invited_set = False
@@ -208,16 +212,21 @@ class UserService:
                     invited_by = User.objects.filter(id=referrer_id).first()
                     invited_set = invited_by is not None
 
-                user = User.objects.create(
-                    max_id=max_id,
-                    telegram_id=None,
-                    username=safe_username,
-                    first_name='',
-                    last_name='',
-                    language=lang,
-                    timezone='UTC',
-                    invited_by=invited_by,
-                )
+                try:
+                    user = User.objects.create(
+                        max_id=max_id,
+                        telegram_id=None,
+                        username=safe_username,
+                        first_name='',
+                        last_name='',
+                        language=lang,
+                        timezone='UTC',
+                        invited_by=invited_by,
+                    )
+                except IntegrityError:
+                    existing = User.objects.get(max_id=max_id)
+                    return existing, False, False
+
                 welcome_tokens = 15
                 user.token_balance += welcome_tokens
                 user.save(update_fields=['token_balance'])

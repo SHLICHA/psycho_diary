@@ -9,6 +9,7 @@ from asgiref.sync import sync_to_async
 
 from messages import get_message
 from bot.handlers.max import state as max_state
+from bot.handlers.max.send_adapter import edit_or_send, ensure_processing_status
 from bot.keyboards import get_purchase_options_keyboard, get_single_button_keyboard
 from bot.states.therapy_chat_states import TherapyChatStates
 from diary.services.therapy_chat_service import (
@@ -113,8 +114,9 @@ async def process_therapy_text(
         await send_func(get_message('error_processing', language))
         return {'ok': True, 'handled': 'therapy_message', 'error': True}
 
+    status_id = None
     try:
-        await send_func(get_message('processing', language))
+        status_id = await ensure_processing_status(send_func, language)
         raw = max_state.get_raw_state(max_id)
         current_history = raw.get('therapy_history') or []
         service_result = await process_user_message_in_chat(
@@ -125,13 +127,19 @@ async def process_therapy_text(
         if not service_result.get('success'):
             if charge.get('charged'):
                 await _refund_tokens(user, feature_name='therapy_chat_message')
-            await send_func(get_message('error_processing', language))
+            await edit_or_send(
+                send_func,
+                status_id,
+                get_message('error_processing', language),
+            )
             return {'ok': True, 'handled': 'therapy_message', 'error': True}
 
         max_state.update_state_data(
             max_id, therapy_history=service_result.get('updated_history') or current_history
         )
-        await send_func(
+        await edit_or_send(
+            send_func,
+            status_id,
             service_result['response_text'],
             get_single_button_keyboard(language, 'main_menu', 'btn_end_chat'),
         )
@@ -142,7 +150,12 @@ async def process_therapy_text(
             await _refund_tokens(user, feature_name='therapy_chat_message')
         try:
             recovery = await build_therapy_chat_error_recovery_view(user, language)
-            await send_func(recovery['text'], recovery.get('reply_markup'))
+            await edit_or_send(
+                send_func,
+                status_id,
+                recovery['text'],
+                recovery.get('reply_markup'),
+            )
             if recovery.get('clear_state'):
                 max_state.clear_fsm_state(max_id)
         except Exception:
