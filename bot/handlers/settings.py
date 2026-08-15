@@ -39,7 +39,6 @@ router = Router()
 logger = logging.getLogger(__name__)
 
 @router.callback_query(F.data == "settings")
-@log_user_activity('settings')
 async def show_settings(callback: CallbackQuery, user, language: str):
     """Показ настроек"""
     try:
@@ -209,7 +208,6 @@ async def decrease_tasks_limit(callback: CallbackQuery, user, language: str):
         await callback.answer(get_message('error_generic', language=language))
 
 @router.callback_query(F.data == "settings_change_timezone")
-@log_user_activity('settings_changed', metadata_extra={'context': 'Начало изменения часового пояса'})
 async def change_timezone(callback: CallbackQuery, user, language: str):
     """Начало изменения часового пояса"""
     try:
@@ -232,7 +230,6 @@ async def change_timezone(callback: CallbackQuery, user, language: str):
         await callback.answer(get_message('error_generic', language=language))
 
 @router.callback_query(F.data == "timezone_enter_city")
-@log_user_activity('settings_changed', metadata_extra={'context': 'Изменение часового пояса. Ввод города'})
 async def enter_city_for_timezone(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Ввод города для определения часового пояса"""
     try:

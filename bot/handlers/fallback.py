@@ -7,7 +7,6 @@ import logging
 from aiogram import Router, F
 from aiogram.types import Message, ContentType
 
-from bot.decorators.analytics_decorator import log_user_activity
 from messages import get_message
 from bot.keyboards.main_menu import get_main_menu_keyboard
 
@@ -15,7 +14,6 @@ logger = logging.getLogger(__name__)
 router = Router(name="Fallback_router")
 
 @router.message(F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
-@log_user_activity('fallback')
 async def handle_unexpected_message(message: Message, user, language: str):
     """
     Ловит все текстовые и голосовые сообщения, которые приходят вне какого-либо FSM-состояния

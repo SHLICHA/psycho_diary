@@ -11,6 +11,7 @@ from bot.handlers.max import state as max_state
 from bot.handlers.max.send_adapter import edit_or_send, ensure_processing_status
 from bot.keyboards import (
     format_entry_text_for_editing,
+    get_progress_keyboard_without_weekly,
     get_single_button_keyboard,
     get_smart_calendar_keyboard,
     get_month_calendar_with_navigation,
@@ -23,7 +24,14 @@ from bot.utils.validation_utils import validate_text_entry
 from core.constants import MONTH_NAMES_EN, MONTH_NAMES_RU
 from core.services.calendar_service import calendar_service
 from diary.services.diary_display_service import diary_display_service
-from diary.services.progress_service import build_progress_screen_view
+from diary.services.progress_service import (
+    build_progress_screen_view,
+    build_restore_streak_request_view,
+    build_weekly_analysis_page_view,
+    confirm_streak_restoration_use_case,
+    get_detailed_weekly_changes,
+    get_latest_weekly_analysis,
+)
 
 if TYPE_CHECKING:
     from bot.handlers.max.send_adapter import SendFunc
@@ -52,6 +60,167 @@ async def handle_progress(user: 'User', send_func: 'SendFunc') -> dict:
     view = await build_progress_screen_view(user, language)
     await send_func(view['text'], view.get('reply_markup'))
     return {'ok': True, 'handled': 'progress'}
+
+
+async def handle_weekly_details(user: 'User', send_func: 'SendFunc') -> dict:
+    """Подробный прогресс (callback weekly_details) — как в Telegram."""
+    language = user.language or 'ru'
+    try:
+        details_result = await get_detailed_weekly_changes(user, language)
+        if not details_result.get('success'):
+            await send_func(
+                details_result.get('message') or get_message('error_generic', language),
+                get_single_button_keyboard(language, 'progress', 'btn_back'),
+            )
+            return {'ok': True, 'handled': 'weekly_details', 'mode': 'empty'}
+        await send_func(
+            details_result['message'],
+            get_single_button_keyboard(language, 'progress', 'btn_back'),
+        )
+        return {'ok': True, 'handled': 'weekly_details'}
+    except Exception as exc:
+        logger.error('[MAX diary] weekly_details failed: %s', exc, exc_info=True)
+        await send_func(get_message('error_generic', language))
+        return {'ok': True, 'handled': 'weekly_details', 'error': True}
+
+
+async def handle_weekly_progress_list(user: 'User', send_func: 'SendFunc') -> dict:
+    language = user.language or 'ru'
+    try:
+        latest = await get_latest_weekly_analysis(user)
+        if not latest:
+            await send_func(
+                get_message('weekly_analysis_not_found', language),
+                get_progress_keyboard_without_weekly(language),
+            )
+            return {'ok': True, 'handled': 'weekly_progress_list', 'mode': 'empty'}
+        view = await build_weekly_analysis_page_view(
+            user, latest.week_start_date, language
+        )
+        await send_func(view['text'], view.get('reply_markup'))
+        return {'ok': True, 'handled': 'weekly_progress_list'}
+    except Exception as exc:
+        logger.error('[MAX diary] weekly_progress_list failed: %s', exc, exc_info=True)
+        await send_func(
+            get_message('error_generic', language),
+            get_progress_keyboard_without_weekly(language),
+        )
+        return {'ok': True, 'handled': 'weekly_progress_list', 'error': True}
+
+
+async def handle_weekly_nav(user: 'User', payload: str, send_func: 'SendFunc') -> dict:
+    language = user.language or 'ru'
+    try:
+        week_start_iso = payload.split(':', 1)[1]
+        week_start_date = date.fromisoformat(week_start_iso)
+        view = await build_weekly_analysis_page_view(user, week_start_date, language)
+        await send_func(view['text'], view.get('reply_markup'))
+        return {'ok': True, 'handled': 'weekly_nav'}
+    except Exception as exc:
+        logger.error('[MAX diary] weekly_nav failed: %s', exc, exc_info=True)
+        await send_func(
+            get_message('error_generic', language),
+            get_progress_keyboard_without_weekly(language),
+        )
+        return {'ok': True, 'handled': 'weekly_nav', 'error': True}
+
+
+async def handle_restore_streak(user: 'User', send_func: 'SendFunc') -> dict:
+    language = user.language or 'ru'
+    try:
+        view = await build_restore_streak_request_view(user, language)
+        if view.get('mode') == 'unavailable' or not view.get('available'):
+            progress_result = await handle_progress(user, send_func)
+            return {**progress_result, 'handled': 'restore_streak', 'mode': 'unavailable'}
+        await send_func(
+            view.get('text') or get_message('error_generic', language),
+            view.get('reply_markup'),
+        )
+        return {
+            'ok': True,
+            'handled': 'restore_streak',
+            'mode': view.get('mode'),
+        }
+    except Exception as exc:
+        logger.error('[MAX diary] restore_streak failed: %s', exc, exc_info=True)
+        await send_func(get_message('error_generic', language))
+        return {'ok': True, 'handled': 'restore_streak', 'error': True}
+
+
+async def handle_restore_streak_confirm(
+    user: 'User', payload: str, send_func: 'SendFunc'
+) -> dict:
+    language = user.language or 'ru'
+    try:
+        date_iso = payload.split(':', 1)[1]
+        target = date.fromisoformat(date_iso)
+        result = await confirm_streak_restoration_use_case(user, target, language)
+        if result.get('refresh_progress'):
+            await handle_progress(user, send_func)
+        await send_func(
+            result.get('alert_text') or get_message('error_generic', language)
+        )
+        return {
+            'ok': True,
+            'handled': 'restore_streak_confirm',
+            'error': not result.get('ok', False),
+        }
+    except Exception as exc:
+        logger.error('[MAX diary] restore_streak_confirm failed: %s', exc, exc_info=True)
+        await send_func(get_message('error_generic', language))
+        return {'ok': True, 'handled': 'restore_streak_confirm', 'error': True}
+
+
+async def handle_mood_chart(
+    user: 'User',
+    send_func: 'SendFunc',
+    *,
+    max_id: int,
+    max_client=None,
+) -> dict:
+    """Premium: генерирует и отправляет график настроения (как TG show_mood_chart_week)."""
+    language = user.language or 'ru'
+    if not getattr(user, 'is_premium', False):
+        await send_func(get_message('feature_requires_premium', language))
+        return {'ok': True, 'handled': 'show_mood_chart_week', 'mode': 'premium_required'}
+    if max_client is None:
+        await send_func(get_message('error_processing', language))
+        return {'ok': True, 'handled': 'show_mood_chart_week', 'mode': 'no_client'}
+
+    status_id = None
+    try:
+        from bot.utils.mood_chart import generate_mood_chart_image
+
+        ack = getattr(send_func, 'ack_callback', None)
+        if callable(ack):
+            await ack('✓')
+        status_id = await ensure_processing_status(send_func, language, 'chart_processing')
+        days = 14
+        caption = get_message('mood_chart_caption', language, days=days)
+        chart_buf = await generate_mood_chart_image(user, days=days)
+        ok = await max_client.send_image(
+            user_id=max_id,
+            image_bytes=chart_buf.getvalue(),
+            caption=caption,
+            filename='mood_chart.png',
+        )
+        if not ok:
+            await edit_or_send(
+                send_func,
+                status_id,
+                get_message('error_processing', language),
+            )
+            return {'ok': True, 'handled': 'show_mood_chart_week', 'error': True}
+        await edit_or_send(send_func, status_id, caption)
+        return {'ok': True, 'handled': 'show_mood_chart_week'}
+    except Exception as exc:
+        logger.error('[MAX diary] mood chart failed: %s', exc, exc_info=True)
+        await edit_or_send(
+            send_func,
+            status_id,
+            get_message('error_processing', language),
+        )
+        return {'ok': True, 'handled': 'show_mood_chart_week', 'error': True}
 
 
 async def handle_archive(user: 'User', send_func: 'SendFunc', *, max_id: int) -> dict:
@@ -432,6 +601,7 @@ async def route_wave2_callback(
     send_func: 'SendFunc',
     *,
     max_id: int,
+    max_client=None,
 ) -> dict | None:
     """Route Wave 2 diary/archive/progress callbacks. None if not Wave 2."""
     if not is_wave2_callback(payload):
@@ -443,6 +613,20 @@ async def route_wave2_callback(
         return await handle_archive(user, send_func, max_id=max_id)
     if payload == 'progress':
         return await handle_progress(user, send_func)
+    if payload == 'show_mood_chart_week':
+        return await handle_mood_chart(
+            user, send_func, max_id=max_id, max_client=max_client
+        )
+    if payload == 'weekly_details':
+        return await handle_weekly_details(user, send_func)
+    if payload == 'weekly_progress_list':
+        return await handle_weekly_progress_list(user, send_func)
+    if payload.startswith('weekly_nav:'):
+        return await handle_weekly_nav(user, payload, send_func)
+    if payload == 'restore_streak':
+        return await handle_restore_streak(user, send_func)
+    if payload.startswith('restore_streak_confirm:'):
+        return await handle_restore_streak_confirm(user, payload, send_func)
     if payload.startswith('calendar_prev_month:') or payload.startswith('calendar_next_month:'):
         return await handle_calendar_month_nav(user, payload, send_func)
     if payload.startswith('calendar_select_day:'):
@@ -558,7 +742,16 @@ async def handle_rate_analysis(
 
 
 def is_wave2_callback(payload: str) -> bool:
-    exact = {'new_entry', 'archive', 'progress', 'calendar_empty'}
+    exact = {
+        'new_entry',
+        'archive',
+        'progress',
+        'calendar_empty',
+        'show_mood_chart_week',
+        'weekly_details',
+        'weekly_progress_list',
+        'restore_streak',
+    }
     if payload in exact:
         return True
     prefixes = (
@@ -575,5 +768,7 @@ def is_wave2_callback(payload: str) -> bool:
         'request_add_comment:',
         'request_delete_specific_entry:',
         'rate_analysis:',
+        'weekly_nav:',
+        'restore_streak_confirm:',
     )
     return any(payload.startswith(p) for p in prefixes)

@@ -108,7 +108,9 @@ class TherapyChatService:
                 language=user.language,
                 max_retries=2,
                 base_delay=1.0,
-                timeout_per_attempt=60
+                timeout_per_attempt=60,
+                temperature=0.7,
+                max_tokens=900,
             )
             if api_result.get('success'):
                 parsed_result = api_result['result']

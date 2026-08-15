@@ -140,3 +140,5 @@ class TestDeepSeekJsonObjectResponseFormat:
     def test_send_prompt_and_parse_requests_json_object(self):
         source = inspect.getsource(DeepSeekAPIService.send_prompt_and_parse)
         assert '"response_format": {"type": "json_object"}' in source
+        assert 'temperature: float = 0.3' in source
+        assert 'max_tokens: int = 8100' in source

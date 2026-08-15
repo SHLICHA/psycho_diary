@@ -124,7 +124,6 @@ async def cmd_start(message: Message, user, language: str, state: FSMContext, da
 
 
 @router.callback_query(F.data == "main_menu")
-@log_user_activity('button', metadata_extra={'context': 'Главное меню'})
 async def back_to_main_menu(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Возврат в главное меню"""
     try:

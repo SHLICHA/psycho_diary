@@ -432,26 +432,51 @@ class TaskCompletionAdmin(admin.ModelAdmin):
     analysis_link.short_description = _('Анализ выполнения')
 
 # === UserActivity Admin ===
+class UserActivityPlatformFilter(admin.SimpleListFilter):
+    """Фильтр по источнику из metadata.platform."""
+
+    title = _('Источник')
+    parameter_name = 'platform'
+
+    def lookups(self, request, model_admin):
+        return (
+            ('telegram', 'Telegram'),
+            ('max', 'MAX'),
+            ('web', 'Web'),
+            ('unknown', _('Не указан')),
+        )
+
+    def queryset(self, request, queryset):
+        value = self.value()
+        if not value:
+            return queryset
+        if value == 'unknown':
+            return queryset.exclude(metadata__platform__in=['telegram', 'max', 'web'])
+        return queryset.filter(metadata__platform=value)
+
+
 @admin.register(UserActivity)
 class UserActivityAdmin(admin.ModelAdmin):
     """
     Админка для активности пользователей.
     """
     list_display = (
-        'id', 'user_link', 'activity_type', 'timestamp', 'short_metadata'
+        'id', 'user_link', 'activity_type', 'platform_display', 'timestamp', 'short_metadata'
     )
     list_filter = (
-        'activity_type', 'timestamp',
+        'activity_type',
+        UserActivityPlatformFilter,
+        'timestamp',
         ('user', admin.RelatedOnlyFieldListFilter),
     )
     search_fields = (
-        'user__username', 'user__telegram_id', 'activity_type'
+        'user__username', 'user__telegram_id', 'user__max_id', 'activity_type'
     )
-    readonly_fields = ('timestamp', 'user_link', 'metadata_display')
+    readonly_fields = ('timestamp', 'user_link', 'platform_display', 'metadata_display')
     
     fieldsets = (
         (None, {
-            'fields': ('user_link', 'activity_type', 'timestamp')
+            'fields': ('user_link', 'activity_type', 'platform_display', 'timestamp')
         }),
         (_('Метаданные'), {
             'fields': ('metadata_display',),
@@ -467,6 +492,18 @@ class UserActivityAdmin(admin.ModelAdmin):
         return '-'
     user_link.short_description = _('Пользователь')
     user_link.admin_order_field = 'user__username'
+
+    def platform_display(self, obj):
+        """Источник активности: Telegram / MAX / Web."""
+        meta = obj.metadata if isinstance(obj.metadata, dict) else {}
+        platform = (meta.get('platform') or '').strip().lower()
+        labels = {
+            'telegram': 'Telegram',
+            'max': 'MAX',
+            'web': 'Web',
+        }
+        return labels.get(platform, '—')
+    platform_display.short_description = _('Источник')
 
     def short_metadata(self, obj):
         """Короткие метаданные."""

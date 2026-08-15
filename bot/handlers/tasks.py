@@ -45,7 +45,6 @@ logger = logging.getLogger(__name__)
 
 @router.callback_query(F.data == "tasks")
 @router.callback_query(F.data == "back_to_tasks")
-@log_user_activity('task')
 async def show_tasks(callback: CallbackQuery, user, language: str):
     """Показ текущих заданий с пагинацией"""
     try:
@@ -107,7 +106,6 @@ async def view_specific_task(callback: CallbackQuery, user, language: str):
 
 
 @router.callback_query(F.data.startswith("complete_task:"))
-@log_user_activity('task_completed')
 async def start_task_completion(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Начало выполнения задания"""
     task_id = None
@@ -133,7 +131,6 @@ async def start_task_completion(callback: CallbackQuery, state: FSMContext, user
 
 
 @router.message(TaskStates.waiting_for_task_completion, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
-@log_user_activity('task_completed', metadata_extra={'context': 'Обработка выполнения'})
 async def process_task_completion(message: Message, state: FSMContext, user, language: str):
     """Обработка выполнения задания (текст или голос)"""
     try:
@@ -431,7 +428,6 @@ async def cancel_delete_task(callback: CallbackQuery, language: str):
 # ==================== ВСПОМОГАТЕЛЬНЫЕ HANDLERS ====================
 
 @router.callback_query(F.data == "task_history_main")
-@log_user_activity('task', metadata_extra={'context': 'Просмотр истории заданий'})
 async def show_task_history_main(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Показывает историю заданий с пагинацией."""
     try:
@@ -497,7 +493,6 @@ async def paginate_task_history(callback: CallbackQuery, state: FSMContext, user
 
 
 @router.callback_query(F.data.startswith("task_history_restore:"))
-@log_user_activity('task', metadata_extra={'context': 'Восстановление пропущенного задания'})
 async def restore_skipped_task(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Восстановление пропущенного задания."""
     try:
@@ -570,7 +565,6 @@ async def view_detailed_task_analysis(callback: CallbackQuery, user, language: s
 
 @router.callback_query(F.data == "show_task_impact_chart")
 @requires_premium(alert_message_key='feature_requires_premium')
-@log_user_activity('task_chart_viewed', metadata_extra={'context': 'Просмотр графика влияния заданий'})
 async def send_task_impact_chart(callback: CallbackQuery, user, language: str, bot: Bot):
     """Отправляет изображение с графиком влияния выполненных заданий."""
     days = 30

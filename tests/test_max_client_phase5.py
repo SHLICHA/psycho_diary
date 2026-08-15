@@ -1,7 +1,8 @@
-import pytest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
+import pytest
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.transports.max.client import MaxClient
@@ -343,3 +344,79 @@ def test_keyboard_attachment_uses_payload_buttons_wrapper():
     }
     assert 'type' not in variants[1]['payload']['buttons'][0][0]
     assert variants[1]['payload']['buttons'][0][0]['payload'] == 'next'
+
+
+@pytest.mark.asyncio
+async def test_get_upload_url_uses_post(monkeypatch):
+    """MAX docs: POST /uploads?type=image (GET returns method.not.found)."""
+    client = MaxClient(
+        api_token='token',
+        base_url='https://platform-api2.max.ru',
+        ca_cert_paths=[],
+    )
+    calls = []
+
+    async def fake_request_json(*, method, path, params=None, payload=None, timeout_seconds=None):
+        calls.append({'method': method, 'path': path, 'params': params})
+        return 200, {'url': 'https://iu.oneme.ru/upload.do?x=1'}
+
+    monkeypatch.setattr(client, '_request_json', fake_request_json)
+    meta = await client.get_upload_url('image')
+    assert meta == {'url': 'https://iu.oneme.ru/upload.do?x=1'}
+    assert calls == [
+        {'method': 'POST', 'path': '/uploads', 'params': {'type': 'image'}}
+    ]
+
+
+def test_resolve_upload_attachment_payload_photos_map():
+    payload = MaxClient._resolve_upload_attachment_payload(
+        {'photos': {'abc': {'token': 't1'}}},
+        upload_type='image',
+    )
+    assert payload == {'photos': {'abc': {'token': 't1'}}}
+
+
+def test_resolve_upload_attachment_payload_flat_token():
+    payload = MaxClient._resolve_upload_attachment_payload(
+        {'token': 'flat-token'},
+        upload_type='image',
+    )
+    assert payload == {'token': 'flat-token'}
+
+
+@pytest.mark.asyncio
+async def test_upload_bytes_returns_photos_payload(monkeypatch):
+    client = MaxClient(
+        api_token='token',
+        base_url='https://platform-api2.max.ru',
+        ca_cert_paths=[],
+    )
+
+    async def fake_request_json(*, method, path, params=None, payload=None, timeout_seconds=None):
+        return 200, {'url': 'https://iu.oneme.ru/upload.do?x=1'}
+
+    class FakeResp:
+        status = 200
+
+        async def text(self):
+            return '{"photos": {"p1": {"token": "tok"}}}'
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    class FakeSession:
+        def post(self, *args, **kwargs):
+            return FakeResp()
+
+    async def fake_get_session():
+        return FakeSession()
+
+    monkeypatch.setattr(client, '_request_json', fake_request_json)
+    monkeypatch.setattr(client, '_get_session', fake_get_session)
+    monkeypatch.setattr(client._rate_limiter, 'acquire', AsyncMock())
+
+    result = await client.upload_bytes(b'png', upload_type='image', filename='x.png')
+    assert result == {'photos': {'p1': {'token': 'tok'}}}

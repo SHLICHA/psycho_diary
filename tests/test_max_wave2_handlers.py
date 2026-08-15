@@ -163,3 +163,88 @@ async def test_rate_analysis_callback_already_rated(max_user, mocker):
     assert result.get('mode') == 'already_rated'
     open_menu.assert_not_awaited()
     send_func.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_weekly_details_callback(max_user, mocker):
+    send_func = AsyncMock(return_value=True)
+    mocker.patch(
+        'bot.handlers.max.diary.get_detailed_weekly_changes',
+        new=AsyncMock(
+            return_value={
+                'success': True,
+                'message': 'Подробный прогресс за неделю',
+            }
+        ),
+    )
+    result = await route_callback(
+        max_user, 'weekly_details', send_func, max_id=max_user.max_id
+    )
+    assert result['handled'] == 'weekly_details'
+    assert result.get('error') is None
+    send_func.assert_awaited()
+    assert 'Подробный прогресс' in send_func.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_weekly_progress_list_callback(max_user, mocker):
+    send_func = AsyncMock(return_value=True)
+    latest = MagicMock()
+    latest.week_start_date = __import__('datetime').date(2026, 8, 4)
+    mocker.patch(
+        'bot.handlers.max.diary.get_latest_weekly_analysis',
+        new=AsyncMock(return_value=latest),
+    )
+    mocker.patch(
+        'bot.handlers.max.diary.build_weekly_analysis_page_view',
+        new=AsyncMock(
+            return_value={'text': 'Анализ недели', 'reply_markup': None}
+        ),
+    )
+    result = await route_callback(
+        max_user, 'weekly_progress_list', send_func, max_id=max_user.max_id
+    )
+    assert result['handled'] == 'weekly_progress_list'
+    assert result.get('error') is None
+    send_func.assert_awaited_once_with('Анализ недели', None)
+
+
+@pytest.mark.asyncio
+async def test_mood_chart_requires_premium(max_user):
+    send_func = AsyncMock(return_value=True)
+    max_user.is_premium = False
+    result = await route_callback(
+        max_user, 'show_mood_chart_week', send_func, max_id=max_user.max_id
+    )
+    assert result['handled'] == 'show_mood_chart_week'
+    assert result.get('mode') == 'premium_required'
+    send_func.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_mood_chart_sends_image(max_user, mocker):
+    import io
+
+    send_func = AsyncMock(return_value='status-mid')
+    send_func.edit_or_send = AsyncMock(return_value='status-mid')
+    send_func.pending_status_id = None
+    max_user.is_premium = True
+    max_client = AsyncMock()
+    max_client.send_image = AsyncMock(return_value=True)
+    mocker.patch(
+        'bot.utils.mood_chart.generate_mood_chart_image',
+        new=AsyncMock(return_value=io.BytesIO(b'png-bytes')),
+    )
+
+    result = await route_callback(
+        max_user,
+        'show_mood_chart_week',
+        send_func,
+        max_id=max_user.max_id,
+        max_client=max_client,
+    )
+
+    assert result['handled'] == 'show_mood_chart_week'
+    assert result.get('error') is None
+    max_client.send_image.assert_awaited_once()
+    assert max_client.send_image.await_args.kwargs['filename'] == 'mood_chart.png'

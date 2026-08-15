@@ -61,7 +61,6 @@ async def show_user_profile(callback: CallbackQuery, user, language: str):
 
 
 @router.callback_query(F.data == "view_psychology_profile")
-@log_user_activity('show_profile', metadata_extra={'context': 'Просмотр психологического профиля'})
 async def show_psychology_profile(callback: CallbackQuery, user, language: str):
     """Показ психологического профиля пользователя (только текстовое описание)."""
     try:
@@ -105,7 +104,6 @@ async def show_transaction_history(callback: CallbackQuery, user, language: str)
 
 @router.callback_query(F.data.startswith("view_profile_field:"))
 @requires_premium(alert_message_key='feature_requires_premium')
-@log_user_activity('show_profile', metadata_extra={'context': 'Просмотр конкретного поля психологического профиля'})
 async def show_profile_field(callback: CallbackQuery, user, language: str):
     """Показывает конкретное поле психологического профиля."""
     try:
@@ -157,7 +155,6 @@ async def show_profile_field(callback: CallbackQuery, user, language: str):
 # --- Редактирование профиля ---
 
 @router.callback_query(F.data == "edit_profile")
-@log_user_activity('edit_profile', metadata_extra={'context': 'Показ меню редактирования профиля'})
 async def show_edit_profile_menu(callback: CallbackQuery, user, language: str):
     """Показ меню редактирования профиля"""
     try:
@@ -197,28 +194,24 @@ async def _request_new_value(callback_or_message, state: FSMContext, state_key, 
 
 
 @router.callback_query(F.data == "edit_profile_name")
-@log_user_activity('edit_profile', metadata_extra={'context': 'Редактирование имени'})
 async def edit_profile_name(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование имени"""
     await _request_new_value(callback, state, SettingsStates.waiting_for_name_input, 'ask_new_name', 'edit_profile', user, language)
 
 
 @router.callback_query(F.data == "edit_profile_email")
-@log_user_activity('edit_profile', metadata_extra={'context': 'Редактирование email'})
 async def edit_profile_email(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование email"""
     await _request_new_value(callback, state, SettingsStates.waiting_for_email_input, 'ask_new_email', 'edit_profile', user, language)
 
 
 @router.callback_query(F.data == "edit_profile_dob")
-@log_user_activity('edit_profile', metadata_extra={'context': 'Редактирование даты рождения'})
 async def edit_profile_dob(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование даты рождения"""
     await _request_new_value(callback, state, SettingsStates.waiting_for_date_of_birth_input, 'ask_new_dob', 'edit_profile', user, language)
 
 
 @router.callback_query(F.data == "edit_profile_hobbies")
-@log_user_activity('edit_profile', metadata_extra={'context': 'Редактирование хобби'})
 async def edit_profile_hobbies(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование увлечений"""
     try:
@@ -240,7 +233,6 @@ async def edit_profile_hobbies(callback: CallbackQuery, state: FSMContext, user,
 
 
 @router.callback_query(F.data == "edit_profile_life_facts")
-@log_user_activity('edit_profile', metadata_extra={'context': 'Редактирование фактов о жизни'})
 async def edit_profile_life_facts(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование фактов о жизни"""
     try:
@@ -324,6 +316,14 @@ async def _process_field_input(message: Message, state: FSMContext, user, langua
             return
         success_msg = get_message('profile_updated', language)
         await message.answer(success_msg)
+        from diary.services.activity_service import record_user_activity
+
+        await record_user_activity(
+            user,
+            'profile_updated',
+            platform='telegram',
+            metadata={'context': f'Обновление поля {field_name}', 'field': field_name},
+        )
         await show_edit_profile_menu_callback(message, user, language)
         await state_manager.clear_state(state)
     except Exception as e:
@@ -386,7 +386,6 @@ async def show_edit_profile_menu_callback(message_or_callback, user, language: s
 # --- Удаление аккаунта ---
 
 @router.callback_query(F.data == "delete_account")
-@log_user_activity('delete_profile')
 async def show_account_deletion_menu(callback: CallbackQuery, user, language: str, state: FSMContext):
     """Показ меню удаления аккаунта"""
     try:
@@ -401,7 +400,6 @@ async def show_account_deletion_menu(callback: CallbackQuery, user, language: st
 
 
 @router.callback_query(F.data == "confirm_account_deletion_final")
-@log_user_activity('delete_profile', metadata_extra={'context': 'Подтверждение удаления'})
 async def confirm_account_deletion_final(callback: CallbackQuery, user, language: str, state: FSMContext):
     """Финальное подтверждение удаления аккаунта - запрос текста подтверждения"""
     try:
@@ -428,7 +426,6 @@ async def confirm_account_deletion_final(callback: CallbackQuery, user, language
 
 
 @router.message(SettingsStates.waiting_for_deletion_confirmation_text)
-@log_user_activity('delete_profile', metadata_extra={'context': 'Обработка удаления'})
 async def process_account_deletion_confirmation_text(message: Message, user, language: str, state: FSMContext):
     """Обработка ввода текста подтверждения удаления аккаунта"""
     try:
@@ -459,7 +456,6 @@ async def process_account_deletion_confirmation_text(message: Message, user, lan
 
 
 @router.callback_query(F.data == "delete_account_cancel")
-@log_user_activity('delete_profile', metadata_extra={'context': 'Отмена удаления'})
 async def cancel_account_deletion(callback: CallbackQuery, user, language: str, state: FSMContext):
     """Отмена удаления аккаунта - возврат в главное меню"""
     try:

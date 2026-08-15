@@ -150,7 +150,6 @@ async def process_first_entry(message: Message, state: FSMContext, user, languag
 
 
 @router.callback_query(F.data == "onboarding_ask_timezone")
-@log_user_activity('onboarding', metadata_extra={'context': 'Запрос установки часового пояса'})
 async def onboarding_ask_timezone(callback: CallbackQuery, state: FSMContext, user, language: str):
     try:
         current_state = await state_manager.get_current_state(state)

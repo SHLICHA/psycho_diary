@@ -370,27 +370,44 @@ You can invite friends and receive <b>15 tokens</b> for each invited user who re
 
 'help_account_merge_text': '''🔗 <b>Linking Telegram and MAX accounts</b>
 
-If you use the bot in both Telegram and MAX, you can merge them into one account via a shared email. After merging, your diary, subscription, tokens, and profile are shared across both messengers.
+If you already use the bot in <b>Telegram</b> and separately in <b>MAX</b>, those are two different accounts. You can link them into one via a shared email — then your diary, tokens, subscription, and profile become shared in both messengers.
 
-<b>How it works:</b>
-1. In one account, enter the email already linked to the other (Profile → Email or during payment).
-2. Confirm the merge with the button in the messenger where you started.
-3. Confirm the request in the second messenger (you will get a message with Yes / No).
-4. After both confirmations, accounts are merged automatically.
+<b>Before you start</b>
+• Open the bot in both Telegram and MAX (signed in as yourself in each).
+• Choose one shared email. Easiest path: save the email in one messenger first, then enter <b>the same</b> email in the other.
 
-<b>What is transferred:</b>
+<b>Step by step</b>
+
+1. <b>Save an email in the first messenger</b>
+Open <b>Profile</b> → email (or enter email during payment) and save the address.
+
+2. <b>Enter the same email in the second messenger</b>
+In the other messenger, open <b>Profile</b> → email again and enter <b>the same address</b>.
+The bot will detect that the email already belongs to another account and offer a secure merge.
+
+3. <b>Confirm in the messenger where you started</b>
+Tap the confirmation button (“Yes”) when the bot asks whether you want to merge accounts.
+If you change your mind, tap “No” — the merge will not start.
+
+4. <b>Confirm in the second messenger</b>
+A merge request with Yes / No buttons will be sent to the other channel.
+Open the bot there and tap “Yes”.
+
+5. <b>Wait for completion</b>
+After both confirmations, accounts are merged automatically. You can then use Telegram and MAX as one account.
+
+<b>What becomes shared after the merge</b>
 • diary entries and analyses;
 • token balance (summed);
 • remaining subscription days (summed);
-• psychological profile (copied if only one side has it; rebuilt if both have it);
-• access from both channels (Telegram ID and MAX ID on one account).
+• psychological profile;
+• access from both Telegram and MAX.
 
-<b>Important:</b>
-• you cannot merge two Telegram accounts or two MAX accounts;
+<b>Important</b>
+• only a <b>Telegram + MAX</b> pair can be merged — not two accounts from the same messenger;
 • both accounts must be active (not deleted);
-• confirmation requests expire — if expired, start again.
-
-After merge, the referral code stays on the surviving account; each messenger shows the deep link for that channel.''',
+• the request expires after a limited time — if it expired, just repeat the email steps;
+• if the confirmation message did not arrive in the second channel, open the bot there manually or restart the process a bit later.''',
 
         # Help buttons
         'help_faq': '❓ FAQ',

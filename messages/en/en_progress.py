@@ -45,6 +45,7 @@ Mood Trend: {mood_trend_display}
 'btn_mood_chart': '📈 Mood Chart',
 'btn_detailed_progress': 'Detailed Progress',
 'mood_chart_caption': 'Your mood dynamics for the last {days} days.',
+'chart_processing': '⏳ <i>Building the chart...</i>',
 'dynamics': '''\n\n📊 <b>Dynamics:</b> ''',
 'weekly_analysis_not_performed_yet': '''\n\nℹ️ <b>Progress analysis is performed once a week.</b> Continue keeping a diary, and over time you will see your changes here.''',
 'changes': '''<b>Changes:</b> {summary}''',

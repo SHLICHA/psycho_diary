@@ -208,7 +208,10 @@ async def route_wave6_tasks_callback(
         try:
             from bot.utils.task_impact_chart import generate_task_impact_chart_image
 
-            status_id = await ensure_processing_status(send_func, language)
+            ack = getattr(send_func, 'ack_callback', None)
+            if callable(ack):
+                await ack('✓')
+            status_id = await ensure_processing_status(send_func, language, 'chart_processing')
             days = 30
             caption = get_message('task_impact_chart_caption', language, days=days)
             chart_buf = await generate_task_impact_chart_image(

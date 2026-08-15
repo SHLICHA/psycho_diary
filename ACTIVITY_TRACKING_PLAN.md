@@ -1,8 +1,8 @@
 # План единой фиксации активности (UserActivity)
 
-Статус: **P0+P1 в работе / реализовано**  
+Статус: **P0–P2 реализовано** (осталась стендовая проверка AI-выборки)  
 Дата фиксации: 2026-08-13  
-Обновлено: 2026-08-13 — сервис + MAX dispatcher hook + TG decorator → сервис  
+Обновлено: 2026-08-13 — P2: сняты шумовые TG-декораторы, события на фактических действиях  
 Связанные места: `bot/decorators/analytics_decorator.py`, `diary/models.py` (`UserActivity`), `core/constants.py` (`ACTIVITY_TYPES`), `diary/tasks/ai_activity_filter.py`, `bot/utils/activity_chart.py`, `bot/handlers/max/dispatcher.py`
 
 ---
@@ -144,8 +144,10 @@ async def record_user_activity(
 ### P2 — Telegram cleanup
 
 - [x] Декоратор → тонкая обёртка над сервисом (`platform='telegram'`)
-- [ ] Снять лишние `@log_user_activity` с хендлеров (шум уже не пишется из‑за allowlist)
-- [x] Сохранить поведение «после успешного handler»
+- [x] Снять лишние `@log_user_activity` (help/fallback/main_menu/settings open/task list/entry_process/edit_profile…)
+- [x] Значимые события перенесены на факт действия (`entry_created` на save, `entry_comment`/`entry_edit`/`entry_deleted`, `profile_updated` после update)
+- [x] Тест `tests/test_activity_decorator_allowlist.py`
+- [x] Сохранить поведение «после handler»
 
 ### P3 — выравнивание и документация
 

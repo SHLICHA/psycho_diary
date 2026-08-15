@@ -84,6 +84,13 @@ MAX_TOUCH_ONLY_HANDLED = frozenset({
     'purchase_tokens_start',
     'purchase_tokens',
     'feedback_start',
+    'show_mood_chart_week',
+    'show_task_impact_chart',
+    'weekly_details',
+    'weekly_progress_list',
+    'weekly_nav',
+    'restore_streak',
+    'restore_streak_confirm',
 })
 
 

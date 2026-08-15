@@ -32,7 +32,6 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 @router.callback_query(F.data == "start_therapy_chat")
-@log_user_activity('chat')
 async def start_therapy_chat_callback(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Обработчик нажатия кнопки "Поговорить с психологом"."""
     try:

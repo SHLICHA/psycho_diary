@@ -28,13 +28,19 @@ class DeepSeekAPIService:
         language: str, 
         max_retries: int = 5,
         base_delay: float = 1.5,
-        timeout_per_attempt: int = 100 
+        timeout_per_attempt: int = 100,
+        temperature: float = 0.3,
+        max_tokens: int = 8100,
     ) -> dict:
         """
         Отправляет готовый промт в DeepSeek и возвращает распарсенный результат.
         Реализует механизм повторных попыток при ошибках.
         """
-        logger.debug(f"[DeepSeek API] Начало send_prompt_and_parse. Попыток: {max_retries}, Базовая задержка: {base_delay}s, Таймаут: {timeout_per_attempt}s")
+        logger.debug(
+            "[DeepSeek API] Начало send_prompt_and_parse. "
+            f"Попыток: {max_retries}, Базовая задержка: {base_delay}s, "
+            f"Таймаут: {timeout_per_attempt}s, temperature={temperature}, max_tokens={max_tokens}"
+        )
         
         last_exception = None
         last_response_text = ""
@@ -56,8 +62,8 @@ class DeepSeekAPIService:
                 payload = {
                     "model": "deepseek-v4-flash",
                     "messages": [{"role": "user", "content": api_prompt}],
-                    "temperature": 0.3,
-                    "max_tokens": 8100,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
                     "thinking": {"type": "disabled"},
                     "response_format": {"type": "json_object"},
                 }

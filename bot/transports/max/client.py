@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import ssl
 from pathlib import Path
@@ -646,9 +647,9 @@ class MaxClient:
             return None
 
     async def get_upload_url(self, upload_type: str = 'image') -> dict[str, Any] | None:
-        """Request upload endpoint from MAX (`/uploads?type=...`)."""
+        """Request upload endpoint from MAX (`POST /uploads?type=...`)."""
         response_status, response_body = await self._request_json(
-            method='GET',
+            method='POST',
             path='/uploads',
             params={'type': upload_type},
         )
@@ -661,6 +662,48 @@ class MaxClient:
             return None
         return response_body
 
+    @staticmethod
+    def _resolve_upload_attachment_payload(
+        upload_result: Any,
+        *,
+        upload_type: str,
+        preexisting_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        """
+        Нормализует ответ multipart-загрузки в payload для attachments.
+
+        Для image MAX часто возвращает ``photos`` map вместо плоского ``token``.
+        """
+        if not isinstance(upload_result, dict):
+            upload_result = {}
+
+        token = upload_result.get('token')
+        if not (isinstance(token, str) and token.strip()):
+            nested = upload_result.get('payload')
+            if isinstance(nested, dict):
+                token = nested.get('token')
+        if isinstance(token, str) and token.strip():
+            return {'token': token.strip()}
+
+        photos = upload_result.get('photos')
+        if not isinstance(photos, dict) or not photos:
+            nested = upload_result.get('payload')
+            if isinstance(nested, dict):
+                photos = nested.get('photos')
+        if isinstance(photos, dict) and photos:
+            # Иногда token лежит внутри photos[*].token — оставляем map как есть (как в MAX SDK).
+            return {'photos': photos}
+
+        url = upload_result.get('url')
+        if upload_type == 'image' and isinstance(url, str) and url.strip():
+            # Не путать upload URL с публичным image url; только если похоже на готовый CDN.
+            if 'upload' not in url.lower():
+                return {'url': url.strip()}
+
+        if preexisting_token and upload_type in {'video', 'audio'}:
+            return {'token': preexisting_token}
+        return None
+
     async def upload_bytes(
         self,
         data: bytes,
@@ -668,19 +711,26 @@ class MaxClient:
         upload_type: str = 'image',
         filename: str = 'file.bin',
         content_type: str = 'application/octet-stream',
-    ) -> str | None:
+    ) -> dict[str, Any] | None:
         """
-        Upload bytes to MAX and return attachment token.
-        Flow: GET /uploads → POST multipart/binary to returned url.
+        Upload bytes to MAX and return attachment payload ({token} | {photos} | {url}).
+        Flow: POST /uploads → POST multipart/binary to returned url.
         """
         meta = await self.get_upload_url(upload_type)
         if not meta:
             return None
         upload_url = meta.get('url')
-        # Some MAX responses already include token for video/audio; for image usually after POST.
         preexisting_token = meta.get('token')
+        if isinstance(preexisting_token, str):
+            preexisting_token = preexisting_token.strip() or None
+        else:
+            preexisting_token = None
+
         if not upload_url:
-            return str(preexisting_token) if preexisting_token else None
+            if preexisting_token and upload_type in {'video', 'audio'}:
+                return {'token': preexisting_token}
+            logger.error('[MaxClient] upload meta missing url: %s', meta)
+            return None
 
         await self._rate_limiter.acquire()
         session = await self._get_session()
@@ -694,29 +744,40 @@ class MaxClient:
         headers = {'Authorization': self.api_token} if self.api_token else {}
         try:
             async with session.post(upload_url, data=form, headers=headers) as response:
+                raw_text = await response.text()
                 if not (200 <= response.status < 300):
-                    body = await response.text()
                     logger.error(
                         '[MaxClient] upload failed: status=%s body=%s',
                         response.status,
-                        body[:200],
+                        raw_text[:300],
                     )
-                    return str(preexisting_token) if preexisting_token else None
-                try:
-                    body_json = await response.json(content_type=None)
-                except Exception:
-                    body_json = {}
-                token = None
-                if isinstance(body_json, dict):
-                    token = (
-                        body_json.get('token')
-                        or (body_json.get('payload') or {}).get('token')
-                        or preexisting_token
-                    )
-                return str(token) if token else (str(preexisting_token) if preexisting_token else None)
+                    if preexisting_token and upload_type in {'video', 'audio'}:
+                        return {'token': preexisting_token}
+                    return None
+                body_json: Any = {}
+                if raw_text.strip():
+                    try:
+                        body_json = json.loads(raw_text)
+                    except Exception:
+                        body_json = {}
+                payload = self._resolve_upload_attachment_payload(
+                    body_json,
+                    upload_type=upload_type,
+                    preexisting_token=preexisting_token,
+                )
+                if payload:
+                    return payload
+                logger.error(
+                    '[MaxClient] upload ok but no attachment payload: type=%s body=%s',
+                    upload_type,
+                    raw_text[:300],
+                )
+                return None
         except Exception as exc:
             logger.error('[MaxClient] upload exception: %s', exc, exc_info=True)
-            return str(preexisting_token) if preexisting_token else None
+            if preexisting_token and upload_type in {'video', 'audio'}:
+                return {'token': preexisting_token}
+            return None
 
     async def send_image(
         self,
@@ -729,14 +790,14 @@ class MaxClient:
         reply_markup: Any = None,
     ) -> bool:
         """Upload image and send as MAX attachment with optional caption/keyboard."""
-        token = await self.upload_bytes(
+        image_payload = await self.upload_bytes(
             image_bytes,
             upload_type='image',
             filename=filename,
             content_type='image/png' if filename.lower().endswith('.png') else 'image/jpeg',
         )
-        if not token:
-            logger.warning('[MaxClient] send_image aborted: upload token missing')
+        if not image_payload:
+            logger.warning('[MaxClient] send_image aborted: upload payload missing')
             return False
 
         if not self.api_token:
@@ -747,7 +808,7 @@ class MaxClient:
         keyboard_variants = self._build_keyboard_attachment_variants(reply_markup)
         keyboard_attachment = keyboard_variants[0] if keyboard_variants else None
         attachments: list[dict[str, Any]] = [
-            {'type': 'image', 'payload': {'token': token}},
+            {'type': 'image', 'payload': image_payload},
         ]
         if keyboard_attachment:
             attachments.append(keyboard_attachment)

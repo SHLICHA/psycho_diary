@@ -162,7 +162,26 @@ def build_send_func(
     def was_callback_answered() -> bool:
         return bool(state['callback_answered'])
 
+    async def ack_callback(notification: str = '✓') -> bool:
+        """Снимает спиннер кнопки без правки исходного сообщения."""
+        if not callback_id:
+            return False
+        if state['callback_answered']:
+            return True
+        answered = await max_client.answer_callback(
+            callback_id=callback_id,
+            notification=notification or '✓',
+        )
+        if answered:
+            state['callback_answered'] = True
+            logger.info(
+                '[MAX send] answered callback via /answers notification user_id=%s',
+                max_id,
+            )
+        return bool(answered)
+
     send_func.was_callback_answered = was_callback_answered  # type: ignore[attr-defined]
+    send_func.ack_callback = ack_callback  # type: ignore[attr-defined]
     send_func.edit_or_send = edit_or_send_impl  # type: ignore[attr-defined]
     send_func.pending_status_id = None  # type: ignore[attr-defined]
     return send_func

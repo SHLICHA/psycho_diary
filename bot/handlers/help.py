@@ -15,14 +15,12 @@ from bot.keyboards import (
     get_back_keyboard,
 )
 from bot.states.feedback_states import FeedbackStates
-from bot.decorators.analytics_decorator import log_user_activity
 
 router = Router()
 logger = logging.getLogger(__name__)
 
 @router.callback_query(F.data == "help")
 @router.message(Command("help"))
-@log_user_activity('help_open')
 async def show_help(event, language: str = 'ru'):
     try:
         help_msg = get_message('help_main_text', language=language)
@@ -46,7 +44,6 @@ async def show_help(event, language: str = 'ru'):
             await event.answer("Ошибка при показе помощи")
 
 @router.callback_query(F.data == "help_faq")
-@log_user_activity('help_open', metadata_extra={'context': 'FAQ'})
 async def show_faq(callback: CallbackQuery, language: str = 'ru'):
     try:
         faq_msg = get_message('help_faq_text', language=language)
@@ -60,7 +57,6 @@ async def show_faq(callback: CallbackQuery, language: str = 'ru'):
         await callback.answer("Ошибка при показе FAQ")
 
 @router.callback_query(F.data == "help_how_to_start")
-@log_user_activity('help_open', metadata_extra={'context': 'Как начать'})
 async def show_how_to_start(callback: CallbackQuery, language: str = 'ru'):
     try:
         how_to_start_msg = get_message('help_how_to_start_text', language=language)
@@ -74,7 +70,6 @@ async def show_how_to_start(callback: CallbackQuery, language: str = 'ru'):
         await callback.answer("Ошибка при показе помощи по началу работы")
 
 @router.callback_query(F.data == "help_writing_entries")
-@log_user_activity('help_open', metadata_extra={'context': 'Написание записей'})
 async def show_writing_entries_help(callback: CallbackQuery, language: str = 'ru'):
     try:
         writing_entries_msg = get_message('help_writing_entries_text', language=language)
@@ -88,7 +83,6 @@ async def show_writing_entries_help(callback: CallbackQuery, language: str = 'ru
         await callback.answer("Ошибка при показе помощи по написанию записей")
 
 @router.callback_query(F.data == "help_tasks")
-@log_user_activity('help_open', metadata_extra={'context': 'Задания'})
 async def show_tasks_help(callback: CallbackQuery, language: str = 'ru'):
     try:
         tasks_help_msg = get_message('help_tasks_text', language=language)
@@ -102,7 +96,6 @@ async def show_tasks_help(callback: CallbackQuery, language: str = 'ru'):
         await callback.answer("Ошибка при показе помощи по заданиям")
 
 @router.callback_query(F.data == "help_privacy")
-@log_user_activity('help_open', metadata_extra={'context': 'Приватность'})
 async def show_privacy_help(callback: CallbackQuery, language: str = 'ru'):
     """Помощь по приватности"""
     try:
@@ -117,7 +110,6 @@ async def show_privacy_help(callback: CallbackQuery, language: str = 'ru'):
         await callback.answer("Ошибка при показе помощи по приватности")
 
 @router.callback_query(F.data == "help_contact")
-@log_user_activity('help_open', metadata_extra={'context': 'Контакты'})
 async def show_contact_help(callback: CallbackQuery, language: str = 'ru'):
     """Контактная помощь"""
     try:
@@ -132,7 +124,6 @@ async def show_contact_help(callback: CallbackQuery, language: str = 'ru'):
         await callback.answer("Ошибка при показе контактной помощи")
 
 @router.callback_query(F.data == "help_subscription_and_tokens")
-@log_user_activity('help_open', metadata_extra={'context': 'Подписка и токены'})
 async def show_subscription_and_tokens_help(callback: CallbackQuery, language: str = 'ru'):
     """Помощь по подписке и токенам"""
     try:
@@ -147,7 +138,6 @@ async def show_subscription_and_tokens_help(callback: CallbackQuery, language: s
         await callback.answer("Ошибка при показе помощи по подписке и токенам")
 
 @router.callback_query(F.data == "help_guide")
-@log_user_activity('help_open', metadata_extra={'context': 'Руководство'})
 async def show_guide_menu(callback: CallbackQuery, language: str = 'ru'):
     """Показывает подменю руководства"""
     try:
@@ -181,7 +171,6 @@ async def show_guide_writing_entries(callback: CallbackQuery, language: str = 'r
         await callback.answer("Ошибка при показе руководства по написанию записей")
 
 @router.callback_query(F.data == "help_referral_program")
-@log_user_activity('help_open', metadata_extra={'context': 'Реферальная программа'})
 async def show_referral_help(callback: CallbackQuery, language: str = 'ru'):
     """Помощь по реферальной программе"""
     try:
@@ -200,7 +189,6 @@ async def show_referral_help(callback: CallbackQuery, language: str = 'ru'):
 
 
 @router.callback_query(F.data == "help_account_merge")
-@log_user_activity('help_open', metadata_extra={'context': 'Объединение аккаунтов'})
 async def show_account_merge_help(callback: CallbackQuery, language: str = 'ru'):
     """Помощь по объединению аккаунтов Telegram/MAX."""
     try:
@@ -214,7 +202,6 @@ async def show_account_merge_help(callback: CallbackQuery, language: str = 'ru')
 
 
 @router.callback_query(F.data == "help_support")
-@log_user_activity('help_open', metadata_extra={'context': 'Техподдержка'})
 async def help_support_callback(callback: CallbackQuery, state: FSMContext, language: str = 'ru'):
     """Кнопка техподдержки — тот же сценарий, что /feedback и /support."""
     try:
@@ -230,7 +217,6 @@ async def help_support_callback(callback: CallbackQuery, state: FSMContext, lang
 
 
 @router.callback_query(F.data == "help_guide_tasks")
-@log_user_activity('help_open', metadata_extra={'context': 'Руководство: задания'})
 async def show_guide_tasks(callback: CallbackQuery, language: str = 'ru'):
     """Показывает руководство по заданиям"""
     try:
@@ -247,7 +233,6 @@ async def show_guide_tasks(callback: CallbackQuery, language: str = 'ru'):
         await callback.answer("Ошибка при показе руководства по заданиям")
 
 @router.callback_query(F.data == "help_guide_progress")
-@log_user_activity('help_open', metadata_extra={'context': 'Прогресс'})
 async def show_guide_progress(callback: CallbackQuery, language: str = 'ru'):
     """Показывает руководство по прогрессу"""
     try:
@@ -264,7 +249,6 @@ async def show_guide_progress(callback: CallbackQuery, language: str = 'ru'):
         await callback.answer("Ошибка при показе руководства по прогрессу")
 
 @router.callback_query(F.data == "help_guide_profile")
-@log_user_activity('help_open', metadata_extra={'context': 'Профиль'})
 async def show_guide_profile(callback: CallbackQuery, language: str = 'ru'):
     """Показывает руководство по профилю"""
     try:
@@ -281,7 +265,6 @@ async def show_guide_profile(callback: CallbackQuery, language: str = 'ru'):
         await callback.answer("Ошибка при показе руководства по профилю")
 
 @router.callback_query(F.data == "help_guide_settings")
-@log_user_activity('help_open', metadata_extra={'context': 'Настройки'})
 async def show_guide_settings(callback: CallbackQuery, language: str = 'ru'):
     """Показывает руководство по настройкам"""
     try:
@@ -298,7 +281,6 @@ async def show_guide_settings(callback: CallbackQuery, language: str = 'ru'):
         await callback.answer("Ошибка при показе руководства по настройкам")
 
 @router.callback_query(F.data == "help_guide_therapy_chat")
-@log_user_activity('help_open', metadata_extra={'context': 'Чат'})
 async def show_guide_therapy_chat(callback: CallbackQuery, language: str = 'ru'):
     """Показывает руководство по чату с психологом"""
     try:

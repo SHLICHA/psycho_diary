@@ -80,7 +80,9 @@ async def route_callback(
     from bot.handlers.max.therapy import route_wave6_therapy_callback
     from bot.handlers.max.profile import route_wave6_profile_callback
 
-    wave2 = await route_wave2_callback(user, payload, send_func, max_id=max_id)
+    wave2 = await route_wave2_callback(
+        user, payload, send_func, max_id=max_id, max_client=max_client
+    )
     if wave2 is not None:
         return wave2
 

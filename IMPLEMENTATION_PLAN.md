@@ -906,14 +906,17 @@
 | 2026-08-13 | Activity tracking plan (deferred) | Зафиксирован единый паттерн UserActivity TG+MAX: сервис, allowlist, P0→P1→P2; реализация отложена | ACTIVITY_TRACKING_PLAN.md, IMPLEMENTATION_PLAN.md | Низкий: только документация | — | Зафиксировано, к возврату |
 | 2026-08-13 | MAX task analysis hang fix | Анализ после выполнения задания: `await` вместо `create_task` (webhook/async_to_sync убивал фон → нет TaskCompletionAnalysis) | bot/handlers/max/tasks.py, tests/test_max_wave6_handlers.py | Средний: webhook дольше держит запрос на AI | `pytest -q tests/test_max_wave6_handlers.py` (**8 passed**) | Выполнено |
 | 2026-08-13 | UserActivity P0+P1 | Единый `activity_service` (allowlist + platform), MAX hook в dispatcher, TG decorator → сервис | diary/services/activity_service.py, dispatcher, analytics_decorator, tests/test_activity_service.py | Низкий/средний: меньше шума TG; MAX пишет активность | `pytest -q tests/test_activity_service.py` (**7 passed**) | Выполнено |
+| 2026-08-13 | UserActivity P2 TG cleanup | Сняты шумовые `@log_user_activity`; события на save/delete/profile_updated | bot/handlers/{help,diary,tasks,profile,settings,start,fallback,therapy,onboarding}.py, tests/test_activity_decorator_allowlist.py | Низкий: меньше строк UserActivity | `pytest -q tests/test_activity_service.py tests/test_activity_decorator_allowlist.py` | Выполнено |
+| 2026-08-13 | Therapy chat prompt + gen params | Новый RU/EN промпт (2–4 абзаца, пример полной длины, лимит ~2500); therapy: temperature=0.6, max_tokens=900 | therapy_chat_prompt.py, deepseek_api.py, therapy_chat_service.py, tests/test_therapy_chat_prompt.py | Низкий: только chat UX/длина | `pytest -q tests/test_therapy_chat_prompt.py tests/test_deepseek_api_service.py tests/test_phase316_view_builders.py` (**30 passed**) | Выполнено |
+| 2026-08-13 | Therapy chat casual tone | Тон: на «ты», непринуждённо и просто от лица психолога; пример обновлён; temperature=0.7 | therapy_chat_prompt.py, therapy_chat_service.py, tests/test_therapy_chat_prompt.py | Низкий: только стиль ответов | `pytest -q tests/test_therapy_chat_prompt.py` | Выполнено |
 
 ---
 
 ## 9.1) Backlog к возврату
 
-- [x] **Единая фиксация активности (UserActivity) P0+P1** — см. [ACTIVITY_TRACKING_PLAN.md](ACTIVITY_TRACKING_PLAN.md)  
-  Сделано: сервис + MAX dispatcher + TG decorator через allowlist/`platform`.  
-  Осталось P2: снять лишние декораторы с TG-хендлеров; стендовая проверка AI-выборки.
+- [x] **Единая фиксация активности (UserActivity) P0–P2** — см. [ACTIVITY_TRACKING_PLAN.md](ACTIVITY_TRACKING_PLAN.md)  
+  Сделано: сервис + MAX hook + TG allowlist-cleanup.  
+  Осталось: стендовая проверка AI-выборки для MAX-only.
 
 ---
 

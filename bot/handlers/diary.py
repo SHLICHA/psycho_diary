@@ -40,7 +40,6 @@ router = Router()
 logger = logging.getLogger(__name__)
 
 @router.callback_query(F.data == "new_entry")
-@log_user_activity('entry_created', metadata_extra={'context': 'Создание записи'})
 async def new_entry_simple(callback: CallbackQuery, state: FSMContext, user, language: str):
     """
     ПРОСТАЯ ВЕРСИЯ - создание новой записи с умной подсказкой
@@ -70,7 +69,7 @@ async def new_entry_simple(callback: CallbackQuery, state: FSMContext, user, lan
 
 @router.message(DiaryStates.waiting_for_text_entry, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
 @async_error_handler('diary_handler')
-@log_user_activity('entry_process', metadata_extra={'context': 'Обработка записи'})
+@log_user_activity('entry_created', metadata_extra={'context': 'Обработка записи'})
 async def process_any_entry(message: Message, state: FSMContext, user, language: str):
     status_msg = None
     is_valid, error_code = validate_incoming_message(message)
@@ -136,7 +135,6 @@ async def process_any_entry(message: Message, state: FSMContext, user, language:
         await state_manager.clear_state(state)
 
 @router.message(DiaryStates.asking_clarifying_questions, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
-@log_user_activity('entry_process', metadata_extra={'context': 'Обработка записи с вопросами'})
 async def process_clarification_answers(message: Message, state: FSMContext, user, language: str):
     status_message = None
     try:
@@ -216,7 +214,6 @@ async def process_clarification_answers(message: Message, state: FSMContext, use
         await state_manager.clear_state(state)
 
 @router.callback_query(F.data.startswith("request_add_comment:"))
-@log_user_activity('entry_comment', metadata_extra={'context': 'Добавление комментария'})
 async def request_add_comment(callback: CallbackQuery, state: FSMContext, user, language: str):
     """
     Запрашивает у пользователя комментарий к записи.
@@ -244,7 +241,7 @@ async def request_add_comment(callback: CallbackQuery, state: FSMContext, user, 
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
 @router.message(DiaryStates.waiting_for_user_comment, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
-@log_user_activity('entry_process', metadata_extra={'context': 'Обработка записи с комментарием'})
+@log_user_activity('entry_comment', metadata_extra={'context': 'Обработка комментария'})
 async def process_user_comment(message: Message, state: FSMContext, user, language: str):
     """
     Обрабатывает комментарий пользователя (текст или голос) и отправляет его на анализ ИИ.
@@ -364,7 +361,6 @@ async def rate_analysis(callback: CallbackQuery, user, language: str):
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
 @router.message(DiaryStates.waiting_for_text_entry)
-@log_user_activity('entry_invalide', metadata_extra={'context': 'Невалидная запись'})
 async def handle_invalid_entry_type(message: Message, state: FSMContext, language: str):
     """Обработка недопустимого типа сообщения"""
     try:
@@ -453,7 +449,6 @@ async def view_full_day_analysis(callback: CallbackQuery, user, language: str):
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
 @router.callback_query(F.data.startswith("entry_edit:"))
-@log_user_activity('entry_edit', metadata_extra={'context': 'Редактирование конкретной записи'})
 async def entry_edit(callback: CallbackQuery, state: FSMContext, user, language: str):
     """Редактирование конкретной записи"""
     try:
@@ -583,6 +578,7 @@ async def reanalyze_day(callback: CallbackQuery, user, language: str):
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
         
 @router.message(DiaryStates.waiting_for_entry_edit, F.content_type.in_({ContentType.TEXT, ContentType.VOICE}))
+@log_user_activity('entry_edit', metadata_extra={'context': 'Сохранение правки записи'})
 async def process_entry_edit(message: Message, state: FSMContext, user, language: str):
     """Обработка отредактированного текста записи или голосового сообщения."""  
     try:
@@ -710,6 +706,7 @@ async def request_delete_entire_day(callback: CallbackQuery, user, language: str
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
 @router.callback_query(F.data.startswith("confirm_delete_specific_entry:"))
+@log_user_activity('entry_deleted', metadata_extra={'context': 'Удаление записи'})
 async def confirm_delete_specific_entry(callback: CallbackQuery, user, language: str):
     """Подтверждение удаления конкретной записи."""
     try:
@@ -753,6 +750,7 @@ async def confirm_delete_specific_entry(callback: CallbackQuery, user, language:
         await safe_answer_callback(callback, get_message('error_generic', language), show_alert=True)
 
 @router.callback_query(F.data.startswith("confirm_delete_entire_day:"))
+@log_user_activity('day_entry_delete', metadata_extra={'context': 'Удаление всех записей за день'})
 async def confirm_delete_entire_day(callback: CallbackQuery, user, language: str):
     """Подтверждение и выполнение удаления всех записей за день."""
     try:
