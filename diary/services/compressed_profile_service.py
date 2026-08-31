@@ -16,7 +16,7 @@
 """
 
 import logging
-from typing import Optional
+from typing import Any, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +132,33 @@ class CompressedProfileService:
             return value.strip()
         return ""
 
+    @staticmethod
+    def _list_item_to_text(item: Any) -> str:
+        """Извлекает отображаемый текст из элемента списка (str или weighted dict)."""
+        if isinstance(item, str):
+            return item.strip()
+        if isinstance(item, dict):
+            val = item.get('value', item.get('text', ''))
+            if isinstance(val, str):
+                return val.strip()
+            if val is not None:
+                return str(val).strip()
+        if item is None:
+            return ''
+        return str(item).strip()
+
+    def _list_items_to_strings(self, items: list, *, limit: Optional[int] = None) -> List[str]:
+        """Нормализует список полей профиля в строки (поддержка str и dict)."""
+        result: List[str] = []
+        for item in items:
+            text = self._list_item_to_text(item)
+            if not text:
+                continue
+            result.append(text)
+            if limit is not None and len(result) >= limit:
+                break
+        return result
+
     def _build_psych_summary(self, user) -> str:
         """
         Строит psych_summary из personality_description и ключевых полей.
@@ -168,14 +195,14 @@ class CompressedProfileService:
                 parts.append(f"Черты: {', '.join(trait_names)}.")
 
         # Факты о жизни
-        facts = self._get_list_field(user, 'life_facts')
+        facts = self._list_items_to_strings(self._get_list_field(user, 'life_facts'), limit=3)
         if facts:
-            parts.append(f"Факты: {', '.join(facts[:3])}.")
+            parts.append(f"Факты: {', '.join(facts)}.")
 
         # Ценности
-        values = self._get_list_field(user, 'core_values')
+        values = self._list_items_to_strings(self._get_list_field(user, 'core_values'), limit=3)
         if values:
-            parts.append(f"Ценности: {', '.join(values[:3])}.")
+            parts.append(f"Ценности: {', '.join(values)}.")
 
         if parts:
             result = ' '.join(parts)
@@ -216,9 +243,8 @@ class CompressedProfileService:
         # Зоны роста
         areas = self._get_list_field(user, 'areas_for_growth')
         if areas:
-            for item in areas[:2]:
-                if isinstance(item, str) and item.strip():
-                    patterns.append(item.strip())
+            for text in self._list_items_to_strings(areas, limit=2):
+                patterns.append(text)
 
         # Убираем дубликаты сохраняя порядок
         seen = set()
@@ -271,13 +297,8 @@ class CompressedProfileService:
 
         # Анализируем триггеры
         trigger_words = set()
-        for t in triggers:
-            if isinstance(t, str):
-                trigger_words.add(t.lower())
-            elif isinstance(t, dict):
-                val = t.get('value', t.get('text', ''))
-                if isinstance(val, str):
-                    trigger_words.add(val.lower())
+        for text in self._list_items_to_strings(triggers):
+            trigger_words.add(text.lower())
 
         # Определяем паттерн по триггерам
         negative_triggers = {
@@ -309,9 +330,8 @@ class CompressedProfileService:
 
         # Анализируем зоны роста
         area_words = set()
-        for a in areas:
-            if isinstance(a, str):
-                area_words.add(a.lower())
+        for text in self._list_items_to_strings(areas):
+            area_words.add(text.lower())
 
         growth_indicators = {
             'уверен': 'работает над уверенностью в себе',
@@ -327,8 +347,9 @@ class CompressedProfileService:
 
         # Если ничего не подошло — обобщаем из доступных данных
         if triggers:
-            trigger_list = [t if isinstance(t, str) else str(t) for t in triggers[:3]]
-            return f"триггеры: {', '.join(trigger_list)}"
+            trigger_list = self._list_items_to_strings(triggers, limit=3)
+            if trigger_list:
+                return f"триггеры: {', '.join(trigger_list)}"
 
         if traits:
             top_trait = sorted(traits.items(), key=lambda x: x[1], reverse=True)[:2]
@@ -343,16 +364,7 @@ class CompressedProfileService:
 
         Берёт до MAX_TRIGGERS, убирает дубликаты.
         """
-        triggers_raw = self._get_list_field(user, 'triggers')
-        result = []
-
-        for item in triggers_raw:
-            if isinstance(item, str) and item.strip():
-                result.append(item.strip())
-            elif isinstance(item, dict):
-                val = item.get('value', item.get('text', ''))
-                if isinstance(val, str) and val.strip():
-                    result.append(val.strip())
+        result = self._list_items_to_strings(self._get_list_field(user, 'triggers'))
 
         # Убираем дубликаты
         seen = set()
@@ -375,9 +387,8 @@ class CompressedProfileService:
 
         # Если есть сильные стороны — это ресурс coping
         strength_words = set()
-        for s in strengths:
-            if isinstance(s, str):
-                strength_words.add(s.lower())
+        for text in self._list_items_to_strings(strengths):
+            strength_words.add(text.lower())
 
         # Определяем ресурсный стиль
         coping_resources = {
@@ -402,9 +413,8 @@ class CompressedProfileService:
 
         # Определяем проблемный стиль из зон роста
         area_words = set()
-        for a in areas:
-            if isinstance(a, str):
-                area_words.add(a.lower())
+        for text in self._list_items_to_strings(areas):
+            area_words.add(text.lower())
 
         coping_challenges = {
             'избега': 'избегание',
@@ -463,27 +473,19 @@ class CompressedProfileService:
         # Берём самый свежий/актуальный элемент
         # Приоритет: стремления → факты → зоны роста
         if aspirations:
-            item = aspirations[0]
-            if isinstance(item, str) and item.strip():
-                return item.strip()
-            elif isinstance(item, dict):
-                val = item.get('value', item.get('text', ''))
-                if isinstance(val, str) and val.strip():
-                    return val.strip()
+            text = self._list_item_to_text(aspirations[0])
+            if text:
+                return text
 
         if facts:
-            item = facts[-1]  # Последний добавленный факт — самый свежий
-            if isinstance(item, str) and item.strip():
-                return item.strip()
-            elif isinstance(item, dict):
-                val = item.get('value', item.get('text', ''))
-                if isinstance(val, str) and val.strip():
-                    return val.strip()
+            text = self._list_item_to_text(facts[-1])
+            if text:
+                return text
 
         if areas:
-            item = areas[0]
-            if isinstance(item, str) and item.strip():
-                return item.strip()
+            text = self._list_item_to_text(areas[0])
+            if text:
+                return text
 
         return ""
 

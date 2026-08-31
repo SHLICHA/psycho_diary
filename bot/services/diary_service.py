@@ -1107,7 +1107,10 @@ class DiaryService:
         self, 
         user: User, 
         target_date: date, 
-        entries_list: Optional[List[DiaryEntry]] = None
+        entries_list: Optional[List[DiaryEntry]] = None,
+        *,
+        mark_last_as_new: bool = False,
+        language: str = 'ru',
     ) -> str:
         """
         Асинхронное получение объединенного текста всех записей пользователя за конкретную дату,
@@ -1118,6 +1121,8 @@ class DiaryService:
             target_date: Целевая дата (в терминах пользователя).
             entries_list: (Опционально) Список уже полученных записей DiaryEntry за эту дату.
                         Если предоставлен, будет использован вместо нового запроса к БД.
+            mark_last_as_new: Пометить последнюю запись как новую (для инкрементального анализа).
+            language: Язык подписей записей.
 
         Returns:
             str: Объединенный текст всех записей дня. Пустая строка, если записей нет или произошла ошибка.
@@ -1129,9 +1134,16 @@ class DiaryService:
                 entries = await self.get_user_entries_for_date(user, target_date) 
             if not entries:
                 return ""
-            texts = [entry.text for entry in entries]
-            combined_text = "\n\n---\n\n".join(texts)
-            return combined_text
+            parts: List[str] = []
+            total = len(entries)
+            for index, entry in enumerate(entries, start=1):
+                is_new = mark_last_as_new and index == total
+                if language == 'en':
+                    label = f"Entry {index} (new):" if is_new else f"Entry {index}:"
+                else:
+                    label = f"Запись {index} (новая):" if is_new else f"Запись {index}:"
+                parts.append(f"{label}\n{entry.text}")
+            return "\n\n---\n\n".join(parts)
         except Exception as e:
             logger.error(f"Ошибка при асинхронном получении объединенного текста за {target_date} для пользователя {user.telegram_id} (с учетом часового пояса): {e}", exc_info=True)
             return ""
@@ -1425,7 +1437,12 @@ class DiaryService:
         # 2. Обновление/создание CombinedDiaryEntry
         combined_entry, _ = await self.get_or_update_daily_state_with_entries(user, diary_entry)
         entry_date = await diary_entry.aentry_date()
-        all_entries_text = await self.get_combined_entry_text(user, entry_date)
+        all_entries_text = await self.get_combined_entry_text(
+            user,
+            entry_date,
+            mark_last_as_new=True,
+            language=language,
+        )
         logger.debug(f"[process_new_entry_logic] Обновлен CombinedDiaryEntry ID {combined_entry.id} для пользователя {user.telegram_id}")
 
         # 3. Подготовка данных и вызов ИИ
@@ -2354,10 +2371,19 @@ async def get_analysis_for_entry(entry: DiaryEntry) -> Optional[PsychoAnalysis]:
 async def get_combined_entry_text(
     user: User, 
     target_date: date, 
-    entries_list: Optional[List[DiaryEntry]] = None
+    entries_list: Optional[List[DiaryEntry]] = None,
+    *,
+    mark_last_as_new: bool = False,
+    language: str = 'ru',
 ) -> str:
     """Удобная функция для получения объединенного текста (с учетом часового пояса)."""
-    return await diary_service.get_combined_entry_text(user, target_date, entries_list)
+    return await diary_service.get_combined_entry_text(
+        user,
+        target_date,
+        entries_list,
+        mark_last_as_new=mark_last_as_new,
+        language=language,
+    )
 
 async def delete_entry(entry_id: int, user: User) -> bool:
     """Удобная функция для удаления записи"""

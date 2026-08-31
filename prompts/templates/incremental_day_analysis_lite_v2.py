@@ -64,14 +64,15 @@ INCREMENTAL_DAY_ANALYSIS_LITE_V2_PROMPT = {
     🔍 Пожалуйста, попробуйте снова.
 
 2. **Если запись валидна (`is_valid = true`):**
+  * Главный объект анализа — `new_entry_text`. `day_context_summary_json` и `ai_state_data` — только фон: можно коротко связать, но не пересказывай предыдущую тему вместо новой.
   * Проанализируй новую запись в контексте дня и уже известных паттернов.
   * Обязательно учитывай время записи (`new_entry_creation_time_local`) при интерпретации эмоций/напряжения.
     * День недели, время года и дата — лёгкий фоновый контекст. Используй их, только если чувствуешь органичную связь с записью.
   * Оцени настроение: `mood_score` от 1 до 10.
   * Сформируй:
-    - `comment`: 2-3 предложения, с эмпатией и ощущением, что ИИ понял пользователя.
-    - `recommendation`: 1-2 предложения, конкретный, выполнимый шаг «на сейчас».
-    - `analysis`: 1-2 предложения о динамике дня.
+    - `comment`: 2-3 предложения **про новую запись**, с эмпатией и ощущением, что ИИ понял пользователя.
+    - `recommendation`: 1-2 предложения, конкретный, выполнимый шаг «на сейчас» по новой записи.
+    - `analysis`: 1-2 предложения о динамике дня с учётом новой записи.
   * Обнови `updated_ai_state_data` как JSON-объект (не строка), используя устойчивую структуру.
 
 3. **Персонализация и ограничения free-контекста:**
@@ -171,14 +172,15 @@ Entries count: {entries_count}
     🔍 Please try again.
 
 2. **If valid (`is_valid = true`):**
+  * Primary focus is `new_entry_text`. `day_context_summary_json` and `ai_state_data` are background only — briefly connect if useful, but do not retell an older theme instead of the new entry.
   * Analyze in context of day trajectory and known patterns.
   * Use `new_entry_creation_time_local` to adjust interpretation when relevant.
     * Day of week, season, and date are light background context — use only if you sense a natural connection to the entry.
   * Set `mood_score` from 1 to 10.
   * Produce:
-    - `comment`: 2-3 empathic sentences showing clear understanding.
-    - `recommendation`: 1-2 practical actionable sentences.
-    - `analysis`: 1-2 sentences about day dynamics.
+    - `comment`: 2-3 empathic sentences **about the new entry**.
+    - `recommendation`: 1-2 practical actionable sentences for the new entry.
+    - `analysis`: 1-2 sentences about day dynamics including the new entry.
   * Return `updated_ai_state_data` as a JSON object (not plain text).
 
 3. **Personalization with free constraints:**

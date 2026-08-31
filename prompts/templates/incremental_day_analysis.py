@@ -8,6 +8,9 @@ INCREMENTAL_DAY_ANALYSIS_PROMPT = {
 **Все записи за день (в хронологическом порядке):**
 {all_entries_combined}
 
+**Новая запись (главный объект анализа):**
+{new_entry_text}
+
 **Дата и время новой записи:**
 {new_entry_creation_time_local}
 
@@ -28,6 +31,8 @@ INCREMENTAL_DAY_ANALYSIS_PROMPT = {
 ---
 
 ### 🧠 ИНСТРУКЦИЯ
+
+**ГЛАВНЫЙ ФОКУС:** `comment`, `recommendation`, `clarification_questions` и валидация относятся **только к `new_entry_text`**. Предыдущие записи и `ai_state_data` — лишь фон дня: можно коротко связать, но **нельзя** заново разбирать старую запись так, будто она новая. Если новая запись короче и на другую тему — пиши про неё, а не про доминирующую тему утра.
 
 1.  **ПРОВЕРЬ ВАЛИДНОСТЬ новой записи.** Определи, содержит ли `new_entry_text` **осмысленную попытку описать день, эмоции, мысли или события**, даже если они кажутся рутинными, повторяющимися или негативными. Учитывай `Уровень осознанности` и `Факты о жизни` для оценки соответствия.
 
@@ -58,21 +63,21 @@ INCREMENTAL_DAY_ANALYSIS_PROMPT = {
     Это сообщение должно быть понятным, поддерживающим и мотивирующим.
 
 2.  **Если `is_valid` = `true`, продолжай анализ и формирование обычного ответа. УВЕЛИЧЬ ТОН СУППОРТА И МОТИВАЦИИ:**
-2.  **Если `is_valid` = `true`, продолжай анализ и формирование обычного ответа. УВЕЛИЧЬ ТОН СУППОРТА И МОТИВАЦИИ:**
-    *   Проанализируй новую запись в контексте дня, **обязательно учитывая время её создания (`new_entry_creation_time_local`)**:
-        *   Как она подтверждает, опровергает или дополняет текущие темы?
+    *   Проанализируй **именно `new_entry_text`** в контексте дня, **обязательно учитывая время её создания (`new_entry_creation_time_local`)**:
+        *   О чём эта новая запись сама по себе (события, эмоции, смысл)?
+        *   Как она подтверждает, опровергает или дополняет текущие темы дня?
         *   Есть ли новые эмоции, события, мысли, триггеры?
         *   Как изменилось настроение? Оцени от 1 до 10.
         *   **Влияет ли время суток, когда была сделана запись, на её интерпретацию? Например, упоминание тревоги "ночью" может быть более значимым, чем днём. Учитывай это при формировании комментария, рекомендаций и `updated_ai_state_data`.**
         *   **Дата, день недели и время года — лёгкий фоновый контекст.** Используй их ненавязчиво, если чувствуешь связь: например, усталость в конце недели, тревога накануне праздника, особое настроение в начале сезона. Это не обязательный фактор — лишь возможная деталь.
     *   Обнови состояние дня (ai_state_data):
         *   Сохрани устойчивые темы.
-        *   Добавь новые значимые.
+        *   Добавь новые значимые из `new_entry_text`.
         *   Удали устаревшие, если они больше не актуальны.
         *   Сформулируй краткий, но содержательный контекст дня (3–4 предложения).
         *   При формировании `ai_state_data` учитывай **психологический портрет пользователя**. Например, если пользователь упомянул "работу", а в `Факты о жизни` есть "занимается программированием", уточни, что это работа программиста.
-    *   Сформируй краткий комментарий (1-2 предложения) — как новая запись повлияла на день. Сделай его **дружелюбным, поддерживающим и мотивирующим**.
-    *   Дай персональную рекомендацию (1–2 предложения) — что может быть полезно прямо сейчас. Используй знания о пользователе (ценности, сильные стороны) для персонализации. Сделай её **поддерживающей, практичной и мотивирующей**.
+    *   Сформируй `comment` про **содержание новой записи** (можно одной короткой связкой упомянуть фон дня). Не пересказывай предыдущую запись вместо новой. Сделай комментарий **дружелюбным, поддерживающим и мотивирующим**.
+    *   Дай персональную рекомендацию (1–2 предложения) — что может быть полезно **прямо сейчас по новой записи**. Используй знания о пользователе (ценности, сильные стороны) для персонализации. Сделай её **поддерживающей, практичной и мотивирующей**.
     *   Предложи задание, только если оно **существенно** поможет проработать тему (не чаще 1 раза в 2–3 дня). Учитывай интересы и зоны роста пользователя. Сделай его **доступным и полезным**.
     *   **ОПРЕДЕЛИ, НУЖНЫ ЛИ УТОЧНЕНИЯ:**
         *   Устанавливай `needs_clarification: true` **ЕСЛИ**:
@@ -99,7 +104,7 @@ INCREMENTAL_DAY_ANALYSIS_PROMPT = {
   "validation_comment": "",
   "formatted_message": "",
   "mood_score": 7,
-  "comment": "Сформируй **поддерживающий, мотивирующий и вдохновляющий** комментарий, **отражающий глубокое понимание ИИ** содержания новой записи в контексте дня и профиля пользователя. Комментарий должен быть **на 1-2 предложения длиннее** стандартного и **показывать, *как ИИ интерпретировал* эмоции, события или мысли из записи**. Учитывай: 1) *содержание новой записи* и как оно влияет на день, 2) *предыдущие темы* и `ai_state_data`, 3) *профиль пользователя* (ценности, триггеры, сильные стороны, факты о жизни). Пиши **дружелюбно, с эмпатией и акцентом на поддержку и мотивацию**. Даже если запись описывает сложную ситуацию, старайся подчеркнуть какой-то аспект стойкости, потенциала, важности переживания или возможности для роста, если это уместно. Например: 'Я чувствую, как ты устал от этой рутины, но даже в ней есть твоя сила – ты продолжаешь идти. Это уже многое значит.' Или: 'Твой интерес к [теме из записи] глубоко связан с твоей ценностью [указать]. Это важное наблюдение за собой.'",
+  "comment": "Поддерживающий комментарий **в первую очередь про new_entry_text**: эмоции, события и смысл именно этой записи. Предыдущие записи/`ai_state_data` — максимум короткая связка (не повторный разбор старой темы). Пиши дружелюбно и с эмпатией; 2–4 предложения.",
   "recommendation": "Запишите, что именно вызвало это чувство, чтобы укрепить паттерн успеха.",
   "analysis": "Пользователь продолжает фокусироваться на завершении задач. Это подтверждает развитие паттерна саморегуляции. Рекомендуется закрепить успех через рефлексию.",
   "updated_ai_state_data": "Пользователь сегодня фокусируется на завершении задач. Есть признаки тревоги перед совещанием, но после выполнения задач — улучшение настроения. Тема: саморегуляция и преодоление прокрастинации.",
@@ -123,8 +128,11 @@ INCREMENTAL_DAY_ANALYSIS_PROMPT = {
 **All entries for the day (chronologically):**
 {all_entries_combined}
 
-**New entry (latest):**
+**New entry (primary focus of this analysis):**
 {new_entry_text}
+
+**New entry date and time:**
+{new_entry_creation_time_local}
 
 **Current day state (ai_state_data):**
 {ai_state_data}
@@ -143,6 +151,8 @@ Areas for Growth: {user_areas_for_growth}
 ---
 
 ### 🧠 INSTRUCTIONS
+
+**PRIMARY FOCUS:** `comment`, `recommendation`, `clarification_questions`, and validation must be about **`new_entry_text`**. Earlier entries and `ai_state_data` are day background only — you may briefly connect, but **do not** re-analyze an older entry as if it were new. If the new entry is shorter and about a different topic, write about that topic.
 
 1.  **VALIDATE the new entry.** Determine if `new_entry_text` contains a **meaningful attempt to describe the day, emotions, thoughts, or events**, even if they seem routine, repetitive, or negative. Consider the `Awareness Level` and `Life Facts` for assessment.
 
@@ -173,18 +183,19 @@ Areas for Growth: {user_areas_for_growth}
     The message should be clear, supportive, and motivating.
 
 2.  **If `is_valid` = `true`, proceed with analysis and generate the standard response. INCREASE THE TONE OF SUPPORT AND MOTIVATION:**
-    *   Analyze the new entry in the context of the day:
+    *   Analyze **`new_entry_text` itself** in the context of the day:
+        *   What is this new entry about on its own (events, emotions, meaning)?
         *   How does it confirm, contradict, or expand current themes?
         *   Are there new emotions, events, thoughts, triggers?
         *   How has the mood changed? Rate from 1 to 10.
     *   Update the day's state (ai_state_data):
         *   Preserve stable themes.
-        *   Add new significant ones.
+        *   Add new significant ones from `new_entry_text`.
         *   Remove outdated ones.
         *   Formulate a concise, but meaningful day context (3–4 sentences).
         *   When forming `ai_state_data`, consider the **user's psychological profile**. For example, if the user mentions "work" and `Life Facts` include "works as a programmer", clarify that it's a programmer's work.
-    *   Form a brief comment (1–2 sentences) — how the new entry affected the day. Make it **friendly, supportive, and motivating**.
-    *   Give a personal recommendation (1–2 sentences) — what would be helpful right now. Use knowledge of the user (values, strengths) to personalize it. Make it **supportive, practical, and motivating**.
+    *   Form `comment` primarily about the **new entry content** (at most a short link to earlier themes). Do not retell a previous entry instead of the new one. Make it **friendly, supportive, and motivating**.
+    *   Give a personal recommendation (1–2 sentences) — what would be helpful right now **for the new entry**. Use knowledge of the user (values, strengths) to personalize it. Make it **supportive, practical, and motivating**.
     *   Suggest a task only if it **significantly** helps work through a theme (no more than once every 2–3 days). Take into account the user's interests and areas for growth. Make it **accessible and useful**.
     *   **DETERMINE IF CLARIFICATION IS NEEDED (UPDATED 2):**
         *   Set `needs_clarification: true` **IF**:
@@ -404,10 +415,11 @@ INCREMENTAL_DAY_ANALYSIS_LITE_PROMPT = {
     Если запись невалидна: `is_valid = false`, в `validation_comment` напиши короткий дружелюбный комментарий с предложением попробовать снова.
 
 2.  **Если запись валидна:**
+    *   Главный объект — `new_entry_text`. Предыдущие записи и состояние дня — только фон; не разбирай старую запись вместо новой.
     *   Оцени настроение (`mood_score`) от 1 до 10.
-    *   Сформируй `comment` — тёплый, поддерживающий комментарий (1-2 предложения), показывающий, что ты понял эмоции и смысл записи.
-    *   Дай `recommendation` — **одну короткую рекомендацию** (1 предложение), что может быть полезно прямо сейчас.
-    *   Сформируй `analysis` — **одно предложение** с кратким резюме дня.
+    *   Сформируй `comment` — тёплый, поддерживающий комментарий (1-2 предложения) про **смысл и эмоции новой записи**.
+    *   Дай `recommendation` — **одну короткую рекомендацию** (1 предложение), что может быть полезно прямо сейчас по новой записи.
+    *   Сформируй `analysis` — **одно предложение** с кратким резюме динамики дня с учётом новой записи.
     *   Обнови `updated_ai_state_data` — 1-2 предложения о ключевых темах дня для дальнейшего анализа.
 
     *Используй данные из `compressed_psych_profile` для персонализации:*
@@ -465,10 +477,11 @@ INCREMENTAL_DAY_ANALYSIS_LITE_PROMPT = {
     If the entry is invalid: `is_valid = false`, and write a short friendly `validation_comment` encouraging the user to try again.
 
 2.  **If the entry is valid:**
+    *   Primary focus is `new_entry_text`. Earlier entries and day state are background only — do not re-analyze an old entry instead of the new one.
     *   Assess the mood (`mood_score`) from 1 to 10.
-    *   Form a `comment` — a warm, supportive comment (1-2 sentences) showing you understood the emotions and meaning of the entry.
-    *   Give a `recommendation` — **one short recommendation** (1 sentence) on what might be helpful right now.
-    *   Form an `analysis` — **one sentence** summarizing the day.
+    *   Form a `comment` — a warm, supportive comment (1-2 sentences) about the **meaning and emotions of the new entry**.
+    *   Give a `recommendation` — **one short recommendation** (1 sentence) on what might be helpful right now for the new entry.
+    *   Form an `analysis` — **one sentence** summarizing the day including the new entry.
     *   Update `updated_ai_state_data` — 1-2 sentences on key themes of the day for further analysis.
 
     *Use data from `compressed_psych_profile` for personalization:*

@@ -87,6 +87,53 @@ def test_comment_analysis_renders_with_changed_format_payload(language):
 
 
 @pytest.mark.parametrize("language", ["ru", "en"])
+def test_incremental_day_analysis_renders_new_entry_focus(language):
+    prompt = get_prompt(
+        key="incremental_day_analysis",
+        language=language,
+        all_entries_combined="Entry 1:\nold\n\n---\n\nEntry 2 (new):\nnew",
+        new_entry_text="new cinema plans",
+        new_entry_creation_time_local="19.08.2026 22:00",
+        ai_state_data="{}",
+        first_name="User",
+        awareness_level=5,
+        entries_count=2,
+        user_personality_traits="[]",
+        user_life_facts="[]",
+        user_hobbies="[]",
+        user_core_values="[]",
+        user_triggers="[]",
+        user_strengths="[]",
+        user_areas_for_growth="[]",
+    )
+
+    assert isinstance(prompt, str)
+    assert "{new_entry_text}" not in prompt
+    assert "new cinema plans" in prompt
+    if language == "ru":
+        assert "Новая запись (главный объект анализа):" in prompt
+        assert "ГЛАВНЫЙ ФОКУС" in prompt
+    else:
+        assert "New entry (primary focus of this analysis):" in prompt
+        assert "PRIMARY FOCUS" in prompt
+
+
+@pytest.mark.parametrize("language", ["ru", "en"])
+def test_incremental_day_analysis_lite_renders_new_entry(language):
+    prompt = get_prompt(
+        key="incremental_day_analysis_lite",
+        language=language,
+        all_entries_combined="old --- new",
+        new_entry_text="going to the movies",
+        ai_state_data="{}",
+        compressed_psych_profile_json="{}",
+    )
+
+    assert "going to the movies" in prompt
+    assert "{new_entry_text}" not in prompt
+
+
+@pytest.mark.parametrize("language", ["ru", "en"])
 def test_incremental_day_analysis_lite_v2_renders_with_weighted_user_fields(language):
     prompt = get_prompt(
         key="incremental_day_analysis_lite_v2",

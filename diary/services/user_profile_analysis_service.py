@@ -798,8 +798,8 @@ class UserProfileAnalysisService:
                     )
                     continue
 
-                # Anti-growth guard: не применяем, если поле выросло
-                if len(replaced_weighted) > len(existing_weighted):
+                # Anti-growth guard: не применяем рост, но пустое поле можно заполнить впервые
+                if existing_weighted and len(replaced_weighted) > len(existing_weighted):
                     logger.warning(
                         f"[UserProfileAnalysisService] Growth guard: поле '{field_name}' "
                         f"выросло бы {len(existing_weighted)} -> {len(replaced_weighted)}, "
@@ -864,25 +864,23 @@ class UserProfileAnalysisService:
 
             # --- Сохранение обновлений ---
             if fields_updated:
-                # Total anti-growth guard для list-полей: суммарно не должно быть роста
-                total_before = sum(
-                    len(getattr(user, f, []) or [])
-                    for f in list_field_names
-                )
-                total_after = sum(
-                    len(updates_to_apply.get(f, getattr(user, f, []) or []))
-                    for f in list_field_names
-                )
-                if total_after > total_before:
-                    # Откатываем только list-поля из updates_to_apply
-                    blocked = [f for f in list_field_names if f in updates_to_apply]
-                    for f in blocked:
-                        del updates_to_apply[f]
-                        fields_updated.remove(f)
+                # Total anti-growth guard: рост только непустых полей (первичное заполнение разрешено)
+                blocked: List[str] = []
+                for field_name in list_field_names:
+                    if field_name not in updates_to_apply:
+                        continue
+                    before_len = len(getattr(user, field_name, []) or [])
+                    after_len = len(updates_to_apply[field_name])
+                    if before_len > 0 and after_len > before_len:
+                        blocked.append(field_name)
+
+                if blocked:
+                    for field_name in blocked:
+                        del updates_to_apply[field_name]
+                        fields_updated.remove(field_name)
                     logger.warning(
                         f"[UserProfileAnalysisService] Total anti-growth guard: "
-                        f"total_items {total_before} -> {total_after}, "
-                        f"list-обновления отклонены: {blocked}. "
+                        f"list-обновления отклонены для непустых полей с ростом: {blocked}. "
                         f"Остались: {fields_updated}"
                     )
 

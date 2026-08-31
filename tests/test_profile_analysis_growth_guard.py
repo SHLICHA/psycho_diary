@@ -216,3 +216,62 @@ class TestMainUpdateGrowthGuard:
 
         assert result is True
         assert save_called  # save был вызван
+
+    @pytest.mark.asyncio
+    async def test_empty_field_initial_fill_allowed(self):
+        """Пустое поле можно заполнить впервые (0 -> N)."""
+        service = UserProfileAnalysisService()
+        user = self._make_user({"core_values": []})
+
+        parsed_result = {
+            "core_values": [
+                {"value": v, "weight": 0.5, "frequency": 1, "is_stale": False}
+                for v in ["честность", "семья", "развитие"]
+            ]
+        }
+
+        with patch(
+            "diary.services.user_profile_analysis_service.sync_to_async",
+            side_effect=lambda fn: lambda: fn(),
+        ), patch("diary.services.user_profile_analysis_service.transaction.atomic"), patch(
+            "core.profile_field_utils.get_profile_field_utils"
+        ) as mock_pfu:
+            mock_pfu.return_value.cleanup_user_profile.return_value = None
+            result = await service._update_user_profile_from_analysis(user, parsed_result)
+
+        assert result is True
+        assert len(user.core_values) == 3
+
+    @pytest.mark.asyncio
+    async def test_total_guard_allows_first_fill_with_other_nonempty_fields(self):
+        """Первичное заполнение пустых полей не блокируется из-за других непустых list-полей."""
+        service = UserProfileAnalysisService()
+        user = self._make_user({
+            "life_facts": [make_item("факт 1"), make_item("факт 2")],
+            "core_values": [],
+            "aspirations": [],
+        })
+
+        parsed_result = {
+            "core_values": [
+                {"value": "честность", "weight": 0.5, "frequency": 1, "is_stale": False},
+            ],
+            "aspirations": [
+                {"value": "карьера", "weight": 0.5, "frequency": 1, "is_stale": False},
+                {"value": "здоровье", "weight": 0.5, "frequency": 1, "is_stale": False},
+            ],
+        }
+
+        with patch(
+            "diary.services.user_profile_analysis_service.sync_to_async",
+            side_effect=lambda fn: lambda: fn(),
+        ), patch("diary.services.user_profile_analysis_service.transaction.atomic"), patch(
+            "core.profile_field_utils.get_profile_field_utils"
+        ) as mock_pfu:
+            mock_pfu.return_value.cleanup_user_profile.return_value = None
+            result = await service._update_user_profile_from_analysis(user, parsed_result)
+
+        assert result is True
+        assert len(user.core_values) == 1
+        assert len(user.aspirations) == 2
+        assert len(user.life_facts) == 2

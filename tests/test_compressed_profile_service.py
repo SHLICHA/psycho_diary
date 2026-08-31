@@ -192,6 +192,31 @@ class TestCompressedProfileService:
         assert 'критика' in result['main_triggers']
         assert 'игнорирование' in result['main_triggers']
 
+    def test_generate_weighted_life_facts_without_description(self, db):
+        """Регрессия: pre-cleanup weighted life_facts без personality_description."""
+        user = baker.make(
+            User,
+            username='weighted_facts_user',
+            telegram_id=None,
+            max_id=71933614,
+            personality_description='',
+            life_facts=[
+                {'value': 'работает в IT', 'weight': 0.8, 'frequency': 3, 'is_stale': False},
+                {'value': 'недавно переехал', 'weight': 0.7, 'frequency': 2, 'is_stale': False},
+            ],
+            core_values=[
+                {'value': 'честность', 'weight': 0.9, 'frequency': 1, 'is_stale': False},
+            ],
+            triggers=[
+                {'value': 'критика', 'weight': 0.6, 'frequency': 4, 'is_stale': False},
+            ],
+        )
+        result = self.service.generate_for_user(user)
+        assert result is not None
+        assert 'работает в IT' in result['psych_summary']
+        assert 'честность' in result['psych_summary']
+        assert 'критика' in result['main_triggers']
+
     # ─── Тесты: psych_summary truncation ───────────────────────────
 
     def test_psych_summary_truncation_long_description(self):
