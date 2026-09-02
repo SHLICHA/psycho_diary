@@ -36,16 +36,19 @@ RUN mkdir -p /app/.cache/sentence-transformers /app/.cache/huggingface/transform
 COPY ./requirements.txt /app/requirements.txt
 RUN pip install --upgrade pip
 
-# Удаляем конфликтующие строки до установки
-RUN sed -i '/typing_extensions==4.15.0/d' /app/requirements.txt \
-    && sed -i '/cryptography==46.0.2/d' /app/requirements.txt \
+# Удаляем конфликтующие строки до установки (typing_extensions ставим явно с aiogram)
+RUN sed -i '/cryptography==46.0.2/d' /app/requirements.txt \
     && sed -i '/python-docx==1.2.0/d' /app/requirements.txt
 
-# aiogram первым, затем остальные зависимости (больше таймаут/ретраи — см. ENV выше)
-RUN pip install --no-cache-dir aiogram==3.1.1 \
+COPY ./requirements-ml.txt /app/requirements-ml.txt
+
+# aiogram первым (typing-extensions~=4.7.1), затем остальное и ML-стек
+RUN pip install --no-cache-dir "typing-extensions==4.7.1" aiogram==3.1.1 \
     && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir -r requirements-ml.txt \
     && pip install --no-cache-dir python-docx==1.2.0 \
-    && pip install --no-cache-dir --force-reinstall cryptography==46.0.2
+    && pip install --no-cache-dir --force-reinstall cryptography==46.0.2 \
+    && pip install --no-cache-dir --force-reinstall "typing-extensions==4.7.1"
 
 # Копирование всего приложения
 COPY . /app/

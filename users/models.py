@@ -280,13 +280,25 @@ class User(AbstractUser):
 
     @classmethod
     async def mark_blocked(cls, telegram_id: int):
-        """Отмечает пользователя как заблокировавшего бота."""
+        """Отмечает пользователя как заблокировавшего бота (по telegram_id)."""
         await cls.objects.filter(telegram_id=telegram_id).aupdate(is_blocked=True)
 
     @classmethod
     async def mark_unblocked(cls, telegram_id: int):
-        """Отмечает пользователя как разблокировавшего бота."""
+        """Отмечает пользователя как разблокировавшего бота (по telegram_id)."""
         await cls.objects.filter(telegram_id=telegram_id).aupdate(is_blocked=False)
+
+    @classmethod
+    async def mark_user_blocked(cls, user: 'User'):
+        """Отмечает пользователя как недоступного для исходящих сообщений (любой канал)."""
+        if user and user.pk:
+            await cls.objects.filter(pk=user.pk).aupdate(is_blocked=True)
+
+    @classmethod
+    async def mark_user_unblocked(cls, user: 'User'):
+        """Снимает флаг блокировки у пользователя (по pk, работает и для MAX-only)."""
+        if user and user.pk:
+            await cls.objects.filter(pk=user.pk).aupdate(is_blocked=False)
 
 class UserProfileHistory(models.Model):
     """

@@ -34,6 +34,7 @@ class MaxClient:
         self.timeout_seconds = timeout_seconds
         self.max_message_length = max(int(max_message_length), 100)
         self._session: aiohttp.ClientSession | None = None
+        self._last_failure_reason: str | None = None
         self._rate_limiter = TokenBucketRateLimiter(rate_limit_rps, rate_limit_burst)
         if ca_cert_paths is None:
             ca_cert_paths = list(getattr(settings, 'MAX_API_CA_CERT_PATHS', []) or [])
@@ -145,6 +146,27 @@ class MaxClient:
         if isinstance(body, dict):
             return str(body.get('message') or body.get('error') or body)
         return str(body)
+
+    @property
+    def last_failure_reason(self) -> str | None:
+        return self._last_failure_reason
+
+    @staticmethod
+    def classify_send_failure(status_code: int, body: Any) -> str | None:
+        """Возвращает код ошибки доставки или None для неизвестных сбоев."""
+        if status_code != 403:
+            return None
+
+        if isinstance(body, dict):
+            code = str(body.get('code', '')).lower()
+            message = str(body.get('message', '')).lower()
+            if code == 'chat.denied' or 'dialog.suspended' in message:
+                return 'dialog_suspended'
+
+        body_text = MaxClient._extract_text_from_body(body).lower()
+        if 'dialog.suspended' in body_text or 'chat.denied' in body_text:
+            return 'dialog_suspended'
+        return None
 
     @staticmethod
     def _is_keyboard_payload_error(body: Any) -> bool:
@@ -450,12 +472,16 @@ class MaxClient:
             (ok, message_id) — message_id берётся из последнего успешно
             отправленного чанка (для edit-in-place статусного сообщения).
         """
+        self._last_failure_reason = None
+
         if not self.api_token:
             logger.warning('[MaxClient] Skip send: MAX_BOT_TOKEN is empty')
+            self._last_failure_reason = 'missing_token'
             return False, None
 
         if user_id is None and chat_id is None:
             logger.error('[MaxClient] Skip send: neither user_id nor chat_id provided')
+            self._last_failure_reason = 'missing_target'
             return False, None
 
         text_chunks = self._chunk_text(text)
@@ -530,10 +556,14 @@ class MaxClient:
                 break
 
             if not sent:
+                self._last_failure_reason = (
+                    self.classify_send_failure(last_status, last_body) or 'send_failed'
+                )
                 logger.error(
-                    '[MaxClient] MAX message send failed: status=%s body=%s',
+                    '[MaxClient] MAX message send failed: status=%s body=%s reason=%s',
                     last_status,
                     last_body,
+                    self._last_failure_reason,
                 )
                 return False, None
 

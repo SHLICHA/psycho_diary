@@ -238,6 +238,27 @@ async def test_send_message_includes_html_format_in_payload(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_send_message_sets_dialog_suspended_reason(monkeypatch):
+    client = MaxClient(
+        api_token='token',
+        base_url='https://platform-api2.max.ru',
+        ca_cert_paths=[],
+    )
+
+    async def fake_send_single_message(**kwargs):
+        return False, 403, {
+            'code': 'chat.denied',
+            'message': 'Key: error.dialog.suspended, args: [159706904,].',
+        }
+
+    monkeypatch.setattr(client, '_send_single_message', fake_send_single_message)
+    ok, message_id = await client.send_message(user_id=159706904, text='hello')
+    assert ok is False
+    assert message_id is None
+    assert client.last_failure_reason == 'dialog_suspended'
+
+
+@pytest.mark.asyncio
 async def test_send_message_returns_extracted_message_id(monkeypatch):
     client = MaxClient(
         api_token='token',
@@ -285,6 +306,16 @@ async def test_edit_message_puts_messages_endpoint(monkeypatch):
             'payload': {'text': 'Готово', 'format': 'html', 'attachments': []},
         }
     ]
+
+
+def test_classify_send_failure_detects_dialog_suspended():
+    body = {
+        'code': 'chat.denied',
+        'message': 'Key: error.dialog.suspended, args: [159706904,].',
+    }
+    assert MaxClient.classify_send_failure(403, body) == 'dialog_suspended'
+    assert MaxClient.classify_send_failure(404, body) is None
+    assert MaxClient.classify_send_failure(403, {'code': 'other'}) is None
 
 
 def test_extract_message_id_from_known_shapes():

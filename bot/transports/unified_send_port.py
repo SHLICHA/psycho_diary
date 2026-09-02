@@ -67,10 +67,19 @@ class UnifiedSendPort(SendPort):
             base_url=getattr(settings, 'MAX_API_BASE_URL', 'https://platform-api2.max.ru'),
             timeout_seconds=getattr(settings, 'MAX_API_TIMEOUT_SECONDS', 10),
         )
-        sent = await max_client.send_message(
-            user_id=recipient_id,
-            text=output.text,
-            reply_markup=_build_inline_keyboard(output),
-        )
-        ok = sent[0] if isinstance(sent, tuple) else bool(sent)
-        return SendResult(success=ok, reason='sent' if ok else 'max_send_failed')
+        try:
+            sent = await max_client.send_message(
+                user_id=recipient_id,
+                text=output.text,
+                reply_markup=_build_inline_keyboard(output),
+            )
+            ok = sent[0] if isinstance(sent, tuple) else bool(sent)
+            if ok:
+                return SendResult(success=True, reason='sent')
+
+            failure_reason = max_client.last_failure_reason or 'send_failed'
+            if failure_reason == 'dialog_suspended':
+                return SendResult(success=False, reason='max_dialog_suspended')
+            return SendResult(success=False, reason=f'max_{failure_reason}')
+        finally:
+            await max_client.close()

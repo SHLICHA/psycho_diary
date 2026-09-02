@@ -270,10 +270,10 @@ async def send_message_to_user_all_channels(
             output=normalized_output,
         )
         if send_result.success:
-            await User.mark_unblocked(user.telegram_id)
+            await User.mark_user_unblocked(user)
             any_success = True
         elif send_result.reason in {'telegram_forbidden', 'telegram_blocked_or_chat_not_found'}:
-            await User.mark_blocked(user.telegram_id)
+            await User.mark_user_blocked(user)
             logger.info(
                 'TG blocked for user telegram_id=%s reason=%s',
                 user.telegram_id,
@@ -288,7 +288,7 @@ async def send_message_to_user_all_channels(
                     reply_markup=reply_markup,
                     disable_notification=disable_notification,
                 )
-                await User.mark_unblocked(user.telegram_id)
+                await User.mark_user_unblocked(user)
                 any_success = True
             except (TelegramForbiddenError, TelegramBadRequest) as e:
                 error_message = str(e).lower()
@@ -301,7 +301,7 @@ async def send_message_to_user_all_channels(
                         'forbidden',
                     )
                 ):
-                    await User.mark_blocked(user.telegram_id)
+                    await User.mark_user_blocked(user)
                 else:
                     logger.warning('TG legacy send failed telegram_id=%s: %s', user.telegram_id, e)
             except Exception as e:
@@ -314,7 +314,15 @@ async def send_message_to_user_all_channels(
             output=normalized_output,
         )
         if max_result.success:
+            await User.mark_user_unblocked(user)
             any_success = True
+        elif max_result.reason == 'max_dialog_suspended':
+            await User.mark_user_blocked(user)
+            logger.info(
+                'MAX dialog suspended for user max_id=%s user_id=%s',
+                user.max_id,
+                user.pk,
+            )
         else:
             logger.info(
                 'MAX send failed for user max_id=%s reason=%s',

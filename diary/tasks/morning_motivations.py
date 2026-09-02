@@ -162,7 +162,6 @@ async def _send_morning_motivation_async():
         for user in users:
             try:
                 if not await ais_user_active_for_ai_tasks(user):
-                    logger.info(f"[MOTIVATION] Пропуск ИИ-мотивации для пользователя {user.telegram_id}: нет активности за последние 30 дней")
                     continue
                 user_timezone_str = user.timezone if user.timezone else 'UTC'
                 try:

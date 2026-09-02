@@ -34,7 +34,6 @@ def perform_weekly_analysis_for_user_task(self, user_id: int) -> dict:
             return {'status': 'skipped', 'reason': 'user_blocked', 'user_id': user_id}
 
         if not is_user_active_for_ai_tasks(user):
-            logger.info(f"[Celery Task] Пропуск еженедельного ИИ-анализа для пользователя {user_id}: нет активности за последние 30 дней")
             return {'status': 'skipped', 'reason': 'inactive_for_30_days', 'user_id': user_id}
 
         logger.debug(f"[Celery Task] -> Выполнение еженедельного анализа для пользователя {user_id}...")
