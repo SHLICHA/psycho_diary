@@ -1,35 +1,37 @@
 import asyncio
 import logging
 
-from datetime import timedelta
-from aiogram.enums import ParseMode
 from celery import shared_task
 from django.utils import timezone
 from asgiref.sync import sync_to_async
-from aiogram import Bot
-from aiogram.exceptions import TelegramForbiddenError
 from aiogram.fsm.context import FSMContext
 from django.db import close_old_connections
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-from core.constants import TASK_TYPES
 from diary.models import DiaryEntry, PsychoAnalysis
 from diary.services.daily_state_service import daily_state_service
 from users.models import User
-from bot.services.diary_service import diary_service
-from bot.services.psycho_analysis_service import psycho_analysis_service
 from bot.services.deepseek_api import deepseek_api_service
 from bot.utils.bot_factory import create_bot_for_task
+from bot.utils.message_utils import send_message_to_user
 from prompts import get_prompt
 from messages import get_message, get_button_text
 from bot.utils.state_manager import state_manager
-from bot.states.diary_states import DiaryStates
 from bot.keyboards import (
     get_skip_clarification_keyboard,
 )
 from diary.tasks.ai_activity_filter import is_user_active_for_ai_tasks
 
 logger = logging.getLogger(__name__)
+
+
+def _user_log_id(user: User) -> str:
+    parts = [f'id={user.pk}']
+    if getattr(user, 'telegram_id', None):
+        parts.append(f'tg={user.telegram_id}')
+    if getattr(user, 'max_id', None):
+        parts.append(f'max={user.max_id}')
+    return ' '.join(parts)
 
 @shared_task
 def check_clarification_reminders():
@@ -52,7 +54,11 @@ def check_clarification_reminders():
             if not is_user_active_for_ai_tasks(entry.user):
                 continue
             if entry.clarification_answers == {}: 
-                logger.debug(f"Отправка напоминания для записи {entry.id}, пользователь {entry.user.telegram_id}, clarification_answers пустой.")
+                logger.debug(
+                    "Отправка напоминания для записи %s, пользователь %s, clarification_answers пустой.",
+                    entry.id,
+                    _user_log_id(entry.user),
+                )
                 asyncio.run(_send_reminder_async(entry))
             else:
                 logger.debug(f"Пропуск напоминания для записи {entry.id}, clarification_answers не пустой: {entry.clarification_answers}")
@@ -81,7 +87,11 @@ def force_process_clarifications():
             if not is_user_active_for_ai_tasks(entry.user):
                 continue
             if entry.clarification_answers == {}:
-                logger.info(f"Принудительная обработка для записи {entry.id}, пользователь {entry.user.telegram_id}, clarification_answers пустой.")
+                logger.info(
+                    "Принудительная обработка для записи %s, пользователь %s, clarification_answers пустой.",
+                    entry.id,
+                    _user_log_id(entry.user),
+                )
                 asyncio.run(_force_process_async(entry))
             else:
                 logger.debug(f"Пропуск принудительной обработки для записи {entry.id}, clarification_answers не пустой: {entry.clarification_answers}")
@@ -93,25 +103,32 @@ async def _send_reminder_async(entry: DiaryEntry):
     Асинхронно отправляет напоминание пользователю и обновляет last_reminder_sent_at.
     """
     user = entry.user
+    user_ref = _user_log_id(user)
     bot_instance = None
     try:
         bot_instance = await create_bot_for_task()
-        await bot_instance.send_message(
-            chat_id=user.telegram_id,
-            text=get_message('reminder_clarification', user.language),
-            reply_markup=get_skip_clarification_keyboard(user.language)
+        ok = await send_message_to_user(
+            bot_instance,
+            user,
+            get_message('reminder_clarification', user.language),
+            reply_markup=get_skip_clarification_keyboard(user.language),
         )
-        logger.debug(f"Напоминание отправлено пользователю {user.telegram_id} для записи {entry.id}.")
+        if not ok:
+            logger.warning(
+                "Напоминание о уточнениях не доставлено пользователю %s для записи %s (нет канала)",
+                user_ref,
+                entry.id,
+            )
+            return
+        logger.debug(f"Напоминание отправлено пользователю {user_ref} для записи {entry.id}.")
         entry.last_reminder_sent_at = timezone.now()
         await sync_to_async(close_old_connections)()
         await sync_to_async(entry.save)(update_fields=['last_reminder_sent_at'])
-    except TelegramForbiddenError as e:
-        logger.warning(f"Бот заблокирован пользователем {user.telegram_id}. Напоминание не отправлено. Ошибка: {e}")
-        user.is_blocked = True
-        await sync_to_async(close_old_connections)()
-        await sync_to_async(user.save)(update_fields=['is_blocked'])
     except Exception as e:
-        logger.error(f"Ошибка при отправке напоминания пользователю {user.telegram_id} для записи {entry.id}: {e}", exc_info=True)
+        logger.error(
+            f"Ошибка при отправке напоминания пользователю {user_ref} для записи {entry.id}: {e}",
+            exc_info=True,
+        )
     finally:
         if bot_instance:
             try:
@@ -123,11 +140,11 @@ async def _send_reminder_async(entry: DiaryEntry):
 async def _force_process_async(entry: DiaryEntry):
     """
     Асинхронно запускает принудительную обработку записи с пустыми ответами
-    и отправляет финальное сообщение пользователю.
+    и отправляет финальное сообщение пользователю (TG и/или MAX).
     """
     user = entry.user
+    user_ref = _user_log_id(user)
     bot_instance = None
-    status_message_sent = None
     try:
         await sync_to_async(close_old_connections)()
         user_profile = await user.aget_profile_data()
@@ -155,44 +172,54 @@ async def _force_process_async(entry: DiaryEntry):
         entry.analysis_processed_at = timezone.now()
         await sync_to_async(close_old_connections)()
         await sync_to_async(entry.save)(update_fields=['analysis_processed_at'])
-        logger.debug(f"[reminder_ask_questions] analysis_processed_at установлен для записи {entry.id} перед принудительной обработкой.")
-        bot_instance = await create_bot_for_task()
-        status_message_sent = await bot_instance.send_message(
-            chat_id=user.telegram_id,
-            text=get_message('processing', user.language)
+        logger.debug(
+            "[reminder_ask_questions] analysis_processed_at установлен для записи %s перед принудительной обработкой.",
+            entry.id,
         )
+        bot_instance = await create_bot_for_task()
+        # Фоновая задача: сразу финальный результат в доступные каналы (без TG-only status_msg).
         await _process_analysis_result(
             entry=entry,
             analysis_result=analysis_result,
-            status_msg=status_message_sent,
+            status_msg=None,
             language=user.language,
             state=None,
             user=user,
             processing_time=0.0,
-            context='clarification'
+            context='clarification',
+            bot=bot_instance,
         )
-        logger.info(f"Принудительная обработка записи {entry.id} завершена, сообщение отправлено пользователю {user.telegram_id}.")
-    except TelegramForbiddenError as e:
-        logger.warning(f"Бот заблокирован пользователем {user.telegram_id}. Не удалось отправить сообщение после принудительной обработки. Ошибка: {e}")
-        user.is_blocked = True
-        await sync_to_async(close_old_connections)()
-        await sync_to_async(user.save)(update_fields=['is_blocked'])
+        logger.info(
+            "Принудительная обработка записи %s завершена, сообщение отправлено пользователю %s.",
+            entry.id,
+            user_ref,
+        )
     except Exception as e:
-        logger.error(f"Ошибка при принудительной обработке записи {entry.id} или отправке сообщения: {e}", exc_info=True)
+        logger.error(
+            "Ошибка при принудительной обработке записи %s или отправке сообщения пользователю %s: %s",
+            entry.id,
+            user_ref,
+            e,
+            exc_info=True,
+        )
         if bot_instance:
             try:
-                await bot_instance.send_message(
-                    chat_id=user.telegram_id,
-                    text=get_message('error_processing', user.language)
+                ok = await send_message_to_user(
+                    bot_instance,
+                    user,
+                    get_message('error_processing', user.language),
                 )
-            except TelegramForbiddenError:
-                logger.warning(f"Бот заблокирован пользователем {user.telegram_id}. Не удалось отправить сообщение об ошибке.")
-                await sync_to_async(close_old_connections)()
-                user.is_blocked = True
-                await sync_to_async(close_old_connections)()
-                await sync_to_async(user.save)(update_fields=['is_blocked'])
+                if not ok:
+                    logger.warning(
+                        "Не удалось отправить сообщение об ошибке пользователю %s (нет канала)",
+                        user_ref,
+                    )
             except Exception as msg_error:
-                logger.error(f"Ошибка при отправке сообщения об ошибке пользователю {user.telegram_id}: {msg_error}")
+                logger.error(
+                    "Ошибка при отправке сообщения об ошибке пользователю %s: %s",
+                    user_ref,
+                    msg_error,
+                )
     finally:
         if bot_instance:
             try:
@@ -209,7 +236,8 @@ async def _process_analysis_result(
     state: FSMContext,
     user: User,
     processing_time: float = 0.0,
-    context: str = 'new_entry'
+    context: str = 'new_entry',
+    bot=None,
 ):
     """Обрабатывает результат анализа (копия из diary.py или обновлённая версия)."""
     from bot.utils.api_utils import format_api_error_for_analysis
@@ -300,7 +328,27 @@ async def _process_analysis_result(
             )
         ]
         reply_markup.inline_keyboard.append(back_buttons)
-        await status_msg.edit_text(final_text, reply_markup=reply_markup)
+        if status_msg is not None:
+            await status_msg.edit_text(final_text, reply_markup=reply_markup)
+        elif bot is not None:
+            ok = await send_message_to_user(
+                bot,
+                user,
+                final_text,
+                reply_markup=reply_markup,
+            )
+            if not ok:
+                logger.warning(
+                    "Не удалось доставить результат анализа пользователю %s для записи %s (нет канала)",
+                    _user_log_id(user),
+                    entry.id,
+                )
+        else:
+            logger.error(
+                "Нет status_msg и bot для доставки результата анализа пользователю %s, запись %s",
+                _user_log_id(user),
+                entry.id,
+            )
         if state and context in ['clarification', 'comment_analysis']:
             try:
                  await state_manager.clear_state(state)
@@ -309,11 +357,21 @@ async def _process_analysis_result(
                 logger.error(f"Не удалось очистить состояние в _process_analysis_result (tasks) после {context}: {state_error}")
     except Exception as e:
         logger.error(f"Ошибка в _process_analysis_result (в задаче tasks): {e}", exc_info=True)
+        error_text = get_message('error_processing', language)
         if status_msg:
             try:
-                await safe_edit_message_text(status_msg, get_message('error_processing', language))
+                await safe_edit_message_text(status_msg, error_text)
             except Exception as edit_error:
                 logger.warning(f"Не удалось отредактировать сообщение об ошибке в _process_analysis_result (в задаче tasks): {edit_error}")
+        elif bot is not None:
+            try:
+                await send_message_to_user(bot, user, error_text)
+            except Exception as send_error:
+                logger.warning(
+                    "Не удалось отправить сообщение об ошибке пользователю %s: %s",
+                    _user_log_id(user),
+                    send_error,
+                )
         if state:
             try:
                 await state_manager.clear_state(state)

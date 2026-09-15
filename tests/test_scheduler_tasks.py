@@ -6,6 +6,7 @@ import pytz
 from django.utils import timezone
 from diary.tasks.scheduler_tasks import (
     _get_user_local_time,
+    _user_log_id,
     schedule_daily_analyses,
     perform_scheduled_daily_analysis
 )
@@ -16,6 +17,14 @@ from users.models import User
 # --- Тесты для вспомогательных функций ---
 
 class TestHelperFunctions:
+
+    def test_user_log_id_max_only(self):
+        user = User(pk=314, telegram_id=None, max_id=999001)
+        assert _user_log_id(user) == 'id=314 max=999001'
+
+    def test_user_log_id_telegram_and_max(self):
+        user = User(pk=1, telegram_id=111, max_id=222)
+        assert _user_log_id(user) == 'id=1 tg=111 max=222'
 
     def test_get_user_local_time_moscow(self):
         """Тест: _get_user_local_time возвращает правильное время для Москвы."""

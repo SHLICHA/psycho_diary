@@ -10,7 +10,6 @@ from celery import shared_task
 from django.utils import timezone
 from asgiref.sync import async_to_sync, sync_to_async
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.enums import ParseMode
 from django.db import close_old_connections
 
 from bot.utils.bot_factory import create_bot_for_task
@@ -26,6 +25,16 @@ from diary.tasks.ai_activity_filter import is_user_active_for_ai_tasks
 logger = logging.getLogger(__name__)
 
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
+
+def _user_log_id(user: User) -> str:
+    """Короткий идентификатор пользователя для логов (tg/max-safe)."""
+    parts = [f'id={user.pk}']
+    if getattr(user, 'telegram_id', None):
+        parts.append(f'tg={user.telegram_id}')
+    if getattr(user, 'max_id', None):
+        parts.append(f'max={user.max_id}')
+    return ' '.join(parts)
+
 
 def _get_user_local_time(user: User) -> datetime:
     """Получить локальное время пользователя."""
@@ -56,7 +65,7 @@ def schedule_daily_analyses(self):
         logger.debug(f"Найдено пользователей с auto_analysis_enabled=True: {users_qs.count()}")
         for user in users_qs:
             try:
-                logger.debug(f"Обработка пользователя {user.telegram_id} ({user.username})")
+                logger.debug(f"Обработка пользователя {_user_log_id(user)} ({user.username})")
                 if not is_user_active_for_ai_tasks(user):
                     continue
                 user_local_time = _get_user_local_time(user)
@@ -75,26 +84,26 @@ def schedule_daily_analyses(self):
                 analysis_time_for_today_utc = analysis_time_for_today_user_tz.astimezone(pytz.utc)
                 is_time_to_analyze = utc_now >= analysis_time_for_today_utc
                 if not is_time_to_analyze:
-                    logger.debug(f"  Момент анализа (00:30 пользовательского времени) для дня {yesterday_date_user_tz} еще не наступил для пользователя {user.telegram_id}. Пропуск.")
+                    logger.debug(f"  Момент анализа (00:30 пользовательского времени) для дня {yesterday_date_user_tz} еще не наступил для пользователя {_user_log_id(user)}. Пропуск.")
                     continue
-                logger.debug(f"  Момент анализа (00:30 пользовательского времени) для дня {yesterday_date_user_tz} наступил для пользователя {user.telegram_id}. Проверка записей...")
+                logger.debug(f"  Момент анализа (00:30 пользовательского времени) для дня {yesterday_date_user_tz} наступил для пользователя {_user_log_id(user)}. Проверка записей...")
                 entries_yesterday = async_to_sync(diary_service.get_user_entries_for_date)(user, yesterday_date_user_tz)
                 if not entries_yesterday:
                     try:
-                        logger.debug(f"  -> Генерация подсказки для пользователя {user.telegram_id} (записей нет)")
+                        logger.debug(f"  -> Генерация подсказки для пользователя {_user_log_id(user)} (записей нет)")
                         prompt_target_date = yesterday_date_user_tz + timedelta(days=1)
                         async def _call_generate_prompt():
                             await _generate_prompt_for_user_no_entries(user, prompt_target_date, user.language)
                         async_to_sync(_call_generate_prompt)()
-                        logger.debug(f"  -> Подсказка для пользователя {user.telegram_id} на {prompt_target_date} сгенерирована (записей нет)")
+                        logger.debug(f"  -> Подсказка для пользователя {_user_log_id(user)} на {prompt_target_date} сгенерирована (записей нет)")
                     except Exception as prompt_error:
-                        logger.error(f"  -> Ошибка генерации подсказки для пользователя {user.telegram_id} (записей нет): {prompt_error}", exc_info=True)
-                    logger.debug(f"  Записей за {yesterday_date_user_tz} не найдено для пользователя {user.telegram_id}. Пропуск.")
+                        logger.error(f"  -> Ошибка генерации подсказки для пользователя {_user_log_id(user)} (записей нет): {prompt_error}", exc_info=True)
+                    logger.debug(f"  Записей за {yesterday_date_user_tz} не найдено для пользователя {_user_log_id(user)}. Пропуск.")
                     continue
-                logger.debug(f"  Найдено {len(entries_yesterday)} записей за {yesterday_date_user_tz} для пользователя {user.telegram_id}.")
+                logger.debug(f"  Найдено {len(entries_yesterday)} записей за {yesterday_date_user_tz} для пользователя {_user_log_id(user)}.")
                 combined_entry = async_to_sync(diary_service.get_daily_state)(user, yesterday_date_user_tz)
                 if not combined_entry:
-                    logger.debug(f"  CombinedDiaryEntry за {yesterday_date_user_tz} не найден для пользователя {user.telegram_id}. Он будет создан при анализе.")
+                    logger.debug(f"  CombinedDiaryEntry за {yesterday_date_user_tz} не найден для пользователя {_user_log_id(user)}. Он будет создан при анализе.")
                 needs_analysis = False
                 if combined_entry:
                     if not combined_entry.is_analyzed:
@@ -122,10 +131,10 @@ def schedule_daily_analyses(self):
                          logger.debug(f"  CombinedDiaryEntry отсутствует, но есть записи. Требуется анализ.")
                          needs_analysis = True
                 if needs_analysis:
-                    logger.debug(f"  -> Постановка задачи анализа для пользователя {user.telegram_id} за {yesterday_date_user_tz}")
+                    logger.debug(f"  -> Постановка задачи анализа для пользователя {_user_log_id(user)} за {yesterday_date_user_tz}")
                     perform_scheduled_daily_analysis.delay(user.id, yesterday_date_user_tz.isoformat())
                 else:
-                    logger.debug(f"  Анализ для пользователя {user.telegram_id} за {yesterday_date_user_tz} не требуется.")
+                    logger.debug(f"  Анализ для пользователя {_user_log_id(user)} за {yesterday_date_user_tz} не требуется.")
             except Exception as user_error:
                 logger.error(f"Ошибка при обработке пользователя {user.id}: {user_error}", exc_info=True)
     except Exception as e:
@@ -172,14 +181,24 @@ def perform_scheduled_daily_analysis(self, user_id: int, target_date_iso: str):
                         bot = None
                         try:
                             bot = await create_bot_for_task()
-                            await bot.send_message(
-                                chat_id=user.telegram_id,
-                                text=message_text,
+                            ok = await send_message_to_user(
+                                bot,
+                                user,
+                                message_text,
                                 reply_markup=keyboard,
-                                parse_mode=ParseMode.HTML
                             )
+                            if not ok:
+                                logger.error(
+                                    "Не удалось отправить сообщение о недостатке токенов пользователю %s "
+                                    "(нет доступного канала TG/MAX)",
+                                    _user_log_id(user),
+                                )
                         except Exception as msg_error:
-                            logger.error(f"Не удалось отправить сообщение о недостатке токенов пользователю {user_id}: {msg_error}")
+                            logger.error(
+                                "Не удалось отправить сообщение о недостатке токенов пользователю %s: %s",
+                                _user_log_id(user),
+                                msg_error,
+                            )
                         finally:
                             if bot:
                                 try:
@@ -260,7 +279,7 @@ async def _send_timezone_reminder_async():
                 try:
                     message_text = get_message('timezone_reminder', language)
                 except Exception as msg_error:
-                    logger.warning(f"Не удалось получить сообщение 'timezone_reminder' для пользователя {user.telegram_id}, язык {language}: {msg_error}")
+                    logger.warning(f"Не удалось получить сообщение 'timezone_reminder' для пользователя {_user_log_id(user)}, язык {language}: {msg_error}")
                     message_text = (
                         "🌍 <b>Не забудьте установить свой часовой пояс!</b>\n\n"
                         "Вы все еще используете часовой пояс по умолчанию (UTC). "
@@ -288,12 +307,12 @@ async def _send_timezone_reminder_async():
                 )
                 if success:
                     success_count += 1
-                    logger.debug(f"Напоминание успешно отправлено пользователю {user.telegram_id}")
+                    logger.debug(f"Напоминание успешно отправлено пользователю {_user_log_id(user)}")
                 else:
                     error_count += 1
-                    logger.warning(f"Не удалось отправить напоминание пользователю {user.telegram_id}") 
+                    logger.warning(f"Не удалось отправить напоминание пользователю {_user_log_id(user)}") 
             except Exception as e:
-                logger.error(f"Ошибка при обработке пользователя {user.telegram_id}: {e}", exc_info=True)
+                logger.error(f"Ошибка при обработке пользователя {_user_log_id(user)}: {e}", exc_info=True)
                 error_count += 1
         logger.info(f"Напоминания отправлены: успешно {success_count}, ошибок {error_count}")
         return f"Успешно: {success_count}, Ошибок: {error_count}"
@@ -313,7 +332,8 @@ async def _generate_prompt_for_user_no_entries(user: User, target_date: date, la
     Генерирует подсказку для пользователя на заданную дату в сценарии "нет записей".
     Использует smart_prompt_manager для вызова API и сохранения результата.
     """
-    logger.debug(f"[_generate_prompt_for_user_no_entries] Начало генерации подсказки для {user.telegram_id} на {target_date} (нет записей)")
+    user_ref = _user_log_id(user)
+    logger.debug(f"[_generate_prompt_for_user_no_entries] Начало генерации подсказки для {user_ref} на {target_date} (нет записей)")
     try:
         days_since_last_entry = await smart_prompt_manager._get_days_since_last_entry(user)
         logger.debug(f"[_generate_prompt_for_user_no_entries] Days since last entry: {days_since_last_entry}")
@@ -331,16 +351,16 @@ async def _generate_prompt_for_user_no_entries(user: User, target_date: date, la
         logger.debug(f"[_generate_prompt_for_user_no_entries] AI prompt generated: {prompt_text is not None}")
         prompt_target_date = target_date + timedelta(days=1)
         if prompt_text:
-            logger.debug(f"[_generate_prompt_for_user_no_entries] AI сгенерировал подсказку для {user.telegram_id}")
+            logger.debug(f"[_generate_prompt_for_user_no_entries] AI сгенерировал подсказку для {user_ref}")
             await smart_prompt_manager._save_prompt(user, prompt_target_date, prompt_text, force_overwrite=True)
         else:
-            logger.warning(f"[_generate_prompt_for_user_no_entries] AI не вернул подсказку для {user.telegram_id}, используем fallback")
+            logger.warning(f"[_generate_prompt_for_user_no_entries] AI не вернул подсказку для {user_ref}, используем fallback")
             await smart_prompt_manager._prepare_first_prompt_tomorrow(user, language)
-        logger.debug(f"[_generate_prompt_for_user_no_entries] Подсказка для {user.telegram_id} на {prompt_target_date} успешно обработана")
+        logger.debug(f"[_generate_prompt_for_user_no_entries] Подсказка для {user_ref} на {prompt_target_date} успешно обработана")
     except Exception as e:
-        logger.error(f"[_generate_prompt_for_user_no_entries] Ошибка генерации подсказки для {user.telegram_id}: {e}", exc_info=True)
+        logger.error(f"[_generate_prompt_for_user_no_entries] Ошибка генерации подсказки для {user_ref}: {e}", exc_info=True)
         try:
             await smart_prompt_manager._prepare_first_prompt_tomorrow(user, language)
-            logger.debug(f"[_generate_prompt_for_user_no_entries] Fallback подсказка создана для {user.telegram_id}")
+            logger.debug(f"[_generate_prompt_for_user_no_entries] Fallback подсказка создана для {user_ref}")
         except Exception as fallback_error:
-            logger.error(f"[_generate_prompt_for_user_no_entries] Ошибка создания fallback подсказки для {user.telegram_id}: {fallback_error}")
+            logger.error(f"[_generate_prompt_for_user_no_entries] Ошибка создания fallback подсказки для {user_ref}: {fallback_error}")
