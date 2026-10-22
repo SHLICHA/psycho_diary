@@ -102,6 +102,13 @@ Link expires in 5 minutes.''',
         'web_link_telegram_already_linked': '❌ This Telegram is already linked to another account.',
         'web_link_account_already_linked': '❌ This account already has another Telegram linked.',
         'web_link_success': '✅ <b>Telegram successfully linked!</b>\n\nNow you can use {username} in both the bot and web.',
+        'web_link_max_success': '✅ <b>MAX successfully linked!</b>\n\nNow you can use {username} in both the bot and web.',
+        'web_link_max_already_linked': '❌ This MAX account is already linked to another user.',
+        'web_access_claim_prompt': '🔐 Request to open Psycho Diary on the web and set a password for your account. Confirm if this was you.',
+        'web_access_claim_btn_yes': '✅ It\'s me',
+        'web_access_claim_btn_no': '❌ No',
+        'web_access_claim_confirmed': '✅ Confirmed. Set your password here (link expires soon):\n{set_password_url}',
+        'web_access_claim_cancelled': '❌ Web access request declined.',
 
     }
 }

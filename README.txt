@@ -81,11 +81,21 @@
 ### 15. Подсказки:
 - **Персонализированные подсказки:** ИИ может генерировать индивидуальные подсказки или темы для размышлений в новых записях.
 
+## Consumer UI (PWA)
+
+Mobile-first клиент (направление «Тихий вечер»): макеты в `promo/`, система в `DESIGN.md`, продукт/roadmap в `PRODUCT.md`, стек — `docs/adr-frontend-pwa.md`.
+
+- Стек: Vite + React + TypeScript + PWA → позже Capacitor
+- API: существующий `/api/v1/` (JWT); P0 auth — email + password
+- Каталог приложения: `frontend/`
+- Локальный запуск UI+API: `./start-web.sh` (UI :3000, API :8000)
+
 ## Технологии
 
 - **Python**
 - **aiogram** (библиотека для Telegram Bot API)
-- **Django** (веб-фреймворк)
+- **Django** (веб-фреймворк + REST API)
+- **Vite + React + TypeScript** (consumer PWA)
 - **DeepSeek API** (для ИИ-анализа)
 - **sentence-transformers** (локальная семантическая кластеризация list-полей в precleanup)
 - **PostgreSQL** (или другая СУБД, используемая с Django)

@@ -79,10 +79,8 @@ class EmailMergeService:
         target_tg = getattr(target_user, 'telegram_id', None)
         target_max = getattr(target_user, 'max_id', None)
         if not target_tg and not target_max:
-            raise EmailMergeError(
-                'target_messenger_unavailable',
-                'Email owner has no Telegram or MAX identity for confirmation',
-            )
+            # Web-only email owner: confirm via emailed OTP (not messenger).
+            return 'email'
 
         source = (source_platform or 'web').lower()
         requester_tg = getattr(requester_user, 'telegram_id', None) if requester_user else None
@@ -174,7 +172,60 @@ class EmailMergeService:
             target_platform=target_platform,
         )
         merge_request.save(update_fields=['metadata', 'updated_at'])
+        if target_platform == 'email':
+            cls.dispatch_target_email_otp(merge_request, email=email)
         return merge_request
+
+    @classmethod
+    def dispatch_target_email_otp(cls, merge_request: EmailMergeRequest, *, email: str) -> dict:
+        """Отправляет OTP владельцу email (web-only target)."""
+        from users.services.auth_token_service import create_merge_email_otp
+        from users.services.email_delivery_service import EmailDeliveryService
+
+        code = create_merge_email_otp(merge_request.id)
+        language = getattr(merge_request.target_user, 'language', None) or 'ru'
+        sent = EmailDeliveryService.send_merge_otp(
+            to_email=email,
+            otp_code=code,
+            language=language,
+        )
+        metadata = dict(merge_request.metadata or {})
+        metadata['email_otp_sent'] = bool(sent)
+        merge_request.metadata = metadata
+        merge_request.save(update_fields=['metadata', 'updated_at'])
+        return {'ok': bool(sent), 'delivery': 'email'}
+
+    @classmethod
+    def confirm_target_email_otp(
+        cls,
+        *,
+        merge_request_id: int,
+        otp_code: str,
+        actor_user: User | None = None,
+    ) -> EmailMergeConfirmationResult:
+        """Подтверждение target-стороны кодом из письма."""
+        from users.services.auth_token_service import validate_merge_email_otp
+
+        merge_request = EmailMergeRequest.objects.filter(pk=merge_request_id).first()
+        if merge_request is None:
+            return EmailMergeConfirmationResult(status='error', code='merge_request_not_found')
+        if (merge_request.metadata or {}).get('target_platform') != 'email':
+            return EmailMergeConfirmationResult(status='error', code='target_not_email_otp')
+        if actor_user and actor_user.id not in (
+            merge_request.target_user_id,
+            merge_request.requester_user_id,
+        ):
+            return EmailMergeConfirmationResult(status='error', code='otp_forbidden')
+        if not validate_merge_email_otp(merge_request_id, otp_code):
+            return EmailMergeConfirmationResult(status='error', code='otp_invalid')
+        target_token = (merge_request.metadata or {}).get('target_confirmation_token')
+        if not target_token:
+            return EmailMergeConfirmationResult(status='error', code='target_confirmation_token_invalid')
+        return cls.confirm_target_transport(
+            merge_request.target_user,
+            target_token,
+            approve=True,
+        )
 
     @classmethod
     async def acreate_merge_request(

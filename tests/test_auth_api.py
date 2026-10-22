@@ -318,11 +318,19 @@ class TestCompleteRegistrationView:
         assert details.get('target_delivery', {}).get('delivery') == 'max'
 
     @pytest.mark.django_db
-    def test_complete_registration_conflict_fails_without_target_messenger(
-        self, user_with_email, user_with_telegram, api_client, settings
+    def test_complete_registration_conflict_uses_email_otp_without_target_messenger(
+        self, user_with_email, user_with_telegram, api_client, settings, monkeypatch
     ):
+        """Web-only email owner → email OTP path (not messenger hard-fail)."""
         settings.EMAIL_MERGE_CONFIRMATION_ENABLED = True
+        user_with_email.max_id = None
+        user_with_email.save(update_fields=['max_id'])
         api_client.force_authenticate(user=user_with_telegram)
+
+        monkeypatch.setattr(
+            'users.services.email_merge_service.EmailMergeService.dispatch_target_email_otp',
+            lambda *a, **k: {'ok': True, 'delivery': 'email'},
+        )
 
         response = api_client.post('/api/v1/auth/complete-registration/', {
             'email': 'web@example.com',
@@ -331,7 +339,8 @@ class TestCompleteRegistrationView:
         })
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data['error']['code'] == 'target_messenger_unavailable'
+        assert response.data['error']['code'] == 'email_confirmation_required'
+        assert response.data['error']['details']['target_platform'] == 'email'
 
     @pytest.mark.django_db
     def test_confirm_email_merge_success_when_fallback_enabled(

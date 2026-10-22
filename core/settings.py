@@ -133,7 +133,7 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = 'static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles') 
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -217,7 +217,22 @@ CRYPTOGRAPHY_KEY = os.getenv('CRYPTOGRAPHY_KEY')
 YOOKASSA_SHOP_ID = os.getenv('YOOKASSA_SHOP_ID')
 YOOKASSA_SECRET_KEY = os.getenv('YOOKASSA_SECRET_KEY')
 BOT_USERNAME = os.getenv('BOT_USERNAME')
-WEB_APP_URL = os.getenv('WEB_APP_URL', 'https://app.com')
+WEB_APP_URL = os.getenv('WEB_APP_URL', 'https://app.com').rstrip('/')
+
+# Transactional email (password reset, merge OTP for web-only targets)
+EMAIL_HOST = config('EMAIL_HOST', default='')
+EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
+EMAIL_USE_SSL = config('EMAIL_USE_SSL', default=False, cast=bool)
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='Psycho Diary <noreply@localhost>')
+EMAIL_FAIL_SILENTLY = config('EMAIL_FAIL_SILENTLY', default=True, cast=bool)
+EMAIL_BACKEND = (
+    'django.core.mail.backends.smtp.EmailBackend'
+    if EMAIL_HOST
+    else 'django.core.mail.backends.console.EmailBackend'
+)
 
 PREMIUM_PRICE_MONTH = int(os.getenv('PREMIUM_PRICE_MONTH', 199))
 PREMIUM_PRICE_YEAR = int(os.getenv('PREMIUM_PRICE_YEAR', 1999))

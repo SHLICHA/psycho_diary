@@ -22,7 +22,10 @@ from bot.utils.state_manager import state_manager
 from diary.services.main_menu_service import build_main_menu_data
 from diary.services.user_service import resolve_web_link_target, link_telegram_identity
 from diary.services.onboarding_service import resolve_start_routing_use_case
-from users.services.auth_token_service import create_telegram_auth_token, validate_web_link_token
+from users.services.auth_token_service import (
+    create_messenger_auth_token,
+    validate_web_link_token,
+)
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -35,9 +38,9 @@ WEB_LINK_PATTERN = "link_"
 async def cmd_web(message: Message, user, language: str, **kwargs):
     """Генерирует магическую ссылку для входа в web-версию."""
     try:
-        token = create_telegram_auth_token(user.id)
-        web_app_url = getattr(settings, 'WEB_APP_URL', 'https://app.com')
-        auth_url = f"{web_app_url}/auth/telegram?token={token}"
+        token = create_messenger_auth_token(user.id, platform='telegram')
+        web_app_url = getattr(settings, 'WEB_APP_URL', 'http://127.0.0.1:8000').rstrip('/')
+        auth_url = f"{web_app_url}/auth/telegram/?token={token}"
         web_link_msg = get_message('web_link_generated', language, auth_url=auth_url)
         await message.answer(web_link_msg)
         logger.info(f"Сгенерирована web-ссылка для пользователя {user.telegram_id}")

@@ -192,7 +192,11 @@ Authorization: Bearer <access>
 
 ---
 
-### Авторизация через Telegram (deep-link)
+### Session handoff из бота (consumer web)
+
+Бот (`/web`) выдаёт одноразовый token. Session-маршруты consumer web UI сброшены вместе с предыдущим web MVP и будут восстановлены с новой визуальной идеей. До этого используйте JWT-вариант ниже.
+
+### Авторизация через Telegram (deep-link, JWT)
 
 Пользователь переходит из Telegram-бота — бот выдаёт одноразовый `token`.
 
@@ -1548,6 +1552,14 @@ Content-Type: application/json
 | POST | `/api/v1/complete-registration/` | Добавить email к TG-аккаунту | да |
 | POST | `/api/v1/generate-link/` | Ссылка привязки TG | да |
 | POST | `/api/v1/link-telegram/` | Алиас generate-link | да |
+| POST | `/api/v1/generate-max-link/` | Ссылка привязки MAX | да |
+| POST | `/api/v1/password-reset/` | Запрос сброса пароля (email / SMTP) | нет |
+| POST | `/api/v1/password-reset/confirm/` | Новый пароль по email token | нет |
+| POST | `/api/v1/web-access/claim/` | Bot-confirm: задание/сброс пароля (TG/MAX) | нет |
+| POST | `/api/v1/web-access/set-password/` | Новый пароль по token после bot-confirm | нет |
+| POST | `/api/v1/confirm-email-merge-otp/` | OTP merge для web-only email | да |
+
+SPA: `/recover` → claim → bot → `{WEB_APP_URL}/auth/set-password/<token>/`.
 
 ### Пользователь
 

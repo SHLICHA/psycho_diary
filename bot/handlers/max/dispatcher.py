@@ -26,6 +26,59 @@ from users.services.email_merge_service import EmailMergeService
 logger = logging.getLogger(__name__)
 
 
+def _process_webclaim_sync(event: MaxNormalizedEvent) -> dict[str, Any] | None:
+    if event.event_type != 'message_callback' or not event.payload:
+        return None
+    if not event.payload.startswith('webclaim:'):
+        return None
+    parts = event.payload.split(':')
+    if len(parts) != 3:
+        return None
+    action = parts[1]
+    try:
+        claim_id = int(parts[2])
+    except (TypeError, ValueError):
+        return None
+    try:
+        target_user = User.objects.get(max_id=event.user_id)
+    except User.DoesNotExist:
+        return {'ok': True, 'ignored': True, 'reason': 'webclaim_user_missing'}
+    from users.services.web_access_claim_service import WebAccessClaimError, WebAccessClaimService
+    from bot.transports.web_access_claim_dispatcher import build_set_password_url
+    from messages import get_message
+
+    language = target_user.language or 'ru'
+    try:
+        result = WebAccessClaimService.confirm_from_bot(
+            actor_user=target_user,
+            claim_id=claim_id,
+            approve=(action == 'yes'),
+        )
+    except WebAccessClaimError as exc:
+        return {
+            'ok': True,
+            'handled': 'webclaim',
+            'view_success': False,
+            'view_text': exc.message,
+        }
+    if result.status == 'cancelled':
+        text = get_message('web_access_claim_cancelled', language)
+    elif result.status == 'confirmed' and result.set_password_token:
+        text = get_message(
+            'web_access_claim_confirmed',
+            language,
+            set_password_url=build_set_password_url(result.set_password_token),
+        )
+    else:
+        text = get_message('error_generic', language)
+    return {
+        'ok': True,
+        'handled': 'webclaim',
+        'view_success': True,
+        'view_text': text,
+    }
+
+
 def _process_merge_sync(event: MaxNormalizedEvent) -> dict[str, Any] | None:
     parsed = parse_merge_target_callback(event)
     if parsed is None:
@@ -103,6 +156,27 @@ async def dispatch_max_update(
         (event.callback_id or '')[:40] or None,
     )
 
+    webclaim_result = await sync_to_async(_process_webclaim_sync)(event)
+    if webclaim_result is not None:
+        if (
+            event.callback_id
+            and not callback_already_answered
+            and getattr(settings, 'MAX_TRANSPORT_ENABLED', False)
+        ):
+            owned = max_client is None
+            client = max_client or _build_max_client()
+            try:
+                message_text = webclaim_result.get('view_text') or 'Готово'
+                await client.answer_callback(
+                    callback_id=event.callback_id,
+                    notification='✓' if webclaim_result.get('view_success', True) else '!',
+                    message={'text': message_text},
+                )
+            finally:
+                if owned:
+                    await client.close()
+        return webclaim_result
+
     merge_result = await sync_to_async(_process_merge_sync)(event)
     if merge_result is not None:
         if (
@@ -171,8 +245,14 @@ async def dispatch_max_update(
 
         result: dict[str, Any]
         if event.event_type == 'bot_started':
-            # Deep-link start: payload уже обработан; показываем обычный /start.
-            result = await handle_start(user, send_func, max_id=event.user_id)
+            payload = (event.payload or '').strip()
+            if payload.startswith('link_'):
+                from bot.handlers.max.commands import handle_link_max_payload
+                result = await handle_link_max_payload(
+                    user, send_func, max_id=event.user_id, payload=payload
+                )
+            else:
+                result = await handle_start(user, send_func, max_id=event.user_id)
             result = {**result, 'referral_applied': bool(invited_set)}
         elif event.event_type == 'message_created':
             result = await route_text_message(

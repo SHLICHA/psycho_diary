@@ -102,8 +102,13 @@ async def test_profile_email_conflict_without_confirmation_flag_returns_already_
 
 
 @pytest.mark.asyncio
-async def test_profile_email_conflict_fails_when_owner_has_no_messenger(settings):
+async def test_profile_email_conflict_uses_email_otp_when_owner_has_no_messenger(settings, mocker):
+    """Web-only email owner → target_platform=email + OTP (not hard-fail)."""
     settings.EMAIL_MERGE_CONFIRMATION_ENABLED = True
+    mocker.patch(
+        'users.services.email_merge_service.EmailMergeService.dispatch_target_email_otp',
+        return_value={'ok': True, 'delivery': 'email'},
+    )
     await User.objects.acreate(
         username='web_only_owner',
         email='no-messenger@example.com',
@@ -119,7 +124,10 @@ async def test_profile_email_conflict_fails_when_owner_has_no_messenger(settings
     result = await update_user_profile_field(telegram_user, 'email', 'no-messenger@example.com')
 
     assert result['success'] is False
-    assert result['error_code'] == 'target_messenger_unavailable'
+    assert result['error_code'] == 'email_confirmation_required'
+    merge_request = await EmailMergeRequest.objects.filter(requester_user=telegram_user).afirst()
+    assert merge_request is not None
+    assert (merge_request.metadata or {}).get('target_platform') == 'email'
 
 
 @pytest.mark.asyncio

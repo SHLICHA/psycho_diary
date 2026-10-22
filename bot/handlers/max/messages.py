@@ -81,7 +81,17 @@ async def route_text_message(
     # Commands (MAX delivers /start etc. as plain text)
     lower = text.lower()
     if lower.startswith('/start') or lower == 'start':
+        # /start link_<token> — привязка MAX к web
+        parts = text.split(maxsplit=1)
+        if len(parts) > 1 and parts[1].strip().startswith('link_'):
+            from bot.handlers.max.commands import handle_link_max_payload
+            return await handle_link_max_payload(
+                user, send_func, max_id=max_id, payload=parts[1].strip()
+            )
         return await handle_start(user, send_func, max_id=max_id)
+    if lower.startswith('/web') or lower == 'web':
+        from bot.handlers.max.commands import handle_web
+        return await handle_web(user, send_func)
     if lower.startswith('/help') or lower == 'help':
         return await handle_help(user, send_func)
     if lower.startswith('/settings') or lower == 'settings':

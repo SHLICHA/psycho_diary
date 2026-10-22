@@ -1,0 +1,182 @@
+.page {
+  flex: 1;
+  width: 100%;
+  max-width: 44rem;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  padding-top: calc(var(--space-md) + env(safe-area-inset-top));
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-md);
+}
+
+.date {
+  margin: 0 0 var(--space-xs);
+  font-size: var(--text-label);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
+}
+
+.hello {
+  margin: 0;
+  font-size: clamp(1.6rem, 4vw, 2.1rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.bell {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(245, 240, 234, 0.2);
+  background: transparent;
+  color: var(--color-ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hero {
+  position: relative;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.prompt {
+  position: absolute;
+  left: var(--space-md);
+  right: var(--space-md);
+  bottom: var(--space-md);
+  background: var(--color-paper);
+  color: var(--color-paper-ink);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  padding-right: 56px;
+}
+
+.promptEyebrow {
+  margin: 0 0 4px;
+  font-size: var(--text-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(31, 28, 26, 0.55);
+}
+
+.promptText {
+  margin: 0;
+  font-family: var(--font-hand);
+  font-size: 1.35rem;
+  line-height: 1.25;
+}
+
+.promptGo {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-pill);
+  background: var(--color-night);
+  color: var(--color-ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.weekHead,
+.todayHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-md);
+}
+
+.weekHead h2,
+.todayHead h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.weekHead p,
+.todayHead span {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: 0.85rem;
+}
+
+.orbs {
+  margin-top: var(--space-md);
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: var(--space-sm);
+}
+
+.orbItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--color-ink-muted);
+}
+
+.orb {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+  filter: blur(0.2px);
+  box-shadow: 0 0 16px currentColor;
+}
+
+.empty {
+  margin: var(--space-md) 0 0;
+  color: var(--color-ink-muted);
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+}
+
+.card {
+  background: var(--color-night-elevated);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  text-decoration: none;
+  color: inherit;
+  min-height: 110px;
+}
+
+.cardLabel {
+  display: block;
+  margin-bottom: var(--space-sm);
+  font-size: var(--text-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
+}
+
+.card p {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+@media (min-width: 900px) {
+  .page {
+    max-width: 56rem;
+  }
+
+  .actions {
+    grid-template-columns: 1fr 1fr;
+  }
+}

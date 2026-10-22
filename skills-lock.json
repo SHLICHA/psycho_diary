@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "skills": {
+    "ambition": {
+      "source": "samhvw8/thinking-skills",
+      "sourceType": "github",
+      "skillPath": "skills/ambition/SKILL.md",
+      "computedHash": "25301ad6ca38003e512cb5bd8e9f5a0ff2422538dd8a67e7899572d13ca2e952"
+    },
+    "council": {
+      "source": "samhvw8/thinking-skills",
+      "sourceType": "github",
+      "skillPath": "skills/council/SKILL.md",
+      "computedHash": "dd76ce927f486a747320173353b73b5f6780dab19626b0d42d8534370a6df340"
+    },
+    "creative": {
+      "source": "samhvw8/thinking-skills",
+      "sourceType": "github",
+      "skillPath": "skills/creative/SKILL.md",
+      "computedHash": "304138069f613531e3dac49e74eecdfc3809c22df903b5852ad088d7fe6347fe"
+    },
+    "debate": {
+      "source": "samhvw8/thinking-skills",
+      "sourceType": "github",
+      "skillPath": "skills/debate/SKILL.md",
+      "computedHash": "e33fcb8ee61d695d7ad4dfa04d871211ec244e8b4070a44ffe2f90e4cdcaf185"
+    },
+    "heavy-think": {
+      "source": "samhvw8/thinking-skills",
+      "sourceType": "github",
+      "skillPath": "skills/heavy-think/SKILL.md",
+      "computedHash": "b11138dbafa322a79814c54fc8e031db07be2aa76cd49f6b2442ca02b775f226"
+    }
+  }
+}

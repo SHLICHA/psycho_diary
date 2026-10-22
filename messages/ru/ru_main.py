@@ -102,6 +102,13 @@ MAIN_MESSAGES_RU = {
         'web_link_telegram_already_linked': '❌ Этот Telegram уже привязан к другому аккаунту.',
         'web_link_account_already_linked': '❌ К этому аккаунту уже привязан другой Telegram.',
         'web_link_success': '✅ <b>Telegram успешно привязан!</b>\n\nТеперь вы можете использовать {username} и в боте, и в web.',
+        'web_link_max_success': '✅ <b>MAX успешно привязан!</b>\n\nТеперь вы можете использовать {username} и в боте, и в web.',
+        'web_link_max_already_linked': '❌ Этот MAX уже привязан к другому аккаунту.',
+        'web_access_claim_prompt': '🔐 Запрос на вход на сайт Psycho Diary и задание пароля для вашего аккаунта. Подтвердите, если это вы.',
+        'web_access_claim_btn_yes': '✅ Это я',
+        'web_access_claim_btn_no': '❌ Нет',
+        'web_access_claim_confirmed': '✅ Подтверждено. Задайте пароль по ссылке (действует короткое время):\n{set_password_url}',
+        'web_access_claim_cancelled': '❌ Запрос на вход на сайт отклонён.',
 
     }
 }

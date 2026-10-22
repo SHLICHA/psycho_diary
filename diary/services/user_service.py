@@ -405,6 +405,65 @@ class UserService:
         return web_user
 
     @classmethod
+    async def resolve_max_web_link_target(
+        cls,
+        web_user_id: int,
+        current_max_id: Optional[int],
+        source_platform: str = 'max',
+        source_context: str = 'start_link',
+    ) -> Tuple[Optional[User], Optional[str]]:
+        """Policy привязки MAX к web-аккаунту (зеркально Telegram)."""
+        try:
+            web_user = await User.objects.aget(id=web_user_id)
+        except User.DoesNotExist:
+            return None, 'web_user_not_found'
+
+        if current_max_id is None:
+            return web_user, None
+
+        existing_user = None
+        try:
+            existing_user = await User.objects.aget(max_id=current_max_id)
+        except User.DoesNotExist:
+            existing_user = None
+
+        if existing_user and existing_user.id != web_user.id:
+            return None, 'max_already_linked'
+
+        if web_user.max_id and web_user.max_id != current_max_id:
+            return None, 'account_already_linked'
+
+        return web_user, None
+
+    @classmethod
+    async def link_max_identity(
+        cls,
+        web_user: User,
+        max_id: int,
+        source_platform: str = 'max',
+        source_context: str = 'start_link',
+        actor_user: Optional[User] = None,
+    ) -> User:
+        reason_code = 'link_idempotent'
+        if web_user.max_id != max_id:
+            web_user.max_id = max_id
+            await web_user.asave(update_fields=['max_id'])
+            reason_code = 'link_success'
+
+        await cls._record_identity_link_event(
+            user=web_user,
+            actor_user=actor_user,
+            actor_telegram_id=None,
+            event_type='link',
+            result='success',
+            source_platform=source_platform,
+            source_context=source_context,
+            reason_code=reason_code,
+            metadata={'linked_max_id': max_id},
+        )
+        return web_user
+
+    @classmethod
     async def unlink_telegram_identity(
         cls,
         web_user: User,
@@ -551,6 +610,17 @@ async def resolve_web_link_target(web_user_id: int, current_telegram_id: Optiona
 async def link_telegram_identity(web_user: User, telegram_id: int) -> User:
     """Удобная функция привязки telegram identity."""
     return await UserService.link_telegram_identity(web_user, telegram_id)
+
+
+async def resolve_max_web_link_target(
+    web_user_id: int,
+    current_max_id: Optional[int],
+) -> Tuple[Optional[User], Optional[str]]:
+    return await UserService.resolve_max_web_link_target(web_user_id, current_max_id)
+
+
+async def link_max_identity(web_user: User, max_id: int) -> User:
+    return await UserService.link_max_identity(web_user, max_id)
 
 
 async def unlink_telegram_identity(web_user: User) -> User:

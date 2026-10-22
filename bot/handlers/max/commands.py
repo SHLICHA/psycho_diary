@@ -19,6 +19,51 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+async def handle_web(user: 'User', send_func: 'SendFunc') -> dict:
+    """Ссылка session-handoff на web (паритет Telegram /web)."""
+    from django.conf import settings
+
+    from users.services.auth_token_service import create_messenger_auth_token
+
+    language = user.language or 'ru'
+    token = create_messenger_auth_token(user.id, platform='max')
+    web_app_url = getattr(settings, 'WEB_APP_URL', 'http://127.0.0.1:8000').rstrip('/')
+    auth_url = f'{web_app_url}/auth/max/?token={token}'
+    await send_func(get_message('web_link_generated', language, auth_url=auth_url))
+    return {'ok': True, 'handled': 'web'}
+
+
+async def handle_link_max_payload(user: 'User', send_func: 'SendFunc', *, max_id: int, payload: str) -> dict:
+    """Привязка MAX к web по start payload link_<token>."""
+    from diary.services.user_service import link_max_identity, resolve_max_web_link_target
+    from users.services.auth_token_service import validate_max_link_token
+
+    language = user.language or 'ru'
+    token = payload.replace('link_', '', 1).strip()
+    if not token:
+        await send_func(get_message('web_link_invalid', language))
+        return {'ok': True, 'handled': 'link_max', 'error': 'invalid'}
+    web_user_id = validate_max_link_token(token)
+    if not web_user_id:
+        await send_func(get_message('web_link_expired', language))
+        return {'ok': True, 'handled': 'link_max', 'error': 'expired'}
+    web_user, link_error = await resolve_max_web_link_target(web_user_id, max_id)
+    if link_error == 'web_user_not_found':
+        await send_func(get_message('error_generic', language))
+        return {'ok': True, 'handled': 'link_max', 'error': link_error}
+    if link_error == 'max_already_linked':
+        await send_func(get_message('web_link_max_already_linked', language))
+        return {'ok': True, 'handled': 'link_max', 'error': link_error}
+    if link_error == 'account_already_linked':
+        await send_func(get_message('web_link_account_already_linked', language))
+        return {'ok': True, 'handled': 'link_max', 'error': link_error}
+    await link_max_identity(web_user, max_id)
+    await send_func(
+        get_message('web_link_max_success', language, username=web_user.username or str(web_user.id))
+    )
+    return {'ok': True, 'handled': 'link_max'}
+
+
 async def handle_start(user: 'User', send_func: 'SendFunc', *, max_id: int) -> dict:
     language = user.language or 'ru'
     current = max_state.get_fsm_state(max_id)

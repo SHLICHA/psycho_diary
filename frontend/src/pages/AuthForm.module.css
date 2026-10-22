@@ -1,0 +1,119 @@
+.page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--form-max);
+  padding-top: calc(var(--space-lg) + env(safe-area-inset-top));
+  padding-bottom: var(--space-lg);
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-min);
+  color: var(--color-sand);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.title {
+  margin: var(--space-md) 0 var(--space-sm);
+  font-size: clamp(1.75rem, 4vw, 2.25rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.lead {
+  margin: 0 0 var(--space-xl);
+  color: var(--color-ink-muted);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  width: 100%;
+}
+
+.error {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(166, 107, 92, 0.15);
+  color: #e8b4a8;
+  font-size: 0.9rem;
+}
+
+.success,
+.notice {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.success {
+  background: rgba(120, 150, 120, 0.18);
+  color: #c8dcc8;
+}
+
+.notice {
+  background: rgba(196, 160, 110, 0.16);
+  color: var(--color-sand);
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.hint {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.linkButton {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--color-sand);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.linkButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.meta {
+  margin-top: auto;
+  padding-top: var(--space-xl);
+  color: var(--color-ink-muted);
+}
+
+.meta a {
+  color: var(--color-sand);
+  text-underline-offset: 3px;
+}
+
+@media (min-width: 768px) {
+  .page {
+    max-width: min(var(--form-max), 100%);
+    margin-inline: 0;
+    padding-top: calc(var(--space-xl) + env(safe-area-inset-top));
+    justify-content: center;
+  }
+
+  .meta {
+    margin-top: var(--space-xl);
+  }
+}

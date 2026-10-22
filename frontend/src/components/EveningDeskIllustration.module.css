@@ -1,0 +1,78 @@
+.wrap {
+  align-self: stretch;
+  margin-inline: calc(-1 * var(--space-screen-x));
+  width: calc(100% + 2 * var(--space-screen-x));
+}
+
+.svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.glow {
+  animation: lampPulse 4.5s ease-in-out infinite;
+  transform-origin: 248px 52px;
+}
+
+.cone {
+  animation: coneBreathe 4.5s ease-in-out infinite;
+}
+
+.steam,
+.steamDelay {
+  animation: steamRise 3.2s ease-in-out infinite;
+}
+
+.steamDelay {
+  animation-delay: 0.7s;
+}
+
+@keyframes lampPulse {
+  0%,
+  100% {
+    opacity: 0.85;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes coneBreathe {
+  0%,
+  100% {
+    opacity: 0.92;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes steamRise {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 0.75;
+    transform: translateY(-3px);
+  }
+}
+
+@media (min-width: 768px) {
+  .wrap {
+    margin-inline: 0;
+    width: 100%;
+    max-width: 36rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glow,
+  .cone,
+  .steam,
+  .steamDelay {
+    animation: none;
+  }
+}

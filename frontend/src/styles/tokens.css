@@ -1,0 +1,45 @@
+:root {
+  /* Colors — promo/photo_4 «Тихий вечер» */
+  --color-night: #1a1a1a;
+  --color-night-elevated: #2c2c2e;
+  --color-ink: #f5f0ea;
+  --color-ink-muted: #a0a0a0;
+  --color-paper: #f0ebe6;
+  --color-paper-ink: #1f1c1a;
+  --color-sand: #e7c79c;
+  --color-sand-deep: #c4a07a;
+  --color-sage: #a3b18a;
+  --color-blush: #c9a3a0;
+  --color-danger: #a66b5c;
+  --color-star: #ffffff;
+
+  /* Typography */
+  --font-ui: 'Manrope', system-ui, sans-serif;
+  --font-hand: 'Caveat', 'Neucha', cursive;
+
+  --text-display: 1.75rem;
+  --text-title: 1.25rem;
+  --text-body: 1rem;
+  --text-label: 0.6875rem;
+
+  /* Shape */
+  --radius-sm: 12px;
+  --radius-md: 20px;
+  --radius-lg: 28px;
+  --radius-pill: 999px;
+
+  /* Spacing (8px grid) */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-screen-x: 20px;
+  --space-screen-x-lg: 40px;
+  --space-screen-x-xl: 64px;
+
+  /* Shell — full bleed; content measures for readable blocks */
+  --content-max: 40rem;
+  --form-max: 28rem;
+  --tap-min: 44px;
+}

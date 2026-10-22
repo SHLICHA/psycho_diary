@@ -483,6 +483,49 @@ class EmailMergeRequest(models.Model):
             f"target={self.target_user_id} status={self.status}"
         )
 
+
+class WebAccessClaimRequest(models.Model):
+    """Запрос bot-confirm для задания web-пароля существующему User (bot-first)."""
+
+    STATUS_CHOICES = [
+        ('pending', 'Ожидает подтверждения в боте'),
+        ('confirmed', 'Подтверждено'),
+        ('completed', 'Пароль задан'),
+        ('expired', 'Истекло'),
+        ('cancelled', 'Отменено'),
+    ]
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='web_access_claims',
+        verbose_name='Пользователь',
+    )
+    email_hash = models.CharField(max_length=64, verbose_name='Email hash')
+    confirmation_token = models.CharField(max_length=128, unique=True, verbose_name='Токен confirm в боте')
+    target_platform = models.CharField(max_length=16, verbose_name='Платформа confirm')
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='pending')
+    expires_at = models.DateTimeField()
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Запрос web-доступа'
+        verbose_name_plural = 'Запросы web-доступа'
+        db_table = 'users_web_access_claim_request'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'status']),
+            models.Index(fields=['email_hash', 'status']),
+            models.Index(fields=['expires_at']),
+        ]
+
+    def __str__(self):
+        return f'web_access_claim user={self.user_id} status={self.status}'
+
+
 class CityTimezone(models.Model):
     """
     Модель для хранения соответствия городов и часовых поясов

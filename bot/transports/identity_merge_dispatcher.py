@@ -64,6 +64,14 @@ async def dispatch_target_merge_confirmation(merge_request: EmailMergeRequest) -
             'reason': 'target_confirmation_not_required',
         }
 
+    if target_platform == 'email':
+        # OTP already sent in EmailMergeService.create_merge_request when platform=email.
+        return {
+            'success': True,
+            'delivery': 'email',
+            'reason': 'email_otp',
+        }
+
     send_port = UnifiedSendPort()
     text = get_message(
         'merge_target_confirmation_prompt',

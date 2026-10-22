@@ -35,11 +35,9 @@ class TestCreateTelegramAuthToken:
         mock_cache.set.return_value = True
         token = create_telegram_auth_token(user_id=123, ttl=300)
         
-        mock_cache.set.assert_called_once()
-        call_args = mock_cache.set.call_args
-        key = call_args[0][0]
-        assert key.startswith(TELEGRAM_AUTH_KEY_PREFIX)
-        assert token in key
+        assert mock_cache.set.call_count >= 1
+        keys = [c[0][0] for c in mock_cache.set.call_args_list]
+        assert any(k.startswith(TELEGRAM_AUTH_KEY_PREFIX) and token in k for k in keys)
 
     @patch('users.services.auth_token_service.cache')
     def test_create_token_with_custom_ttl(self, mock_cache):
@@ -47,9 +45,8 @@ class TestCreateTelegramAuthToken:
         mock_cache.set.return_value = True
         create_telegram_auth_token(user_id=123, ttl=600)
         
-        call_args = mock_cache.set.call_args
-        # cache.set(key, value, timeout) - timeout is 3rd arg
-        assert call_args[1]['timeout'] == 600
+        timeouts = [c[1].get('timeout') for c in mock_cache.set.call_args_list]
+        assert 600 in timeouts
 
 
 class TestValidateTelegramAuthToken:

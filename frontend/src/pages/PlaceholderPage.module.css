@@ -1,0 +1,29 @@
+.page {
+  flex: 1;
+  width: 100%;
+  max-width: 40rem;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  padding-top: calc(var(--space-lg) + env(safe-area-inset-top));
+}
+
+.back {
+  color: var(--color-sand);
+  text-decoration: none;
+  min-height: var(--tap-min);
+  display: inline-flex;
+  align-items: center;
+}
+
+.title {
+  margin: var(--space-md) 0 var(--space-sm);
+  font-size: var(--text-display);
+  font-weight: 700;
+}
+
+.note {
+  margin: 0;
+  color: var(--color-ink-muted);
+  max-width: 36ch;
+}

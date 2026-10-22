@@ -416,7 +416,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             resolution = IdentityPolicyService.resolve_email_claim(attrs['email'])
             if resolution.status == 'conflict':
                 raise serializers.ValidationError({
-                    'email': 'Email already exists'
+                    'email': 'Этот email уже зарегистрирован'
                 })
         
         return attrs
@@ -454,7 +454,7 @@ class CompleteRegistrationSerializer(serializers.Serializer):
             resolution = IdentityPolicyService.resolve_email_claim(attrs['email'], requester_user=user)
             if resolution.status == 'conflict':
                 raise serializers.ValidationError({
-                    'email': 'Email already exists'
+                    'email': 'Этот email уже зарегистрирован'
                 })
         
         return attrs
@@ -479,6 +479,48 @@ class ConfirmEmailMergeSerializer(serializers.Serializer):
     """Сериализатор подтверждения email merge-request."""
 
     confirmation_token = serializers.CharField(required=True, max_length=128)
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=True)
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    token = serializers.CharField(required=True)
+    password = serializers.CharField(write_only=True, required=True)
+    password_confirm = serializers.CharField(write_only=True, required=True)
+
+    def validate(self, attrs):
+        if attrs['password'] != attrs['password_confirm']:
+            raise serializers.ValidationError({'password': 'Passwords do not match'})
+        validate_password(attrs['password'])
+        return attrs
+
+
+class WebAccessClaimStartSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=True)
+    platform = serializers.ChoiceField(
+        choices=['telegram', 'max'],
+        required=False,
+        allow_null=True,
+    )
+
+
+class WebAccessSetPasswordSerializer(serializers.Serializer):
+    token = serializers.CharField(required=True)
+    password = serializers.CharField(write_only=True, required=True)
+    password_confirm = serializers.CharField(write_only=True, required=True)
+
+    def validate(self, attrs):
+        if attrs['password'] != attrs['password_confirm']:
+            raise serializers.ValidationError({'password': 'Пароли не совпадают'})
+        validate_password(attrs['password'])
+        return attrs
+
+
+class ConfirmEmailMergeOtpSerializer(serializers.Serializer):
+    merge_request_id = serializers.IntegerField(required=True)
+    otp_code = serializers.CharField(required=True, max_length=16)
 
 
 import pytz as _pytz

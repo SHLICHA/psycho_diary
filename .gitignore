@@ -14,11 +14,18 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
-# IDE
+# IDE / local agent tooling
 .vscode/
 .idea/
+.cursor/
+.agents/
 *.swp
 *.swo
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/dev-dist/
 
 # OS
 .DS_Store

@@ -4,7 +4,17 @@ from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from django.urls import reverse
 
-from .models import Feedback, User, CityTimezone, UserProfileHistory, TokenTransaction, Payment, IdentityLinkEvent, EmailMergeRequest
+from .models import (
+    Feedback,
+    User,
+    CityTimezone,
+    UserProfileHistory,
+    TokenTransaction,
+    Payment,
+    IdentityLinkEvent,
+    EmailMergeRequest,
+    WebAccessClaimRequest,
+)
 
 @admin.register(UserProfileHistory)
 class UserProfileHistoryAdmin(admin.ModelAdmin):
@@ -102,6 +112,17 @@ class IdentityLinkEventAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+
+@admin.register(WebAccessClaimRequest)
+class WebAccessClaimRequestAdmin(admin.ModelAdmin):
+    list_display = ('id', 'created_at', 'status', 'user', 'target_platform', 'expires_at', 'confirmed_at')
+    list_filter = ('status', 'target_platform', 'created_at')
+    search_fields = ('user__username', 'confirmation_token', 'email_hash')
+    readonly_fields = (
+        'created_at', 'updated_at', 'user', 'email_hash', 'confirmation_token',
+        'target_platform', 'status', 'expires_at', 'confirmed_at', 'metadata',
+    )
 
 
 @admin.register(EmailMergeRequest)

@@ -1618,18 +1618,28 @@ from rest_framework_simplejwt.exceptions import TokenError
 from django.conf import settings
 
 from users.services.auth_token_service import (
-    create_telegram_auth_token,
+    create_max_link_token,
+    create_password_reset_token,
+    create_web_link_token,
+    validate_password_reset_token,
     validate_telegram_auth_token,
-    create_web_link_token
+    validate_web_access_set_password_token,
 )
+from users.services.email_delivery_service import EmailDeliveryService
 from users.services.identity_policy_service import IdentityPolicyService
 from users.services.email_merge_service import EmailMergeError, EmailMergeService
+from users.services.web_access_claim_service import WebAccessClaimError, WebAccessClaimService
 from bot.transports.max.inbound import process_merge_target_callback
 from .serializers import (
     RegisterSerializer,
     CompleteRegistrationSerializer,
     GenerateLinkSerializer,
     ConfirmEmailMergeSerializer,
+    ConfirmEmailMergeOtpSerializer,
+    PasswordResetRequestSerializer,
+    PasswordResetConfirmSerializer,
+    WebAccessClaimStartSerializer,
+    WebAccessSetPasswordSerializer,
 )
 
 
@@ -1895,7 +1905,6 @@ class GenerateLinkView(APIView):
         
         # Формируем ссылку
         bot_username = getattr(settings, 'BOT_USERNAME', 'your_bot')
-        web_app_url = getattr(settings, 'WEB_APP_URL', 'https://app.com')
         
         # Используем web_app_url для формирования полной ссылки
         link_url = f"https://t.me/{bot_username}?start=link_{token}"
@@ -1903,6 +1912,203 @@ class GenerateLinkView(APIView):
         return Response({
             'link': link_url,
             'expires_in': 600,  # 10 минут в секундах
+        })
+
+
+class GenerateMaxLinkView(APIView):
+    """POST /api/v1/auth/generate-max-link/ — привязка MAX к web-аккаунту."""
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [LinkGenerationRateThrottle]
+
+    def post(self, request):
+        token = create_max_link_token(request.user.id)
+        bot_username = getattr(settings, 'MAX_BOT_USERNAME', '') or ''
+        if not bot_username:
+            return api_error_response(
+                code='max_bot_username_missing',
+                message='MAX_BOT_USERNAME is not configured',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        link_url = f'https://max.ru/{bot_username}?start=link_{token}'
+        return Response({'link': link_url, 'expires_in': 600})
+
+
+class PasswordResetRequestView(APIView):
+    permission_classes = []
+    throttle_classes = [AuthRateThrottle]
+
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email'].strip()
+        email_hash = IdentityPolicyService.build_email_hash(email)
+        user = User.objects.filter(email_hash=email_hash, deletion_status='active').first()
+        if user is not None:
+            token = create_password_reset_token(user.id)
+            web_app = getattr(settings, 'WEB_APP_URL', 'http://127.0.0.1:8000').rstrip('/')
+            reset_url = f'{web_app}/password-reset/{token}/'
+            EmailDeliveryService.send_password_reset(to_email=email, reset_url=reset_url)
+        return Response({
+            'detail': 'If an account exists for this email, a reset link was sent.',
+        })
+
+
+class PasswordResetConfirmView(APIView):
+    permission_classes = []
+    throttle_classes = [AuthRateThrottle]
+
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user_id = validate_password_reset_token(serializer.validated_data['token'])
+        if not user_id:
+            return api_error_response(
+                code='invalid_token',
+                message='Reset token is invalid or expired',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        user = User.objects.filter(id=user_id, deletion_status='active').first()
+        if user is None:
+            return api_error_response(
+                code='user_not_found',
+                message='User not found',
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        user.set_password(serializer.validated_data['password'])
+        user.save(update_fields=['password'])
+        refresh = RefreshToken.for_user(user)
+        return Response({
+            'user': {'id': user.id, 'email': user.email, 'username': user.username},
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+        })
+
+
+class WebAccessClaimStartView(APIView):
+    """
+    Старт bot-confirm для задания / сброса web-пароля (без SMTP).
+
+    Ответ намеренно нейтральный при not_found / no_messenger,
+    чтобы не раскрывать наличие аккаунта.
+    """
+
+    permission_classes = []
+    throttle_classes = [AuthRateThrottle]
+
+    def post(self, request):
+        serializer = WebAccessClaimStartSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email'].strip()
+        preferred = serializer.validated_data.get('platform')
+        try:
+            result = WebAccessClaimService.start_claim(
+                email=email,
+                preferred_platform=preferred,
+            )
+        except WebAccessClaimError as exc:
+            return api_error_response(
+                code=exc.code,
+                message=exc.message,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Anti-enumeration: одинаковый каркас для «тихих» статусов
+        if result.status in ('not_found', 'no_messenger', 'platform_unavailable'):
+            return Response({
+                'status': 'accepted',
+                'detail': (
+                    'Если аккаунт с этим email привязан к Telegram или MAX, '
+                    'мы отправили подтверждение в мессенджер.'
+                ),
+                'platform': None,
+                'platforms': [],
+                'delivery_ok': False,
+            })
+
+        delivery = result.delivery or {}
+        delivery_ok = bool(delivery.get('ok'))
+        platform_label = 'Telegram' if result.platform == 'telegram' else 'MAX'
+        detail = (
+            f'Подтвердите вход в {platform_label}: нажмите «Это я» в боте, '
+            'затем задайте пароль по ссылке.'
+            if delivery_ok
+            else (
+                f'Не удалось доставить сообщение в {platform_label}. '
+                'Проверьте, что бот не заблокирован, и попробуйте другой канал.'
+            )
+        )
+        other = [p for p in result.platforms if p != result.platform]
+        return Response({
+            'status': 'pending',
+            'detail': detail,
+            'platform': result.platform,
+            'platforms': result.platforms,
+            'other_platforms': other,
+            'delivery_ok': delivery_ok,
+            'expires_in': WebAccessClaimService.DEFAULT_TTL_SECONDS,
+        })
+
+
+class WebAccessSetPasswordView(APIView):
+    """Задать пароль по одноразовому токену после bot-confirm."""
+
+    permission_classes = []
+    throttle_classes = [AuthRateThrottle]
+
+    def post(self, request):
+        serializer = WebAccessSetPasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user_id = validate_web_access_set_password_token(serializer.validated_data['token'])
+        if not user_id:
+            return api_error_response(
+                code='invalid_token',
+                message='Ссылка недействительна или истекла. Запросите доступ снова.',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        user = User.objects.filter(id=user_id, deletion_status='active').first()
+        if user is None:
+            return api_error_response(
+                code='user_not_found',
+                message='Пользователь не найден',
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        user.set_password(serializer.validated_data['password'])
+        user.save(update_fields=['password'])
+        from users.models import WebAccessClaimRequest
+        WebAccessClaimRequest.objects.filter(user=user, status='confirmed').update(status='completed')
+        refresh = RefreshToken.for_user(user)
+        return Response({
+            'user': {'id': user.id, 'email': user.email, 'username': user.username},
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+        })
+
+
+class ConfirmEmailMergeOtpView(APIView):
+    """Подтверждение merge OTP для web-only владельца email."""
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [AuthRateThrottle]
+
+    def post(self, request):
+        serializer = ConfirmEmailMergeOtpSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = EmailMergeService.confirm_target_email_otp(
+            merge_request_id=serializer.validated_data['merge_request_id'],
+            otp_code=serializer.validated_data['otp_code'],
+            actor_user=request.user,
+        )
+        if result.status in ('error', 'merge_failed'):
+            return api_error_response(
+                code=result.code or 'otp_failed',
+                message=result.code or 'otp_failed',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({
+            'status': result.status,
+            'code': result.code,
+            'merge_request_id': getattr(result.merge_request, 'id', None),
         })
 
 
